@@ -1,4 +1,98 @@
 # serializer version: 1
+# name: TestTrendsDataWarehouseQuery.test_trends_breakdown
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(d -> arraySum(arrayMap((v, dd) -> if(ifNull(equals(dd, d), isNull(dd)
+                                                              and isNull(d)), v, 0), vals, days)), arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC')), toIntervalDay(1)))), 1)))) AS total,
+         breakdown_value AS breakdown_value
+  FROM
+    (SELECT groupArray(top_n_and_other_breakdown_values.day_start) AS days,
+            groupArray(top_n_and_other_breakdown_values.value) AS vals,
+            top_n_and_other_breakdown_values.breakdown_value AS breakdown_value
+     FROM
+       (SELECT day_start AS day_start,
+               value AS value,
+               breakdown_value AS breakdown_value
+        FROM
+          (SELECT top_n_breakdown_values.day_start AS day_start,
+                  top_n_breakdown_values.value AS value,
+                  top_n_breakdown_values.breakdown_value AS breakdown_value
+           FROM
+             (SELECT ranked_breakdown_values.day_start AS day_start,
+                     ranked_breakdown_values.count AS value,
+                     ranked_breakdown_values.breakdown_value AS breakdown_value
+              FROM
+                (SELECT count AS count,
+                                 day_start AS day_start,
+                                 breakdown_value AS breakdown_value,
+                                 total_count_for_breakdown AS total_count_for_breakdown,
+                                 denseRank() OVER (
+                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                 FROM
+                   (SELECT sum(total) AS count,
+                           day_start AS day_start,
+                           breakdown_value AS breakdown_value,
+                           sum(count) OVER (PARTITION BY breakdown_value) AS total_count_for_breakdown
+                    FROM
+                      (SELECT count() AS total,
+                              toStartOfDay(toTimeZone(e.created, 'UTC')) AS day_start,
+                              ifNull(nullIf(toString(e.prop_1), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                       FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
+                       WHERE and(ifNull(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), 0))
+                       GROUP BY day_start,
+                                breakdown_value)
+                    GROUP BY day_start,
+                             breakdown_value
+                    ORDER BY total_count_for_breakdown DESC)) AS ranked_breakdown_values
+              WHERE ifNull(lessOrEquals(ranked_breakdown_values.breakdown_rank, 25), 0)) AS top_n_breakdown_values
+           UNION ALL SELECT other_breakdown_values.day_start AS day_start,
+                            other_breakdown_values.value AS value,
+                            other_breakdown_values.breakdown_value AS breakdown_value
+           FROM
+             (SELECT ranked_breakdown_values.day_start AS day_start,
+                     sum(ranked_breakdown_values.count) AS value,
+                     '$$_posthog_breakdown_other_$$' AS breakdown_value
+              FROM
+                (SELECT count AS count,
+                                 day_start AS day_start,
+                                 breakdown_value AS breakdown_value,
+                                 total_count_for_breakdown AS total_count_for_breakdown,
+                                 denseRank() OVER (
+                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                 FROM
+                   (SELECT sum(total) AS count,
+                           day_start AS day_start,
+                           breakdown_value AS breakdown_value,
+                           sum(count) OVER (PARTITION BY breakdown_value) AS total_count_for_breakdown
+                    FROM
+                      (SELECT count() AS total,
+                              toStartOfDay(toTimeZone(e.created, 'UTC')) AS day_start,
+                              ifNull(nullIf(toString(e.prop_1), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                       FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
+                       WHERE and(ifNull(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), 0))
+                       GROUP BY day_start,
+                                breakdown_value)
+                    GROUP BY day_start,
+                             breakdown_value
+                    ORDER BY total_count_for_breakdown DESC)) AS ranked_breakdown_values
+              WHERE ifNull(greater(ranked_breakdown_values.breakdown_rank, 25), 0)
+              GROUP BY breakdown_value,
+                       ranked_breakdown_values.day_start) AS other_breakdown_values)
+        ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
+     GROUP BY top_n_and_other_breakdown_values.breakdown_value)
+  ORDER BY ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0) ASC, arraySum(vals) DESC, breakdown_value ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
 # name: TestTrendsDataWarehouseQuery.test_trends_breakdown_on_view
   '''
   SELECT posthog_test_test_table_1.id AS id,
@@ -24,7 +118,6 @@
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(d -> arraySum(arrayMap((v, dd) -> if(ifNull(equals(dd, d), isNull(dd)
                                                               and isNull(d)), v, 0), vals, days)), arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC')), toIntervalDay(1)))), 1)))) AS total,
-         arraySum(vals) AS grand_total,
          breakdown_value AS breakdown_value
   FROM
     (SELECT groupArray(top_n_and_other_breakdown_values.day_start) AS days,
@@ -111,7 +204,7 @@
                        ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
-  ORDER BY ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0) ASC, grand_total DESC
+  ORDER BY ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0) ASC, arraySum(vals) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -149,7 +242,6 @@
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(d -> arraySum(arrayMap((v, dd) -> if(ifNull(equals(dd, d), isNull(dd)
                                                               and isNull(d)), v, 0), vals, days)), arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC')), toIntervalDay(1)))), 1)))) AS total,
-         arraySum(vals) AS grand_total,
          breakdown_value AS breakdown_value
   FROM
     (SELECT groupArray(top_n_and_other_breakdown_values.day_start) AS days,
@@ -236,7 +328,7 @@
                        ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
-  ORDER BY ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0) ASC, grand_total DESC
+  ORDER BY ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0) ASC, arraySum(vals) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -247,6 +339,100 @@
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestTrendsDataWarehouseQuery.test_trends_breakdown_with_property
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(d -> arraySum(arrayMap((v, dd) -> if(ifNull(equals(dd, d), isNull(dd)
+                                                              and isNull(d)), v, 0), vals, days)), arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC')), toIntervalDay(1)))), 1)))) AS total,
+         breakdown_value AS breakdown_value
+  FROM
+    (SELECT groupArray(top_n_and_other_breakdown_values.day_start) AS days,
+            groupArray(top_n_and_other_breakdown_values.value) AS vals,
+            top_n_and_other_breakdown_values.breakdown_value AS breakdown_value
+     FROM
+       (SELECT day_start AS day_start,
+               value AS value,
+               breakdown_value AS breakdown_value
+        FROM
+          (SELECT top_n_breakdown_values.day_start AS day_start,
+                  top_n_breakdown_values.value AS value,
+                  top_n_breakdown_values.breakdown_value AS breakdown_value
+           FROM
+             (SELECT ranked_breakdown_values.day_start AS day_start,
+                     ranked_breakdown_values.count AS value,
+                     ranked_breakdown_values.breakdown_value AS breakdown_value
+              FROM
+                (SELECT count AS count,
+                                 day_start AS day_start,
+                                 breakdown_value AS breakdown_value,
+                                 total_count_for_breakdown AS total_count_for_breakdown,
+                                 denseRank() OVER (
+                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                 FROM
+                   (SELECT sum(total) AS count,
+                           day_start AS day_start,
+                           breakdown_value AS breakdown_value,
+                           sum(count) OVER (PARTITION BY breakdown_value) AS total_count_for_breakdown
+                    FROM
+                      (SELECT count() AS total,
+                              toStartOfDay(toTimeZone(e.created, 'UTC')) AS day_start,
+                              ifNull(nullIf(toString(e.prop_1), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                       FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
+                       WHERE and(ifNull(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), 0), equals(e.prop_1, 'a'))
+                       GROUP BY day_start,
+                                breakdown_value)
+                    GROUP BY day_start,
+                             breakdown_value
+                    ORDER BY total_count_for_breakdown DESC)) AS ranked_breakdown_values
+              WHERE ifNull(lessOrEquals(ranked_breakdown_values.breakdown_rank, 25), 0)) AS top_n_breakdown_values
+           UNION ALL SELECT other_breakdown_values.day_start AS day_start,
+                            other_breakdown_values.value AS value,
+                            other_breakdown_values.breakdown_value AS breakdown_value
+           FROM
+             (SELECT ranked_breakdown_values.day_start AS day_start,
+                     sum(ranked_breakdown_values.count) AS value,
+                     '$$_posthog_breakdown_other_$$' AS breakdown_value
+              FROM
+                (SELECT count AS count,
+                                 day_start AS day_start,
+                                 breakdown_value AS breakdown_value,
+                                 total_count_for_breakdown AS total_count_for_breakdown,
+                                 denseRank() OVER (
+                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                 FROM
+                   (SELECT sum(total) AS count,
+                           day_start AS day_start,
+                           breakdown_value AS breakdown_value,
+                           sum(count) OVER (PARTITION BY breakdown_value) AS total_count_for_breakdown
+                    FROM
+                      (SELECT count() AS total,
+                              toStartOfDay(toTimeZone(e.created, 'UTC')) AS day_start,
+                              ifNull(nullIf(toString(e.prop_1), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                       FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
+                       WHERE and(ifNull(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), 0), equals(e.prop_1, 'a'))
+                       GROUP BY day_start,
+                                breakdown_value)
+                    GROUP BY day_start,
+                             breakdown_value
+                    ORDER BY total_count_for_breakdown DESC)) AS ranked_breakdown_values
+              WHERE ifNull(greater(ranked_breakdown_values.breakdown_rank, 25), 0)
+              GROUP BY breakdown_value,
+                       ranked_breakdown_values.day_start) AS other_breakdown_values)
+        ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
+     GROUP BY top_n_and_other_breakdown_values.breakdown_value)
+  ORDER BY ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0) ASC, arraySum(vals) DESC, breakdown_value ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_data_warehouse
