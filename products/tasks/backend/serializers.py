@@ -35,6 +35,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "latest_run",
             "created_at",
             "updated_at",
+            "created_by",
         ]
         read_only_fields = [
             "id",
@@ -42,6 +43,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "slug",
             "created_at",
             "updated_at",
+            "created_by",
             "repository_list",
             "primary_repository",
             "latest_run",
