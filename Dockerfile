@@ -54,7 +54,7 @@ RUN --mount=type=secret,id=posthog_token \
     export PATH="/root/.posthog:$PATH" && \
     export POSTHOG_CLI_TOKEN="$(cat /run/secrets/posthog_token)" && \
     export POSTHOG_CLI_ENV_ID=2 && \
-    posthog-cli sourcemap process --directory /code/frontend/dist --no-fail; \
+    posthog-cli sourcemap process --directory /code/frontend/dist --public-path-prefix /static --no-fail; \
 fi
 
 #
