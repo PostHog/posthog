@@ -64,7 +64,7 @@ pub fn inject(args: &InjectArgs) -> Result<()> {
     let mut created_release = None;
     if needs_release {
         let mut builder = get_git_info(Some(directory))?
-            .map(|g| ReleaseBuilder::init_from_git(g))
+            .map(ReleaseBuilder::init_from_git)
             .unwrap_or_default();
 
         if let Some(project) = project {

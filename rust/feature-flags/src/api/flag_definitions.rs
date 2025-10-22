@@ -14,18 +14,18 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::{info, warn};
 
-/// Response for local evaluation endpoint
+/// Response for flag definitions endpoint
 /// This is returned as raw JSON from cache to avoid deserialization overhead
-pub type LocalEvaluationResponse = Value;
+pub type FlagDefinitionsResponse = Value;
 
-/// Query parameters for the local evaluation endpoint
+/// Query parameters for the flag definitions endpoint
 #[derive(Debug, Deserialize, Serialize)]
-pub struct LocalEvaluationQueryParams {
+pub struct FlagDefinitionsQueryParams {
     /// Team API token - required to specify which team's flags to return
     pub token: String,
 }
 
-/// Local evaluation endpoint handler
+/// Flag definitions endpoint handler
 ///
 /// This endpoint provides flag definitions for client-side evaluation.
 ///
@@ -47,14 +47,14 @@ pub struct LocalEvaluationQueryParams {
 #[debug_handler]
 pub async fn flags_definitions(
     State(state): State<AppState>,
-    Query(params): Query<LocalEvaluationQueryParams>,
+    Query(params): Query<FlagDefinitionsQueryParams>,
     headers: HeaderMap,
     method: Method,
 ) -> Result<Response, FlagError> {
     info!(
         method = %method,
         token = %params.token,
-        "Processing local evaluation request (always includes cohorts)"
+        "Processing flag definitions request (always includes cohorts)"
     );
 
     // Only GET is supported for this read-only endpoint
@@ -67,7 +67,10 @@ pub async fn flags_definitions(
     let team = fetch_team_by_token(&state, &params.token).await?;
 
     // Authenticate against the specified team
-    authenticate_local_evaluation(&state, &team, &headers).await?;
+    authenticate_flag_definitions(&state, &team, &headers).await?;
+
+    // Check rate limit for this team
+    state.flag_definitions_limiter.check_rate_limit(team.id)?;
 
     // Retrieve cached response from HyperCache (always with cohorts)
     let cached_response = get_from_cache(&state, &team).await?;
@@ -122,7 +125,7 @@ async fn fetch_team_by_token(state: &AppState, token: &str) -> Result<Team, Flag
 async fn get_from_cache(
     state: &AppState,
     team: &Team,
-) -> Result<LocalEvaluationResponse, FlagError> {
+) -> Result<FlagDefinitionsResponse, FlagError> {
     // Configure HyperCache to use the flags_with_cohorts.json cache key
     // This ensures we always return cohort definitions along with flag definitions
     let hypercache_config = HyperCacheConfig::new(
@@ -159,13 +162,13 @@ async fn get_from_cache(
     info!(
         team_id = team.id,
         source = source_name,
-        "Cache hit for local evaluation (with cohorts)"
+        "Cache hit for flag definitions (with cohorts)"
     );
 
     Ok(data)
 }
 
-/// Authenticates local evaluation requests using team secret API tokens or personal API keys
+/// Authenticates flag definitions requests using team secret API tokens or personal API keys
 ///
 /// Validates that the authentication credential has access to the specified team.
 ///
@@ -176,7 +179,7 @@ async fn get_from_cache(
 /// Priority: Secret API tokens take precedence over personal API keys when both are provided.
 ///
 /// Returns Ok(()) if authentication succeeds, Err otherwise
-async fn authenticate_local_evaluation(
+async fn authenticate_flag_definitions(
     state: &AppState,
     team: &Team,
     headers: &HeaderMap,
