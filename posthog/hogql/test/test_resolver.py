@@ -409,11 +409,11 @@ class TestResolver(BaseTest):
         # Create a condition where we want to ".." out of "events.poe." to get to a higher level prop
         self.database.get_table("events").fields["person"] = FieldTraverser(chain=["poe"])
         assert isinstance(self.database.get_table("events").fields["poe"], Table)
-        self.database.get_table("events").fields["poe"].fields["id"] = FieldTraverser(chain=["..", "pdi", "person_id"])
-        self.database.get_table("events").fields["poe"].fields["created_at"] = FieldTraverser(
+        self.database.get_table("events").fields["poe"].fields["id"] = FieldTraverser(chain=["..", "pdi", "person_id"])  # type: ignore
+        self.database.get_table("events").fields["poe"].fields["created_at"] = FieldTraverser(  # type: ignore
             chain=["..", "pdi", "person", "created_at"]
         )
-        self.database.get_table("events").fields["poe"].fields["properties"] = StringJSONDatabaseField(
+        self.database.get_table("events").fields["poe"].fields["properties"] = StringJSONDatabaseField(  # type: ignore
             name="person_properties", nullable=False
         )
 
