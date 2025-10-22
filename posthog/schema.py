@@ -4265,6 +4265,7 @@ class PathsFilter(BaseModel):
     pathReplacements: Optional[bool] = None
     pathStartKey: Optional[str] = Field(default=None, description="Relevant only within actors query")
     pathsHogQLExpression: Optional[str] = None
+    showFullUrls: Optional[bool] = None
     startPoint: Optional[str] = None
     stepLimit: Optional[int] = 5
 
