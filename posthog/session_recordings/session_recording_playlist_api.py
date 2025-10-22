@@ -16,7 +16,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import RecordingsQuery
 
 from posthog.api.documentation import extend_schema
-from posthog.api.file_system_logging import log_api_file_system_view
+from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import FileSystemViewSetMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin

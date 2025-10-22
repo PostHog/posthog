@@ -34,7 +34,7 @@ from posthog.hogql.timings import HogQLTimings
 
 from posthog import schema
 from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
-from posthog.api.file_system_logging import log_api_file_system_view
+from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.api.mixins import FileSystemViewSetMixin

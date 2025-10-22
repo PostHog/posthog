@@ -22,7 +22,7 @@ from rest_framework.serializers import BaseSerializer
 from rest_framework.utils.serializer_helpers import ReturnDict
 
 from posthog.api.dashboards.dashboard_template_json_schema_parser import DashboardTemplateCreationJSONSchemaParser
-from posthog.api.file_system_logging import log_api_file_system_view
+from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import InsightSerializer, InsightViewSet
 from posthog.api.monitoring import Feature, monitor

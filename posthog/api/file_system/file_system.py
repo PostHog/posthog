@@ -10,7 +10,7 @@ from rest_framework import filters, pagination, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.file_system_logging import log_api_file_system_view
+from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action

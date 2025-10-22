@@ -16,7 +16,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
-from posthog.api.file_system_logging import log_api_file_system_view
+from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import FileSystemViewSetMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin

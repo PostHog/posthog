@@ -5,7 +5,7 @@ from rest_framework.exceptions import ParseError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.file_system_logging import log_api_file_system_view
+from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.exceptions_capture import capture_exception
 
 T = TypeVar("T", bound=BaseModel)
