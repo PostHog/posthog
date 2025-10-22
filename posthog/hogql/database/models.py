@@ -238,7 +238,6 @@ class TableNode(
 
         self.children[child.name] = child
 
-    # TODO: Add error and warning modes for `table_conflict_mode``, should append to the diagnostics context
     def merge_with(
         self,
         other: "TableNode",
