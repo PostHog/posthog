@@ -3,11 +3,13 @@ from collections.abc import Awaitable, Sequence
 from typing import TYPE_CHECKING, Literal, Optional, TypeVar, Union, cast
 from uuid import uuid4
 
+import structlog
 import posthoganalytics
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     BaseMessage,
     HumanMessage as LangchainHumanMessage,
+    ToolCall,
     ToolMessage as LangchainToolMessage,
 )
 from langchain_core.prompts import ChatPromptTemplate
@@ -17,7 +19,6 @@ from posthoganalytics import capture_exception
 from pydantic import BaseModel
 
 from posthog.schema import (
-    AssistantContextualTool,
     AssistantMessage,
     AssistantToolCallMessage,
     ContextMessage,
@@ -60,11 +61,11 @@ from .prompts import (
     ROOT_TOOL_DOES_NOT_EXIST,
 )
 from .tools import (
+    CreateAndQueryInsightTool,
     ReadDataTool,
     ReadTaxonomyTool,
     SearchTool,
     TodoWriteTool,
-    create_and_query_insight,
     create_dashboard,
     session_summarization,
 )
@@ -76,7 +77,6 @@ SLASH_COMMAND_INIT = "/init"
 SLASH_COMMAND_REMEMBER = "/remember"
 
 RouteName = Literal[
-    "insights",
     "root",
     "end",
     "search_documentation",
@@ -91,6 +91,8 @@ RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantT
 T = TypeVar("T", RootMessageUnion, BaseMessage)
 
 RootTool = Union[type[BaseModel], "MaxTool"]
+
+logger = structlog.get_logger(__name__)
 
 
 class RootNode(AssistantNode):
@@ -240,26 +242,27 @@ class RootNode(AssistantNode):
     async def _get_tools(self, state: AssistantState, config: RunnableConfig) -> list[RootTool]:
         from ee.hogai.tool import get_contextual_tool_class
 
+        # Static toolkit
+        default_tools: list[type[MaxTool]] = [
+            ReadTaxonomyTool,
+            ReadDataTool,
+            SearchTool,
+            TodoWriteTool,
+        ]
+
+        # The contextual insights tool overrides the static tool. Only inject if it's injected.
+        if not CreateAndQueryInsightTool.is_editing_mode(self.context_manager):
+            default_tools.append(CreateAndQueryInsightTool)
+
+        # Processed tools
         available_tools: list[RootTool] = []
 
         # Initialize the static toolkit
         dynamic_tools = (
             tool_class.create_tool_class(team=self._team, user=self._user, state=state, config=config)
-            for tool_class in (
-                ReadTaxonomyTool,
-                ReadDataTool,
-                SearchTool,
-                TodoWriteTool,
-            )
+            for tool_class in default_tools
         )
         available_tools.extend(await asyncio.gather(*dynamic_tools))
-
-        # Insights tool
-        tool_names = self.context_manager.get_contextual_tools().keys()
-        is_editing_insight = AssistantContextualTool.CREATE_AND_QUERY_INSIGHT in tool_names
-        if not is_editing_insight:
-            # This is the default tool, which can be overriden by the MaxTool based tool with the same name
-            available_tools.append(create_and_query_insight)
 
         # Check if session summarization is enabled for the user
         if self._has_session_summarization_feature_flag():
@@ -269,6 +272,7 @@ class RootNode(AssistantNode):
         available_tools.append(create_dashboard)
 
         # Inject contextual tools
+        tool_names = self.context_manager.get_contextual_tools().keys()
         awaited_contextual_tools: list[Awaitable[RootTool]] = []
         for tool_name in tool_names:
             ContextualMaxToolClass = get_contextual_tool_class(tool_name)
@@ -399,19 +403,10 @@ class RootNodeTools(AssistantNode):
         tools_calls = last_message.tool_calls
         if len(tools_calls) != 1:
             raise ValueError("Expected exactly one tool call.")
-
-        tool_names = self.context_manager.get_contextual_tools().keys()
-        is_editing_insight = AssistantContextualTool.CREATE_AND_QUERY_INSIGHT in tool_names
         tool_call = tools_calls[0]
 
         from ee.hogai.tool import get_contextual_tool_class
 
-        if tool_call.name == "create_and_query_insight" and not is_editing_insight:
-            return PartialAssistantState(
-                root_tool_call_id=tool_call.id,
-                root_tool_insight_plan=tool_call.args["query_description"],
-                root_tool_calls_count=tool_call_count + 1,
-            )
         if tool_call.name == "session_summarization":
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
@@ -451,12 +446,15 @@ class RootNodeTools(AssistantNode):
         # Initialize the tool and process it
         tool_class = await ToolClass.create_tool_class(team=self._team, user=self._user, state=state, config=config)
         try:
-            result = await tool_class.ainvoke(tool_call.model_dump(), config)
+            result = await tool_class.ainvoke(
+                ToolCall(type="tool_call", name=tool_call.name, args=tool_call.args, id=tool_call.id), config=config
+            )
             if not isinstance(result, LangchainToolMessage):
                 raise ValueError(
                     f"Tool '{tool_call.name}' returned {type(result).__name__}, expected LangchainToolMessage"
                 )
         except Exception as e:
+            logger.exception("Error calling tool", extra={"tool_name": tool_call.name, "error": str(e)})
             capture_exception(
                 e, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
             )
@@ -534,9 +532,7 @@ class RootNodeTools(AssistantNode):
                 tool_call_name = tool_call.name
                 if tool_call_name == "create_dashboard":
                     return "create_dashboard"
-            if state.root_tool_insight_plan:
-                return "insights"
-            elif state.search_insights_query:
+            if state.search_insights_query:
                 return "insights_search"
             elif state.session_summarization_query:
                 return "session_summarization"

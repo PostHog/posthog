@@ -88,3 +88,4 @@ class DeepResearchNodeName(StrEnum):
     PLANNER_TOOLS = "planner_tools"
     TASK_EXECUTOR = "task_executor"
     REPORT = "report"
+    TITLE_GENERATOR = "title_generator"

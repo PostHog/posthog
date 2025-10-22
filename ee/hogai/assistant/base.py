@@ -32,8 +32,7 @@ from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
-from ee.hogai.graph.base import BaseAssistantNode
-from ee.hogai.graph.graph import AssistantCompiledStateGraph
+from ee.hogai.graph.base import AssistantCompiledStateGraph, BaseAssistantNode
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import (
     extract_content_from_ai_message,
