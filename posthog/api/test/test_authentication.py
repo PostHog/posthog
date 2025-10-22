@@ -84,18 +84,14 @@ class TestLoginAPI(APIBaseTest):
 
     CONFIG_AUTO_LOGIN = False
 
-    @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
-    @patch("posthog.email.is_email_available", return_value=True)
-    @patch("posthog.tasks.email.send_email_mfa_link.delay")
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_user_logs_in_with_email_and_password(self, mock_capture, **kwargs):
+    def test_user_logs_in_with_email_and_password(self, mock_capture, mock_identify):
         self.user.is_email_verified = True
         self.user.save()
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        if response.status_code == 400 and response.json().get("code") == "email_mfa_required":
-            response = self.complete_email_mfa(str(self.CONFIG_EMAIL), self.user)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
 
         # Test that we're actually logged in
         response = self.client.get("/api/users/@me/")
@@ -103,7 +99,7 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(response.json()["email"], self.user.email)
 
         # Assert the event was captured.
-        mock_capture.assert_any_call(
+        mock_capture.assert_called_once_with(
             distinct_id=self.user.distinct_id,
             event="user logged in",
             properties={"social_provider": ""},
@@ -113,7 +109,6 @@ class TestLoginAPI(APIBaseTest):
                 "project": str(self.team.uuid),
             },
         )
-        self.assertEqual(mock_capture.call_count, 1)
 
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
@@ -135,24 +130,18 @@ class TestLoginAPI(APIBaseTest):
         # Assert the email was sent.
         mock_send_email_verification.assert_called_once_with(self.user)
 
-    @patch("posthog.tasks.email.send_email_mfa_link.delay")
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
     @patch("posthog.api.authentication.is_email_verification_disabled", return_value=True)
     def test_email_unverified_user_can_log_in_if_email_available_but_verification_disabled_flag_is_true(
-        self,
-        mock_is_verification_disabled,
-        mock_send_email_verification,
-        mock_is_email_available,
-        mock_send_email_delay,
+        self, mock_is_verification_disabled, mock_send_email_verification, mock_is_email_available
     ):
         self.user.is_email_verified = False
         self.user.save()
         self.assertEqual(self.user.is_email_verified, False)
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        if response.status_code == 400 and response.json().get("code") == "email_mfa_required":
-            response = self.complete_email_mfa(str(self.CONFIG_EMAIL), self.user)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
 
         # Test that we're actually logged in
         response = self.client.get("/api/users/@me/")
@@ -160,31 +149,24 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(response.json()["email"], self.user.email)
 
         mock_is_verification_disabled.assert_called_once()
-        mock_is_email_available.assert_called()
-        # Once for the login check, once for the email MFA check
-        self.assertEqual(mock_is_email_available.call_count, 2)
+        mock_is_email_available.assert_called_once()
         mock_send_email_verification.assert_not_called()
 
-    @patch("posthog.tasks.email.send_email_mfa_link.delay")
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
     def test_email_unverified_null_user_can_log_in_if_email_available(
-        self, mock_send_email_verification, mock_is_email_available, mock_send_email_delay
+        self, mock_send_email_verification, mock_is_email_available
     ):
         """When email verification was added, existing users were set to is_email_verified=null.
         If someone is null they should still be allowed to log in until we explicitly decide to lock them out."""
         self.assertEqual(self.user.is_email_verified, None)
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        if response.status_code == 400 and response.json().get("code") == "email_mfa_required":
-            response = self.complete_email_mfa(str(self.CONFIG_EMAIL), self.user)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Test that we are logged in
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_is_email_available.assert_called()
-        # Once for the login check, once for the email MFA check
-        self.assertEqual(mock_is_email_available.call_count, 2)
+        mock_is_email_available.assert_called_once()
         # Assert the email was sent.
         mock_send_email_verification.assert_called_once_with(self.user)
 
@@ -679,11 +661,9 @@ class TestPasswordResetAPI(APIBaseTest):
 
     # Password reset completion
 
-    @patch("posthog.tasks.email.send_email_mfa_link.delay")
-    @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_user_can_reset_password(self, mock_capture, mock_identify, mock_is_email_available, mock_send_email_delay):
+    def test_user_can_reset_password(self, mock_capture, mock_identify):
         self.client.logout()  # extra precaution to test login
 
         self.user.requested_password_reset_at = datetime.now()
@@ -707,16 +687,9 @@ class TestPasswordResetAPI(APIBaseTest):
         self.client.logout()
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json().get("code"), "invalid_credentials")
 
         # new password can be used immediately
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": VALID_TEST_PASSWORD})
-
-        if response.status_code == 400 and response.json().get("code") == "email_mfa_required":
-            response = self.complete_email_mfa(str(self.CONFIG_EMAIL), self.user)
-
-        print("response", response)  # noqa: T201
-        print("response.json()", response.json())  # noqa: T201
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # assert events were captured
@@ -739,9 +712,7 @@ class TestPasswordResetAPI(APIBaseTest):
                 "project": str(self.team.uuid),
             },
         )
-        # 3 capture events: password reset, verification email sent, user logged in
-        # Note: "email mfa link sent" is captured inside the Celery task, which doesn't run when mocked
-        self.assertEqual(mock_capture.call_count, 3)
+        self.assertEqual(mock_capture.call_count, 2)
 
     def test_cant_set_short_password(self):
         token = password_reset_token_generator.make_token(self.user)

@@ -841,8 +841,6 @@ class TestUserAPI(APIBaseTest):
 
         # User can log in with new password
         response = self.client.post("/api/login", {"email": "bob@posthog.com", "password": "a_new_password"})
-        if response.status_code == 400 and response.json().get("code") == "email_mfa_required":
-            response = self.complete_email_mfa("bob@posthog.com", user)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Assert password changed email was sent
@@ -891,8 +889,6 @@ class TestUserAPI(APIBaseTest):
             "/api/login",
             {"email": "no_password@posthog.com", "password": "a_new_password"},
         )
-        if response.status_code == 400 and response.json().get("code") == "email_mfa_required":
-            response = self.complete_email_mfa("no_password@posthog.com", user)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Assert password changed email was sent

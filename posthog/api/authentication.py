@@ -43,15 +43,15 @@ from posthog.event_usage import report_user_logged_in, report_user_password_rese
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.two_factor_session import (
+    EmailMFAVerifier,
     clear_two_factor_session_flags,
     email_mfa_token_generator,
     set_two_factor_verified_in_session,
 )
 from posthog.models import OrganizationDomain, User
-from posthog.rate_limit import EmailMFAThrottle, UserPasswordResetThrottle
+from posthog.rate_limit import EmailMFAResendThrottle, EmailMFAThrottle, UserPasswordResetThrottle
 from posthog.tasks.email import (
     login_from_new_device_notification,
-    send_email_mfa_link,
     send_password_reset,
     send_two_factor_auth_backup_code_used_email,
 )
@@ -247,17 +247,11 @@ class LoginSerializer(serializers.Serializer):
                 raise TwoFactorRequired()
             else:
                 # Email MFA flow
-                if is_email_available(with_absolute_urls=True):
-                    token = email_mfa_token_generator.make_token(user)
-                    request.session["email_mfa_pending_user_id"] = user.pk
-                    request.session["email_mfa_token_created_at"] = int(time.time())
-
-                    send_email_mfa_link.delay(user.id, token)
-
+                email_mfa_sent = EmailMFAVerifier.create_token_and_send_email_mfa_verification(request, user)
+                if email_mfa_sent:
                     raise serializers.ValidationError({"email": user.email}, code="email_mfa_required")
-
                 else:
-                    # No TOTP device and email not available - fall through to allow login without MFA, mainly for testing purposes
+                    # if we failed to send the email, we should fall through to allow login without MFA
                     pass
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
@@ -449,41 +443,24 @@ class EmailMFAViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
 
         return response
 
-    @action(detail=False, methods=["post"])
+    @action(detail=False, methods=["post"], throttle_classes=[EmailMFAResendThrottle])
     def resend(self, request: Request) -> Response:
         """Resend email MFA link"""
-        # Get user from session
-        user_id = request.session.get("email_mfa_pending_user_id")
-        if not user_id:
+        if not EmailMFAVerifier.has_pending_email_mfa_verification(request):
             raise serializers.ValidationError(
                 {"detail": "No pending email MFA verification found."}, code="no_pending_verification"
             )
 
-        # Check if email was sent recently (throttle)
-        created_at = request.session.get("email_mfa_token_created_at", 0)
-        if int(time.time()) - created_at < 60:  # 60 second cooldown
-            raise serializers.ValidationError(
-                {"detail": "Please wait 60 seconds before requesting another email."}, code="too_soon"
-            )
-
         try:
-            user = User.objects.get(pk=user_id)
+            user = User.objects.get(pk=EmailMFAVerifier.get_pending_email_mfa_verification_user_id(request))
         except User.DoesNotExist:
             raise serializers.ValidationError({"detail": "User not found."}, code="user_not_found")
 
-        if not is_email_available(with_absolute_urls=True):
+        email_mfa_sent = EmailMFAVerifier.create_token_and_send_email_mfa_verification(request, user)
+        if not email_mfa_sent:
             raise serializers.ValidationError(
-                {"detail": "Email is not configured on this instance."}, code="email_not_available"
+                {"detail": "Could not send email MFA verification email."}, code="email_mfa_verification_email_failed"
             )
-
-        # Generate new token and send email
-        token = email_mfa_token_generator.make_token(user)
-
-        # Update session with new token time
-        request.session["email_mfa_token_created_at"] = int(time.time())
-
-        # Send email
-        send_email_mfa_link.delay(user.id, token)
 
         return Response({"success": True, "message": "Verification email sent"})
 

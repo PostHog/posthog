@@ -9,9 +9,12 @@ from django.utils.crypto import constant_time_compare
 from django.utils.http import base36_to_int
 
 from loginas.utils import is_impersonated_session
+from posthoganalytics import capture_exception
 from rest_framework.exceptions import PermissionDenied
 from two_factor.utils import default_device
 
+from posthog.email import is_email_available
+from posthog.models.user import User
 from posthog.settings.web import AUTHENTICATION_BACKENDS
 
 # Enforce Two-Factor Authentication only on sessions created after this date
@@ -206,3 +209,42 @@ class EmailMFATokenGenerator(PasswordResetTokenGenerator):
 
 
 email_mfa_token_generator = EmailMFATokenGenerator()
+
+
+class EmailMFAVerifier:
+    @staticmethod
+    def should_send_email_mfa_verification() -> bool:
+        return is_email_available(with_absolute_urls=True)
+
+    @staticmethod
+    def create_token_and_send_email_mfa_verification(request: HttpRequest, user: User) -> bool:
+        from posthog.tasks.email import send_email_mfa_link
+
+        if not EmailMFAVerifier.should_send_email_mfa_verification():
+            return False
+
+        try:
+            token = email_mfa_token_generator.make_token(user)
+            send_email_mfa_link(user.pk, token)
+            request.session["email_mfa_pending_user_id"] = user.pk
+            request.session["email_mfa_token_created_at"] = int(time.time())
+            return True
+        except Exception as e:
+            capture_exception(Exception(f"Email MFA verification email failed: {e}"))
+            return False
+
+    @staticmethod
+    def has_pending_email_mfa_verification(request: HttpRequest) -> bool:
+        return request.session.get("email_mfa_pending_user_id") is not None
+
+    @staticmethod
+    def get_pending_email_mfa_verification_user_id(request: HttpRequest) -> int:
+        return request.session.get("email_mfa_pending_user_id")
+
+    @staticmethod
+    def get_pending_email_mfa_verification_token_created_at(request: HttpRequest) -> int:
+        return request.session.get("email_mfa_token_created_at", int(time.time()))
+
+    @staticmethod
+    def check_token(user: User, token: str) -> bool:
+        return email_mfa_token_generator.check_token(user, token)

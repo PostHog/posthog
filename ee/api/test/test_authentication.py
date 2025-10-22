@@ -134,9 +134,8 @@ class TestEEAuthenticationAPI(APILicensedTest):
                 "/api/login",
                 {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD},
             )
-            if response.status_code == 400 and response.json().get("code") == "email_mfa_required":
-                response = self.complete_email_mfa(str(self.CONFIG_EMAIL), self.user)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
 
         # Forcing SSO disables regular API password login
         self.create_enforced_domain()
@@ -213,9 +212,8 @@ class TestEEAuthenticationAPI(APILicensedTest):
                 "/api/login",
                 {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD},
             )
-            if response.status_code == 400 and response.json().get("code") == "email_mfa_required":
-                response = self.complete_email_mfa(str(self.CONFIG_EMAIL), self.user)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
 
         # Attempting to use SAML fails
         with self.settings(**GOOGLE_MOCK_SETTINGS):
@@ -247,8 +245,6 @@ class TestEEAuthenticationAPI(APILicensedTest):
             "/api/login",
             {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD},
         )
-        if response.status_code == 400 and response.json().get("code") == "email_mfa_required":
-            response = self.complete_email_mfa(str(self.CONFIG_EMAIL), self.user)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Step 2: Verify user can access protected endpoints
@@ -735,9 +731,8 @@ YotAcSbU3p5bzd11wpyebYHB"""
             "/api/login",
             {"email": "engineering@posthog.com", "password": self.CONFIG_PASSWORD},
         )
-        if response.status_code == 400 and response.json().get("code") == "email_mfa_required":
-            response = self.complete_email_mfa(str(self.CONFIG_EMAIL), self.user)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
 
         # Forcing only SAML disables regular API password login
         self.organization_domain.sso_enforcement = "saml"

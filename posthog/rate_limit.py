@@ -489,6 +489,21 @@ class EmailMFAThrottle(UserOrEmailRateThrottle):
     rate = "6/20minutes"
 
 
+class EmailMFAResendThrottle(UserOrEmailRateThrottle):
+    scope = "email_mfa_resend"
+    rate = "1/minute"
+
+    def get_cache_key(self, request, view):
+        from posthog.helpers.two_factor_session import EmailMFAVerifier
+
+        user_id = EmailMFAVerifier.get_pending_email_mfa_verification_user_id(request)
+        if user_id:
+            ident = hashlib.sha256(str(user_id).encode()).hexdigest()
+            return self.cache_format % {"scope": self.scope, "ident": ident}
+
+        return super().get_cache_key(request, view)
+
+
 class UserAuthenticationThrottle(UserOrEmailRateThrottle):
     scope = "user_authentication"
     rate = "5/minute"
