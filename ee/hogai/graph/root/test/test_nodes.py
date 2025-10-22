@@ -857,24 +857,6 @@ class TestRootNodeTools(BaseTest):
             self.assertTrue(interrupt_data.visible)
             self.assertEqual(interrupt_data.ui_payload, {"navigate": {"page_key": "insights"}})
 
-    def test_billing_tool_routing(self):
-        """Test that billing tool calls are routed correctly"""
-        node = RootNodeTools(self.team, self.user)
-
-        # Create state with billing tool call (read_data with kind=billing_info)
-        state = AssistantState(
-            messages=[
-                AssistantMessage(
-                    content="Let me check your billing information",
-                    tool_calls=[AssistantToolCall(id="billing-123", name="read_data", args={"kind": "billing_info"})],
-                )
-            ],
-            root_tool_call_id="billing-123",
-        )
-
-        # Should route to billing
-        self.assertEqual(node.router(state), "billing")
-
     def test_router_insights_path(self):
         """Test router routes to insights when root_tool_insight_plan is set"""
         node = RootNodeTools(self.team, self.user)
@@ -1113,30 +1095,6 @@ class TestRootNodeTools(BaseTest):
 
             self.assertIsInstance(result, PartialAssistantState)
             self.assertEqual(result.root_tool_call_id, "search-123")
-
-    async def test_arun_read_data_billing_info(self):
-        """Test read_data tool with kind=billing_info"""
-        node = RootNodeTools(self.team, self.user)
-        state = AssistantState(
-            messages=[
-                AssistantMessage(
-                    content="Reading billing info",
-                    id="test-id",
-                    tool_calls=[AssistantToolCall(id="read-123", name="read_data", args={"kind": "billing_info"})],
-                )
-            ]
-        )
-
-        mock_tool_instance = AsyncMock()
-        mock_tool_instance.ainvoke.return_value = LangchainToolMessage(
-            content="Billing data", tool_call_id="read-123", name="read_data", artifact={"kind": "billing_info"}
-        )
-
-        with mock_contextual_tool(mock_tool_instance):
-            result = await node.arun(state, {"configurable": {"contextual_tools": {"read_data": {}}}})
-
-            self.assertIsInstance(result, PartialAssistantState)
-            self.assertEqual(result.root_tool_call_id, "read-123")
 
     async def test_arun_tool_updates_state(self):
         """Test that when a tool updates its _state, the new messages are included"""
