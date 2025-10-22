@@ -269,6 +269,8 @@ export const TARGET_AREA_TO_NAME = [
     },
 ]
 
+// NOTE: These keys must match the Literal type in ee/hogai/graph/root/tools/support_ticket.py
+// If you update this list, also update CreateSupportTicketToolArgs.priority
 export const SEVERITY_LEVEL_TO_NAME = {
     critical: 'Outage, data loss, or data breach',
     high: 'Feature is not working at all',
@@ -282,6 +284,8 @@ export const SUPPORT_KIND_TO_SUBJECT = {
     support: 'Support Ticket',
 }
 
+// NOTE: These values must match the Literal type in ee/hogai/graph/root/tools/support_ticket.py
+// If you update this list, also update CreateSupportTicketToolArgs.suggested_area
 export type SupportTicketTargetArea =
     | 'experiments'
     | 'apps'
@@ -388,6 +392,7 @@ export type SupportFormFields = {
     message: string
     exception_event?: SupportTicketExceptionEvent
     isEmailFormOpen?: boolean | 'true' | 'false'
+    tags?: string[]
 }
 
 export const supportLogic = kea<supportLogicType>([
@@ -444,6 +449,7 @@ export const supportLogic = kea<supportLogicType>([
                 severity_level: null,
                 target_area: null,
                 message: '',
+                tags: [],
             } as SupportFormFields,
             errors: ({ name, email, message, kind, target_area, severity_level }) => {
                 return {
@@ -542,6 +548,7 @@ export const supportLogic = kea<supportLogicType>([
             severity_level,
             message,
             exception_event,
+            tags,
         }: SupportFormFields) => {
             const zendesk_ticket_uuid = uuid()
             const subject =
@@ -616,7 +623,7 @@ export const supportLogic = kea<supportLogicType>([
                 request: {
                     requester: { name: name, email: email },
                     subject: subject,
-                    tags: [planLevelTag, accountOwnerTag],
+                    tags: [planLevelTag, accountOwnerTag, ...(tags || [])],
                     custom_fields: [
                         {
                             id: 22084126888475,

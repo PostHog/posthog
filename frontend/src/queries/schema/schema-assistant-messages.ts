@@ -52,6 +52,7 @@ export enum AssistantMessageType {
     Notebook = 'ai/notebook',
     Planning = 'ai/planning',
     TaskExecution = 'ai/task_execution',
+    SupportTicket = 'ai/support_ticket',
 }
 
 export interface BaseAssistantMessage {
@@ -202,6 +203,15 @@ export interface MultiVisualizationMessage extends BaseAssistantMessage {
     commentary?: string
 }
 
+export interface SupportTicketMessage extends BaseAssistantMessage {
+    type: AssistantMessageType.SupportTicket
+    ticket_data: {
+        summary: string
+        target_area: string
+        priority: string
+    }
+}
+
 export type RootAssistantMessage =
     | VisualizationMessage
     | MultiVisualizationMessage
@@ -212,6 +222,7 @@ export type RootAssistantMessage =
     | NotebookUpdateMessage
     | PlanningMessage
     | TaskExecutionMessage
+    | SupportTicketMessage
     | (AssistantToolCallMessage & Required<Pick<AssistantToolCallMessage, 'ui_payload'>>)
 
 export enum AssistantEventType {
@@ -267,6 +278,7 @@ export type AssistantContextualTool =
     | 'read_data'
     | 'todo_write'
     | 'filter_revenue_analytics'
+    | 'create_support_ticket'
 
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:

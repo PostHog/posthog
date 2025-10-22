@@ -812,7 +812,8 @@
                 "search",
                 "read_data",
                 "todo_write",
-                "filter_revenue_analytics"
+                "filter_revenue_analytics",
+                "create_support_ticket"
             ],
             "type": "string"
         },
@@ -1570,7 +1571,8 @@
                 "ai/failure",
                 "ai/notebook",
                 "ai/planning",
-                "ai/task_execution"
+                "ai/task_execution",
+                "ai/support_ticket"
             ],
             "type": "string"
         },
@@ -24068,6 +24070,9 @@
                     "$ref": "#/definitions/TaskExecutionMessage"
                 },
                 {
+                    "$ref": "#/definitions/SupportTicketMessage"
+                },
+                {
                     "additionalProperties": false,
                     "properties": {
                         "content": {
@@ -25470,6 +25475,51 @@
                 }
             },
             "required": ["questions"],
+            "type": "object"
+        },
+        "SupportTicketMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "ticket_data": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "created_via": {
+                            "type": "string"
+                        },
+                        "priority": {
+                            "type": "string"
+                        },
+                        "source": {
+                            "type": "string"
+                        },
+                        "summary": {
+                            "type": "string"
+                        },
+                        "target_area": {
+                            "type": "string"
+                        },
+                        "team_id": {
+                            "type": "number"
+                        },
+                        "user_id": {
+                            "type": "number"
+                        }
+                    },
+                    "required": ["summary", "target_area", "priority"],
+                    "type": "object"
+                },
+                "type": {
+                    "const": "ai/support_ticket",
+                    "type": "string"
+                },
+                "visible": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["type", "ticket_data"],
             "type": "object"
         },
         "SurveyAnalysisQuestionGroup": {

@@ -22,6 +22,8 @@ export interface ToolDefinition<N extends string = string> {
     product: Scene | null
     /** If the tool is only available if a feature flag is enabled, you can specify it here. */
     flag?: (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
+    /** If true, this tool is hidden from user-facing tool lists but can still be called by Max */
+    hidden?: boolean
 }
 
 /** Active instance of a tool. */
@@ -159,6 +161,12 @@ export const TOOL_DEFINITIONS: Omit<
         name: 'Filter revenue analytics',
         description: 'Filter revenue analytics to find the most impactful revenue insights',
         product: Scene.RevenueAnalytics,
+    },
+    create_support_ticket: {
+        name: 'Create support ticket',
+        description: 'Create support ticket to get help from our team',
+        product: null,
+        hidden: true, // Hidden from user-facing tool lists
     },
 }
 

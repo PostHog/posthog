@@ -97,6 +97,7 @@ class AssistantContextualTool(StrEnum):
     READ_DATA = "read_data"
     TODO_WRITE = "todo_write"
     FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
+    CREATE_SUPPORT_TICKET = "create_support_ticket"
 
 
 class AssistantDateRange(BaseModel):
@@ -212,6 +213,7 @@ class AssistantMessageType(StrEnum):
     AI_NOTEBOOK = "ai/notebook"
     AI_PLANNING = "ai/planning"
     AI_TASK_EXECUTION = "ai/task_execution"
+    AI_SUPPORT_TICKET = "ai/support_ticket"
 
 
 class AssistantNavigateUrl(StrEnum):
@@ -2715,6 +2717,25 @@ class SuggestedQuestionsQueryResponse(BaseModel):
         extra="forbid",
     )
     questions: list[str]
+
+
+class TicketData(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    priority: str
+    summary: str
+    target_area: str
+
+
+class SupportTicketMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: Optional[str] = None
+    ticket_data: TicketData
+    type: Literal["ai/support_ticket"] = "ai/support_ticket"
+    visible: Optional[bool] = None
 
 
 class SurveyAnalysisResponseItem(BaseModel):
@@ -15687,6 +15708,7 @@ class RootAssistantMessage(
             NotebookUpdateMessage,
             PlanningMessage,
             TaskExecutionMessage,
+            SupportTicketMessage,
             RootAssistantMessage1,
         ]
     ]
@@ -15701,6 +15723,7 @@ class RootAssistantMessage(
         NotebookUpdateMessage,
         PlanningMessage,
         TaskExecutionMessage,
+        SupportTicketMessage,
         RootAssistantMessage1,
     ]
 

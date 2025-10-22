@@ -58,8 +58,10 @@ from .prompts import (
     ROOT_HARD_LIMIT_REACHED_PROMPT,
     ROOT_SYSTEM_PROMPT,
     ROOT_TOOL_DOES_NOT_EXIST,
+    SUPPORT_ESCALATION_SCENARIOS_PROMPT,
 )
 from .tools import (
+    CreateSupportTicketTool,
     ReadDataTool,
     ReadTaxonomyTool,
     SearchTool,
@@ -164,6 +166,7 @@ class RootNode(AssistantNode):
             groups_prompt=f" {format_prompt_string(ROOT_GROUPS_PROMPT, groups=', '.join(groups))}" if groups else "",
             billing_context=billing_context_prompt,
             core_memory_prompt=format_prompt_string(CORE_MEMORY_PROMPT, core_memory=core_memory),
+            support_escalation_situations=SUPPORT_ESCALATION_SCENARIOS_PROMPT,
         )
 
         # Mark the longest default prefix as cacheable
@@ -258,6 +261,7 @@ class RootNode(AssistantNode):
                 ReadDataTool,
                 SearchTool,
                 TodoWriteTool,
+                CreateSupportTicketTool,
             )
         )
         available_tools.extend(await asyncio.gather(*dynamic_tools))

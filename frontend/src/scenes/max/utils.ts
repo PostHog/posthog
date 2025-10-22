@@ -14,6 +14,7 @@ import {
     PlanningMessage,
     ReasoningMessage,
     RootAssistantMessage,
+    SupportTicketMessage,
     TaskExecutionMessage,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
@@ -79,6 +80,12 @@ export function isTaskExecutionMessage(
     message: RootAssistantMessage | undefined | null
 ): message is TaskExecutionMessage {
     return message?.type === AssistantMessageType.TaskExecution
+}
+
+export function isSupportTicketMessage(
+    message: RootAssistantMessage | undefined | null
+): message is SupportTicketMessage {
+    return message?.type === AssistantMessageType.SupportTicket
 }
 
 export function castAssistantQuery(
