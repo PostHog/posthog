@@ -246,3 +246,4 @@ def _migration_removed_model_from_state(migration: Any, model_name: str) -> bool
                 return True
 
     return False
+
