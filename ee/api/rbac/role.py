@@ -107,7 +107,7 @@ class RoleMembershipSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Role does not exist.")
 
         if role.organization_id != self.context["organization_id"]:
-            raise serializers.ValidationError("Role does not belong to the specified organization.")
+            raise serializers.ValidationError("Role does not exist.")
 
         try:
             validated_data["organization_member"] = OrganizationMembership.objects.select_related("user").get(
