@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconPlus, IconTrash } from '@posthog/icons'
+import { IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { externalDataSources } from '~/queries/schema/schema-general'
