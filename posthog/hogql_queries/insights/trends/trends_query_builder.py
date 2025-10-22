@@ -208,12 +208,13 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     FROM top_n_and_other_breakdown_values
                     GROUP BY breakdown_value
                 )
-                ORDER BY (breakdown_value = {breakdown_other}) ASC, arraySum(vals) DESC, breakdown_value ASC
+                ORDER BY {breakdown_order} ASC, arraySum(vals) DESC, breakdown_value ASC
                 """,
                 {
                     "inner_query": inner_query,
                     "breakdown_other": breakdown_other_expr,
                     "breakdown_limit": breakdown_limit_expr,
+                    "breakdown_order": self._breakdown_query_order_by(self.breakdown),
                     **self.query_date_range.to_placeholders(),
                 },
             )
