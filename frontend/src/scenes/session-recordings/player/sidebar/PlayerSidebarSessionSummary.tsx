@@ -446,12 +446,13 @@ function SessionSummaryOutcomeBanner({ sessionSummary }: { sessionSummary: Sessi
     )
 }
 
-function SessionSummarySegments({ sessionSummary }: { sessionSummary: SessionSummaryContent }): JSX.Element {
+function SessionSummarySegments({ sessionSummary }: { sessionSummary: SessionSummaryContent }): JSX.Element | null {
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
 
     if (!sessionSummary?.segments) {
         return null
     }
+
     return (
         <div>
             {sessionSummary?.segments?.map((segment) => {

@@ -13,6 +13,7 @@ import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagem
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+import { SessionSummaryContent } from 'scenes/session-recordings/player/player-meta/types'
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
@@ -109,7 +110,6 @@ import {
     HogFunctionTemplateType,
     HogFunctionType,
     HogFunctionTypeType,
-    IndividualSessionSummariesResponse,
     InsightModel,
     IntegrationType,
     LineageGraph,
@@ -4476,7 +4476,7 @@ const api = {
         async createIndividual(data: {
             session_ids: string[]
             focus_area?: string
-        }): Promise<IndividualSessionSummariesResponse> {
+        }): Promise<Record<string, SessionSummaryContent>> {
             return await new ApiRequest()
                 .sessionSummary()
                 .withAction('create_session_summaries_individually')

@@ -5,11 +5,11 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
+import { SessionSummaryContent } from 'scenes/session-recordings/player/player-meta/types'
 
 import { performQuery } from '~/queries/query'
 import { NodeKind, SessionsTimelineQuery, SessionsTimelineQueryResponse } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
-import { SessionSummary } from '~/types'
 
 import type { notebookNodePersonFeedLogicType } from './notebookNodePersonFeedLogicType'
 
@@ -47,7 +47,7 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
             },
         ],
         summaries: [
-            {} as Record<string, SessionSummary>,
+            {} as Record<string, SessionSummaryContent>,
             {
                 summarizeSession: async ({ sessionId }) => {
                     const response = await api.sessionSummaries.createIndividual({
