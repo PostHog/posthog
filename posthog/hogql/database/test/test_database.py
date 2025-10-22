@@ -18,7 +18,7 @@ from posthog.schema import (
 
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database, serialize_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
     ExpressionField,
@@ -59,9 +59,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_serialize_database_no_person_on_events(self):
         with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
-            serialized_database = serialize_database(
-                HogQLContext(team_id=self.team.pk, database=Database.create_for(team=self.team))
-            )
+            database = Database.create_for(team=self.team)
+            serialized_database = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
+
             assert (
                 json.dumps(
                     {table_name: table.model_dump() for table_name, table in serialized_database.items()}, indent=4
@@ -72,9 +72,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_serialize_database_with_person_on_events_enabled(self):
         with override_settings(PERSON_ON_EVENTS_OVERRIDE=True):
-            serialized_database = serialize_database(
-                HogQLContext(team_id=self.team.pk, database=Database.create_for(team=self.team))
-            )
+            database = Database.create_for(team=self.team)
+            serialized_database = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
+
             assert (
                 json.dumps(
                     {table_name: table.model_dump() for table_name, table in serialized_database.items()}, indent=4
@@ -85,9 +85,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     @parameterized.expand([False, True])
     def test_can_select_from_each_table_at_all(self, poe_enabled: bool) -> None:
         with override_settings(PERSON_ON_EVENTS_OVERRIDE=poe_enabled):
-            serialized_database = serialize_database(
-                HogQLContext(team_id=self.team.pk, database=Database.create_for(team=self.team))
-            )
+            database = Database.create_for(team=self.team)
+            serialized_database = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
             for table_name, table in serialized_database.items():
                 columns = [
                     field.name
@@ -103,8 +102,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
     def test_serialize_database_posthog_table(self):
         database = Database.create_for(team=self.team)
-
-        serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
+        serialized_database = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
         posthog_table_names = database.get_posthog_table_names()
         for table_name in posthog_table_names:
@@ -122,9 +120,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             deleted=True,
             deleted_name=saved_query_name,
         )
-        database = Database.create_for(team=self.team)
 
-        serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
+        database = Database.create_for(team=self.team)
+        serialized_database = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
         assert saved_query_name not in serialized_database
         assert saved_query_name not in database._view_table_names
@@ -144,8 +142,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         database = Database.create_for(team=self.team)
-
-        serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
+        serialized_database = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
         table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
         assert table is not None
@@ -168,8 +165,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         database = Database.create_for(team=self.team)
-
-        serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
+        serialized_database = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
         table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
         assert table is not None
@@ -194,9 +190,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             deleted=True,
         )
 
-        db = Database.create_for(team=self.team)
-
-        serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=db))
+        database = Database.create_for(team=self.team)
+        serialized_database = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
         events_table = serialized_database.get("events")
         assert events_table is not None
@@ -219,8 +214,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         database = Database.create_for(team=self.team)
-
-        serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
+        serialized_database = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
         table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
         assert table is not None
@@ -261,8 +255,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         database = Database.create_for(team=self.team)
-
-        serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
+        serialized_database = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
         table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("stripe.table_1"))
         assert table is not None
@@ -317,9 +310,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         database = Database.create_for(team=self.team)
-
         with self.assertNumQueries(4):
-            serialize_database(HogQLContext(team_id=self.team.pk, database=database))
+            database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
         for i in range(5):
             source = ExternalDataSource.objects.create(
@@ -353,7 +345,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         database = Database.create_for(team=self.team)
 
         with self.assertNumQueries(4):
-            serialize_database(HogQLContext(team_id=self.team.pk, database=database))
+            database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
     @pytest.mark.usefixtures("unittest_snapshot")
