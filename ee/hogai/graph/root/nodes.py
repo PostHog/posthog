@@ -173,7 +173,14 @@ class RootNode(AssistantNode):
         if messages_to_replace:
             new_messages = ReplaceMessages([*messages_to_replace, assistant_message])
 
-        return PartialAssistantState(root_conversation_start_id=window_id, messages=new_messages)
+        # Set new tool call count
+        tool_call_count = (state.root_tool_calls_count or 0) + 1 if assistant_message.tool_calls else None
+
+        return PartialAssistantState(
+            root_conversation_start_id=window_id,
+            root_tool_calls_count=tool_call_count,
+            messages=new_messages,
+        )
 
     async def get_reasoning_message(
         self, input: BaseState, default_message: Optional[str] = None
@@ -186,7 +193,7 @@ class RootNode(AssistantNode):
     def router(self, state: AssistantState):
         last_message = state.messages[-1]
         if not isinstance(last_message, AssistantMessage) or not last_message.tool_calls:
-            return "end"
+            return AssistantNodeName.END
         return [
             Send(AssistantNodeName.ROOT_TOOLS, state.model_copy(update={"root_tool_call_id": tool_call.id}))
             for tool_call in last_message.tool_calls
@@ -244,7 +251,7 @@ class RootNode(AssistantNode):
         if self._is_hard_limit_reached(state.root_tool_calls_count):
             return base_model
 
-        return base_model.bind_tools(tools, parallel_tool_calls=False)
+        return base_model.bind_tools(tools, parallel_tool_calls=True)
 
     async def _get_tools(self, state: AssistantState, config: RunnableConfig) -> list[RootTool]:
         from ee.hogai.tool import get_contextual_tool_class
@@ -384,7 +391,6 @@ class RootNodeTools(AssistantNode):
 
         assert isinstance(input.messages[-1], AssistantMessage)
         tool_calls = input.messages[-1].tool_calls or []
-        assert len(tool_calls) <= 1
         if len(tool_calls) == 0:
             return None
         tool_call = tool_calls[0]
@@ -405,9 +411,8 @@ class RootNodeTools(AssistantNode):
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         last_message = state.messages[-1]
-        tool_call_count = state.root_tool_calls_count or 0
 
-        reset_state = PartialAssistantState(root_tool_call_id=None, root_tool_calls_count=None)
+        reset_state = PartialAssistantState(root_tool_call_id=None)
         # Should never happen, but just in case.
         if not isinstance(last_message, AssistantMessage) or not state.root_tool_call_id:
             return reset_state
@@ -433,7 +438,6 @@ class RootNodeTools(AssistantNode):
                         tool_call_id=tool_call.id,
                     )
                 ],
-                root_tool_calls_count=tool_call_count + 1,
             )
 
         # Initialize the tool and process it
@@ -460,13 +464,11 @@ class RootNodeTools(AssistantNode):
                         visible=False,
                     )
                 ],
-                root_tool_calls_count=tool_call_count + 1,
             )
 
         if isinstance(result.artifact, ToolMessagesArtifact):
             return PartialAssistantState(
                 messages=result.artifact.messages,
-                root_tool_calls_count=tool_call_count + 1,
             )
 
         # If this is a navigation tool call, pause the graph execution
@@ -495,7 +497,6 @@ class RootNodeTools(AssistantNode):
 
         return PartialAssistantState(
             messages=[tool_message],
-            root_tool_calls_count=tool_call_count + 1,
         )
 
     def router(self, state: AssistantState) -> RouteName:

@@ -1,5 +1,5 @@
-from collections.abc import Hashable
-from typing import Optional, cast
+from collections.abc import Callable
+from typing import cast
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -35,22 +35,15 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         self._graph.add_edge(AssistantNodeName.TITLE_GENERATOR, end_node)
         return self
 
-    def add_root(
-        self,
-        path_map: Optional[dict[Hashable, AssistantNodeName]] = None,
-    ):
-        path_map = path_map or {
-            "root": AssistantNodeName.ROOT,
-            "end": AssistantNodeName.END,
-        }
+    def add_root(self, router: Callable[[AssistantState], AssistantNodeName] | None = None):
         root_node = RootNode(self._team, self._user)
         self.add_node(AssistantNodeName.ROOT, root_node)
         root_node_tools = RootNodeTools(self._team, self._user)
         self.add_node(AssistantNodeName.ROOT_TOOLS, root_node_tools)
-        self._graph.add_edge(AssistantNodeName.ROOT, AssistantNodeName.ROOT_TOOLS)
         self._graph.add_conditional_edges(
-            AssistantNodeName.ROOT_TOOLS, root_node_tools.router, path_map=cast(dict[Hashable, str], path_map)
+            AssistantNodeName.ROOT, router or cast(Callable[[AssistantState], AssistantNodeName], root_node.router)
         )
+        self._graph.add_edge(AssistantNodeName.ROOT_TOOLS, AssistantNodeName.ROOT)
         return self
 
     def add_memory_onboarding(
