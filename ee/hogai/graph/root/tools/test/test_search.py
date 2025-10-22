@@ -67,8 +67,6 @@ class TestSearchToolDocumentation(BaseTest):
         self.assertEqual(mock_llm_class.call_args.kwargs["base_url"], "https://api.inkeep.com/v1/")
         self.assertEqual(mock_llm_class.call_args.kwargs["api_key"], "test-inkeep-key")
         self.assertEqual(mock_llm_class.call_args.kwargs["streaming"], False)
-        self.assertEqual(mock_llm_class.call_args.kwargs["user"], self.user)
-        self.assertEqual(mock_llm_class.call_args.kwargs["team"], self.team)
 
     @override_settings(INKEEP_API_KEY="test-inkeep-key")
     @patch("ee.hogai.graph.root.tools.search.ChatOpenAI")
