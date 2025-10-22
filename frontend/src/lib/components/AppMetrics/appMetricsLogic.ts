@@ -1,5 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
-import { lazyLoaders } from 'kea-loaders'
+import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
@@ -257,7 +257,7 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
             },
         ],
     })),
-    lazyLoaders(({ values }) => ({
+    loaders(({ values }) => ({
         appMetricsTrends: [
             null as AppMetricsTimeSeriesResponse | null,
             {
