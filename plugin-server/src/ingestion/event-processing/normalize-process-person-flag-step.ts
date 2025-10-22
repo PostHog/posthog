@@ -73,7 +73,7 @@ export function createNormalizeProcessPersonFlagStep(): ProcessingStep<
                     event: normalizedEvent,
                     processPerson,
                     forceDisablePersonProcessing,
-                } as EventPipelineRunnerInput,
+                },
                 [],
                 warnings
             )
