@@ -9,7 +9,7 @@ from posthog.test.base import (
 )
 
 from posthog.clickhouse.client import query_with_columns, sync_execute
-from posthog.models.raw_sessions.sql_v3 import RAW_SESSION_TABLE_BACKFILL_SQL_V3
+from posthog.models.raw_sessions.sessions_v3 import RAW_SESSION_TABLE_BACKFILL_SQL_V3
 from posthog.models.utils import uuid7
 
 distinct_id_counter = 0
