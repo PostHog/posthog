@@ -5,6 +5,7 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::info;
+use rand::Rng;
 
 /// Direct database pool access for different operation types
 #[derive(Clone)]
@@ -34,7 +35,7 @@ impl DatabasePools {
             },
             max_lifetime: if config.max_lifetime_secs > 0 {
                 let jitter = if config.max_lifetime_jitter_secs > 0 {
-                    rand::random::<u64>() % config.max_lifetime_jitter_secs
+                    rand::thread_rng().gen_range(0..config.max_lifetime_jitter_secs)
                 } else {
                     0
                 };
