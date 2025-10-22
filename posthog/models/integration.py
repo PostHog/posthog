@@ -15,6 +15,8 @@ from django.db import models
 import jwt
 import requests
 import structlog
+from disposable_email_domains import blocklist as disposable_email_domains_list
+from free_email_domains import whitelist as free_email_domains_list
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import service_account
 from prometheus_client import Counter
@@ -34,7 +36,7 @@ from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.sync import database_sync_to_async
 
-from products.messaging.backend.providers import MailjetProvider, SESProvider, TwilioProvider
+from products.workflows.backend.providers import MailjetProvider, SESProvider, TwilioProvider
 
 logger = structlog.get_logger(__name__)
 
@@ -70,6 +72,7 @@ class Integration(models.Model):
         SNAPCHAT = "snapchat"
         LINKEDIN_ADS = "linkedin-ads"
         REDDIT_ADS = "reddit-ads"
+        TIKTOK_ADS = "tiktok-ads"
         INTERCOM = "intercom"
         EMAIL = "email"
         LINEAR = "linear"
@@ -115,6 +118,8 @@ class Integration(models.Model):
             return self.integration_id or "unknown ID"
         if self.kind == "github":
             return dot_get(self.config, "account.name", self.integration_id)
+        if self.kind == "databricks":
+            return self.integration_id or "unknown ID"
         if self.kind == "email":
             return self.config.get("email", self.integration_id)
 
@@ -159,6 +164,7 @@ class OauthIntegration:
         "snapchat",
         "linkedin-ads",
         "reddit-ads",
+        "tiktok-ads",
         "meta-ads",
         "intercom",
         "linear",
@@ -370,6 +376,19 @@ class OauthIntegration:
                 name_path="reddit_user_id",  # Same as ID for Reddit
                 additional_authorize_params={"duration": "permanent"},
             )
+        elif kind == "tiktok-ads":
+            if not settings.TIKTOK_ADS_CLIENT_ID or not settings.TIKTOK_ADS_CLIENT_SECRET:
+                raise NotImplementedError("TikTok Ads app not configured")
+
+            return OauthConfig(
+                authorize_url="https://business-api.tiktok.com/portal/auth",
+                token_url="https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/",
+                client_id=settings.TIKTOK_ADS_CLIENT_ID,
+                client_secret=settings.TIKTOK_ADS_CLIENT_SECRET,
+                scope="",
+                id_path="data.advertiser_ids",
+                name_path="data.advertiser_ids",
+            )
         elif kind == "clickup":
             if not settings.CLICKUP_APP_CLIENT_ID or not settings.CLICKUP_APP_CLIENT_SECRET:
                 raise NotImplementedError("ClickUp app not configured")
@@ -397,14 +416,22 @@ class OauthIntegration:
     def authorize_url(cls, kind: str, token: str, next="") -> str:
         oauth_config = cls.oauth_config_for_kind(kind)
 
-        query_params = {
-            "client_id": oauth_config.client_id,
-            "scope": oauth_config.scope,
-            "redirect_uri": cls.redirect_uri(kind),
-            "response_type": "code",
-            "state": urlencode({"next": next, "token": token}),
-            **(oauth_config.additional_authorize_params or {}),
-        }
+        if kind == "tiktok-ads":
+            # TikTok uses different parameter names
+            query_params = {
+                "app_id": oauth_config.client_id,
+                "redirect_uri": cls.redirect_uri(kind),
+                "state": urlencode({"next": next, "token": token}),
+            }
+        else:
+            query_params = {
+                "client_id": oauth_config.client_id,
+                "scope": oauth_config.scope,
+                "redirect_uri": cls.redirect_uri(kind),
+                "response_type": "code",
+                "state": urlencode({"next": next, "token": token}),
+                **(oauth_config.additional_authorize_params or {}),
+            }
 
         return f"{oauth_config.authorize_url}?{urlencode(query_params)}"
 
@@ -426,6 +453,17 @@ class OauthIntegration:
                 },
                 headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
             )
+        elif kind == "tiktok-ads":
+            # TikTok Ads uses JSON request body instead of form data and maps 'code' to 'auth_code'
+            res = requests.post(
+                oauth_config.token_url,
+                json={
+                    "app_id": oauth_config.client_id,
+                    "secret": oauth_config.client_secret,
+                    "auth_code": params["code"],
+                },
+                headers={"Content-Type": "application/json"},
+            )
         else:
             res = requests.post(
                 oauth_config.token_url,
@@ -440,7 +478,14 @@ class OauthIntegration:
 
         config: dict = res.json()
 
-        if res.status_code != 200 or not config.get("access_token"):
+        access_token = None
+        if kind == "tiktok-ads":
+            # TikTok has a different response format - access_token is nested under 'data'
+            access_token = config.get("data", {}).get("access_token")
+        else:
+            access_token = config.get("access_token")
+
+        if res.status_code != 200 or not access_token:
             # Hack to try getting sandbox auth token instead of their salesforce production account
             if kind == "salesforce":
                 oauth_config = cls.oauth_config_for_kind("salesforce-sandbox")
@@ -509,9 +554,17 @@ class OauthIntegration:
 
         if isinstance(integration_id, int):
             integration_id = str(integration_id)
+        elif isinstance(integration_id, list) and len(integration_id) > 0:
+            integration_id = ",".join(str(item) for item in integration_id)
 
         if not isinstance(integration_id, str):
             raise Exception("Oauth error")
+
+        # Handle TikTok's nested response format
+        if kind == "tiktok-ads":
+            data = config.pop("data", {})
+            # Move other data fields to main config for TikTok
+            config.update(data)
 
         sensitive_config: dict = {
             "access_token": config.pop("access_token"),
@@ -585,6 +638,17 @@ class OauthIntegration:
                 },
                 # If I use a standard User-Agent, it will throw a 429 too many requests error
                 headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
+            )
+        elif self.integration.kind == "tiktok-ads":
+            res = requests.post(
+                "https://open.tiktokapis.com/v2/oauth/token/",
+                data={
+                    "client_key": oauth_config.client_id,  # TikTok uses client_key instead of client_id
+                    "client_secret": oauth_config.client_secret,
+                    "refresh_token": self.integration.sensitive_config["refresh_token"],
+                    "grant_type": "refresh_token",
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
         else:
             res = requests.post(
@@ -1087,6 +1151,15 @@ class EmailIntegration:
         name: str = config["name"]
         domain: str = email_address.split("@")[1]
         provider: str = config.get("provider", "mailjet")  # Default to mailjet for backward compatibility
+
+        if domain in free_email_domains_list or domain in disposable_email_domains_list:
+            raise ValidationError(f"Email domain {domain} is not supported. Please use a custom domain.")
+
+        # Check if any other integration already exists in a different team with the same domain
+        if Integration.objects.filter(kind="email", config__domain=domain).exclude(team_id=team_id).exists():
+            raise ValidationError(
+                f"An email integration with domain {domain} already exists in another project. Try a different domain or contact support if you believe this is a mistake."
+            )
 
         # Create domain in the appropriate provider
         if provider == "ses":
@@ -1861,9 +1934,9 @@ class DatabricksIntegration:
             sock.close()
         except OSError:
             raise DatabricksIntegrationError(
-                f"Databricks integration is not valid: could not connect to '{server_hostname}'"
+                f"Databricks integration error: could not connect to hostname '{server_hostname}'"
             )
         except Exception:
             raise DatabricksIntegrationError(
-                f"Databricks integration is not valid: could not connect to '{server_hostname}'"
+                f"Databricks integration error: could not connect to hostname '{server_hostname}'"
             )

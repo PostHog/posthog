@@ -16,6 +16,8 @@ import { DefinitionHeader, getEventDefinitionIcon } from 'scenes/data-management
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -130,10 +132,10 @@ export function EventDefinitionsTable(): JSX.Element {
     return (
         <SceneContent data-attr="manage-events-table">
             <SceneTitleSection
-                name="Event definitions"
-                description="Event definitions are a way to define events that can be used in your app or website."
+                name={sceneConfigurations[Scene.EventDefinition].name}
+                description={sceneConfigurations[Scene.EventDefinition].description}
                 resourceType={{
-                    type: 'event',
+                    type: sceneConfigurations[Scene.EventDefinition].iconType || 'default_icon_type',
                     forceIcon: <IconApps />,
                 }}
             />

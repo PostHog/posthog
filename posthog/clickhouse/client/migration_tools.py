@@ -18,7 +18,7 @@ def get_migrations_cluster():
 
 def run_sql_with_exceptions(
     sql: str,
-    node_roles: list[NodeRole] | None = None,
+    node_roles: list[NodeRole] | NodeRole | None = None,
     sharded: bool = False,
     is_alter_on_replicated_table: bool = False,
 ):
@@ -52,6 +52,9 @@ def run_sql_with_exceptions(
         Raised in certain scenarios when the input arguments conflict with the expected
         configuration, such as when the sharded flag is set for roles other than DATA.
     """
+
+    if node_roles and not isinstance(node_roles, list):
+        node_roles = [node_roles]
 
     node_roles = node_roles or [NodeRole.DATA]
 

@@ -11,6 +11,7 @@ import type { appLogicType } from './appLogicType'
 
 export const appLogic = kea<appLogicType>([
     path(['scenes', 'App']),
+
     connect([teamLogic, organizationLogic, preflightLogic]),
     actions({
         enableDelayedSpinner: true,
@@ -43,12 +44,14 @@ export const appLogic = kea<appLogicType>([
     }),
     events(({ actions, cache }) => ({
         afterMount: () => {
-            cache.spinnerTimeout = window.setTimeout(() => actions.enableDelayedSpinner(), 1000)
-            cache.featureFlagTimeout = window.setTimeout(() => actions.ignoreFeatureFlags(), 3000)
-        },
-        beforeUnmount: () => {
-            window.clearTimeout(cache.spinnerTimeout)
-            window.clearTimeout(cache.featureFlagTimeout)
+            cache.disposables.add(() => {
+                const timerId = window.setTimeout(() => actions.enableDelayedSpinner(), 1000)
+                return () => clearTimeout(timerId)
+            }, 'spinnerTimeout')
+            cache.disposables.add(() => {
+                const timerId = window.setTimeout(() => actions.ignoreFeatureFlags(), 3000)
+                return () => clearTimeout(timerId)
+            }, 'featureFlagTimeout')
         },
     })),
     urlToAction(({ actions }) => ({

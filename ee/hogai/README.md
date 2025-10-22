@@ -1,19 +1,16 @@
 # PostHog AI
 
-This directory contains the PostHog AI platform and its core features - known as Max AI.
+This directory contains the PostHog AI platform and its core features.
 
-[Getting started with Max.](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJFUP)
+[Getting started with PostHog AI.](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJFUP)
 
 ## For product teams: MaxTool
 
-Add new capabilities to our AI assistant Max using the MaxTool API. You can allow Max to do anything in your product: both perform backend actions and control the UI. A tool can itself involve an LLM call based on a prompt tailored to the tool's task, using arguments provided to the tool by the Max root + context passed from the frontend.
+Add new PostHog AI capabilities using the MaxTool API. You can allow our AI agent to do anything in your product: both perform backend actions and control the UI. A tool can itself involve an LLM call based on a prompt tailored to the tool's task, using arguments provided to the tool by the root node + context passed from the frontend.
 
-To implement a MaxTool you first define it in the backend, then you mount it in the frontend. The backend definition contains the tool's metadata for Max (what is it, how to use it, when to use it, what arguments it takes) and its actual implementation. The frontend React mount point makes the tool available to Max - i.e. the tool is only available when the UI being automated is present.
+To implement a MaxTool you first define it in the backend, then you mount it in the frontend. The backend definition contains the tool's metadata for the LLM (what is it, how to use it, when to use it, what arguments it takes) and its actual implementation. The frontend React mount point makes the tool available - i.e. the tool can only be called when the UI being automated is present.
 
-You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJFUP) in order to hack on this – just ask in #team-max-ai to get those API keys.
-
-> [!NOTE]
-> Max AI is currently behind the `artificial-hog` flag - make sure to enable it.
+You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJFUP) in order to hack on this – just ask in #team-posthog-ai to get those API keys.
 
 ### Defining
 
@@ -41,7 +38,7 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
         name: str = "your_tool_name"  # Must match a value in AssistantContextualTool enum
         description: str = "What this tool does"
         thinking_message: str = "What to show while tool is working"
-        root_system_prompt_template: str = "Context about the tool state: {context_var}"
+        context_prompt_template: str = "Context about the tool state: {context_var}"
         args_schema: type[BaseModel] = YourToolArgs
 
         async def _arun_impl(self, parameter_name: str) -> tuple[str, YourToolOutput]:
@@ -114,11 +111,11 @@ For an example, see `frontend/src/scenes/session-recordings/filters/RecordingsUn
 
 ### Iterating
 
-Once you have an initial version of the tool in place, **test the heck out of it**. Try everything you'd want as a regular user, and tune all aspects of the tool as needed: prompt, description, `root_system_prompt_template`, context from the frontend.
+Once you have an initial version of the tool in place, **test the heck out of it**. Try everything you'd want as a regular user, and tune all aspects of the tool as needed: tool name, tool description, prompt of the context messages (`context_prompt_template`), and context from the frontend.
 
 When developing, get full visibility into what the tool is doing using local PostHog LLM analytics: [http://localhost:8010/llm-analytics/traces](http://localhost:8010/llm-analytics/traces). Each _trace_ represents one human message submitted to Max, and shows the whole sequence of steps taken to answer that message.
 
-If you've got any requests for Max, including around tools, let us know at #team-max-ai in Slack!
+If you've got any requests for Max, including around tools, let us know at #team-posthog-ai in Slack!
 
 ### Best practices for LLM-based tools
 

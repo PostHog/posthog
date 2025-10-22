@@ -40,7 +40,7 @@ def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> Playwri
         "now": fixed_now,  # Fixed time for consistent data generation
         "days_past": 30,
         "days_future": 0,
-        "n_clusters": 10,
+        "n_clusters": 3,  # Reduced from 10 for faster test execution
         "dry_run": False,
         "team_id": None,
         "email": user_email,

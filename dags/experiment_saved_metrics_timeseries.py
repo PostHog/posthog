@@ -18,12 +18,13 @@ from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, Experim
 
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
+from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.models.experiment import Experiment, ExperimentMetricResult
 
 from dags.common import JobOwners
 from dags.experiments import (
     _parse_partition_key,
-    discover_experiment_metric_partitions,
+    refresh_experiment_metric_partitions,
     remove_step_sessions_from_experiment_result,
     schedule_experiment_metric_partitions,
 )
@@ -225,7 +226,7 @@ def _get_experiment_saved_metrics_timeseries(context: dagster.SensorEvaluationCo
             fingerprint = compute_metric_fingerprint(
                 saved_metric.query,
                 experiment.start_date,
-                experiment.stats_config,
+                get_experiment_stats_method(experiment),
                 experiment.exposure_criteria,
             )
 
@@ -259,7 +260,7 @@ def experiment_saved_metrics_timeseries_discovery_sensor(context: dagster.Sensor
     analysis. When new combinations are found, it creates dynamic partitions for the
     experiment_saved_metrics_timeseries asset and triggers processing only for the new partitions.
     """
-    return discover_experiment_metric_partitions(
+    return refresh_experiment_metric_partitions(
         context=context,
         partition_name=EXPERIMENT_SAVED_METRICS_PARTITIONS_NAME,
         partitions_def=experiment_saved_metrics_partitions_def,

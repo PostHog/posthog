@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconCopy, IconInfo, IconUser } from '@posthog/icons'
+import { IconChevronDown, IconCopy, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -16,6 +16,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 import { openInAdminPanel } from 'lib/utils/person-actions'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
@@ -23,7 +24,8 @@ import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/Note
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -136,15 +138,14 @@ export function PersonScene(): JSX.Element | null {
     const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
-        <SceneContent>
+        <SceneContent fullHeight>
             <SceneTitleSection
                 name="Person"
                 resourceType={{
-                    type: 'person',
-                    forceIcon: <IconUser />,
+                    type: sceneConfigurations[Scene.Person].iconType || 'default_icon_type',
                 }}
                 forceBackTo={{
-                    name: 'People',
+                    name: sceneConfigurations[Scene.Persons].name,
                     path: urls.persons(),
                     key: 'people',
                 }}
@@ -197,6 +198,11 @@ export function PersonScene(): JSX.Element | null {
                     navigateToTab(tab as PersonsTabType)
                 }}
                 data-attr="persons-tabs"
+                className="grow"
+                contentClassName={cn({
+                    'flex flex-col grow': currentTab === PersonsTabType.SESSION_RECORDINGS,
+                })}
+                sceneInset
                 tabs={[
                     feedEnabled
                         ? {
@@ -252,14 +258,12 @@ export function PersonScene(): JSX.Element | null {
                                         </LemonBanner>
                                     </div>
                                 ) : null}
-                                <div className="SessionRecordingPlaylistHeightWrapper">
-                                    <SessionRecordingsPlaylist
-                                        logicKey={`person-scene-${person.uuid}`}
-                                        personUUID={person.uuid}
-                                        distinctIds={person.distinct_ids}
-                                        updateSearchParams
-                                    />
-                                </div>
+                                <SessionRecordingsPlaylist
+                                    logicKey={`person-scene-${person.uuid}`}
+                                    personUUID={person.uuid}
+                                    distinctIds={person.distinct_ids}
+                                    updateSearchParams
+                                />
                             </>
                         ),
                     },

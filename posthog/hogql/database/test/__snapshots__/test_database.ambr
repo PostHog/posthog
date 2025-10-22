@@ -73,6 +73,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
@@ -148,6 +149,7 @@
          "posthog_datawarehousesavedquery"."table_id",
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
+         "posthog_datawarehousesavedquery"."managed_viewset_id",
          "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
          "posthog_datawarehousetable"."updated_at",
@@ -158,6 +160,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
@@ -173,6 +176,7 @@
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
+         AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
   '''
@@ -219,6 +223,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
@@ -326,6 +331,7 @@
          "posthog_datawarehousesavedquery"."table_id",
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
+         "posthog_datawarehousesavedquery"."managed_viewset_id",
          "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
          "posthog_datawarehousetable"."updated_at",
@@ -336,6 +342,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
@@ -351,6 +358,7 @@
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
+         AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
   '''
@@ -476,6 +484,16 @@
                   "hogql_value": "`$window_id`",
                   "id": null,
                   "name": "$window_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "person_mode": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "person_mode",
+                  "id": null,
+                  "name": "person_mode",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
@@ -2969,6 +2987,16 @@
                   "hogql_value": "`$window_id`",
                   "id": null,
                   "name": "$window_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "person_mode": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "person_mode",
+                  "id": null,
+                  "name": "person_mode",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"

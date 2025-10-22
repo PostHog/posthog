@@ -19,10 +19,13 @@ use tower_http::{
 };
 
 use crate::{
-    api::endpoint,
+    api::{endpoint, flag_definitions, rate_limiter::FlagDefinitionsRateLimiter},
     cohorts::cohort_cache_manager::CohortCacheManager,
     config::{Config, TeamIdCollection},
-    metrics::utils::team_id_label_filter,
+    metrics::{
+        consts::{FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_REQUESTS_COUNTER},
+        utils::team_id_label_filter,
+    },
 };
 
 #[derive(Clone)]
@@ -36,6 +39,7 @@ pub struct State {
     pub feature_flags_billing_limiter: FeatureFlagsLimiter,
     pub session_replay_billing_limiter: SessionReplayLimiter,
     pub cookieless_manager: Arc<CookielessManager>,
+    pub flag_definitions_limiter: FlagDefinitionsRateLimiter,
     pub config: Config,
 }
 
@@ -56,6 +60,15 @@ where
     RR: RedisClient + Send + Sync + 'static,
     RW: RedisClient + Send + Sync + 'static,
 {
+    // Initialize flag definitions rate limiter with default and custom team rates
+    let flag_definitions_limiter = FlagDefinitionsRateLimiter::new(
+        config.flag_definitions_default_rate_per_minute,
+        config.flag_definitions_rate_limits.0.clone(),
+        FLAG_DEFINITIONS_REQUESTS_COUNTER,
+        FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
+    )
+    .expect("Failed to initialize flag definitions rate limiter");
+
     let state = State {
         redis_reader,
         redis_writer,
@@ -66,6 +79,7 @@ where
         feature_flags_billing_limiter,
         session_replay_billing_limiter,
         cookieless_manager,
+        flag_definitions_limiter,
         config: config.clone(),
     };
 
@@ -87,6 +101,14 @@ where
     let flags_router = Router::new()
         .route("/flags", any(endpoint::flags))
         .route("/flags/", any(endpoint::flags))
+        .route(
+            "/flags/definitions",
+            any(flag_definitions::flags_definitions),
+        )
+        .route(
+            "/flags/definitions/",
+            any(flag_definitions::flags_definitions),
+        )
         .route("/decide", any(endpoint::flags))
         .route("/decide/", any(endpoint::flags))
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency));

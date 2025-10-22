@@ -39,7 +39,7 @@ jobs:
               with:
                   path: storybook-build
                   repository: PostHog/storybook-build
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Copy built changes to PostHog/storybook-build repo
               run: |

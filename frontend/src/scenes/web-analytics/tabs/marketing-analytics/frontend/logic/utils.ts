@@ -1,4 +1,5 @@
 import {
+    AttributionMode,
     ConversionGoalFilter,
     CurrencyCode,
     DataWarehouseNode,
@@ -16,7 +17,7 @@ import { NativeSource } from './marketingAnalyticsLogic'
 
 export type NativeMarketingSource = Extract<
     ExternalDataSourceType,
-    'GoogleAds' | 'RedditAds' | 'LinkedinAds' | 'MetaAds'
+    'GoogleAds' | 'RedditAds' | 'LinkedinAds' | 'MetaAds' | 'TikTokAds'
 >
 export type NonNativeMarketingSource = Extract<ExternalDataSourceType, 'BigQuery'>
 
@@ -25,6 +26,7 @@ export const VALID_NATIVE_MARKETING_SOURCES: NativeMarketingSource[] = [
     'RedditAds',
     'LinkedinAds',
     'MetaAds',
+    'TikTokAds',
 ]
 
 export const VALID_NON_NATIVE_MARKETING_SOURCES: NonNativeMarketingSource[] = ['BigQuery']
@@ -49,12 +51,30 @@ export const REDDIT_ADS_CAMPAIGN_STATS_TABLE_NAME = 'campaign_report'
 export const META_ADS_CAMPAIGN_TABLE_NAME = 'campaigns'
 export const META_ADS_CAMPAIGN_STATS_TABLE_NAME = 'campaign_stats'
 
+export const TIKTOK_ADS_CAMPAIGN_TABLE_NAME = 'campaigns'
+export const TIKTOK_ADS_CAMPAIGN_REPORT_TABLE_NAME = 'campaign_report'
+
 export const NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS: Record<NativeMarketingSource, string[]> = {
     GoogleAds: [GOOGLE_ADS_CAMPAIGN_TABLE_NAME, GOOGLE_ADS_CAMPAIGN_STATS_TABLE_NAME],
     LinkedinAds: [LINKEDIN_ADS_CAMPAIGN_TABLE_NAME, LINKEDIN_ADS_CAMPAIGN_STATS_TABLE_NAME],
     RedditAds: [REDDIT_ADS_CAMPAIGN_TABLE_NAME, REDDIT_ADS_CAMPAIGN_STATS_TABLE_NAME],
     MetaAds: [META_ADS_CAMPAIGN_TABLE_NAME, META_ADS_CAMPAIGN_STATS_TABLE_NAME],
+    TikTokAds: [TIKTOK_ADS_CAMPAIGN_TABLE_NAME, TIKTOK_ADS_CAMPAIGN_REPORT_TABLE_NAME],
 }
+
+export const MAX_ATTRIBUTION_WINDOW_DAYS = 90
+export const MIN_ATTRIBUTION_WINDOW_DAYS = 1
+export const DEFAULT_ATTRIBUTION_WINDOW_DAYS = 90
+export const DEFAULT_ATTRIBUTION_MODE = AttributionMode.LastTouch
+
+export const ATTRIBUTION_WINDOW_OPTIONS = [
+    { value: 1, label: '1 day' },
+    { value: 7, label: '1 week (7 days)' },
+    { value: 14, label: '2 weeks (14 days)' },
+    { value: 30, label: '1 month (30 days)' },
+    { value: 90, label: '3 months (90 days)' },
+    { value: 'custom', label: 'Custom' },
+]
 
 export function MarketingDashboardMapper(
     source: NativeSource,
@@ -272,6 +292,35 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
                     return {
                         math: 'hogql' as any,
                         math_hogql: 'SUM(toFloat(conversions))',
+                    }
+                }
+                return {
+                    math: 'hogql' as any,
+                    math_hogql: '0',
+                }
+            }
+            return null
+        },
+    },
+    TikTokAds: {
+        statsTableName: 'campaign_report',
+        displayName: 'tiktok',
+        idField: 'campaign_id',
+        timestampField: 'stat_time_day',
+        columnMappings: {
+            cost: 'spend',
+            impressions: 'impressions',
+            clicks: 'clicks',
+            reportedConversion: 'conversion',
+        },
+        specialConversionLogic: (table, tileColumnSelection) => {
+            if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
+                // If TikTok does not return conversion it won't be in the table.fields.
+                const hasConversionsColumn = table.fields && 'conversion' in table.fields
+                if (hasConversionsColumn) {
+                    return {
+                        math: 'hogql' as any,
+                        math_hogql: 'SUM(toFloat(conversion))',
                     }
                 }
                 return {
