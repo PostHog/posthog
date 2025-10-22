@@ -4,7 +4,11 @@ import { cloneObject } from '~/utils/utils'
 
 import { InternalPerson } from '../../../types'
 import { logger } from '../../../utils/logger'
-import { personProfileUpdateOutcomeCounter, personPropertyKeyUpdateCounter } from './metrics'
+import {
+    personProfileIgnoredPropertiesCounter,
+    personProfileUpdateOutcomeCounter,
+    personPropertyKeyUpdateCounter,
+} from './metrics'
 import { eventToPersonProperties, initialEventToPersonProperties } from './person-property-utils'
 
 export interface PropertyUpdates {
@@ -85,6 +89,10 @@ export function computeEventPropertyUpdates(event: PluginEvent, personProperties
         personProfileUpdateOutcomeCounter.labels({ outcome: 'changed' }).inc()
     } else if (hasPropertyChanges) {
         personProfileUpdateOutcomeCounter.labels({ outcome: 'ignored' }).inc()
+        // Track which specific properties were ignored
+        Object.keys(toSet).forEach((propertyName) => {
+            personProfileIgnoredPropertiesCounter.labels({ property: propertyName }).inc()
+        })
     } else {
         personProfileUpdateOutcomeCounter.labels({ outcome: 'no_change' }).inc()
     }

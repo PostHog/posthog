@@ -1,11 +1,16 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { personProfileUpdateOutcomeCounter } from './metrics'
+import { personProfileIgnoredPropertiesCounter, personProfileUpdateOutcomeCounter } from './metrics'
 import { eventToPersonProperties } from './person-property-utils'
 import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
 
 jest.mock('./metrics', () => ({
     personProfileUpdateOutcomeCounter: {
+        labels: jest.fn().mockReturnValue({
+            inc: jest.fn(),
+        }),
+    },
+    personProfileIgnoredPropertiesCounter: {
         labels: jest.fn().mockReturnValue({
             inc: jest.fn(),
         }),
@@ -19,6 +24,10 @@ jest.mock('./metrics', () => ({
 
 const mockPersonProfileUpdateOutcomeCounter = personProfileUpdateOutcomeCounter as jest.Mocked<
     typeof personProfileUpdateOutcomeCounter
+>
+
+const mockPersonProfileIgnoredPropertiesCounter = personProfileIgnoredPropertiesCounter as jest.Mocked<
+    typeof personProfileIgnoredPropertiesCounter
 >
 
 describe('person-update', () => {
@@ -44,6 +53,7 @@ describe('person-update', () => {
                 expect(result.toSet).toEqual({ custom_prop: 'new_value' })
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
                 expect(mockPersonProfileUpdateOutcomeCounter.labels({ outcome: 'changed' }).inc).toHaveBeenCalled()
+                expect(mockPersonProfileIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
             })
 
             it('should track "changed" when properties are unset', () => {
@@ -134,6 +144,12 @@ describe('person-update', () => {
                     expect(result.toSet).toEqual({ [propertyName]: 'new_value' })
                     expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
                     expect(mockPersonProfileUpdateOutcomeCounter.labels({ outcome: 'ignored' }).inc).toHaveBeenCalled()
+                    expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
+                        property: propertyName,
+                    })
+                    expect(
+                        mockPersonProfileIgnoredPropertiesCounter.labels({ property: propertyName }).inc
+                    ).toHaveBeenCalled()
                 }
             )
 
@@ -152,6 +168,9 @@ describe('person-update', () => {
                 expect(result.hasChanges).toBe(false)
                 expect(result.toSet).toEqual({ $geoip_city_name: 'San Francisco' })
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
+                expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
+                    property: '$geoip_city_name',
+                })
             })
 
             it('should track "ignored" when mixing eventToPersonProperties with unchanged custom properties', () => {
@@ -169,6 +188,41 @@ describe('person-update', () => {
                 expect(result.hasChanges).toBe(false)
                 expect(result.toSet).toEqual({ $browser: 'Chrome' })
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
+                expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({ property: '$browser' })
+            })
+
+            it('should track all ignored properties when multiple eventToPersonProperties are updated', () => {
+                const event: PluginEvent = {
+                    event: 'pageview',
+                    properties: {
+                        $set: {
+                            $browser: 'Chrome',
+                            utm_source: 'google',
+                            utm_campaign: 'spring_sale',
+                            $os: 'macOS',
+                        },
+                    },
+                } as any
+
+                const personProperties = {
+                    $browser: 'Firefox',
+                    utm_source: 'twitter',
+                    utm_campaign: 'winter_sale',
+                    $os: 'Windows',
+                }
+
+                const result = computeEventPropertyUpdates(event, personProperties)
+
+                expect(result.hasChanges).toBe(false)
+                expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
+                expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({ property: '$browser' })
+                expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
+                    property: 'utm_source',
+                })
+                expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
+                    property: 'utm_campaign',
+                })
+                expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({ property: '$os' })
             })
         })
 
@@ -187,6 +241,7 @@ describe('person-update', () => {
                 expect(result.toSet).toEqual({})
                 expect(result.toUnset).toEqual([])
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'no_change' })
+                expect(mockPersonProfileIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
             })
 
             it('should track "no_change" when all properties have the same value', () => {
