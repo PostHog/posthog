@@ -97,7 +97,7 @@ fn test_index_inject() {
 #[test]
 fn test_pair_remove() {
     let case_path = get_case_path("inject");
-    let mut pairs = read_pairs(&case_path, &Vec::new()).expect("Failed to read pairs");
+    let mut pairs = read_pairs(&case_path, &Vec::new(), &None).expect("Failed to read pairs");
     assert_eq!(pairs.len(), 1);
     let current_pair = pairs.first_mut().expect("Failed to get first pair");
     let chunk_id = "00000-00000-00000";
@@ -120,7 +120,7 @@ fn test_pair_remove() {
 #[test]
 fn test_reinject_without_new_release() {
     let case_path = get_case_path("reinject");
-    let pairs = read_pairs(&case_path, &Vec::new()).expect("Failed to read pairs");
+    let pairs = read_pairs(&case_path, &Vec::new(), &None).expect("Failed to read pairs");
     assert_eq!(pairs.len(), 1);
     let injected_pairs = inject_pairs(pairs, None).expect("Failed to inject pairs");
     let first_pair = injected_pairs.first().expect("Failed to get first pair");
@@ -135,7 +135,7 @@ fn test_reinject_without_new_release() {
 #[test]
 fn test_reinject_with_new_release() {
     let case_path = get_case_path("reinject");
-    let pairs = read_pairs(&case_path, &Vec::new()).expect("Failed to read pairs");
+    let pairs = read_pairs(&case_path, &Vec::new(), &None).expect("Failed to read pairs");
     assert_eq!(pairs.len(), 1);
     let release_id = uuid::Uuid::now_v7().to_string();
     let injected_pairs =
