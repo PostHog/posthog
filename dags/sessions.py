@@ -1,6 +1,7 @@
 from dagster import AssetExecutionContext, BackfillPolicy, MonthlyPartitionsDefinition, asset
 
 from posthog.clickhouse.client import sync_execute
+from posthog.git import get_git_commit_short
 from posthog.models.raw_sessions.sessions_v3 import RAW_SESSION_TABLE_BACKFILL_SQL_V3
 
 # Each partition is pretty heavy, as it's an entire month of events, so this number doesn't need to be high
@@ -36,7 +37,9 @@ def sessions_v3_backfill(context: AssetExecutionContext):
     # as long as the backfill has run at least once for each partition, the data will be correct
     backfill_sql = RAW_SESSION_TABLE_BACKFILL_SQL_V3(where=where_clause)
 
-    context.log.info(f"Running backfill for {context.partition_key} (where='{where_clause}')")
+    context.log.info(
+        f"Running backfill for {context.partition_key} (where='{where_clause}') using commit {get_git_commit_short()} "
+    )
 
     sync_execute(backfill_sql)
 
