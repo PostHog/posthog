@@ -5,7 +5,7 @@ import { urls } from 'scenes/urls'
 
 import { ExternalDataSource } from '~/types'
 
-import { ExternalTable, marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
+import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { NonNativeMarketingSource, VALID_NON_NATIVE_MARKETING_SOURCES } from '../../logic/utils'
 import { SharedExternalDataSourceConfiguration } from './SharedExternalDataSourceConfiguration'
 
@@ -13,9 +13,9 @@ import { SharedExternalDataSourceConfiguration } from './SharedExternalDataSourc
 // to the correct fields in the Marketing Analytics product.
 // These sources don't have predefined schemas like native integrations, so users need to manually map their columns.
 export function NonNativeExternalDataSourceConfiguration(): JSX.Element {
-    const { externalTables, loading } = useValues(marketingAnalyticsLogic)
+    const { externalTablesWithStatus, loading } = useValues(marketingAnalyticsLogic)
 
-    const tables: ExternalTable[] = externalTables.filter((source) =>
+    const tables = externalTablesWithStatus.filter((source) =>
         VALID_NON_NATIVE_MARKETING_SOURCES.includes(source.source_type as NonNativeMarketingSource)
     )
     const handleSourceAdd = (source: ExternalDataSource['source_type']): void => {
