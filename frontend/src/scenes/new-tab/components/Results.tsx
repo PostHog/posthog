@@ -27,6 +27,7 @@ import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
 import { SidePanelTab } from '~/types'
 
 import { convertToTreeDataItem, getCategoryDisplayName } from '../NewTabScene'
+import { NoResultsFound } from './NoResultsFound'
 
 function Category({
     tabId,
@@ -53,6 +54,7 @@ function Category({
         propertyDefinitionSearchResults,
         newTabSceneDataGroupedItemsFullData,
         getSectionItemLimit,
+        newTabSceneDataInclude,
     } = useValues(newTabSceneLogic({ tabId }))
     const { showMoreInSection } = useActions(newTabSceneLogic({ tabId }))
 
@@ -60,7 +62,7 @@ function Category({
         <>
             <div
                 className={cn('mb-8', {
-                    'mb-4 @xl/main-content:flex @xl/main-content:flex-row @xl/main-content:gap-x-4': newTabSceneData,
+                    'mb-0 @xl/main-content:flex @xl/main-content:flex-row @xl/main-content:gap-x-4': newTabSceneData,
                 })}
                 key={category}
             >
@@ -147,20 +149,31 @@ function Category({
                             )}
                         </>
                         {category === 'recents' && isSearching && <Spinner size="small" />}
+                        {/* Show "No results found" tag for other categories when empty and include is NOT 'all' */}
+                        {newTabSceneData &&
+                            !['persons', 'eventDefinitions', 'propertyDefinitions'].includes(category) &&
+                            typedItems.length === 0 &&
+                            !newTabSceneDataInclude.includes('all') && (
+                                <LemonTag className="text-xs text-tertiary" size="small">
+                                    No results found
+                                </LemonTag>
+                            )}
                     </div>
                 </div>
-                <div className={cn('flex flex-col gap-2', { '@xl/main-content:grow min-w-0': newTabSceneData })}>
-                    {category === 'recents' && typedItems.length === 0 ? (
-                        // Special handling for empty project items and persons
-                        <div className="flex flex-col gap-2 text-tertiary text-balance">
-                            {isSearching ? (
+                <div
+                    className={cn('flex flex-col gap-2', {
+                        '@xl/main-content:grow min-w-0 empty:hidden': newTabSceneData,
+                    })}
+                >
+                    {typedItems.length === 0 ? (
+                        // Show loading for recents when searching, otherwise show nothing (tag shows in header)
+                        category === 'recents' && isSearching ? (
+                            <div className="flex flex-col gap-2 text-tertiary text-balance">
                                 <WrappingLoadingSkeleton>
                                     <ButtonPrimitive>Loading items...</ButtonPrimitive>
                                 </WrappingLoadingSkeleton>
-                            ) : (
-                                <ButtonPrimitive inert>No results found</ButtonPrimitive>
-                            )}
-                        </div>
+                            </div>
+                        ) : null
                     ) : (
                         typedItems.map((item, index) => {
                             const focusFirst =
@@ -318,10 +331,12 @@ export function Results({
     tabId,
     searchInputRef,
     listboxRef,
+    handleAskAi,
 }: {
     tabId: string
     searchInputRef: React.RefObject<HTMLInputElement>
     listboxRef: React.RefObject<ListBoxHandle>
+    handleAskAi: (question?: string) => void
 }): JSX.Element {
     const {
         filteredItemsGrid,
@@ -370,35 +385,13 @@ export function Results({
 
         return orderedSections
             .map((section) => [section, newTabSceneDataGroupedItems[section] || []] as [string, any[]])
-            .filter(([section, items]) => {
-                // When searching, hide empty data sections (persons, events, properties)
-                const isSearching = search.trim() !== ''
-                const isDataSection = ['persons', 'eventDefinitions', 'propertyDefinitions'].includes(section)
-
-                if (isSearching && isDataSection && items.length === 0) {
-                    return false
+            .filter(([, items]) => {
+                // If include is NOT 'all', keep all enabled sections visible (even when empty)
+                if (!showAll) {
+                    return true
                 }
 
-                // Always show enabled sections for data sections when not searching
-                if (section === 'persons' && (showAll || newTabSceneDataInclude.includes('persons'))) {
-                    return true
-                }
-                if (
-                    section === 'eventDefinitions' &&
-                    (showAll || newTabSceneDataInclude.includes('eventDefinitions'))
-                ) {
-                    return true
-                }
-                if (
-                    section === 'propertyDefinitions' &&
-                    (showAll || newTabSceneDataInclude.includes('propertyDefinitions'))
-                ) {
-                    return true
-                }
-                if (section === 'askAI' && (showAll || newTabSceneDataInclude.includes('askAI'))) {
-                    return true
-                }
-                // Hide empty categories for other sections
+                // If include is 'all', hide empty sections
                 return items.length > 0
             })
     }, [newTabSceneData, groupedFilteredItems, newTabSceneDataGroupedItems, newTabSceneDataInclude, isAIAvailable])
@@ -417,6 +410,11 @@ export function Results({
 
     // Track whether we have any results
     const hasResults = allCategories.some(([, items]) => items.length > 0)
+
+    // Check if we should show NoResultsFound component
+    // (include='all' + search term + no results + flag on)
+    const shouldShowGlobalNoResults =
+        newTabSceneData && newTabSceneDataInclude.includes('all') && search.trim() !== '' && !hasResults && !isSearching
 
     // Focus first item when search is complete and we have results
     useEffect(() => {
@@ -534,6 +532,9 @@ export function Results({
                     key={category}
                 />
             ))}
+
+            {/* Show NoResultsFound when include='all' + search term + no results */}
+            {shouldShowGlobalNoResults && <NoResultsFound handleAskAi={handleAskAi} />}
 
             {/* Show "No results found" when there's a search term but no results */}
             {!newTabSceneData && filteredItemsGrid.length === 0 && !isSearching ? (

@@ -412,6 +412,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                     tabId={tabId || ''}
                                     searchInputRef={commandInputRef.current?.getInputRef() || { current: null }}
                                     listboxRef={listboxRef}
+                                    handleAskAi={handleAskAi}
                                 />
                             </div>
                         )}
