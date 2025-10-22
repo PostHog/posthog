@@ -2,15 +2,17 @@ from typing import Any, Literal
 
 from django.conf import settings
 
+import posthoganalytics
+from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
-from ee.hogai.graph.root.tools.full_text_search.toolkit import ENTITY_MAP, EntitySearchToolkit
+from posthog.models import Team, User
+
+from ee.hogai.graph.root.tools.full_text_search.tool import ENTITY_MAP, EntitySearchToolkit, EntityType
 from ee.hogai.tool import MaxTool
-from ee.hogai.utils.types.base import EntityType
+from ee.hogai.utils.types import AssistantState
 
-SEARCH_TOOL_PROMPT = """
-Use this tool to search docs, insights, or PostHog entities by using natural language.
-
+DOC_SEARCH_TOOL_PROMPT = """
 # Documentation search
 
 This tool is absolutely NECESSARY to answer PostHog-related questions accurately, as our product and docs change all the time:
@@ -41,6 +43,9 @@ Examples:
 - Wants to delete events from PostHog
 
 If the user's question should be satisfied by using insights, do that before answering using documentation.
+""".strip()
+
+INSIGHTS_SEARCH_TOOL_PROMPT = """
 
 # Insights search
 
@@ -49,25 +54,28 @@ Use this tool when you can assume that an insight you want to analyze was alread
 Examples:
 - Product-specific metrics that most likely exist.
 - Common sense metrics that are relevant to the product.
+""".strip()
 
-# Full-text entity search
 
-Use this tool to find PostHog entities using full-text search aka FTS.
+ENTITY_SEARCH_TOOL_PROMPT = """
+
+# Other entity kinds
+
+Use this tool to find PostHog entities using full-text search.
 Full-text search is a more powerful way to find entities than natural language search. It relies on the PostgreSQL full-text search capabilities.
 So the query used in this tool should be a natural language query that is optimized for full-text search, consider tokenizing of the query and using synonyms.
-
-- Use this tool when users ask to find, search for, or look up any PostHog entity.
-- When using this tool, you should use the entity type in the format of `{{entity}}_fts`.
-For example, if you want to search for dashboards, you should use `dashboard_fts`.
-- If you want to search for all entities, you should use `all_fts`.
+If you want to search for all entities, you should use `all`.
 
 The supported PostHog entity types are:
-`{fts_entities}`
+{fts_entities}
 
-""".format(fts_entities="\n".join([f"- {entity_name}" for entity_name in ENTITY_MAP.keys()])).strip()
+""".strip()
 
-FTS_ENTITIES: list[str] = [f"{entity}_fts" for entity in [EntityType.ALL, *ENTITY_MAP.keys()]]
-SearchKind = Literal["insights", "docs", *FTS_ENTITIES]  # type: ignore
+FTS_SEARCH_FEATURE_FLAG = "hogai-insights-fts-search"
+
+ENTITIES = [f"{entity}" for entity in [EntityType.ALL, *ENTITY_MAP.keys()] if entity != EntityType.INSIGHT]
+
+SearchKind = Literal["insight", "doc", *ENTITIES]  # type: ignore
 
 
 class SearchToolArgs(BaseModel):
@@ -79,20 +87,69 @@ class SearchToolArgs(BaseModel):
 
 class SearchTool(MaxTool):
     name: Literal["search"] = "search"
-    description: str = SEARCH_TOOL_PROMPT
     thinking_message: str = "Searching for information"
-    context_prompt_template: str = "Searches documentation, insights, or entities in PostHog"
+    description: str = ""
+    context_prompt_template: str = "Searches documentation, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, and surveys in PostHog"
     args_schema: type[BaseModel] = SearchToolArgs
     show_tool_call_message: bool = False
 
+    @staticmethod
+    def _get_fts_entities(include_insight_fts: bool) -> list[str]:
+        if not include_insight_fts:
+            entities = [e for e in ENTITY_MAP.keys() if e != EntityType.INSIGHT]
+        else:
+            entities = list(ENTITY_MAP.keys())
+        return [*entities, EntityType.ALL.value]
+
+    @staticmethod
+    def _build_search_prompt(include_insight_fts: bool) -> str:
+        fts_entities = SearchTool._get_fts_entities(include_insight_fts)
+        entity_list = "\n".join([f"- {entity_name}" for entity_name in fts_entities])
+
+        return f"""
+            Use this tool to search docs, insights, and PostHog entities by using natural language.
+            {DOC_SEARCH_TOOL_PROMPT}
+            {INSIGHTS_SEARCH_TOOL_PROMPT if not include_insight_fts else ""}
+            {ENTITY_SEARCH_TOOL_PROMPT.format(fts_entities=entity_list)}
+        """.strip()
+
+    @classmethod
+    async def create_tool_class(
+        cls,
+        *,
+        team: Team,
+        user: User,
+        state: AssistantState | None = None,
+        config: RunnableConfig | None = None,
+    ) -> "SearchTool":
+        # Check feature flag before creating instance
+        has_insight_fts = posthoganalytics.feature_enabled(
+            FTS_SEARCH_FEATURE_FLAG,
+            str(user.distinct_id),
+            groups={"organization": str(team.organization_id)},
+            group_properties={"organization": {"id": str(team.organization_id)}},
+            send_feature_flag_events=False,
+        )
+        description = SearchTool._build_search_prompt(has_insight_fts)
+        return cls(team=team, user=user, state=state, config=config, description=description)
+
     async def _arun_impl(self, kind: SearchKind, query: str) -> tuple[str, dict[str, Any] | None]:
-        if kind == "docs" and not settings.INKEEP_API_KEY:
+        if kind == "doc" and not settings.INKEEP_API_KEY:
             return "This tool is not available in this environment.", None
 
-        if kind in FTS_ENTITIES:
-            entity_search_toolkit = EntitySearchToolkit(self._team, self._user)
-            response = await entity_search_toolkit.execute(query, kind.replace("_fts", ""))
-            return response, None
+        fts_entities = SearchTool._get_fts_entities(
+            posthoganalytics.feature_enabled(
+                FTS_SEARCH_FEATURE_FLAG,
+                str(self._user.distinct_id),
+                groups={"organization": str(self._team.organization_id)},
+                group_properties={"organization": {"id": str(self._team.organization_id)}},
+                send_feature_flag_events=False,
+            )
+        )
 
+        if kind in fts_entities:
+            entity_search_toolkit = EntitySearchToolkit(self._team, self._user)
+            response = await entity_search_toolkit.execute(query, kind)
+            return response, None
         # Used for routing
         return "Search tool executed", SearchToolArgs(kind=kind, query=query).model_dump()

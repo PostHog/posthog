@@ -482,13 +482,13 @@ class RootNodeTools(AssistantNode):
         # Handle the basic toolkit
         if result.name == "search" and isinstance(result.artifact, dict):
             match result.artifact.get("kind"):
-                case "insights":
+                case "insight":
                     return PartialAssistantState(
                         root_tool_call_id=tool_call.id,
                         search_insights_query=result.artifact.get("query"),
                         root_tool_calls_count=tool_call_count + 1,
                     )
-                case "docs":
+                case "doc":
                     return PartialAssistantState(
                         root_tool_call_id=tool_call.id,
                         root_tool_calls_count=tool_call_count + 1,

@@ -260,18 +260,6 @@ class BaseStateWithIntermediateSteps(BaseState):
     """
 
 
-class EntityType(StrEnum):
-    INSIGHT = "insight"
-    DASHBOARD = "dashboard"
-    COHORT = "cohort"
-    ACTION = "action"
-    EXPERIMENT = "experiment"
-    FEATURE_FLAG = "feature_flag"
-    NOTEBOOK = "notebook"
-    SURVEY = "survey"
-    ALL = "all"
-
-
 class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateSteps):
     """
     The state of the root node.

@@ -5,7 +5,7 @@ from django.conf import settings
 
 from parameterized import parameterized
 
-from ee.hogai.graph.root.tools.full_text_search.toolkit import ENTITY_MAP, EntitySearchToolkit
+from ee.hogai.graph.root.tools.full_text_search.tool import ENTITY_MAP, EntitySearchToolkit
 from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 
 
@@ -28,7 +28,6 @@ class TestEntitySearchToolkit:
             ("action", "test_action_id", "/project/{team_id}/data-management/actions/test_action_id"),
             ("cohort", "test_cohort_id", "/project/{team_id}/cohorts/test_cohort_id"),
             ("survey", "test_survey_id", "/project/{team_id}/surveys/test_survey_id"),
-            ("unknown_type", "test_id", "/project/{team_id}/unknown_type/test_id"),
         ]
     )
     def test_build_url(self, entity_type, result_id, expected_path):
@@ -97,8 +96,8 @@ class TestEntitySearchToolkit:
         assert "No search query was provided" in result
 
     @pytest.mark.asyncio
-    @patch("ee.hogai.graph.root.tools.full_text_search.toolkit.search_entities")
-    @patch("ee.hogai.graph.root.tools.full_text_search.toolkit.database_sync_to_async")
+    @patch("ee.hogai.graph.root.tools.full_text_search.tool.search_entities")
+    @patch("ee.hogai.graph.root.tools.full_text_search.tool.database_sync_to_async")
     async def test_search_no_entity_types(self, mock_db_sync, mock_search_entities):
         all_results: list[dict] = [
             {"type": "cohort", "result_id": "123", "extra_fields": {"name": "Test cohort"}, "rank": 0.95},
@@ -125,8 +124,8 @@ class TestEntitySearchToolkit:
         )
 
     @pytest.mark.asyncio
-    @patch("ee.hogai.graph.root.tools.full_text_search.toolkit.search_entities")
-    @patch("ee.hogai.graph.root.tools.full_text_search.toolkit.database_sync_to_async")
+    @patch("ee.hogai.graph.root.tools.full_text_search.tool.search_entities")
+    @patch("ee.hogai.graph.root.tools.full_text_search.tool.database_sync_to_async")
     async def test_arun_with_results(self, mock_db_sync, mock_search_entities):
         all_results: list[dict] = [
             {"type": "cohort", "result_id": "123", "extra_fields": {"name": "Test cohort"}, "rank": 0.95},
@@ -155,8 +154,8 @@ class TestEntitySearchToolkit:
             assert HYPERLINK_USAGE_INSTRUCTIONS in result
 
     @pytest.mark.asyncio
-    @patch("ee.hogai.graph.root.tools.full_text_search.toolkit.database_sync_to_async")
-    @patch("ee.hogai.graph.root.tools.full_text_search.toolkit.capture_exception")
+    @patch("ee.hogai.graph.root.tools.full_text_search.tool.database_sync_to_async")
+    @patch("ee.hogai.graph.root.tools.full_text_search.tool.capture_exception")
     async def test_arun_exception_handling(self, mock_capture, mock_db_sync):
         mock_db_sync.side_effect = Exception("Database error")
 

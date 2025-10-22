@@ -1,4 +1,4 @@
-from typing import TypedDict
+from enum import StrEnum
 
 from django.conf import settings
 
@@ -6,16 +6,33 @@ import yaml
 from posthoganalytics import capture_exception
 
 from posthog.api.search import EntityConfig, search_entities
-from posthog.models import Action, Cohort, Dashboard, Experiment, FeatureFlag, Survey, Team, User
+from posthog.models import Action, Cohort, Dashboard, Experiment, FeatureFlag, Insight, Survey, Team, User
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
-from ee.hogai.utils.types.base import EntityType
 
 from .prompts import ENTITY_TYPE_SUMMARY_TEMPLATE, FOUND_ENTITIES_MESSAGE_TEMPLATE
 
+
+class EntityType(StrEnum):
+    INSIGHT = "insight"
+    DASHBOARD = "dashboard"
+    COHORT = "cohort"
+    ACTION = "action"
+    EXPERIMENT = "experiment"
+    FEATURE_FLAG = "feature_flag"
+    NOTEBOOK = "notebook"
+    SURVEY = "survey"
+    ALL = "all"
+
+
 ENTITY_MAP: dict[str, EntityConfig] = {
+    "insight": {
+        "klass": Insight,
+        "search_fields": {"name": "A", "description": "C", "query_metadata": "B"},
+        "extra_fields": ["name", "description", "query_metadata", "query"],
+    },
     "dashboard": {
         "klass": Dashboard,
         "search_fields": {"name": "A", "description": "C"},
@@ -50,12 +67,6 @@ The value in search_fields corresponds to the PostgreSQL weighting i.e. A, B, C 
 """
 
 
-class EntitySearchTaskResult(TypedDict):
-    entity_type: str | EntityType
-    results: list[dict]
-    warning: str | None
-
-
 class EntitySearchToolkit:
     MAX_ENTITY_RESULTS = 10
     MAX_CONCURRENT_SEARCHES = 10
@@ -68,7 +79,7 @@ class EntitySearchToolkit:
     def user_access_control(self) -> UserAccessControl:
         return UserAccessControl(user=self._user, team=self._team, organization_id=self._team.organization.id)
 
-    def _build_url(self, entity_type: str | EntityType, result_id: str) -> str:
+    def _build_url(self, entity_type: EntityType, result_id: str) -> str:
         base_url = f"{settings.SITE_URL}/project/{self._team.id}"
         match entity_type:
             case EntityType.INSIGHT:
@@ -88,10 +99,10 @@ class EntitySearchToolkit:
             case EntityType.SURVEY:
                 return f"{base_url}/surveys/{result_id}"
             case _:
-                return f"{base_url}/{entity_type}/{result_id}"
+                raise ValueError(f"Unknown entity type: {entity_type}")
 
     def _get_formatted_entity_result(self, result: dict) -> str:
-        entity_type = result["type"]
+        entity_type = EntityType(result["type"])
         result_id = result["result_id"]
         extra_fields = result.get("extra_fields", {})
 
