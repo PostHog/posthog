@@ -4774,6 +4774,9 @@ class SavedInsightNode(BaseModel):
     context: Optional[DataTableNodeViewPropsContext] = Field(
         default=None, description="Context for the table, used by components like ColumnConfigurator"
     )
+    defaultColumns: Optional[list[str]] = Field(
+        default=None, description="Default columns to use when resetting column configuration"
+    )
     embedded: Optional[bool] = Field(default=None, description="Query is embedded inside another bordered component")
     expandable: Optional[bool] = Field(
         default=None, description="Can expand row to show raw event data (default: true)"
@@ -14935,6 +14938,9 @@ class DataTableNode(BaseModel):
     )
     context: Optional[DataTableNodeViewPropsContext] = Field(
         default=None, description="Context for the table, used by components like ColumnConfigurator"
+    )
+    defaultColumns: Optional[list[str]] = Field(
+        default=None, description="Default columns to use when resetting column configuration"
     )
     embedded: Optional[bool] = Field(default=None, description="Uses the embedded version of LemonTable")
     expandable: Optional[bool] = Field(
