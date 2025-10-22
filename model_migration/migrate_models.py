@@ -22,6 +22,7 @@ from import_patterns import (
     FileSpecificImport,
     ImportTargetResolver,
     MigrationContext,
+    ModelsPackageLevelImport,
     PackageLevelImport,
 )
 
@@ -60,6 +61,7 @@ class ImportTransformer(cst.CSTTransformer):
         )
         self.patterns = [
             FileSpecificImport(),  # Try file-specific first (most specific - matches current module)
+            ModelsPackageLevelImport(),  # Then models package imports (before AnyFileSpecificImport!)
             AnyFileSpecificImport(),  # Then any file-specific import from base path
             PackageLevelImport(),  # Then package-level
         ]
@@ -363,9 +365,9 @@ class ModelMigrator:
                     content = f.read()
 
                 tree = ast.parse(content)
-                # Get all class names from this file
+                # Get all class names and function names from this file
                 for node in tree.body:
-                    if isinstance(node, ast.ClassDef):
+                    if isinstance(node, ast.ClassDef | ast.FunctionDef):
                         # Apply snake_case conversion to match what happens during file movement
                         filename_without_ext = source_file.replace(".py", "")
                         # Extract just the base filename (remove any directory path like "models/")

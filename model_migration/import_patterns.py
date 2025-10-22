@@ -133,6 +133,48 @@ class FileSpecificImport:
             return cst.Module(body=[cst.SimpleStatementLine(body=[cst.Expr(value=module)])]).code.strip()
 
 
+class ModelsPackageLevelImport:
+    """Matches imports from {import_base_path}.models (the models package).
+
+    For example: from posthog.warehouse.models import X
+
+    This is a special case - "models" is a package directory, not a file,
+    so in no-merge mode we need to look up which file X comes from.
+    This pattern must be checked BEFORE AnyFileSpecificImport to prevent
+    treating "models" as a filename.
+    """
+
+    def matches(self, node: cst.ImportFrom, context: MigrationContext) -> bool:
+        if not node.module:
+            return False
+
+        module_str = self._get_module_string(node.module)
+        return module_str == f"{context.import_base_path}.models"
+
+    def extract_parts(self, node: cst.ImportFrom, context: MigrationContext) -> ImportParts:
+        if not node.names or isinstance(node.names, cst.ImportStar):
+            return ImportParts(imported_names=[], source_file=None, module_path="")
+
+        imported_names = []
+        for name in node.names:
+            if isinstance(name, cst.ImportAlias):
+                imported_names.append(name.name.value)
+
+        module_str = self._get_module_string(node.module)
+
+        # Return with source_file=None so the resolver will look up each name
+        return ImportParts(imported_names=imported_names, source_file=None, module_path=module_str)
+
+    @staticmethod
+    def _get_module_string(module: cst.CSTNode) -> str:
+        if isinstance(module, cst.Name):
+            return module.value
+        elif isinstance(module, cst.Attribute):
+            return f"{ModelsPackageLevelImport._get_module_string(module.value)}.{module.attr.value}"
+        else:
+            return cst.Module(body=[cst.SimpleStatementLine(body=[cst.Expr(value=module)])]).code.strip()
+
+
 class AnyFileSpecificImport:
     """Matches ANY file-specific import from the import_base_path.
 
