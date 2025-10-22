@@ -14,6 +14,12 @@ pub struct InjectArgs {
     #[arg(short, long)]
     pub directory: PathBuf,
 
+    /// If your bundler adds a public path prefix to sourcemap URLs,
+    /// we need to ignore it while searching for them
+    /// For use alongside e.g. esbuilds "publicPath" config setting.
+    #[arg(short, long)]
+    pub public_path_prefix: Option<String>,
+
     /// One or more directory glob patterns to ignore
     #[arg(short, long)]
     pub ignore: Vec<String>,
@@ -34,6 +40,7 @@ pub struct InjectArgs {
 pub fn inject(args: &InjectArgs) -> Result<()> {
     let InjectArgs {
         directory,
+        public_path_prefix,
         ignore,
         project,
         version,
@@ -50,7 +57,7 @@ pub fn inject(args: &InjectArgs) -> Result<()> {
     })?;
 
     info!("Processing directory: {}", directory.display());
-    let mut pairs = read_pairs(&directory, ignore)?;
+    let mut pairs = read_pairs(&directory, ignore, public_path_prefix)?;
     if pairs.is_empty() {
         bail!("No source files found");
     }
@@ -64,7 +71,7 @@ pub fn inject(args: &InjectArgs) -> Result<()> {
     let mut created_release = None;
     if needs_release {
         let mut builder = get_git_info(Some(directory))?
-            .map(|g| ReleaseBuilder::init_from_git(g))
+            .map(ReleaseBuilder::init_from_git)
             .unwrap_or_default();
 
         if let Some(project) = project {

@@ -1,5 +1,5 @@
 import xml.etree.ElementTree as ET
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, Optional, TypeVar, Union, cast
 
 from jsonref import replace_refs
@@ -100,7 +100,8 @@ def dereference_schema(schema: dict) -> dict:
 
 
 def find_start_message_idx(messages: Sequence[AssistantMessageUnion], start_id: str | None = None) -> int:
-    for idx, msg in enumerate(messages):
+    for idx in range(len(messages) - 1, -1, -1):
+        msg = messages[idx]
         if isinstance(msg, HumanMessage) and msg.id == start_id:
             return idx
     return 0
@@ -129,6 +130,11 @@ def should_output_assistant_message(candidate_message: AssistantMessageUnion) ->
         return False
 
     return True
+
+
+def convert_tool_messages_to_dict(messages: Sequence[AssistantMessageUnion]) -> Mapping[str, AssistantToolCallMessage]:
+    """Converts `AssistantToolCallMessage` messages to a dictionary mapping tool call id to message."""
+    return {message.tool_call_id: message for message in messages if isinstance(message, AssistantToolCallMessage)}
 
 
 def _process_events_data(events_in_context: list[MaxEventContext], team: Team) -> tuple[list[dict], dict[str, str]]:
