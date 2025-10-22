@@ -44,9 +44,7 @@ test_organizations_router = test_router.register(r"organizations", FooViewSet, "
 test_organizations_router.register(r"foos", FooViewSet, "organization_foos", ["organization_id"])
 
 scoped_test_environments_router = test_router.register(r"scoped_environments", ScopedFooViewSet, "scoped_environments")
-scoped_test_environments_router.register(
-    r"scoped_foos", ScopedFooViewSet, "scoped_environment_foos", ["team_id"]
-)
+scoped_test_environments_router.register(r"scoped_foos", ScopedFooViewSet, "scoped_environment_foos", ["team_id"])
 
 scoped_test_projects_router = test_router.register(r"scoped_projects", ScopedFooViewSet, "scoped_projects")
 scoped_test_projects_router.register(r"scoped_foos", ScopedFooViewSet, "scoped_project_foos", ["project_id"])
