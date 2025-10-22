@@ -366,6 +366,7 @@ export interface HogQLQueryModifiers {
     convertToProjectTimezone?: boolean
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level **/
     usePreaggregatedTableTransforms?: boolean
+    optimizeProjections?: boolean
 }
 
 export interface DataWarehouseEventsModifier {
@@ -447,18 +448,21 @@ export interface RecordingsQueryResponse {
     has_next: boolean
 }
 
-export type RecordingOrder =
-    | 'duration'
-    | 'recording_duration'
-    | 'inactive_seconds'
-    | 'active_seconds'
-    | 'start_time'
-    | 'console_error_count'
-    | 'click_count'
-    | 'keypress_count'
-    | 'mouse_activity_count'
-    | 'activity_score'
-    | 'recording_ttl'
+export const VALID_RECORDING_ORDERS = [
+    'duration',
+    'recording_duration',
+    'inactive_seconds',
+    'active_seconds',
+    'start_time',
+    'console_error_count',
+    'click_count',
+    'keypress_count',
+    'mouse_activity_count',
+    'activity_score',
+    'recording_ttl',
+] as const
+
+export type RecordingOrder = (typeof VALID_RECORDING_ORDERS)[number]
 
 export type RecordingOrderDirection = 'ASC' | 'DESC'
 
@@ -527,6 +531,7 @@ export interface HogQLMetadataResponse {
     notices: HogQLNotice[]
     query_status?: never
     table_names?: string[]
+    ch_table_names?: string[]
 }
 
 export type AutocompleteCompletionItemKind =
@@ -2860,6 +2865,8 @@ export interface ExperimentMetricTimeseries {
     computed_at: string | null
     created_at: string
     updated_at: string
+    recalculation_status?: string | null
+    recalculation_created_at?: string | null
 }
 
 /**

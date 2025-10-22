@@ -32,11 +32,13 @@ import { EventDefinitionsTable } from './events/EventDefinitionsTable'
 import { IngestionWarningsView } from './ingestion-warnings/IngestionWarningsView'
 import { DataWarehouseManagedViewsetsScene } from './managed-viewsets/DataWarehouseManagedViewsetsScene'
 import { PropertyDefinitionsTable } from './properties/PropertyDefinitionsTable'
+import { SchemaManagement } from './schema/SchemaManagement'
 
 export enum DataManagementTab {
     Actions = 'actions',
     EventDefinitions = 'events',
     PropertyDefinitions = 'properties',
+    SchemaManagement = 'schema',
     Annotations = 'annotations',
     Comments = 'comments',
     History = 'history',
@@ -99,6 +101,12 @@ const tabs: Record<DataManagementTab, TabConfig> = {
         ),
         content: <PropertyDefinitionsTable />,
         tooltipDocLink: 'https://posthog.com/docs/new-to-posthog/understand-posthog#properties',
+    },
+    [DataManagementTab.SchemaManagement]: {
+        url: urls.schemaManagement(),
+        label: 'Property Groups',
+        content: <SchemaManagement />,
+        flag: FEATURE_FLAGS.SCHEMA_MANAGEMENT,
     },
     [DataManagementTab.Annotations]: {
         url: urls.annotations(),

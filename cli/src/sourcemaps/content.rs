@@ -15,7 +15,9 @@ use crate::{
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SourceMapContent {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub release_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub chunk_id: Option<String>,
     #[serde(flatten)]
     pub fields: BTreeMap<String, Value>,
@@ -114,7 +116,7 @@ impl MinifiedSourceFile {
     }
 
     pub fn get_chunk_id(&self) -> Option<String> {
-        let patterns = ["//#chunk_id"];
+        let patterns = ["//# chunkId="];
         self.get_comment_value(&patterns)
     }
 
