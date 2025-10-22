@@ -1,7 +1,7 @@
 import os
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Self
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -21,6 +21,38 @@ class GenerateDigestDataInput:
     period_start: datetime
     period_end: datetime
     redis_ttl: int
+    redis_host: str = os.getenv("WEEKLY_DIGEST_REDIS_HOST", "localhost")
+    redis_port: int = int(os.getenv("WEEKLY_DIGEST_REDIS_PORT", "6379"))
+    batch_size: int = 100
+
+
+@dataclass(frozen=True)
+class GenerateOrganizationDigestInput:
+    batch: tuple[int, int]
+    digest_key: str
+    redis_ttl: int
+    redis_host: str = os.getenv("WEEKLY_DIGEST_REDIS_HOST", "localhost")
+    redis_port: int = int(os.getenv("WEEKLY_DIGEST_REDIS_PORT", "6379"))
+
+
+@dataclass(frozen=True)
+class SendWeeklyDigestInput:
+    dry_run: bool
+    digest_key: str
+    period_start: datetime
+    period_end: datetime
+    redis_host: str = os.getenv("WEEKLY_DIGEST_REDIS_HOST", "localhost")
+    redis_port: int = int(os.getenv("WEEKLY_DIGEST_REDIS_PORT", "6379"))
+    batch_size: int = 100
+
+
+@dataclass(frozen=True)
+class SendWeeklyDigestBatchInput:
+    dry_run: bool
+    batch: tuple[int, int]
+    digest_key: str
+    period_start: datetime
+    period_end: datetime
     redis_host: str = os.getenv("WEEKLY_DIGEST_REDIS_HOST", "localhost")
     redis_port: int = int(os.getenv("WEEKLY_DIGEST_REDIS_PORT", "6379"))
 
@@ -82,3 +114,52 @@ class DigestFeatureFlag(BaseModel):
 
 class FeatureFlagList(BaseModel):
     flags: list[DigestFeatureFlag]
+
+
+class TeamDigest(BaseModel):
+    id: int
+    name: str
+    dashboards: DashboardList
+    event_definitions: EventDefinitionList
+    experiments_launched: ExperimentList
+    experiments_completed: ExperimentList
+    external_data_sources: ExternalDataSourceList
+    surveys_launched: SurveyList
+    feature_flags: FeatureFlagList
+
+    def is_empty(self) -> bool:
+        return (
+            sum(
+                [
+                    len(self.dashboards.dashboards),
+                    len(self.event_definitions.definitions),
+                    len(self.experiments_launched.experiments),
+                    len(self.experiments_completed.experiments),
+                    len(self.external_data_sources.sources),
+                    len(self.surveys_launched.surveys),
+                    len(self.feature_flags.flags),
+                ]
+            )
+            == 0
+        )
+
+
+class OrganizationDigest(BaseModel):
+    id: UUID
+    name: str
+    created_at: datetime
+    team_digests: list[TeamDigest]
+
+    def filter_for_user(self, user_teams: set[int]) -> Self:
+        """Returns a new OrganizationDigest with only the teams the user has access to and notifications enabled for."""
+        filtered_digests = [team_digest for team_digest in self.team_digests if team_digest.id in user_teams]
+
+        return OrganizationDigest(
+            id=self.id,
+            name=self.name,
+            created_at=self.created_at,
+            team_digests=filtered_digests,
+        )
+
+    def is_empty(self) -> bool:
+        return all(digest.is_empty() for digest in self.team_digests)

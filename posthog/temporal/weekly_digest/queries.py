@@ -2,10 +2,12 @@ from datetime import datetime
 
 from django.db.models import Q, QuerySet
 
+from posthog.models import Organization
 from posthog.models.dashboard import Dashboard
 from posthog.models.event_definition import EventDefinition
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
+from posthog.models.organization import OrganizationMembership
 from posthog.models.surveys.survey import Survey
 from posthog.models.team import Team
 from posthog.warehouse.models.external_data_source import ExternalDataSource
@@ -16,6 +18,22 @@ def query_teams_for_digest() -> QuerySet:
         Team.objects.select_related("organization")
         .exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
         .only("id", "name", "organization__id", "organization__name", "organization__created_at")
+    )
+
+
+def query_orgs_for_digest() -> QuerySet:
+    return Organization.objects.exclude(Q(for_internal_metrics=True)).only("id", "name", "created_at")
+
+
+def query_org_teams(organization: Organization) -> QuerySet:
+    return Team.objects.only("id", "name").filter(organization=organization)
+
+
+def query_org_members(organization: Organization) -> QuerySet:
+    return (
+        OrganizationMembership.objects.filter(organization_id=organization.id)
+        .select_related("user")
+        .only("id", "user__distinct_id")
     )
 
 
