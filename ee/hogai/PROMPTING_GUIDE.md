@@ -230,7 +230,7 @@ You are an expert analyst...
 
 PostHog uses Braintrust to test AI effectiveness. See `ee/hogai/eval/` for examples, and implement new ones for the use case you're working on.
 
-For expert feedback, tag `@team-max-ai` on LLM-related PRs! Before doing that, test your feature with various user prompts, especially tricky ones.
+For expert feedback, tag `@team-posthog-ai` on LLM-related PRs! Before doing that, test your feature with various user prompts, especially tricky ones.
 
 ### More resources
 
