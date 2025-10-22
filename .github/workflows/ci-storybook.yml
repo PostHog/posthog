@@ -25,9 +25,9 @@ jobs:
                   filters: |
                       frontend:
                         - 'frontend/**'
-                        - 'products/**/*.ts'
-                        - 'products/**/*.tsx'
-                        - 'products/**/frontend/**'
+                        - 'products/!(mcp)/**/*.ts'
+                        - 'products/!(mcp)/**/*.tsx'
+                        - 'products/!(mcp)/**/frontend/**'
                         - 'common/**'
                         - 'ee/frontend/**'
                         - '.storybook/**'
