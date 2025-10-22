@@ -10,17 +10,11 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/services/gitlab.png',
     category: ['Error tracking'],
     code_language: 'hog',
-    code: `let project := inputs.gitlab_project.account.name
-
-if (not project) {
-    throw Error('Project is required')
-}
-
-let posthog_issue_url := f'{project.url}/error_tracking/{inputs.posthog_issue_id}'
+    code: `let posthog_issue_url := f'{project.url}/error_tracking/{inputs.posthog_issue_id}'
 let payload := {
     'method': 'POST',
     'headers': {
-        'PRIVATE-TOKEN': f'Bearer {inputs.gitlab_project.access_token}',
+        'PRIVATE-TOKEN': inputs.gitlab_project.access_token,
     },
     'body': {
         'title': inputs.title,
@@ -28,7 +22,7 @@ let payload := {
     }
 }
 
-let res := fetch(f'{inputs.gitlab_project.hostname}/projects/{project_id}/issues', payload)
+let res := fetch(f'{inputs.gitlab_project.hostname}/projects/{inputs.gitlab_project.project_id}/issues', payload)
 if (res.status < 200 or res.status >= 300) {
     throw Error(f'Failed to create GitLab issue: {res.status}: {res.body}')
 }`,
