@@ -50,8 +50,8 @@ export function ConversationHistory({ sidePanel = false }: ConversationHistoryPr
                         productName="Max"
                         productKey={ProductKey.MAX}
                         thingName="chat"
-                        titleOverride="Start chatting with Max"
-                        description="Max is an AI product analyst in PostHog that answers data questions, gets things done in UI, and provides insights from PostHog’s documentation."
+                        titleOverride="Start getting things done with PostHog AI"
+                        description="PostHog AI is an agent that answers data questions, gets things done in UI, and provides insights from PostHog’s documentation."
                         docsURL="https://posthog.com/docs/data/max-ai"
                         actionElementOverride={
                             <LemonButton
