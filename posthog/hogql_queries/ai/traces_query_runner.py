@@ -185,6 +185,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             """
             SELECT
                 properties.$ai_trace_id AS id,
+                properties.$ai_session_id AS ai_session_id,
                 min(timestamp) AS first_timestamp,
                 tuple(
                     argMin(person.id, timestamp),
@@ -258,7 +259,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
             )
               AND {filter_conditions}
-            GROUP BY properties.$ai_trace_id
+            GROUP BY properties.$ai_trace_id, properties.$ai_session_id
             ORDER BY first_timestamp DESC
             """,
         )
@@ -330,6 +331,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
     def _map_trace(self, result: dict[str, Any], created_at: datetime) -> LLMTrace:
         TRACE_FIELDS_MAPPING = {
             "id": "id",
+            "ai_session_id": "aiSessionId",
             "created_at": "createdAt",
             "person": "person",
             "total_latency": "totalLatency",
