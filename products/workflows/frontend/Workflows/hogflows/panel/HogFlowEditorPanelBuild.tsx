@@ -193,7 +193,6 @@ function HogFunctionTemplatesChooser(): JSX.Element {
     const logic = hogFunctionTemplateListLogic({
         type: 'destination',
         customFilterFunction,
-        hideComingSoonByDefault: true,
     })
 
     const { loading, filteredTemplates, filters } = useValues(logic)
