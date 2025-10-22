@@ -1,3 +1,4 @@
+import time
 import asyncio
 import datetime
 from typing import Union
@@ -6,7 +7,9 @@ from django.conf import settings
 
 import structlog
 from celery import chain
-from prometheus_client import Counter, Histogram
+from prometheus_client import Histogram
+from temporalio import activity, workflow
+from temporalio.common import MetricCounter, MetricHistogramTimedelta, MetricMeter
 
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
@@ -41,6 +44,7 @@ def _get_failed_asset_info(assets: list[ExportedAsset], resource: Union[Subscrip
     }
 
 
+# Prometheus metrics for Celery workers (web/worker pods)
 SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
     "subscription_asset_generation_duration_seconds",
     "Time spent generating assets for a subscription",
@@ -48,11 +52,37 @@ SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
     buckets=(1, 5, 10, 30, 60, 120, 240, 300, 360, 420, 480, 540, 600, float("inf")),
 )
 
-SUBSCRIPTION_ASSET_GENERATION_TIMEOUT_COUNTER = Counter(
-    "subscription_asset_generation_timeout_total",
-    "Number of times asset generation timed out during subscription delivery",
-    labelnames=["execution_path"],
-)
+
+# Temporal metrics for temporal workers
+def get_metric_meter() -> MetricMeter:
+    if activity.in_activity():
+        return activity.metric_meter()
+    elif workflow.in_workflow():
+        return workflow.metric_meter()
+    else:
+        raise RuntimeError("Not within workflow or activity context")
+
+
+def get_asset_generation_duration_metric(execution_path: str) -> MetricHistogramTimedelta:
+    return (
+        get_metric_meter()
+        .with_additional_attributes({"execution_path": execution_path})
+        .create_histogram_timedelta(
+            "subscription_asset_generation_duration",
+            "Time spent generating assets for a subscription",
+        )
+    )
+
+
+def get_asset_generation_timeout_metric(execution_path: str) -> MetricCounter:
+    return (
+        get_metric_meter()
+        .with_additional_attributes({"execution_path": execution_path})
+        .create_counter(
+            "subscription_asset_generation_timeout",
+            "Number of times asset generation timed out during subscription delivery",
+        )
+    )
 
 
 def generate_assets(
@@ -112,7 +142,8 @@ async def generate_assets_async(
     This function requires "created_by", "insight", "dashboard", "team" be prefetched on the resource
     """
     logger.info("generate_assets_async.starting", resource_id=getattr(resource, "id", None))
-    with SUBSCRIPTION_ASSET_GENERATION_TIMER.labels(execution_path="temporal").time():
+    start_time = time.time()
+    try:
         if resource.dashboard:
             # Fetch tiles asynchronously
             dashboard = resource.dashboard  # Capture reference for lambda
@@ -202,7 +233,7 @@ async def generate_assets_async(
                 team_id=resource.team_id,
             )
         except TimeoutError:
-            SUBSCRIPTION_ASSET_GENERATION_TIMEOUT_COUNTER.labels(execution_path="temporal").inc()
+            get_asset_generation_timeout_metric("temporal").add(1)
 
             # Get failure info for logging
             failure_info = _get_failed_asset_info(assets, resource)
@@ -218,3 +249,6 @@ async def generate_assets_async(
             # Continue with partial results - some assets may not have content
 
         return insights, assets
+    finally:
+        duration = datetime.timedelta(seconds=time.time() - start_time)
+        get_asset_generation_duration_metric("temporal").record(duration)

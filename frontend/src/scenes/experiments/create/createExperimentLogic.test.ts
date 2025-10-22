@@ -319,6 +319,127 @@ describe('createExperimentLogic', () => {
         })
     })
 
+    describe('experiment prop initialization', () => {
+        it('defaults to NEW_EXPERIMENT when no prop is provided', async () => {
+            const defaultLogic = createExperimentLogic()
+            defaultLogic.mount()
+
+            await expectLogic(defaultLogic).toMatchValues({
+                experiment: partial({
+                    id: 'new',
+                    name: '',
+                    description: '',
+                    type: 'product',
+                }),
+            })
+
+            defaultLogic.unmount()
+        })
+
+        it('uses provided experiment prop as default', async () => {
+            const existingExperiment: Experiment = {
+                ...NEW_EXPERIMENT,
+                id: 123,
+                name: 'Existing Experiment',
+                description: 'Existing hypothesis',
+                type: 'web',
+                feature_flag_key: 'existing-flag',
+            }
+
+            const propsLogic = createExperimentLogic({ experiment: existingExperiment })
+            propsLogic.mount()
+
+            await expectLogic(propsLogic).toMatchValues({
+                experiment: partial({
+                    id: 123,
+                    name: 'Existing Experiment',
+                    description: 'Existing hypothesis',
+                    type: 'web',
+                    feature_flag_key: 'existing-flag',
+                }),
+            })
+
+            propsLogic.unmount()
+        })
+
+        it('resetExperiment resets to NEW_EXPERIMENT when no prop provided', async () => {
+            const defaultLogic = createExperimentLogic()
+            defaultLogic.mount()
+
+            await expectLogic(defaultLogic, () => {
+                defaultLogic.actions.setExperiment({
+                    ...NEW_EXPERIMENT,
+                    name: 'Changed Name',
+                    description: 'Changed Description',
+                })
+            })
+                .toDispatchActions(['setExperiment'])
+                .toMatchValues({
+                    experiment: partial({
+                        name: 'Changed Name',
+                        description: 'Changed Description',
+                    }),
+                })
+
+            await expectLogic(defaultLogic, () => {
+                defaultLogic.actions.resetExperiment()
+            })
+                .toDispatchActions(['resetExperiment'])
+                .toMatchValues({
+                    experiment: partial({
+                        id: 'new',
+                        name: '',
+                        description: '',
+                    }),
+                })
+
+            defaultLogic.unmount()
+        })
+
+        it('resetExperiment resets to provided experiment prop', async () => {
+            const existingExperiment: Experiment = {
+                ...NEW_EXPERIMENT,
+                id: 456,
+                name: 'Original Experiment',
+                description: 'Original hypothesis',
+                type: 'web',
+            }
+
+            const propsLogic = createExperimentLogic({ experiment: existingExperiment })
+            propsLogic.mount()
+
+            await expectLogic(propsLogic, () => {
+                propsLogic.actions.setExperiment({
+                    ...existingExperiment,
+                    name: 'Modified Name',
+                    description: 'Modified Description',
+                })
+            })
+                .toDispatchActions(['setExperiment'])
+                .toMatchValues({
+                    experiment: partial({
+                        name: 'Modified Name',
+                        description: 'Modified Description',
+                    }),
+                })
+
+            await expectLogic(propsLogic, () => {
+                propsLogic.actions.resetExperiment()
+            })
+                .toDispatchActions(['resetExperiment'])
+                .toMatchValues({
+                    experiment: partial({
+                        id: 456,
+                        name: 'Original Experiment',
+                        description: 'Original hypothesis',
+                        type: 'web',
+                    }),
+                })
+
+            propsLogic.unmount()
+        })
+    })
+
     describe('feature flag integration', () => {
         it('includes feature flag key in experiment submission', async () => {
             await expectLogic(logic, () => {

@@ -7,8 +7,34 @@ source "$(dirname "$0")/helpers/_utils.sh"
 
 # Parse arguments
 COMMAND=${1:-"help"}
-BRANCH_NAME=${2}
-BASE_BRANCH=${3:-"master"}
+shift || true
+
+# Parse remaining arguments - flags and positional args
+BRANCH_NAME=""
+BASE_BRANCH="master"
+CUSTOM_DIR=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --dir)
+            if [[ -z "$2" ]]; then
+                error "Missing argument for --dir flag"
+                exit 1
+            fi
+            CUSTOM_DIR="$2"
+            shift 2
+            ;;
+        *)
+            # First non-flag arg is branch name, second is base branch
+            if [[ -z "$BRANCH_NAME" ]]; then
+                BRANCH_NAME="$1"
+            elif [[ "$BASE_BRANCH" == "master" ]]; then
+                BASE_BRANCH="$1"
+            fi
+            shift
+            ;;
+    esac
+done
 
 # Worktree base directory (configurable via POSTHOG_WORKTREE_BASE)
 WORKTREE_BASE="${POSTHOG_WORKTREE_BASE:-${HOME}/.worktrees/posthog}"
@@ -18,11 +44,13 @@ WORKTREE_BASE="${POSTHOG_WORKTREE_BASE:-${HOME}/.worktrees/posthog}"
 create_worktree() {
     if [ -z "$BRANCH_NAME" ]; then
         error "Branch name required"
-        echo "Usage: $0 create <branch-name> [base-branch]"
+        echo "Usage: $0 create <branch-name> [base-branch] [--dir <dirname>]"
         exit 1
     fi
-    
-    local worktree_path="${WORKTREE_BASE}/${BRANCH_NAME}"
+
+    # Use custom dirname if provided, otherwise use branch name
+    local dirname="${CUSTOM_DIR:-${BRANCH_NAME}}"
+    local worktree_path="${WORKTREE_BASE}/${dirname}"
     
     # Check if base branch exists
     if ! git show-ref --verify --quiet "refs/heads/${BASE_BRANCH}" && 
@@ -77,10 +105,10 @@ remove_worktree() {
 checkout_worktree() {
     if [ -z "$BRANCH_NAME" ]; then
         error "Branch name required"
-        echo "Usage: $0 checkout <branch-name>"
+        echo "Usage: $0 checkout <branch-name> [--dir <dirname>]"
         exit 1
     fi
-    
+
     # Check if worktree already exists for this branch
     local existing_path=$(git worktree list | grep -E "\[${BRANCH_NAME}\]$" | awk '{print $1}')
     if [[ -n "$existing_path" ]]; then
@@ -88,8 +116,10 @@ checkout_worktree() {
         success "Location: ${existing_path}"
         return 0
     fi
-    
-    local worktree_path="${WORKTREE_BASE}/${BRANCH_NAME}"
+
+    # Use custom dirname if provided, otherwise use branch name
+    local dirname="${CUSTOM_DIR:-${BRANCH_NAME}}"
+    local worktree_path="${WORKTREE_BASE}/${dirname}"
     
     # Check if branch exists
     if ! git show-ref --verify --quiet "refs/heads/${BRANCH_NAME}" && 
@@ -121,13 +151,13 @@ checkout_worktree() {
 # Function to checkout PR in worktree
 checkout_pr_worktree() {
     local pr_number="$BRANCH_NAME"  # Reusing BRANCH_NAME variable for PR number
-    
+
     if [ -z "$pr_number" ]; then
         error "PR number required"
-        echo "Usage: $0 pr <pr-number>"
+        echo "Usage: $0 pr <pr-number> [--dir <dirname>]"
         exit 1
     fi
-    
+
     # Check if gh and jq are installed
     if ! command_exists gh; then
         fatal "GitHub CLI (gh) is required. Install with: brew install gh"
@@ -135,21 +165,21 @@ checkout_pr_worktree() {
     if ! command_exists jq; then
         fatal "jq is required for parsing JSON. Install with: brew install jq"
     fi
-    
+
     print_color blue "Fetching PR #${pr_number} information…"
-    
+
     # Get PR info
     local pr_info=$(gh pr view "${pr_number}" --json headRefName,author,title 2>/dev/null || echo "")
     if [ -z "$pr_info" ]; then
         fatal "Could not fetch PR #${pr_number}. Make sure you're authenticated with gh."
     fi
-    
+
     local pr_branch=$(echo "$pr_info" | jq -r '.headRefName')
     local pr_author=$(echo "$pr_info" | jq -r '.author.login')
     local pr_title=$(echo "$pr_info" | jq -r '.title' | cut -c1-50)
-    
-    # Create branch name for worktree
-    local worktree_dirname="pr-${pr_number}-${pr_author}"
+
+    # Use custom dirname if provided, otherwise use pr-number-author format
+    local worktree_dirname="${CUSTOM_DIR:-pr-${pr_number}-${pr_author}}"
     local worktree_path="${WORKTREE_BASE}/${worktree_dirname}"
     
     success "Checking out PR #${pr_number}: ${pr_title}…"
@@ -275,27 +305,33 @@ case "$COMMAND" in
         echo "Usage: $0 <command> [arguments]"
         echo ""
         echo "Commands:"
-        echo "  create <branch> [base-branch]   - Create NEW branch in worktree"
-        echo "  checkout <branch>               - Checkout EXISTING branch in worktree"
-        echo "  pr <number>                     - Checkout pull request in worktree"
-        echo "  remove <branch>                 - Remove worktree"
-        echo "  list                            - List all worktrees"
+        echo "  create <branch> [base-branch] [--dir <dirname>]   - Create NEW branch in worktree"
+        echo "  checkout <branch> [--dir <dirname>]               - Checkout EXISTING branch in worktree"
+        echo "  pr <number> [--dir <dirname>]                     - Checkout pull request in worktree"
+        echo "  remove <branch>                                   - Remove worktree"
+        echo "  list                                              - List all worktrees"
         echo ""
         echo "  Note: Use 'phw switch <branch>' to switch to existing worktree"
         echo ""
         echo "Examples:"
-        echo "  $0 create haacked/new-feature        # Create new branch from master (default)"
-        echo "  $0 create haacked/fix-bug main       # Create new branch from main"
-        echo "  $0 checkout main                     # Checkout existing branch"
-        echo "  $0 pr 12345                          # Checkout PR #12345"
-        echo "  $0 list                              # List all worktrees"
+        echo "  $0 create haacked/new-feature                     # Create new branch from master (default)"
+        echo "  $0 create haacked/fix-bug main                    # Create new branch from main"
+        echo "  $0 create haacked/first-branch --dir my-theme     # Create in custom directory"
+        echo "  $0 checkout main                                  # Checkout existing branch"
+        echo "  $0 checkout haacked/existing --dir my-theme       # Checkout to custom directory"
+        echo "  $0 pr 12345                                       # Checkout PR #12345"
+        echo "  $0 pr 12345 --dir review-theme                    # Checkout PR to custom directory"
+        echo "  $0 list                                           # List all worktrees"
         echo ""
         echo "Working with worktrees:"
-        echo "  cd ${WORKTREE_BASE}/<branch>         # Enter worktree directory"
+        echo "  cd ${WORKTREE_BASE}/<dirname>        # Enter worktree directory"
         echo "  bin/start                            # Start PostHog (standard command)"
+        echo "  git checkout -b another-branch       # Switch branches within same worktree"
         echo ""
         echo "Notes:"
-        echo "  - Worktrees are created in: ${WORKTREE_BASE}/<branch-name>"
+        echo "  - Worktrees are created in: ${WORKTREE_BASE}/<branch-or-dirname>"
+        echo "  - Use --dir to decouple directory name from branch name"
+        echo "  - Useful for theme-based workflows with multiple related branches"
         echo "  - Each worktree has its own isolated Flox environment"
         echo "  - Use standard 'bin/start' command within each worktree"
         echo ""

@@ -2,6 +2,7 @@ import { Meta, StoryFn } from '@storybook/react'
 import { useActions } from 'kea'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -18,8 +19,9 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        mockDate: '2023-07-04', // To stabilize relative dates
+        mockDate: '2025-10-10', // To stabilize relative dates
         pageUrl: urls.dashboards(),
+        featureFlags: [FEATURE_FLAGS.SDK_DOCTOR_BETA],
         testOptions: {
             includeNavigationInSnapshot: true,
         },
@@ -34,6 +36,8 @@ const meta: Meta = {
                 '/api/projects/:id/batch_exports/': { results: [] },
                 '/api/projects/:id/surveys/': { results: [] },
                 '/api/projects/:id/surveys/responses_count/': { results: [] },
+                '/api/environments/:team_id/exports/': { results: [] },
+                '/api/environments/:team_id/events': { results: [] },
             },
             post: {
                 '/api/environments/:team_id/query': {},
@@ -70,12 +74,16 @@ export const SidePanelMax: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.Max} />
 }
 
+export const SidePanelSdkDoctor: StoryFn = () => {
+    return <BaseTemplate panel={SidePanelTab.SdkDoctor} />
+}
+
 export const SidePanelSupportNoEmail: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.Support} />
 }
 
 export const SidePanelSupportWithEmail: StoryFn = () => {
-    const { openEmailForm } = useActions(supportLogic)
+    const { openEmailForm, closeEmailForm } = useActions(supportLogic)
 
     useStorybookMocks({
         get: {
@@ -99,7 +107,10 @@ export const SidePanelSupportWithEmail: StoryFn = () => {
         },
     })
 
-    useOnMountEffect(openEmailForm)
+    useOnMountEffect(() => {
+        openEmailForm()
+        return () => closeEmailForm()
+    })
 
     return <BaseTemplate panel={SidePanelTab.Support} />
 }

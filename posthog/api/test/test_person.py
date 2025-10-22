@@ -822,9 +822,15 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/person/cohorts/?person_id={person2.uuid}").json()
         response["results"].sort(key=lambda cohort: cohort["name"])
         self.assertEqual(len(response["results"]), 3)
-        self.assertDictContainsSubset({"id": cohort1.id, "count": 2, "name": cohort1.name}, response["results"][0])
-        self.assertDictContainsSubset({"id": cohort3.id, "count": 1, "name": cohort3.name}, response["results"][1])
-        self.assertDictContainsSubset({"id": cohort4.id, "count": 1, "name": cohort4.name}, response["results"][2])
+        self.assertLessEqual(
+            {"id": cohort1.id, "count": 2, "name": cohort1.name}.items(), response["results"][0].items()
+        )
+        self.assertLessEqual(
+            {"id": cohort3.id, "count": 1, "name": cohort3.name}.items(), response["results"][1].items()
+        )
+        self.assertLessEqual(
+            {"id": cohort4.id, "count": 1, "name": cohort4.name}.items(), response["results"][2].items()
+        )
 
     def test_person_cohorts_with_cohort_version(self) -> None:
         PropertyDefinition.objects.create(
@@ -846,7 +852,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/person/cohorts/?person_id={person.uuid}").json()
         self.assertEqual(len(response["results"]), 1)
-        self.assertDictContainsSubset({"id": cohort.id, "count": 1, "name": cohort.name}, response["results"][0])
+        self.assertLessEqual({"id": cohort.id, "count": 1, "name": cohort.name}.items(), response["results"][0].items())
 
         # Update the group to no longer include person
         cohort.groups = [{"properties": [{"key": "no", "value": "no", "type": "person"}]}]

@@ -20,6 +20,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Team
+from posthog.session_recordings.queries.session_replay_events import ttl_days
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.sub_queries.cohort_subquery import CohortPropertyGroupsSubQuery
 from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
@@ -58,6 +59,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             sum(s.console_log_count) as console_log_count,
             sum(s.console_warn_count) as console_warn_count,
             sum(s.console_error_count) as console_error_count,
+            max(s.retention_period_days) as retention_period_days,
+            dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, {ttl_days})) as expiry_time,
+            date_diff('DAY', {python_now}, expiry_time) as recording_ttl,
             {ongoing_selection},
             round((
             ((sum(s.active_milliseconds) / 1000 + sum(s.click_count) + sum(s.keypress_count) + sum(s.console_error_count))) -- intent
@@ -89,6 +93,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             "console_log_count",
             "console_warn_count",
             "console_error_count",
+            "retention_period_days",
+            "expiry_time",
+            "recording_ttl",
             "ongoing",
             "activity_score",
         ]
@@ -163,6 +170,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 ),
                 "where_predicates": self._where_predicates(),
                 "having_predicates": self._having_predicates() or ast.Constant(value=True),
+                "python_now": ast.Constant(value=datetime.now(UTC)),
+                "ttl_days": ast.Constant(value=ttl_days(self._team)),
             },
         )
         if isinstance(parsed_query, ast.SelectSetQuery):
@@ -181,45 +190,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery._where_predicates")
     def _where_predicates(self) -> Union[ast.And, ast.Or]:
-        exprs: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.GtEq,
-                left=ast.Field(chain=["s", "min_first_timestamp"]),
-                right=ast.Constant(value=datetime.now(UTC) - timedelta(days=self.ttl_days)),
-            ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.GtEq,
-                left=ast.Call(
-                    name="addDays",
-                    args=[
-                        ast.Call(
-                            name="dateTrunc",
-                            args=[
-                                ast.Constant(value="DAY"),
-                                ast.Field(chain=["s", "min_first_timestamp"]),
-                            ],
-                        ),
-                        ast.Constant(value=1),
-                    ],
-                ),
-                right=ast.ArithmeticOperation(
-                    op=ast.ArithmeticOperationOp.Sub,
-                    left=ast.Constant(value=datetime.now(UTC)),
-                    right=ast.Call(
-                        name="toIntervalDay",
-                        args=[
-                            ast.Call(
-                                name="coalesce",
-                                args=[
-                                    ast.Field(chain=["s", "retention_period_days"]),
-                                    ast.Constant(value=365),
-                                ],
-                            )
-                        ],
-                    ),
-                ),
-            ),
-        ]
+        exprs: list[ast.Expr] = []
 
         if self._query.distinct_ids:
             exprs.append(
@@ -341,8 +312,15 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery._having_predicates")
     def _having_predicates(self) -> ast.Expr | None:
-        return (
-            property_to_expr(self._query.having_predicates, team=self._team, scope="replay")
-            if self._query.having_predicates
-            else None
-        )
+        exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["expiry_time"]),
+                right=ast.Constant(value=datetime.now(UTC)),
+            ),
+        ]
+
+        if self._query.having_predicates:
+            exprs.append(property_to_expr(self._query.having_predicates, team=self._team, scope="replay"))
+
+        return ast.And(exprs=exprs)
