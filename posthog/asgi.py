@@ -62,6 +62,15 @@ def self_capture_wrapper(func):
 
 
 async def _prep_local_db_for_prod_reads():
+    """
+    When connecting to the prod DB locally, we need foreign keys associated with the user we're impersonating to exist locally.
+
+    Rationale:
+    If we don't ensure this, then we can't use the local DB for any writes. An example is the AI Conversation model:
+    for a Conversation to be started, it needs to be persisted. We can't do this in the prod DB, as we're only reading it,
+    so we do it locally. For the local write to work, the `team_id` and `user_id` foreign keys must resolve in the local DB
+    as well as in the prod one.
+    """
     from posthog.models import Organization, Project, Team, User
 
     user: User = await User.objects.aget(email=settings.DEBUG_LOG_IN_AS_EMAIL)

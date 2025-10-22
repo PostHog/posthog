@@ -286,4 +286,4 @@ class ConversationRedisStream:
                 maxlen=CONVERSATION_STREAM_MAX_LENGTH,
                 approximate=True,
             )
-            raise StreamError("Failed to write to stream")
+            raise StreamError("Failed to write to stream") from e
