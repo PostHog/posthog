@@ -9,6 +9,8 @@ import { externalDataSources } from '~/queries/schema/schema-general'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { VALID_NATIVE_MARKETING_SOURCES } from '../../logic/utils'
 
+const SEPARATOR = ','
+
 export function CampaignNameMappingsConfiguration(): JSX.Element {
     const { marketingAnalyticsConfig } = useValues(marketingAnalyticsSettingsLogic)
     const { updateCampaignNameMappings } = useActions(marketingAnalyticsSettingsLogic)
@@ -31,9 +33,8 @@ export function CampaignNameMappingsConfiguration(): JSX.Element {
             return
         }
 
-        // Parse comma-separated raw values
         const rawValuesArray = newRawValues
-            .split(',')
+            .split(SEPARATOR)
             .map((v) => v.trim())
             .filter((v) => v.length > 0)
 
@@ -47,7 +48,6 @@ export function CampaignNameMappingsConfiguration(): JSX.Element {
             },
         })
 
-        // Reset form
         setNewCleanName('')
         setNewRawValues('')
     }
@@ -68,7 +68,6 @@ export function CampaignNameMappingsConfiguration(): JSX.Element {
         }
     }
 
-    // Count total mappings across all sources
     const totalMappings = Object.values(campaignMappings).reduce(
         (sum, sourceMappings) => sum + Object.keys(sourceMappings).length,
         0
@@ -90,7 +89,6 @@ export function CampaignNameMappingsConfiguration(): JSX.Element {
                 </p>
             </div>
 
-            {/* Existing Mappings */}
             {totalMappings > 0 && (
                 <div className="border rounded p-4 space-y-4">
                     <h4 className="font-semibold">Current mappings ({totalMappings})</h4>
@@ -124,7 +122,6 @@ export function CampaignNameMappingsConfiguration(): JSX.Element {
                 </div>
             )}
 
-            {/* Add New Mapping Form */}
             <div className="border rounded p-4 space-y-3">
                 <h4 className="font-semibold">Add new mapping</h4>
 

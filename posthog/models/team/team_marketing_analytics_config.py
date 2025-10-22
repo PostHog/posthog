@@ -184,7 +184,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
         db_column="campaign_name_mappings",
         null=False,
         blank=True,
-        help_text="Maps clean campaign names to lists of raw UTM values per data source",
+        help_text="Maps campaign names to lists of raw UTM values per data source",
     )
 
     def clean(self):
@@ -283,37 +283,6 @@ class TeamMarketingAnalyticsConfig(models.Model):
         if source_id in current_sources:
             del current_sources[source_id]
             self.sources_map = current_sources
-
-    def update_campaign_mapping(self, source_id: str, clean_name: str, raw_values: list[str]) -> None:
-        """Update or add a campaign name mapping for a specific source."""
-        current_mappings = self.campaign_name_mappings.copy()
-
-        if source_id not in current_mappings:
-            current_mappings[source_id] = {}
-
-        current_mappings[source_id][clean_name] = raw_values
-        self.campaign_name_mappings = current_mappings
-
-    def remove_campaign_mapping(self, source_id: str, clean_name: str | None = None) -> None:
-        """Remove campaign mapping(s). If clean_name is None, removes all mappings for the source."""
-        current_mappings = self.campaign_name_mappings.copy()
-
-        if source_id not in current_mappings:
-            return
-
-        if clean_name is None:
-            del current_mappings[source_id]
-        else:
-            if clean_name in current_mappings[source_id]:
-                del current_mappings[source_id][clean_name]
-                if not current_mappings[source_id]:
-                    del current_mappings[source_id]
-
-        self.campaign_name_mappings = current_mappings
-
-    def get_campaign_mapping_for_source(self, source_id: str) -> dict[str, list[str]]:
-        """Get all campaign name mappings for a specific source."""
-        return self.campaign_name_mappings.get(source_id, {})
 
     def to_cache_key_dict(self) -> dict:
         return {

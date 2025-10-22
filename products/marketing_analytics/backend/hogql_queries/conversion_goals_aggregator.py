@@ -155,7 +155,6 @@ class ConversionGoalsAggregator:
         if not campaign_mappings:
             return campaign_expr
 
-        # Build list of conditions and results for multiIf
         conditions_and_results: list[ast.Expr] = []
         lowercase_campaign = ast.Call(name="lower", args=[campaign_expr])
         lowercase_source = ast.Call(name="lower", args=[source_expr])

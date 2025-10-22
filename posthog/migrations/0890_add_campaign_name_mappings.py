@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
             field=models.JSONField(
                 blank=True,
                 default=dict,
-                help_text="Maps clean campaign names to lists of raw UTM values per data source",
+                help_text="Maps campaign names to lists of raw UTM values per data source",
                 null=False,
             ),
         ),
