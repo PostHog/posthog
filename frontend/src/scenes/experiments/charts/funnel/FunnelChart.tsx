@@ -2,7 +2,7 @@ import '../../../funnels/Funnel.scss'
 
 import { createContext, useContext, useMemo } from 'react'
 
-import { NewExperimentQueryResponse } from '~/queries/schema/schema-general'
+import { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 import {
     ChartParams,
     Experiment,
@@ -26,6 +26,8 @@ export interface FunnelChartProps extends ChartParams {
     /** Experiment result data */
     experimentResult: NewExperimentQueryResponse
     experiment?: Experiment
+    /** Experiment metric configuration */
+    metric?: ExperimentMetric
 }
 
 export interface FunnelChartDataContext {
@@ -34,6 +36,7 @@ export interface FunnelChartDataContext {
     hasFunnelResults: boolean
     experimentResult: NewExperimentQueryResponse
     experiment?: Experiment
+    metric?: ExperimentMetric
 }
 
 const FunnelChartDataContext = createContext<FunnelChartDataContext | null>(null)
@@ -59,6 +62,7 @@ export function FunnelChart({
     inCardView = false,
     experimentResult,
     experiment,
+    metric,
     ...chartParams
 }: FunnelChartProps): JSX.Element {
     const processedData = useMemo(() => {
@@ -77,8 +81,9 @@ export function FunnelChart({
             hasFunnelResults: processedData.hasFunnelResults,
             experimentResult,
             experiment,
+            metric,
         }),
-        [processedData, experimentResult, experiment]
+        [processedData, experimentResult, experiment, metric]
     )
 
     return (

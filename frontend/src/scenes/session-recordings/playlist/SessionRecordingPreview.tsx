@@ -71,7 +71,7 @@ function ErrorCount({
     }
 
     return (
-        <div className="flex items-center flex-1 deprecated-space-x-1 justify-end font-semibold">
+        <div className="flex items-center flex-1 gap-x-1 justify-end font-semibold">
             <IconBug className={iconClassNames} />
             <span>{errorCount}</span>
         </div>
@@ -119,7 +119,7 @@ export interface PropertyIconsProps {
 
 export function PropertyIcons({ recordingProperties, loading, iconClassNames }: PropertyIconsProps): JSX.Element {
     return (
-        <div className="flex deprecated-space-x-1 ph-no-capture">
+        <div className="flex gap-x-1 ph-no-capture">
             {loading ? (
                 <LemonSkeleton className="w-16 h-3" />
             ) : (
@@ -257,7 +257,7 @@ export const SessionRecordingPreview = memo(
                     )}
                 >
                     {selectable && <ItemCheckbox recording={recording} />}
-                    <div className="grow overflow-hidden deprecated-space-y-1 ml-1">
+                    <div className="grow overflow-hidden flex flex-col gap-y-2 ml-1">
                         <div className="flex items-center justify-between gap-x-0.5">
                             <div className="flex overflow-hidden font-medium ph-no-capture">
                                 <span className="truncate">{asDisplay(recording.person)}</span>
@@ -278,7 +278,7 @@ export const SessionRecordingPreview = memo(
                         </div>
 
                         <div className="flex justify-between items-center gap-x-0.5">
-                            <div className="flex deprecated-space-x-2 text-secondary text-sm">
+                            <div className="flex gap-x-4 text-secondary text-sm">
                                 <PropertyIcons
                                     recordingProperties={iconProperties}
                                     iconClassNames={iconClassNames}
@@ -351,7 +351,7 @@ export const SessionRecordingPreview = memo(
 
 export function SessionRecordingPreviewSkeleton(): JSX.Element {
     return (
-        <div className="p-4 deprecated-space-y-2">
+        <div className="p-4 flex flex-col gap-y-2">
             <LemonSkeleton className="w-1/2 h-4" />
             <LemonSkeleton className="w-1/3 h-4" />
         </div>

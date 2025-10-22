@@ -74,6 +74,9 @@ NON_RETRYABLE_ERROR_TYPES: list[str] = [
     "DatabricksIntegrationNotFoundError",
     # Raised when the Databricks integration is not valid.
     "DatabricksIntegrationError",
+    # Raised when we hit our self-imposed long running operation timeout.
+    # We don't want to continually retry as it could consume a lot of compute resources in the user's account.
+    "DatabricksOperationTimeoutError",
 ]
 
 DatabricksField = tuple[str, str]
@@ -116,6 +119,19 @@ class DatabricksSchemaNotFoundError(Exception):
 
     def __init__(self, schema: str):
         super().__init__(f"Schema '{schema}' not found")
+
+
+class DatabricksOperationTimeoutError(Exception):
+    """Error raised when we hit our self-imposed long running operation timeout.
+
+    We impose this timeout to prevent operations from running for too long, which could cause SLA violations and consume
+    a lot of compute resources in the user's account.
+    """
+
+    def __init__(self, operation: str, timeout: float):
+        super().__init__(
+            f"{operation} timed out after {timeout} seconds. If this happens regularly, you may want to increase the size of your Databricks SQL warehouse."
+        )
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -267,7 +283,7 @@ class DatabricksClient:
                 # user agent can be used for usage tracking
                 user_agent_entry="PostHog batch exports",
                 enable_telemetry=False,
-                _socket_timeout=5,
+                _socket_timeout=300,  # Databricks seems to use this for all timeouts
                 _retry_stop_after_attempts_count=2,
                 _retry_delay_max=1,
             )
@@ -485,15 +501,22 @@ class DatabricksClient:
         )
 
     async def acopy_into_table_from_volume(
-        self, table_name: str, volume_path: str, fields: list[DatabricksField], with_schema_evolution: bool = True
-    ):
+        self,
+        table_name: str,
+        volume_path: str,
+        fields: list[DatabricksField],
+        with_schema_evolution: bool = True,
+        timeout: float = 60 * 60,
+    ) -> None:
         """Asynchronously copy data from a Databricks volume into a Databricks table."""
         self.logger.info("Copying data from volume into table '%s'", table_name)
         query = self._get_copy_into_table_from_volume_query(
             table_name=table_name, volume_path=volume_path, fields=fields, with_schema_evolution=with_schema_evolution
         )
         try:
-            await self.execute_async_query(query, fetch_results=False)
+            await self.execute_async_query(query, fetch_results=False, timeout=timeout)
+        except TimeoutError:
+            raise DatabricksOperationTimeoutError(operation="Copy into table from volume", timeout=timeout)
         except ServerOperationError as err:
             if _is_insufficient_permissions_error(err):
                 raise DatabricksInsufficientPermissionsError(
@@ -602,7 +625,8 @@ class DatabricksClient:
         update_key: collections.abc.Iterable[str],
         source_table_fields: collections.abc.Iterable[DatabricksField],
         with_schema_evolution: bool = True,
-    ):
+        timeout: float = 60 * 60,
+    ) -> None:
         """Merge data from source_table into target_table in Databricks.
 
         If `with_schema_evolution` is True, we will use `WITH SCHEMA EVOLUTION` to enable [automatic schema
@@ -643,7 +667,10 @@ class DatabricksClient:
                 target_table_field_names=target_table_field_names,
             )
 
-        await self.execute_async_query(merge_query, fetch_results=False)
+        try:
+            await self.execute_async_query(merge_query, fetch_results=False, timeout=timeout)
+        except TimeoutError:
+            raise DatabricksOperationTimeoutError(operation="Merge into target table", timeout=timeout)
 
     def _get_merge_query_with_schema_evolution(
         self,
@@ -887,6 +914,27 @@ def _is_insufficient_permissions_error(err: ServerOperationError) -> bool:
     return "INSUFFICIENT_PERMISSIONS" in err.message or "PERMISSION_DENIED" in err.message
 
 
+def _get_long_running_query_timeout(data_interval_start: dt.datetime | None, data_interval_end: dt.datetime) -> float:
+    """Get the timeout to use for long running queries.
+
+    Operations like COPY INTO TABLE can take a long time to complete, especially if there is a lot of data and
+    the warehouse being used is not very powerful. We don't want to allow these queries to run for too long, as they can
+    cause SLA violations and can consume a lot of compute resources in the user's account.
+
+    We can probably reduce this timeout a bit once the beta testing phase is complete.
+    """
+    min_timeout_seconds = 30 * 60  # 30 minutes
+    max_timeout_seconds = 6 * 60 * 60  # 6 hours
+    if data_interval_start is None:
+        return max_timeout_seconds
+    interval_seconds = (data_interval_end - data_interval_start).total_seconds()
+    # we don't want to timeout to be too short (eg in case of 5 min batch exports)
+    # we also multiply the interval by 2 for now while we are in beta testing
+    timeout_seconds = max(min_timeout_seconds, interval_seconds * 2)
+    # we don't want to timeout to be too long (eg in case of 1 day batch exports)
+    return min(timeout_seconds, max_timeout_seconds)
+
+
 class DatabricksConsumer(Consumer):
     """A consumer that uploads data to a Databricks managed volume."""
 
@@ -927,9 +975,9 @@ class DatabricksConsumer(Consumer):
             return  # Nothing to upload
 
         self.logger.info(
-            "Uploading file %d with %d bytes to Databricks volume '%s'",
+            "Uploading file %d with %.2f MB to Databricks volume '%s'",
             self.current_file_index,
-            buffer_size,
+            buffer_size / 1024 / 1024,
             self.volume_path,
         )
 
@@ -942,9 +990,9 @@ class DatabricksConsumer(Consumer):
         )
 
         self.external_logger.info(
-            "File %d with %d bytes uploaded to Databricks volume '%s'",
+            "File %d with %.2f MB uploaded to Databricks volume '%s'",
             self.current_file_index,
-            buffer_size,
+            buffer_size / 1024 / 1024,
             self.volume_path,
         )
         self.current_buffer = io.BytesIO()
@@ -1047,6 +1095,11 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
         volume_name = f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}_{attempt}"
         volume_path = f"/Volumes/{inputs.catalog}/{inputs.schema}/{volume_name}"
 
+        long_running_query_timeout = _get_long_running_query_timeout(
+            dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None,
+            dt.datetime.fromisoformat(inputs.data_interval_end),
+        )
+
         async with DatabricksClient.from_inputs_and_integration(
             inputs, databricks_integration
         ).connect() as databricks_client:
@@ -1088,6 +1141,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
                     volume_path=volume_path,
                     fields=table_fields,
                     with_schema_evolution=inputs.use_automatic_schema_evolution,
+                    timeout=long_running_query_timeout,
                 )
 
                 if requires_merge and stage_table_name is not None:
@@ -1098,6 +1152,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
                         merge_key=merge_key,
                         update_key=update_key,
                         with_schema_evolution=inputs.use_automatic_schema_evolution,
+                        timeout=long_running_query_timeout,
                     )
 
                 return result
