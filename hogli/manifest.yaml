@@ -66,6 +66,7 @@ core:
         description: Show all available commands grouped by category
     dev:up:
         description: Start full PostHog dev stack via mprocs
+        hidden: true
     dev:setup:
         cmd: python manage.py setup_dev
         description: Initialize local development environment (one-time setup)
@@ -81,10 +82,12 @@ health_checks:
     check:dagster-graphql:
         bin_script: check_dagster_graphql_up
         description: Wait for Dagster UI to become available
+        hidden: true
     check:hosts:
         bin_script: check_hosts
         description: Verify DNS resolution for required service hostnames (clickhouse,
             kafka, etc)
+        hidden: true
     check:kafka-clickhouse:
         bin_script: check_kafka_clickhouse_up
         description: Wait for both Kafka and ClickHouse services to be ready
@@ -104,6 +107,7 @@ health_checks:
     check:video-deps:
         bin_script: check_video_deps
         description: Install and verify Playwright browsers and FFmpeg dependencies
+        hidden: true
 start:
     start:
         bin_script: start
@@ -181,43 +185,56 @@ docker:
     docker:deprecated:
         bin_script: docker
         description: '[DEPRECATED] Use `hogli start` instead'
+        hidden: true
     docker:dev:
         bin_script: docker-dev
         description: '[DEPRECATED] Use `hogli start` instead'
+        hidden: true
     docker:dev-web:
         bin_script: docker-dev-web
         description: '[DEPRECATED] Use `hogli start` instead'
+        hidden: true
     docker:backend:
         bin_script: docker-backend
         description: '[DEPRECATED] Use `hogli start:backend` instead'
+        hidden: true
     docker:frontend:
         bin_script: docker-frontend
         description: '[DEPRECATED] Use `hogli start:frontend` instead'
+        hidden: true
     docker:migrate:
         bin_script: docker-migrate
         description: '[DEPRECATED] Use `hogli migrations:run` instead'
+        hidden: true
     docker:worker:
         bin_script: docker-worker
         description: '[DEPRECATED] Use `hogli start:worker` instead'
+        hidden: true
     docker:server:
         bin_script: docker-server
         description: Run gunicorn application server with Prometheus metrics support
+        hidden: true
     docker:server-unit:
         bin_script: docker-server-unit
         description: Run NGINX Unit application server with configurable workers
+        hidden: true
     docker:worker-beat:
         bin_script: docker-worker-beat
         description: Run Celery beat scheduler with RedBeat backend
+        hidden: true
     docker:worker-celery:
         bin_script: docker-worker-celery
         description: Start Celery worker with optional scheduler, gossip, heartbeat, mingle
+        hidden: true
     docker:ai-evals:
         bin_script: docker-ai-evals
         description: Set up Docker services and run evaluation scripts with cleanup
+        hidden: true
 migrations:
     db:migrate:
         bin_script: migrate
         description: Apply database migrations (Django and ClickHouse)
+        hidden: true
     migrations:run:
         bin_script: migrate
         description: Run all database migrations (ClickHouse, Postgres, async) in parallel
@@ -296,6 +313,7 @@ tools:
     tool:ty:
         bin_script: ty.py
         description: Type checker with mypy-baseline filtering and sync
+        hidden: true
     tool:turbo:
         bin_script: turbo
         description: Turborepo wrapper with automatic dependency installation
@@ -303,12 +321,14 @@ tools:
         bin_script: unit_metrics.py
         description: WSGI app that aggregates Prometheus metrics from NGINX Unit status
             endpoint
+        hidden: true
     tool:create-ch-migration:
         cmd: python manage.py create_ch_migration
         description: Generate new ClickHouse migration scaffold
     tool:print-hog-stl:
         cmd: python manage.py print_hog_stl_table
         description: Print HogSQL standard library definitions for reference
+        hidden: true
     test:new:script:
         bin_script: test-new-script
         description: 'TODO: add description for test-new-script'
@@ -323,21 +343,27 @@ utilities:
     utilities:posthog-worktree:
         bin_script: posthog-worktree
         description: Manage isolated git worktrees for PostHog development
+        hidden: true
     utilities:phw:
         bin_script: phw
         description: Shell function wrapper for worktree management with auto-cd
+        hidden: true
     utilities:update-bots-list:
         bin_script: update-bots-list
         description: Download bot IP list from GoodBots GitHub and save locally
+        hidden: true
     utilities:dump-hogvmrs-stl:
         bin_script: dump_hogvmrs_stl
         description: Generate Rust HogVM standard library definitions for error tracking
+        hidden: true
     utilities:hobby-ci:
         bin_script: hobby-ci.py
         description: DigitalOcean CI automation for Hobby deployment testing
+        hidden: true
     utilities:install-hogli-completion:
         bin_script: install-hogli-completion
         description: Install shell completion for hogli (bash/zsh)
+        hidden: true
 compositions:
     dev:reset:
         steps:
@@ -374,3 +400,4 @@ environment:
     flox:activate:
         cmd: flox activate
         description: Enter Flox development environment shell.
+        hidden: true

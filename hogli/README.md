@@ -122,7 +122,17 @@ Need to add a new command?
 If your command is 3-5 lines of simple Python (just `click.echo()` or basic conditionals) and is **meta/framework-related**, add it to `cli.py`. If it's a **workflow command** (dev tasks, builds, tests), prefer `cmd:` in manifest instead.
 
 **Auto-discovery:**
-hogli automatically discovers missing bin scripts on every invocation (except `meta:check`). Use `hogli meta:check` in CI to enforce manifest completeness.
+hogli automatically discovers missing bin scripts on every invocation (except `meta:check`). Auto-discovered commands are marked as `hidden: true` by default until reviewed. Use `hogli meta:check` in CI to enforce manifest completeness.
+
+**Hiding commands:**
+Add `hidden: true` to any command to hide it from `--help` output while keeping it callable. Use for:
+
+- **Deprecated commands** - Still work for backward compatibility but not advertised
+- **Production-only commands** - Docker/deployment commands not used in local dev
+- **Specialist/advanced tools** - Low-level utilities for specific use cases
+- **Duplicates/aliases** - Alternative names kept for compatibility
+
+Hidden commands are still fully functional and can be invoked directly (e.g., `hogli docker:deprecated`), they just don't clutter the help output.
 
 ### Command type reference
 
@@ -181,6 +191,15 @@ check:my-service:
 lint:
     cmd: ./bin/ruff.sh check . && pnpm --filter=@posthog/frontend run lint
     description: Run code quality checks
+```
+
+**Hiding commands** - Add `hidden: true` to keep callable but remove from help:
+
+```yaml
+docker:deprecated:
+    bin_script: docker
+    description: '[DEPRECATED] Use `hogli start` instead'
+    hidden: true # Still works, just not shown in --help
 ```
 
 ### Guidelines for exposing npm commands

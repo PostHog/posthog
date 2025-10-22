@@ -62,6 +62,11 @@ class CategorizedGroup(click.Group):
         # Group commands by category, storing (key, title) tuple
         grouped: dict[tuple[str, str], list[tuple[str, str]]] = defaultdict(list)
         for cmd_name, cmd in self.commands.items():
+            # Skip hidden commands (they're still callable, just not shown in help)
+            hogli_config = getattr(cmd, "hogli_config", {})
+            if hogli_config.get("hidden", False):
+                continue
+
             category_title = get_cat_for_cmd(cmd_name)
             help_text = cmd.get_short_help_str(100) if hasattr(cmd, "get_short_help_str") else (cmd.help or "")
 

@@ -95,6 +95,8 @@ class Command:
             except SystemExit:
                 raise
 
+        # Store config on the Click command for visibility filtering
+        cmd.hogli_config = self.config
         return cmd
 
 
@@ -126,6 +128,8 @@ class BinScriptCommand(Command):
             except SystemExit:
                 raise
 
+        # Store config on the Click command for visibility filtering
+        cmd.hogli_config = self.config
         return cmd
 
     def execute(self, *args: str) -> None:
@@ -156,6 +160,8 @@ class DirectCommand(Command):
             except SystemExit:
                 raise
 
+        # Store config on the Click command for visibility filtering
+        cmd.hogli_config = self.config
         return cmd
 
     def execute(self, *args: str) -> None:

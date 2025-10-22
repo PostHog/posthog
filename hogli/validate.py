@@ -50,7 +50,10 @@ def find_missing_manifest_entries() -> set[str]:
 
 
 def generate_missing_entries() -> dict[str, dict]:
-    """Generate manifest entries for missing bin scripts."""
+    """Generate manifest entries for missing bin scripts.
+
+    Auto-discovered commands are marked as hidden by default until reviewed.
+    """
     missing = find_missing_manifest_entries()
     if not missing:
         return {}
@@ -62,6 +65,7 @@ def generate_missing_entries() -> dict[str, dict]:
         entries[cmd_name] = {
             "bin_script": script,
             "description": f"TODO: add description for {script}",
+            "hidden": True,  # Hide auto-discovered commands until reviewed
         }
 
     return entries
