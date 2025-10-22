@@ -511,7 +511,7 @@ export const SETTINGS_MAP: SettingSection[] = [
     {
         level: 'environment',
         id: 'environment-max',
-        title: 'Max AI',
+        title: 'AI',
         flag: 'ARTIFICIAL_HOG',
         settings: [
             {
