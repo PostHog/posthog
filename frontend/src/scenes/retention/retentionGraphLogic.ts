@@ -14,6 +14,7 @@ import { InsightLogicProps, RetentionPeriod } from '~/types'
 import { dateOptionToTimeIntervalMap } from './constants'
 import type { retentionGraphLogicType } from './retentionGraphLogicType'
 import { MeanRetentionValue, retentionLogic } from './retentionLogic'
+import { formatRetentionCohortLabel } from './utils'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
@@ -44,26 +45,6 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
             (results, retentionFilter): RetentionTrendPayload[] => {
                 const { period } = retentionFilter || {}
 
-                const getCohortLabel = (cohortRetention: ProcessedRetentionPayload): string => {
-                    if (!cohortRetention.date) {
-                        return cohortRetention.label
-                    }
-
-                    switch (period) {
-                        case 'Hour':
-                            return cohortRetention.date.format('MMM D, h A')
-                        case 'Month':
-                            return cohortRetention.date.format('MMM YYYY')
-                        case 'Week': {
-                            const startDate = cohortRetention.date
-                            const endDate = startDate.add(6, 'day')
-                            return `${startDate.format('MMM D')} to ${endDate.format('MMM D')}`
-                        }
-                        default:
-                            return cohortRetention.date.format('ddd, MMM D')
-                    }
-                }
-
                 return results.map((cohortRetention: ProcessedRetentionPayload, datasetIndex) => {
                     return {
                         ...cohortRetention,
@@ -71,7 +52,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                         days: cohortRetention.values.map((value) => value.cellDate.toISOString()),
                         labels: cohortRetention.values.map((_, index) => `${period} ${index}`),
                         count: 0,
-                        label: getCohortLabel(cohortRetention),
+                        label: formatRetentionCohortLabel(cohortRetention, period),
                         data: cohortRetention.values.map((value) => value.percentage),
                         index: datasetIndex,
                     }
