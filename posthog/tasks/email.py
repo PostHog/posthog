@@ -264,6 +264,11 @@ def send_email_mfa_link(user_id: int, token: str) -> None:
     )
     message.add_recipient(user.email)
     message.send(send_async=False)
+    posthoganalytics.capture(
+        distinct_id=str(user.distinct_id),
+        event="email mfa link sent",
+        groups={"organization": str(user.current_organization.id)},  # type: ignore
+    )
 
 
 @shared_task(**EMAIL_TASK_KWARGS)

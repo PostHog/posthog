@@ -131,11 +131,16 @@ class TestLoginAPI(APIBaseTest):
         # Assert the email was sent.
         mock_send_email_verification.assert_called_once_with(self.user)
 
+    @patch("posthog.tasks.email.send_email_mfa_link")
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
     @patch("posthog.api.authentication.is_email_verification_disabled", return_value=True)
     def test_email_unverified_user_can_log_in_if_email_available_but_verification_disabled_flag_is_true(
-        self, mock_is_verification_disabled, mock_send_email_verification, mock_is_email_available
+        self,
+        mock_is_verification_disabled,
+        mock_send_email_verification,
+        mock_is_email_available,
+        mock_send_email_mfa_link,
     ):
         self.user.is_email_verified = False
         self.user.save()
@@ -156,10 +161,11 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(mock_is_email_available.call_count, 2)
         mock_send_email_verification.assert_not_called()
 
+    @patch("posthog.tasks.email.send_email_mfa_link")
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
     def test_email_unverified_null_user_can_log_in_if_email_available(
-        self, mock_send_email_verification, mock_is_email_available
+        self, mock_send_email_verification, mock_is_email_available, mock_send_email_mfa_link
     ):
         """When email verification was added, existing users were set to is_email_verified=null.
         If someone is null they should still be allowed to log in until we explicitly decide to lock them out."""
