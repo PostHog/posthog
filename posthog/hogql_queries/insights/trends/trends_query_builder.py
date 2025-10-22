@@ -172,20 +172,50 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     ) ORDER BY day_start, value
                 ) AS top_n_and_other_breakdown_values,
 
+                (
+                    -- All dates in the range; :TODO: Reuse self._get_date_subqueries()
+                    arrayMap(
+                        number -> {date_from_start_of_interval} + {number_interval_period}, -- NOTE: flipped the order around to use start date
+                        range(
+                            0,
+                            coalesce(
+                                dateDiff(
+                                    {interval},
+                                    {date_from_start_of_interval},
+                                    {date_to_start_of_interval}
+                                )
+                            ) + 1
+                        )
+                    )
+
+                ) as all_dates,
+
                 -- Transpose the results into arrays for each breakdown value
                 SELECT
-                    groupArray(day_start) as date,
-                    groupArray(value) as total,
-                    sum(value) as grand_total,
+                    all_dates AS date,
+                    arrayMap(d ->
+                        arraySum(
+                            arrayMap((v, dd) -> dd = d ? v : 0, vals, days)
+                        ),
+                        all_dates
+                    ) AS total,
+                    arraySum(vals) AS grand_total,
                     breakdown_value
-                FROM top_n_and_other_breakdown_values
-                GROUP BY breakdown_value
-                ORDER BY (breakdown_value = {breakdown_other}) ASC, grand_total DESC
+                FROM (
+                    SELECT
+                        groupArray(day_start) AS days,
+                        groupArray(value) AS vals,
+                        breakdown_value
+                    FROM top_n_and_other_breakdown_values
+                    GROUP BY breakdown_value
+                )
+                ORDER BY (breakdown_value = {breakdown_other}) ASC, grand_total DESC    
                 """,
                 {
                     "inner_query": inner_query,
                     "breakdown_other": breakdown_other_expr,
                     "breakdown_limit": breakdown_limit_expr,
+                    **self.query_date_range.to_placeholders(),
                 },
             )
 
