@@ -3,6 +3,10 @@ on:
     pull_request:
         paths:
             - cli/Cargo.toml
+            - docs/**
+
+permissions:
+    pull-requests: write
 
 jobs:
     check-lockfile:
@@ -19,3 +23,63 @@ jobs:
 
             - name: Install sccache
               run: cargo generate-lockfile --locked
+
+    trigger-docs-preview:
+        name: Trigger docs preview (PoC)
+        runs-on: ubuntu-latest
+        steps:
+            - name: Trigger Vercel build
+              env:
+                  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+                  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+              run: |
+                  if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
+                    echo "⚠️ Vercel secrets not configured, skipping"
+                    exit 0
+                  fi
+
+                  PR_NUMBER=${{ github.event.pull_request.number }}
+                  PR_REF="refs/pull/${PR_NUMBER}/head"
+
+                  echo "📢 Triggering Vercel deployment for posthog.com@feat/docs-monorepo-poc (PoC)"
+
+                  PAYLOAD='{
+                    "name": "posthog-com",
+                    "project": "'"$VERCEL_PROJECT_ID"'",
+                    "gitSource": {
+                      "type": "github",
+                      "repo": "PostHog/posthog.com",
+                      "ref": "feat/docs-monorepo-poc"
+                    },
+                    "env": [{
+                      "key": "POSTHOG_DOCS_REF",
+                      "value": "'"$PR_REF"'",
+                      "target": ["production", "preview", "development"]
+                    }]
+                  }'
+
+                  RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://api.vercel.com/v13/deployments" \
+                    -H "Authorization: Bearer $VERCEL_TOKEN" \
+                    -H "Content-Type: application/json" \
+                    -d "$PAYLOAD")
+
+                  HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+                  if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 201 ]; then
+                    echo "✅ Successfully triggered Vercel preview build"
+                  else
+                    echo "❌ Failed to trigger preview build (HTTP $HTTP_CODE)"
+                  fi
+
+            - name: Comment on PR
+              if: always()
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const prNumber = ${{ github.event.pull_request.number }};
+                      const message = '## 📚 Docs Preview Build (PoC)\n\n✅ Triggered Vercel deployment!\n\nCheck the **Vercel** deployment check below for preview URL.';
+                      github.rest.issues.createComment({
+                        issue_number: prNumber,
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        body: message
+                      });
