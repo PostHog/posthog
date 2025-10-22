@@ -1382,7 +1382,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         root_model_mock.return_value = FakeChatAnthropic(
             responses=[
                 messages.AIMessage(
-                    content="", tool_calls=[{"name": "search", "id": "1", "args": {"kind": "docs", "query": "test"}}]
+                    content="", tool_calls=[{"name": "search", "id": "1", "args": {"kind": "doc", "query": "test"}}]
                 )
             ]
         )
