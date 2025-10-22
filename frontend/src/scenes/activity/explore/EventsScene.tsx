@@ -12,8 +12,6 @@ import { Query } from '~/queries/Query/Query'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { ActivityTab } from '~/types'
 
-import { getLLMAnalyticsColumnRenderers } from 'products/llm_analytics/frontend/llmAnalyticsColumnRenderers'
-
 import { eventsSceneLogic } from './eventsSceneLogic'
 
 export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
@@ -55,7 +53,6 @@ export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     showOpenEditorButton: true,
                     extraDataTableQueryFeatures: [QueryFeature.highlightExceptionEventRows],
                     dataTableMaxPaginationLimit: 200,
-                    columns: getLLMAnalyticsColumnRenderers(),
                 }}
             />
         </SceneContent>

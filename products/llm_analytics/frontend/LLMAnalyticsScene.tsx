@@ -51,7 +51,6 @@ import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
 import { LLMAnalyticsDatasetsScene } from './datasets/LLMAnalyticsDatasetsScene'
 import { llmEvaluationsLogic } from './evaluations/llmEvaluationsLogic'
 import { EvaluationConfig } from './evaluations/types'
-import { getLLMAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import {
     LLM_ANALYTICS_DATA_COLLECTION_NODE_ID,
     getDefaultGenerationsColumns,
@@ -201,7 +200,6 @@ function LLMAnalyticsGenerations(): JSX.Element {
                             )
                         },
                     },
-                    ...getLLMAnalyticsColumnRenderers(),
                 },
                 expandable: {
                     expandedRowRender: function renderExpandedGeneration({ result }: DataTableRow) {
