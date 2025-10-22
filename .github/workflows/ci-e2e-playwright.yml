@@ -108,7 +108,7 @@ jobs:
 
     playwright-on-container:
         name: (Optional) Container - E2E Playwright tests
-        runs-on: depot-ubuntu-latest-arm-8
+        runs-on: depot-ubuntu-latest-8
         timeout-minutes: 60
         needs: [changes, container]
         if: needs.changes.outputs.shouldRun == 'true'
