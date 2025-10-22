@@ -37,7 +37,7 @@ from products.batch_exports.backend.tests.temporal.destinations.snowflake.utils 
     TEST_TIME,
     FakeSnowflakeConnection,
 )
-from products.batch_exports.backend.tests.temporal.utils import mocked_start_batch_export_run
+from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
 
 pytestmark = [
     pytest.mark.asyncio,
