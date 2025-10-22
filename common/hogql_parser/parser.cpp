@@ -2124,7 +2124,128 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     RETURN_NEW_AST_NODE("ArrayAccess", "{s:N,s:N,s:O}", "array", object, "property", property, "nullish", Py_True);
   }
 
-  VISIT_UNSUPPORTED(ColumnExprBetween)
+  VISIT(ColumnExprBetween) {
+    // x [NOT] BETWEEN y AND z -> inclusive ends: (x >= y AND x <= z) or NOT: (x < y OR x > z)
+    PyObject* x = visitAsPyObject(ctx->columnExpr(0));
+    PyObject* low;
+    try {
+      low = visitAsPyObject(ctx->columnExpr(1));
+    } catch (...) {
+      Py_DECREF(x);
+      throw;
+    }
+    PyObject* high;
+    try {
+      high = visitAsPyObject(ctx->columnExpr(2));
+    } catch (...) {
+      Py_DECREF(low);
+      Py_DECREF(x);
+      throw;
+    }
+
+    if (ctx->NOT()) {
+      // (x < low) OR (x > high)
+      PyObject* lt_op = get_ast_enum_member("CompareOperationOp", "Lt");
+      PyObject* gt_op = get_ast_enum_member("CompareOperationOp", "Gt");
+      if (!lt_op || !gt_op) {
+        Py_XDECREF(lt_op);
+        Py_XDECREF(gt_op);
+        Py_DECREF(high);
+        Py_DECREF(low);
+        Py_DECREF(x);
+        throw PyInternalError();
+      }
+      Py_INCREF(x);
+      PyObject* lt = build_ast_node("CompareOperation", "{s:N,s:N,s:N}", "left", x, "right", low, "op", lt_op);
+      if (!lt) {
+        Py_DECREF(gt_op);
+        Py_DECREF(high);
+        Py_DECREF(low);
+        Py_DECREF(x);
+        throw PyInternalError();
+      }
+      Py_INCREF(x);
+      PyObject* gt = build_ast_node("CompareOperation", "{s:N,s:N,s:N}", "left", x, "right", high, "op", gt_op);
+      if (!gt) {
+        Py_DECREF(lt);
+        Py_DECREF(high);
+        Py_DECREF(low);
+        Py_DECREF(x);
+        throw PyInternalError();
+      }
+      PyObject* or_list = Py_BuildValue("[NN]", lt, gt);
+      if (!or_list) {
+        Py_DECREF(gt);
+        Py_DECREF(lt);
+        Py_DECREF(high);
+        Py_DECREF(low);
+        Py_DECREF(x);
+        throw PyInternalError();
+      }
+      PyObject* result = build_ast_node("Or", "{s:N}", "exprs", or_list);
+      if (!result) {
+        Py_DECREF(or_list);
+        Py_DECREF(high);
+        Py_DECREF(low);
+        Py_DECREF(x);
+        throw PyInternalError();
+      }
+      Py_DECREF(x);
+      return result;
+    }
+
+    // (x >= low) AND (x <= high)
+    PyObject* gte_op = get_ast_enum_member("CompareOperationOp", "GtEq");
+    PyObject* lte_op = get_ast_enum_member("CompareOperationOp", "LtEq");
+    if (!gte_op || !lte_op) {
+      Py_XDECREF(gte_op);
+      Py_XDECREF(lte_op);
+      Py_DECREF(high);
+      Py_DECREF(low);
+      Py_DECREF(x);
+      throw PyInternalError();
+    }
+
+    Py_INCREF(x);
+    PyObject* gte = build_ast_node("CompareOperation", "{s:N,s:N,s:N}", "left", x, "right", low, "op", gte_op);
+    if (!gte) {
+      Py_DECREF(lte_op);
+      Py_DECREF(high);
+      Py_DECREF(low);
+      Py_DECREF(x);
+      throw PyInternalError();
+    }
+
+    Py_INCREF(x);
+    PyObject* lte = build_ast_node("CompareOperation", "{s:N,s:N,s:N}", "left", x, "right", high, "op", lte_op);
+    if (!lte) {
+      Py_DECREF(gte);
+      Py_DECREF(high);
+      Py_DECREF(low);
+      Py_DECREF(x);
+      throw PyInternalError();
+    }
+    PyObject* and_list = Py_BuildValue("[NN]", gte, lte);
+    if (!and_list) {
+      Py_DECREF(lte);
+      Py_DECREF(gte);
+      Py_DECREF(high);
+      Py_DECREF(low);
+      Py_DECREF(x);
+      throw PyInternalError();
+    }
+    PyObject* result = build_ast_node("And", "{s:N}", "exprs", and_list);
+    if (!result) {
+      Py_DECREF(and_list);
+      Py_DECREF(high);
+      Py_DECREF(low);
+      Py_DECREF(x);
+      throw PyInternalError();
+    }
+
+    Py_DECREF(x);
+    return result;
+  }
 
   VISIT(ColumnExprParens) { return visit(ctx->columnExpr()); }
 
