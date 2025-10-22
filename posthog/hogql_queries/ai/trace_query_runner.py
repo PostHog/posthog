@@ -87,7 +87,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
             """
             SELECT
                 properties.$ai_trace_id AS id,
-                properties.$ai_session_id AS ai_session_id,
+                any(properties.$ai_session_id) AS ai_session_id,
                 min(timestamp) AS first_timestamp,
                 tuple(
                     argMin(person.id, timestamp),
@@ -162,7 +162,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
                 '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
             )
               AND {filter_conditions}
-            GROUP BY properties.$ai_trace_id, properties.$ai_session_id
+            GROUP BY properties.$ai_trace_id
             LIMIT 1
             """,
         )
