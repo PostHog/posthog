@@ -34,6 +34,7 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                     cloud: true,
                     realm: 'cloud',
                 },
+                '/api/billing/': { products: [] },
                 '/api/projects/:id/integrations': { results: [] },
                 '/api/projects/:id/core_memory': { results: [] },
                 '/api/projects/:id/hog_functions': { results: [] },
