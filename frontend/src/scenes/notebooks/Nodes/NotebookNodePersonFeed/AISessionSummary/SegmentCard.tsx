@@ -44,7 +44,7 @@ export function SegmentCard({ segment, outcome, keyActions, hasFailures }: Segme
                         <span>{formatDuration(segment.meta?.duration || 0)}</span>
                     </div>
 
-                    {keyActions && keyActions.events && keyActions.events.length > 0 && (
+                    {keyActions?.events && keyActions.events.length > 0 && (
                         <LemonButton
                             size="small"
                             type="secondary"
