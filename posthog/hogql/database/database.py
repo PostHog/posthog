@@ -207,15 +207,13 @@ class Database(BaseModel):
     _timezone: Optional[str]
     _week_start_day: Optional[WeekStartDay]
 
-    # TODO: Improve typing, allow different levels of errors
-    diagnostics: list[str] = []
-
     def __init__(self, timezone: Optional[str] = None, week_start_day: Optional[WeekStartDay] = None):
         super().__init__()
         try:
             self._timezone = str(ZoneInfo(timezone)) if timezone else None
         except ZoneInfoNotFoundError:
             raise ValueError(f"Unknown timezone: '{str(timezone)}'")
+
         self._week_start_day = week_start_day
 
     def get_timezone(self) -> str:
