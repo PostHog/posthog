@@ -2823,6 +2823,7 @@ class TaxonomicFilterGroupType(StrEnum):
     ELEMENTS = "elements"
     EVENTS = "events"
     INTERNAL_EVENTS = "internal_events"
+    INTERNAL_EVENT_PROPERTIES = "internal_event_properties"
     EVENT_PROPERTIES = "event_properties"
     EVENT_FEATURE_FLAGS = "event_feature_flags"
     EVENT_METADATA = "event_metadata"
@@ -4417,6 +4418,7 @@ class QueryResponseAlternative8(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    ch_table_names: Optional[list[str]] = None
     errors: list[HogQLNotice]
     isUsingIndices: Optional[QueryIndexUsage] = None
     isValid: Optional[bool] = None
@@ -9324,6 +9326,7 @@ class HogQLMetadataResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    ch_table_names: Optional[list[str]] = None
     errors: list[HogQLNotice]
     isUsingIndices: Optional[QueryIndexUsage] = None
     isValid: Optional[bool] = None

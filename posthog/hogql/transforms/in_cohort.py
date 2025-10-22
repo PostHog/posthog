@@ -110,7 +110,7 @@ class MultipleInCohortResolver(TraversingVisitor):
 
             if isinstance(arg.value, str):
                 str_cohorts = Cohort.objects.filter(
-                    name=arg.value, team__project_id=self.context.project_id
+                    name=arg.value, team__project_id=self.context.project_id, deleted=False
                 ).values_list("id", "is_static", "version")
                 if len(str_cohorts) == 1:
                     if node.op == ast.CompareOperationOp.NotInCohort:
@@ -288,7 +288,7 @@ class InCohortResolver(TraversingVisitor):
 
             if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
                 cohorts = Cohort.objects.filter(
-                    id=int(arg.value), team__project_id=self.context.project_id
+                    id=int(arg.value), team__project_id=self.context.project_id, deleted=False
                 ).values_list("id", "is_static", "version", "name")
                 if len(cohorts) == 1:
                     self.context.add_notice(
