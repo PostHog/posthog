@@ -4238,6 +4238,7 @@ class LLMTrace(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aiSessionId: Optional[str] = None
     createdAt: str
     events: list[LLMTraceEvent]
     id: str
@@ -4248,7 +4249,6 @@ class LLMTrace(BaseModel):
     outputState: Optional[Any] = None
     outputTokens: Optional[float] = None
     person: LLMTracePerson
-    aiSessionId: Optional[str] = None
     totalCost: Optional[float] = None
     totalLatency: Optional[float] = None
     traceName: Optional[str] = None

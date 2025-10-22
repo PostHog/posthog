@@ -3456,6 +3456,7 @@ export interface LLMTracePerson {
 
 export interface LLMTrace {
     id: string
+    aiSessionId?: string
     createdAt: string
     person: LLMTracePerson
     totalLatency?: number
