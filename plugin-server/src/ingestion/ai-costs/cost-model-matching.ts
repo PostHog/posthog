@@ -19,17 +19,33 @@ export interface CostModelResult {
     source: CostModelSource
 }
 
+const findManualCost = (model: string): ModelCostRow | undefined => {
+    const lowerCaseModel: string = model.toLowerCase()
+
+    const exactMatch: ModelCostRow | undefined = manualCostsByModel[lowerCaseModel]
+
+    if (exactMatch) {
+        return exactMatch
+    }
+
+    if (lowerCaseModel.includes('/')) {
+        const withoutProvider: string = lowerCaseModel.split('/').pop() ?? lowerCaseModel
+
+        return manualCostsByModel[withoutProvider]
+    }
+
+    return undefined
+}
+
 export const findCostFromModel = (model: string, properties: Properties): CostModelResult | undefined => {
     const providerProperty: unknown = properties['$ai_provider']
 
     const provider: string | undefined = providerProperty ? String(providerProperty).toLowerCase() : undefined
 
-    const lowerCaseModel: string = model.toLowerCase()
+    const manualMatch: ModelCostRow | undefined = findManualCost(model)
 
-    const manualExactMatch: ModelCostRow | undefined = manualCostsByModel[lowerCaseModel]
-
-    const resolvedManualMatch: ResolvedModelCost | undefined = manualExactMatch
-        ? resolveModelCostForProvider(manualExactMatch.cost, provider, manualExactMatch.model)
+    const resolvedManualMatch: ResolvedModelCost | undefined = manualMatch
+        ? resolveModelCostForProvider(manualMatch.cost, provider, manualMatch.model)
         : undefined
 
     if (resolvedManualMatch) {

@@ -122,6 +122,24 @@ describe('findCostFromModel()', () => {
             expect(result!.cost.cost.prompt_token).toBe(0.0000005)
         })
 
+        it('finds manual cost when model has provider prefix', () => {
+            const result = findCostFromModel('openai/gpt-3.5-turbo', {})
+
+            expect(result).toBeDefined()
+            expect(result!.cost.model).toBe('gpt-3.5-turbo')
+            expect(result!.source).toBe(CostModelSource.Manual)
+            expect(result!.cost.cost.prompt_token).toBe(0.0000005)
+        })
+
+        it('finds manual cost with provider prefix and provider property', () => {
+            const result = findCostFromModel('anthropic/claude-2', { $ai_provider: 'openrouter' })
+
+            expect(result).toBeDefined()
+            expect(result!.cost.model).toBe('claude-2')
+            expect(result!.source).toBe(CostModelSource.Manual)
+            expect(result!.cost.cost.prompt_token).toBe(0.000008)
+        })
+
         it('is case-insensitive for exact matches', () => {
             const result = findCostFromModel('GPT-4', { $ai_provider: 'openai' })
 
@@ -242,11 +260,20 @@ describe('findCostFromModel()', () => {
     })
 
     describe('gateway provider scenarios', () => {
-        it('falls back to default pricing when using gateway provider prefix', () => {
+        it('finds manual cost when model has provider prefix, even with gateway provider', () => {
             const result = findCostFromModel('anthropic/claude-3-5-sonnet', { $ai_provider: 'gateway' })
 
             expect(result).toBeDefined()
-            expect(result!.cost.model).toBe('anthropic/claude-3.5-sonnet')
+            expect(result!.cost.model).toBe('claude-3-5-sonnet')
+            expect(result!.cost.provider).toBe('default')
+            expect(result!.source).toBe(CostModelSource.Manual)
+        })
+
+        it('falls back to OpenRouter when no manual cost exists for prefixed model', () => {
+            const result = findCostFromModel('openai/gpt-4', { $ai_provider: 'gateway' })
+
+            expect(result).toBeDefined()
+            expect(result!.cost.model).toBe('openai/gpt-4')
             expect(result!.cost.provider).toBe('default')
             expect(result!.source).toBe(CostModelSource.OpenRouter)
         })
