@@ -58,7 +58,7 @@ from .prompts import (
     ROOT_HARD_LIMIT_REACHED_PROMPT,
     ROOT_SYSTEM_PROMPT,
     ROOT_TOOL_DOES_NOT_EXIST,
-    SUPPORT_ESCALATION_SCENARIOS_PROMPT,
+    SUPPORT_ESCALATION_PROMPT,
 )
 from .tools import (
     CreateSupportTicketTool,
@@ -166,7 +166,7 @@ class RootNode(AssistantNode):
             groups_prompt=f" {format_prompt_string(ROOT_GROUPS_PROMPT, groups=', '.join(groups))}" if groups else "",
             billing_context=billing_context_prompt,
             core_memory_prompt=format_prompt_string(CORE_MEMORY_PROMPT, core_memory=core_memory),
-            support_escalation_situations=SUPPORT_ESCALATION_SCENARIOS_PROMPT,
+            support_escalation_prompt=SUPPORT_ESCALATION_PROMPT if self._has_support_escalation_feature_flag() else "",
         )
 
         # Mark the longest default prefix as cacheable
@@ -208,6 +208,18 @@ class RootNode(AssistantNode):
             groups={"organization": str(self._team.organization_id)},
             group_properties={"organization": {"id": str(self._team.organization_id)}},
             send_feature_flag_events=False,
+        )
+
+    def _has_support_escalation_feature_flag(self) -> bool:
+        """
+        Check if the user has the support escalation feature flag enabled.
+        """
+        return posthoganalytics.feature_enabled(
+            "escalate-ai-to-support-ticket",
+            str(self._user.distinct_id),
+            groups={"organization": str(self._team.organization_id)},
+            group_properties={"organization": {"id": str(self._team.organization_id)}},
+            send_feature_flag_events=True,
         )
 
     async def _get_billing_prompt(self, config: RunnableConfig) -> str:
@@ -254,15 +266,21 @@ class RootNode(AssistantNode):
         available_tools: list[RootTool] = []
 
         # Initialize the static toolkit
+        # Build list of tool classes, conditionally including support ticket tool based on feature flag
+        tool_classes = [
+            ReadTaxonomyTool,
+            ReadDataTool,
+            SearchTool,
+            TodoWriteTool,
+        ]
+
+        # Only include support ticket tool if feature flag is enabled
+        if self._has_support_escalation_feature_flag():
+            tool_classes.append(CreateSupportTicketTool)
+
         dynamic_tools = (
             tool_class.create_tool_class(team=self._team, user=self._user, state=state, config=config)
-            for tool_class in (
-                ReadTaxonomyTool,
-                ReadDataTool,
-                SearchTool,
-                TodoWriteTool,
-                CreateSupportTicketTool,
-            )
+            for tool_class in tool_classes
         )
         available_tools.extend(await asyncio.gather(*dynamic_tools))
 

@@ -127,6 +127,6 @@ class CreateSupportTicketTool(MaxTool):
         support_ticket_message = SupportTicketMessage(ticket_data=ticket_data)
 
         return (
-            "I've prepared a support ticket with our conversation context. You can review and submit it below:",
+            "Here's a draft support ticket with a summary of your conversation. You can review and submit it below:",
             ToolMessagesArtifact(messages=[support_ticket_message]),
         )

@@ -108,8 +108,7 @@ Thanks,`
     return (
         <div className="space-y-4">
             <p className="text-muted text-sm">
-                I've pre-filled this support ticket with a summary of our conversation. Please review and edit as needed
-                before submitting.
+                Here's a draft support ticket with a summary of your conversation. You can review and submit it below:
             </p>
 
             <Form logic={supportLogic} formKey="sendSupportRequest" className="space-y-4" enableFormOnSubmit>
@@ -156,7 +155,7 @@ Thanks,`
             <LemonBanner type="info">
                 <div className="text-sm">
                     <strong>Note:</strong> Our support team will have access to the full conversation history to help
-                    understand your situation.
+                    understand your issue.
                 </div>
             </LemonBanner>
         </div>

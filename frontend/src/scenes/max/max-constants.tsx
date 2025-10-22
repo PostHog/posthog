@@ -166,7 +166,7 @@ export const TOOL_DEFINITIONS: Omit<
         name: 'Create support ticket',
         description: 'Create support ticket to get help from our team',
         product: null,
-        hidden: true, // Hidden from user-facing tool lists
+        hidden: true, // we don't want users to create tickets of their own accord just yet
     },
 }
 
