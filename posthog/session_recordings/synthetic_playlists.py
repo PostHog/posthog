@@ -5,12 +5,16 @@ They are not stored in the database but appear alongside regular playlists in th
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Protocol
+
+from posthog.schema import RecordingOrder, RecordingsQuery
 
 from posthog.models import Comment, Team, User
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
+from posthog.session_recordings.session_recording_api import list_recordings_from_query
 
 try:
     from ee.models.session_summaries import SingleSessionSummary
@@ -210,6 +214,44 @@ class SummarisedPlaylistSource(SyntheticPlaylistSource):
 
 
 @dataclass
+class ExpiringPlaylistSource(SyntheticPlaylistSource):
+    def get_session_ids(self, team: Team, user: User, limit: int | None = None) -> list[str]:
+        query = RecordingsQuery(limit=1000, order=RecordingOrder.RECORDING_TTL)
+        recordings, _, _ = list_recordings_from_query(query, user, team)
+
+        now = datetime.now(UTC)
+        ten_days_from_now = now + timedelta(days=10)
+
+        result = [r.session_id for r in recordings if r.expiry_time and now <= r.expiry_time <= ten_days_from_now]
+
+        if limit:
+            result = result[:limit]
+
+        return result
+
+    def count_session_ids(self, team: Team, user: User) -> int:
+        query = RecordingsQuery(limit=10000, order=RecordingOrder.RECORDING_TTL)
+        recordings, _, _ = list_recordings_from_query(query, user, team)
+
+        now = datetime.now(UTC)
+        ten_days_from_now = now + timedelta(days=10)
+
+        return sum(1 for r in recordings if r.expiry_time and now <= r.expiry_time <= ten_days_from_now)
+
+    def to_synthetic_playlist(self) -> "SyntheticPlaylistDefinition":
+        return SyntheticPlaylistDefinition(
+            id=-6,
+            short_id="synthetic-expiring",
+            name="Expiring soon",
+            description="Recordings that will expire in the next 10 days",
+            type="collection",
+            get_session_ids=self.get_session_ids,
+            count_session_ids=self.count_session_ids,
+            metadata={"icon": "IconClock", "is_user_specific": False},
+        )
+
+
+@dataclass
 class SyntheticPlaylistDefinition:
     """Definition of a synthetic playlist that will be computed on-demand"""
 
@@ -232,6 +274,7 @@ def _get_synthetic_playlists() -> list[SyntheticPlaylistDefinition]:
         CommentedPlaylistSource().to_synthetic_playlist(),
         SharedPlaylistSource().to_synthetic_playlist(),
         ExportedPlaylistSource().to_synthetic_playlist(),
+        ExpiringPlaylistSource().to_synthetic_playlist(),
     ]
 
     # Only add summarised playlist if EE is available

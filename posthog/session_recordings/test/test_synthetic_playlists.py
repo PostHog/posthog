@@ -47,6 +47,7 @@ class TestSyntheticPlaylists(APIBaseTest):
             "synthetic-commented",
             "synthetic-shared",
             "synthetic-exported",
+            "synthetic-expiring",
         ]
         if HAS_EE:
             expected.append("synthetic-summarised")
@@ -196,7 +197,7 @@ class TestSyntheticPlaylists(APIBaseTest):
                 type="collection",
             )
 
-        expected_synthetic_count = 5 if HAS_EE else 4
+        expected_synthetic_count = 6 if HAS_EE else 5
 
         page1_data = self._get_playlists_response("?limit=20")
         page1_synthetic_count = self._count_synthetic_playlists(page1_data["results"])
@@ -241,7 +242,7 @@ class TestSyntheticPlaylists(APIBaseTest):
             last_modified_at=base_time,
         )
 
-        expected_synthetic_count = 5 if HAS_EE else 4
+        expected_synthetic_count = 6 if HAS_EE else 5
 
         response_data = self._get_playlists_response(f"?order={order_param}")
         results = response_data["results"]
