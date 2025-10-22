@@ -368,6 +368,7 @@ describe('processAiEvent()', () => {
             // Should use openai/openai-primary from primaryCostsList (0.7 per token)
             expect(result.properties!.$ai_model_cost_used).toBe('openai/openai-primary')
             expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.OpenRouter)
+            expect(result.properties!.$ai_cost_model_provider).toBe('openai')
             expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(70, 2)
             expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(35, 2)
         })
@@ -380,6 +381,7 @@ describe('processAiEvent()', () => {
             // Should use fallback-model from supplementaryCostsByModel
             expect(result.properties!.$ai_model_cost_used).toBe('fallback-model')
             expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.Manual)
+            expect(result.properties!.$ai_cost_model_provider).toBe('default')
             expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(60, 2)
             expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(30, 2)
         })
@@ -404,6 +406,7 @@ describe('processAiEvent()', () => {
             // Based on the matching logic, with provider=openai, it would match openai/gpt-4 first from primaryCostsList
             expect(result.properties!.$ai_model_cost_used).toBe('openai/gpt-4')
             expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.OpenRouter)
+            expect(result.properties!.$ai_cost_model_provider).toBe('openai')
         })
 
         it('tracks exact model match', () => {
@@ -412,6 +415,7 @@ describe('processAiEvent()', () => {
 
             expect(result.properties!.$ai_model_cost_used).toBe('claude-2')
             expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.Manual)
+            expect(result.properties!.$ai_cost_model_provider).toBe('default')
         })
 
         it('does not set model_cost_used when no match found', () => {
@@ -420,6 +424,7 @@ describe('processAiEvent()', () => {
 
             expect(result.properties!.$ai_model_cost_used).toBeUndefined()
             expect(result.properties!.$ai_cost_model_source).toBeUndefined()
+            expect(result.properties!.$ai_cost_model_provider).toBeUndefined()
         })
 
         it('uses manual costs when model is only in supplementary', () => {
@@ -428,6 +433,7 @@ describe('processAiEvent()', () => {
 
             expect(result.properties!.$ai_model_cost_used).toBe('backup-model')
             expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.Manual)
+            expect(result.properties!.$ai_cost_model_provider).toBe('default')
         })
 
         it('uses primary costs when anthropic provider matches anthropic-primary', () => {
@@ -437,6 +443,7 @@ describe('processAiEvent()', () => {
 
             expect(result.properties!.$ai_model_cost_used).toBe('anthropic/anthropic-primary')
             expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.OpenRouter)
+            expect(result.properties!.$ai_cost_model_provider).toBe('anthropic')
         })
     })
 
@@ -452,6 +459,7 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_total_cost_usd).toBe(16)
             // Should not set model_cost_used when bypassing
             expect(result.properties!.$ai_model_cost_used).toBeUndefined()
+            expect(result.properties!.$ai_cost_model_provider).toBeUndefined()
         })
 
         it('calculates total when input/output exist but total is missing', () => {
@@ -487,6 +495,7 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.2, 6)
             expect(result.properties!.$ai_model_cost_used).toBe('custom')
             expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.Custom)
+            expect(result.properties!.$ai_cost_model_provider).toBe('custom')
         })
 
         it('uses custom pricing even when model is unknown', () => {
@@ -502,6 +511,7 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.15, 6)
             expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.25, 6)
             expect(result.properties!.$ai_model_cost_used).toBe('custom')
+            expect(result.properties!.$ai_cost_model_provider).toBe('custom')
         })
 
         it('custom pricing takes precedence over model matching', () => {
@@ -518,6 +528,7 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(1, 6)
             expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(2, 6)
             expect(result.properties!.$ai_model_cost_used).toBe('custom')
+            expect(result.properties!.$ai_cost_model_provider).toBe('custom')
         })
 
         it('pre-calculated costs take precedence over custom pricing', () => {
@@ -534,6 +545,7 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_output_cost_usd).toBe(3.5)
             expect(result.properties!.$ai_total_cost_usd).toBe(9)
             expect(result.properties!.$ai_model_cost_used).toBeUndefined()
+            expect(result.properties!.$ai_cost_model_provider).toBeUndefined()
         })
 
         it('handles custom pricing with cache read tokens for OpenAI', () => {
@@ -597,6 +609,7 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_output_cost_usd).toBe(0)
             expect(result.properties!.$ai_total_cost_usd).toBe(0)
             expect(result.properties!.$ai_model_cost_used).toBe('custom')
+            expect(result.properties!.$ai_cost_model_provider).toBe('custom')
         })
 
         it('requires both input and output prices to use custom pricing', () => {
@@ -608,6 +621,7 @@ describe('processAiEvent()', () => {
 
             expect(result.properties!.$ai_model_cost_used).toBe('openai/gpt-4')
             expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.OpenRouter)
+            expect(result.properties!.$ai_cost_model_provider).toBe('openai')
         })
 
         it('works without provider when using custom pricing', () => {
@@ -857,6 +871,7 @@ describe('processAiEvent()', () => {
 
             // Should use anthropic/claude-sonnet-4 costs from OpenRouter
             expect(result.properties!.$ai_model_cost_used).toBe('anthropic/claude-sonnet-4')
+            expect(result.properties!.$ai_cost_model_provider).toBe('default')
 
             // Cache creation: 84329 * 0.000003 * 1.25 = 0.31623375
             // Regular input: 3815 * 0.000003 = 0.011445
@@ -880,6 +895,7 @@ describe('processAiEvent()', () => {
             const result = processAiEvent(event)
 
             expect(result.properties!.$ai_model_cost_used).toBe('openai/gpt-4')
+            expect(result.properties!.$ai_cost_model_provider).toBe('default')
             // Should calculate OpenAI cache costs correctly
             expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(16, 2) // (40*0.2*0.5) + (60*0.2) = 4 + 12 = 16
             expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(10, 2) // 50 * 0.2 = 10
@@ -895,6 +911,7 @@ describe('processAiEvent()', () => {
             const result = processAiEvent(event)
 
             expect(result.properties!.$ai_model_cost_used).toBe('anthropic/claude-sonnet-4')
+            expect(result.properties!.$ai_cost_model_provider).toBe('default')
 
             // Cache creation: 84329 * 0.000003 * 1.25 = 0.31623375
             // Regular input: 3815 * 0.000003 = 0.011445
@@ -1035,6 +1052,7 @@ describe('processAiEvent()', () => {
             const expectedOutputCost = outputTokens * modelCost.completion_token // 50 * 0.9
 
             expect(result.properties!.$ai_model_cost_used).toBe('openai/gpt-4.1')
+            expect(result.properties!.$ai_cost_model_provider).toBe('openai')
             expect(result.properties!.$ai_input_cost_usd).toBe(expectedInputCost)
             expect(result.properties!.$ai_output_cost_usd).toBe(expectedOutputCost)
             expect(result.properties!.$ai_total_cost_usd).toBe(expectedInputCost + expectedOutputCost)

@@ -119,6 +119,7 @@ const processCost = (event: EventWithProperties): EventWithProperties => {
 
         event.properties['$ai_model_cost_used'] = 'custom'
         event.properties['$ai_cost_model_source'] = CostModelSource.Custom
+        event.properties['$ai_cost_model_provider'] = 'custom'
 
         return event
     }
@@ -153,6 +154,7 @@ const processCost = (event: EventWithProperties): EventWithProperties => {
 
     event.properties['$ai_model_cost_used'] = cost.model
     event.properties['$ai_cost_model_source'] = source
+    event.properties['$ai_cost_model_provider'] = cost.provider
 
     return event
 }
