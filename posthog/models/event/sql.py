@@ -248,8 +248,8 @@ def KAFKA_EVENTS_RECENT_TABLE_JSON_SQL(on_cluster=True):
 
 
 EVENTS_RECENT_TABLE_JSON_MV_SQL = (
-    lambda on_cluster=True, target_table="writable_events_recent": """
-CREATE MATERIALIZED VIEW IF NOT EXISTS events_recent_json_mv {on_cluster_clause}
+    lambda target_table="writable_events_recent": """
+CREATE MATERIALIZED VIEW IF NOT EXISTS events_recent_json_mv
 TO {database}.{target_table}
 AS SELECT
 uuid,
@@ -281,7 +281,6 @@ _partition
 FROM {database}.kafka_events_recent_json
 """.format(
         target_table=target_table,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         database=settings.CLICKHOUSE_DATABASE,
     )
 )
