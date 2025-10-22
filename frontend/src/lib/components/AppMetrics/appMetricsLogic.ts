@@ -30,6 +30,8 @@ export type AppMetricsLogicProps = {
     forceParams?: Partial<AppMetricsCommonParams>
     defaultParams?: Partial<AppMetricsCommonParams>
     loadOnChanges?: boolean
+    /** If true, loads data immediately when logic mounts. Default: false */
+    loadOnMount?: boolean
 }
 
 export type AppMetricsTimeSeriesRequest = AppMetricsCommonParams
@@ -364,8 +366,8 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
     })),
 
     afterMount(({ actions, props }) => {
-        // Auto-load data for components that need immediate loading
-        if (props.loadOnChanges) {
+        // Auto-load data immediately on mount if explicitly requested
+        if (props.loadOnMount) {
             actions.loadAppMetricsTrends()
             actions.loadAppMetricsTrendsPreviousPeriod()
         }
