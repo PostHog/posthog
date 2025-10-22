@@ -178,7 +178,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                     </ListBox.Item>
                     <DropdownMenuContent
                         align="start"
-                        className="min-w-[300px]"
+                        className="min-w-[200px]"
                         onCloseAutoFocus={(e) => {
                             e.preventDefault()
 

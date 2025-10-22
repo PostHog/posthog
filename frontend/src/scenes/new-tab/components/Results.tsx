@@ -60,11 +60,11 @@ function Category({
         <>
             <div
                 className={cn('mb-8', {
-                    'mb-4 @lg/main-content:flex @lg/main-content:flex-row @lg/main-content:gap-x-4': newTabSceneData,
+                    'mb-4 @xl/main-content:flex @xl/main-content:flex-row @xl/main-content:gap-x-4': newTabSceneData,
                 })}
                 key={category}
             >
-                <div className={cn('mb-4', { 'mb-2 @lg/main-content:min-w-[300px]': newTabSceneData })}>
+                <div className={cn('mb-4', { 'mb-2 @xl/main-content:min-w-[200px]': newTabSceneData })}>
                     <div className={cn('flex items-baseline gap-2', { 'gap-0': newTabSceneData })}>
                         <>
                             {newTabSceneData ? (
@@ -149,7 +149,7 @@ function Category({
                         {category === 'recents' && isSearching && <Spinner size="small" />}
                     </div>
                 </div>
-                <div className={cn('flex flex-col gap-2', { '@lg/main-content:grow': newTabSceneData })}>
+                <div className={cn('flex flex-col gap-2', { '@xl/main-content:grow min-w-0': newTabSceneData })}>
                     {category === 'recents' && typedItems.length === 0 ? (
                         // Special handling for empty project items and persons
                         <div className="flex flex-col gap-2 text-tertiary text-balance">
@@ -461,6 +461,7 @@ export function Results({
                                                     buttonProps={{
                                                         size: 'base',
                                                         hasSideActionRight: true,
+                                                        truncate: true,
                                                     }}
                                                 >
                                                     <span className="text-sm">{item.icon ?? item.name[0]}</span>

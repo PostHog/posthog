@@ -349,7 +349,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                 <ScrollableShadows
                     direction="vertical"
                     className="flex flex-col gap-4 overflow-auto h-full"
-                    innerClassName="pt-6"
+                    innerClassName={cn('pt-6', { 'pt-4': newTabSceneData })}
                     styledScrollbars
                 >
                     <div className="flex flex-col flex-1 max-w-[1200px] mx-auto w-full gap-4 px-4 @lg/main-content:px-8 group/colorful-product-icons colorful-product-icons-true">

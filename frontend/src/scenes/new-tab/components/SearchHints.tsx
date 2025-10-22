@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconSidePanel, IconSparkles } from '@posthog/icons'
+import { IconSparkles } from '@posthog/icons'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -61,7 +61,6 @@ export function SearchHints({ focusSearchInput, tabId, handleAskAi }: SearchHint
                         >
                             <IconSparkles className="size-4" />
                             Ask Posthog AI
-                            <IconSidePanel />
                         </ButtonPrimitive>
                     </ListBox.Item>
                 </span>
