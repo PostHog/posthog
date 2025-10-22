@@ -74,8 +74,8 @@ class ExperimentSummaryTool(MaxTool):
                         validated_variant = ExperimentMaxBayesianContext.model_validate(variant)
                         metric_result["variants"].append(validated_variant.model_dump())
                     else:
-                        validated_variant = ExperimentMaxFrequentistContext.model_validate(variant)
-                        metric_result["variants"].append(validated_variant.model_dump())
+                        validated_variant_freq = ExperimentMaxFrequentistContext.model_validate(variant)
+                        metric_result["variants"].append(validated_variant_freq.model_dump())
                 except Exception as e:
                     capture_exception(
                         e,
@@ -99,7 +99,9 @@ class ExperimentSummaryTool(MaxTool):
         self, experiment_data: dict[str, Any], statistical_method: str
     ) -> ExperimentSummaryOutput:
         try:
-            method = statistical_method if statistical_method in ["bayesian", "frequentist"] else "bayesian"
+            method: Literal["bayesian", "frequentist"] = (
+                statistical_method if statistical_method in ["bayesian", "frequentist"] else "bayesian"
+            )
 
             if method == "frequentist":
                 prompt_template = EXPERIMENT_SUMMARY_FREQUENTIST_PROMPT
