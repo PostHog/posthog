@@ -282,7 +282,7 @@ describe('emit-event-step', () => {
 
             const step = createEmitEventStep<EventPipelineResult>(config)
             const heatmapInput: EventPipelineResult = {
-                lastStep: 'extractHeatmapDataStep',
+                lastStep: 'prepareEventStep',
                 eventToEmit: undefined,
             }
 

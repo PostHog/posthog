@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import { v4 } from 'uuid'
 
+import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { PipelineEvent, ProjectId, Team } from '../../types'
 import { UUIDT } from '../../utils/utils'
 import { PipelineResultType } from '../pipelines/results'
@@ -49,7 +50,7 @@ describe('normalizeEventStep wrapper', () => {
             const step = createNormalizeEventStep(mockHub)
             const input = {
                 event,
-                headers: { force_disable_person_processing: false },
+                headers: createTestEventHeaders(),
                 team,
                 processPerson: true,
             }
@@ -79,7 +80,7 @@ describe('normalizeEventStep wrapper', () => {
             const step = createNormalizeEventStep(mockHub)
             const input = {
                 event,
-                headers: { force_disable_person_processing: false },
+                headers: createTestEventHeaders(),
                 team,
                 processPerson: true,
             }
@@ -111,7 +112,7 @@ describe('normalizeEventStep wrapper', () => {
         const step = createNormalizeEventStep(mockHub)
         const input = {
             event,
-            headers: { force_disable_person_processing: false },
+            headers: createTestEventHeaders(),
             team,
             processPerson: true,
         }
@@ -142,7 +143,7 @@ describe('normalizeEventStep wrapper', () => {
         const step = createNormalizeEventStep(mockHub)
         const input = {
             event,
-            headers: { force_disable_person_processing: false },
+            headers: createTestEventHeaders(),
             team,
             processPerson: true,
         }
@@ -175,7 +176,7 @@ describe('normalizeEventStep wrapper', () => {
         const step = createNormalizeEventStep(mockHub)
         const input = {
             event,
-            headers: { force_disable_person_processing: false },
+            headers: createTestEventHeaders(),
             team,
             processPerson: true,
         }
@@ -213,7 +214,7 @@ describe('normalizeEventStep wrapper', () => {
         const step = createNormalizeEventStep(mockHub)
         const input = {
             event,
-            headers: { force_disable_person_processing: false },
+            headers: createTestEventHeaders(),
             team,
             processPerson: true,
         }
@@ -256,7 +257,7 @@ describe('normalizeEventStep wrapper', () => {
         const step = createNormalizeEventStep(mockHub)
         const input = {
             event,
-            headers: { force_disable_person_processing: false },
+            headers: createTestEventHeaders(),
             team,
             processPerson: true,
         }
@@ -285,7 +286,7 @@ describe('normalizeEventStep wrapper', () => {
 
             // Verify required fields are present
             expect(result.value.team).toBe(team)
-            expect(result.value.headers).toEqual({ force_disable_person_processing: false })
+            expect(result.value.headers).toEqual(createTestEventHeaders())
 
             // Verify event field is removed
             expect('event' in result.value).toBe(false)
@@ -308,7 +309,7 @@ describe('normalizeEventStep wrapper', () => {
         const step = createNormalizeEventStep(mockHub)
         const input = {
             event,
-            headers: { force_disable_person_processing: false },
+            headers: createTestEventHeaders(),
             team,
             processPerson: true,
         }
@@ -327,7 +328,7 @@ describe('normalizeEventStep wrapper', () => {
 
             // Verify required fields are present
             expect(result.value.team).toBe(team)
-            expect(result.value.headers).toEqual({ force_disable_person_processing: false })
+            expect(result.value.headers).toEqual(createTestEventHeaders())
 
             // Verify event field is removed
             expect('event' in result.value).toBe(false)
@@ -366,7 +367,7 @@ describe('normalizeEventStep wrapper', () => {
         const step = createNormalizeEventStep(mockHub)
         const input = {
             event,
-            headers: { force_disable_person_processing: false },
+            headers: createTestEventHeaders(),
             team,
             processPerson: false,
         }
@@ -391,7 +392,7 @@ describe('normalizeEventStep wrapper', () => {
 
             // Verify required fields are present
             expect(result.value.team).toBe(team)
-            expect(result.value.headers).toEqual({ force_disable_person_processing: false })
+            expect(result.value.headers).toEqual(createTestEventHeaders())
 
             // Verify event field is removed
             expect('event' in result.value).toBe(false)
@@ -422,7 +423,7 @@ describe('normalizeEventStep wrapper', () => {
         const step = createNormalizeEventStep(mockHub)
         const input = {
             event,
-            headers: { force_disable_person_processing: false },
+            headers: createTestEventHeaders(),
             team,
             processPerson: true,
         }
@@ -463,7 +464,7 @@ describe('normalizeEventStep wrapper', () => {
         const step = createNormalizeEventStep(mockHub)
         const input = {
             event,
-            headers: { force_disable_person_processing: false },
+            headers: createTestEventHeaders(),
             team,
             processPerson: true,
         }
@@ -497,7 +498,7 @@ describe('normalizeEventStep wrapper', () => {
         const step = createNormalizeEventStep(mockHub)
         const input = {
             event,
-            headers: { force_disable_person_processing: false },
+            headers: createTestEventHeaders(),
             team,
             processPerson: true,
         }
@@ -531,7 +532,7 @@ describe('normalizeEventStep wrapper', () => {
         const step = createNormalizeEventStep(mockHub)
         const input = {
             event,
-            headers: { force_disable_person_processing: false },
+            headers: createTestEventHeaders(),
             team,
             processPerson: true,
         }
@@ -563,7 +564,7 @@ describe('normalizeEventStep wrapper', () => {
         const step = createNormalizeEventStep(mockHub)
         const input = {
             event,
-            headers: { force_disable_person_processing: false },
+            headers: createTestEventHeaders(),
             team,
             processPerson: true,
         }
@@ -595,7 +596,7 @@ describe('normalizeEventStep wrapper', () => {
         const step = createNormalizeEventStep(mockHub)
         const input = {
             event,
-            headers: { force_disable_person_processing: false },
+            headers: createTestEventHeaders(),
             team,
             processPerson: false,
         }
@@ -633,7 +634,7 @@ describe('normalizeEventStep wrapper', () => {
         const step = createNormalizeEventStep(mockHub)
         const input = {
             event,
-            headers: { force_disable_person_processing: false },
+            headers: createTestEventHeaders(),
             team,
             processPerson: true,
         }
@@ -670,7 +671,7 @@ describe('normalizeEventStep wrapper', () => {
         const step = createNormalizeEventStep(mockHub)
         const input = {
             event,
-            headers: { force_disable_person_processing: false },
+            headers: createTestEventHeaders(),
             team,
             processPerson: true,
         }
@@ -701,7 +702,7 @@ describe('normalizeEventStep wrapper', () => {
         const step = createNormalizeEventStep(mockHub)
         const input = {
             event,
-            headers: { force_disable_person_processing: false },
+            headers: createTestEventHeaders(),
             team,
             processPerson: false,
             // Additional fields

@@ -1,11 +1,11 @@
 import { DateTime } from 'luxon'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
-import { EventHeaders, Hub, PipelineEvent, RawKafkaEvent, Team } from '../../types'
-import { EventPipelineHeatmapResult, EventPipelineRunner } from '../../worker/ingestion/event-pipeline/runner'
+import { EventHeaders, Hub, PipelineEvent, PreIngestionEvent, Team } from '../../types'
+import { EventPipelineRunner } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
-import { PipelineResult } from '../pipelines/results'
+import { PipelineResult, isOkResult } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
 export interface EventPipelineRunnerHeatmapStepInput {
@@ -16,18 +16,18 @@ export interface EventPipelineRunnerHeatmapStepInput {
     groupStoreForBatch: GroupStoreForBatch
 }
 
-export interface EventPipelineRunnerHeatmapStepResult {
-    eventToEmit?: RawKafkaEvent
+export type EventPipelineRunnerHeatmapStepResult<TInput> = TInput & {
+    preparedEvent: PreIngestionEvent
 }
 
 export function createEventPipelineRunnerHeatmapStep<TInput extends EventPipelineRunnerHeatmapStepInput>(
     hub: Hub,
     hogTransformer: HogTransformerService,
     personsStore: PersonsStore
-): ProcessingStep<TInput, EventPipelineHeatmapResult> {
+): ProcessingStep<TInput, EventPipelineRunnerHeatmapStepResult<TInput>> {
     return async function eventPipelineRunnerHeatmapStep(
         input: TInput
-    ): Promise<PipelineResult<EventPipelineHeatmapResult>> {
+    ): Promise<PipelineResult<EventPipelineRunnerHeatmapStepResult<TInput>>> {
         const { normalizedEvent, timestamp, team, headers, groupStoreForBatch } = input
 
         const runner = new EventPipelineRunner(
@@ -39,6 +39,17 @@ export function createEventPipelineRunnerHeatmapStep<TInput extends EventPipelin
             headers
         )
         const result = await runner.runHeatmapPipeline(normalizedEvent, timestamp, team)
-        return result
+
+        if (!isOkResult(result)) {
+            return result
+        }
+
+        return {
+            ...result,
+            value: {
+                ...input,
+                preparedEvent: result.value.preparedEvent,
+            },
+        }
     }
 }

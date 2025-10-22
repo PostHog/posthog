@@ -50,9 +50,11 @@ import { createDisablePersonProcessingStep } from './event-processing/disable-pe
 import { EmitEventStepInput, createEmitEventStep } from './event-processing/emit-event-step'
 import { createEventPipelineRunnerHeatmapStep } from './event-processing/event-pipeline-runner-heatmap-step'
 import { createEventPipelineRunnerV1Step } from './event-processing/event-pipeline-runner-v1-step'
+import { createExtractHeatmapDataStep } from './event-processing/extract-heatmap-data-step'
 import { createHandleClientIngestionWarningStep } from './event-processing/handle-client-ingestion-warning-step'
 import { createNormalizeEventStep } from './event-processing/normalize-event-step'
 import { createNormalizeProcessPersonFlagStep } from './event-processing/normalize-process-person-flag-step'
+import { createSkipEmitEventStep } from './event-processing/skip-emit-event-step'
 import { BatchPipelineUnwrapper } from './pipelines/batch-pipeline-unwrapper'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
@@ -371,6 +373,14 @@ export class IngestionConsumer {
                                                                     this.personsStore
                                                                 )
                                                             )
+                                                            .pipe(
+                                                                createExtractHeatmapDataStep({
+                                                                    kafkaProducer: this.kafkaProducer!,
+                                                                    CLICKHOUSE_HEATMAPS_KAFKA_TOPIC:
+                                                                        this.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                                                                })
+                                                            )
+                                                            .pipe(createSkipEmitEventStep())
                                                     )
                                                     .branch('event', (b) =>
                                                         b
@@ -381,6 +391,16 @@ export class IngestionConsumer {
                                                                     this.hogTransformer,
                                                                     this.personsStore
                                                                 )
+                                                            )
+                                                            // TRICKY: Older client versions may still send $heatmap_data as properties on regular events.
+                                                            // This step extracts and processes that data even though up-to-date clients send dedicated $$heatmap events.
+                                                            // TODO: Verify if we still receive $heatmap_data on regular events and consider removing this step if not.
+                                                            .pipe(
+                                                                createExtractHeatmapDataStep({
+                                                                    kafkaProducer: this.kafkaProducer!,
+                                                                    CLICKHOUSE_HEATMAPS_KAFKA_TOPIC:
+                                                                        this.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                                                                })
                                                             )
                                                             .pipe(createCreateEventStep())
                                                     )

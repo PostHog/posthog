@@ -232,7 +232,6 @@ describe('EventPipelineRunner', () => {
                 'normalizeEventStep',
                 'processPersonsStep',
                 'prepareEventStep',
-                'extractHeatmapDataStep',
             ])
             expect(forSnapshot(runner.stepsWithArgs)).toMatchSnapshot()
         })
@@ -245,7 +244,7 @@ describe('EventPipelineRunner', () => {
             if (isOkResult(result)) {
                 expect(result.value.error).toBeUndefined()
             }
-            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(6)
+            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(5)
             expect(pipelineStepErrorCounterSpy).not.toHaveBeenCalled()
         })
 
@@ -349,7 +348,7 @@ describe('EventPipelineRunner', () => {
                 const timestamp = DateTime.now()
                 await runner.runHeatmapPipeline(heatmapEvent, timestamp, team)
 
-                expect(runner.steps).toEqual(['prepareEventStep', 'extractHeatmapDataStep'])
+                expect(runner.steps).toEqual(['prepareEventStep'])
             })
         })
     })

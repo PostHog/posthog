@@ -161,21 +161,5 @@ exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
       },
     ],
   ],
-  [
-    "extractHeatmapDataStep",
-    [
-      {
-        "distinctId": "my_id",
-        "elementsList": [],
-        "event": "$pageview",
-        "eventUuid": "uuid1",
-        "ip": "127.0.0.1",
-        "projectId": 1,
-        "properties": {},
-        "teamId": 2,
-        "timestamp": "2020-02-23T02:15:00.000Z",
-      },
-    ],
-  ],
 ]
 `;
