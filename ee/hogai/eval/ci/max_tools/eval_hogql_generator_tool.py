@@ -8,7 +8,7 @@ from braintrust import EvalCase, Score
 from pydantic import BaseModel
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 
 from posthog.sync import database_sync_to_async
 
@@ -67,7 +67,7 @@ def call_generate_hogql_query(demo_org_team_user):
 @pytest.fixture
 async def database_schema(demo_org_team_user):
     team = demo_org_team_user[1]
-    database = await database_sync_to_async(create_hogql_database)(team=team)
+    database = await database_sync_to_async(Database.create_for)(team=team)
     context = HogQLContext(team=team, enable_select_queries=True, database=database)
     return await serialize_database_schema(database, context)
 

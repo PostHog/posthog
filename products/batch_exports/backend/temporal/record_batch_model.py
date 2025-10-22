@@ -4,7 +4,7 @@ import typing
 import datetime as dt
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.hogql import ast
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
@@ -45,7 +45,7 @@ class RecordBatchModel(abc.ABC):
                 "log_comment": self.get_log_comment(),
             },
         )
-        context.database = await database_sync_to_async(create_hogql_database)(team=team, modifiers=context.modifiers)
+        context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
 
         return context
 

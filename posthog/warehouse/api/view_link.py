@@ -3,7 +3,7 @@ from typing import Optional
 from rest_framework import filters, response, serializers, viewsets
 
 from posthog.hogql.ast import Call, Field
-from posthog.hogql.database.database import Database, create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_expr
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -41,7 +41,7 @@ class ViewLinkSerializer(serializers.ModelSerializer):
     def _database(self, team_id: int) -> Database:
         database = self.context.get("database", None)
         if not database:
-            database = create_hogql_database(team_id=team_id)
+            database = Database.create_for(team_id=team_id)
         return database
 
     def get_source_table_name(self, join: DataWarehouseJoin) -> str:
@@ -135,7 +135,7 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
-        context["database"] = create_hogql_database(team_id=self.team_id)
+        context["database"] = Database.create_for(team_id=self.team_id)
         return context
 
     def safely_get_queryset(self, queryset):
