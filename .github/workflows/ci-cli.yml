@@ -41,19 +41,20 @@ jobs:
 
                   PR_BRANCH="${{ github.event.pull_request.head.ref }}"
 
-                  echo "📝 Setting POSTHOG_DOCS_REF=${PR_BRANCH} for preview branch feat/docs-monorepo-poc"
+                  echo "📝 Updating POSTHOG_DOCS_REF=${PR_BRANCH} for preview branch feat/docs-monorepo-poc"
 
-                  # Set env var for the preview branch via Vercel API
-                  curl -X POST "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/env?teamId=${VERCEL_TEAM_ID}" \
+                  # PATCH with key name - upserts if doesn't exist
+                  curl -X PATCH "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}/env/POSTHOG_DOCS_REF?teamId=${VERCEL_TEAM_ID}" \
                     -H "Authorization: Bearer $VERCEL_TOKEN" \
                     -H "Content-Type: application/json" \
                     -d '{
-                      "key": "POSTHOG_DOCS_REF",
                       "value": "'"$PR_BRANCH"'",
-                      "type": "plain",
                       "target": ["preview"],
                       "gitBranch": "feat/docs-monorepo-poc"
-                    }' || echo "⚠️ Failed to set env var (may already exist)"
+                    }'
+
+                  echo "   Waiting 5 seconds for env var to propagate..."
+                  sleep 5
 
             - name: Trigger Vercel build
               env:
