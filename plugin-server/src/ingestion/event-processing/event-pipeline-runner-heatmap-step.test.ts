@@ -2,9 +2,8 @@ import { DateTime } from 'luxon'
 import { v4 } from 'uuid'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
-import { Hub, PipelineEvent, ProjectId, RawKafkaEvent, Team, TimestampFormat } from '../../types'
-import { castTimestampOrNow } from '../../utils/utils'
-import { EventPipelineResult, EventPipelineRunner } from '../../worker/ingestion/event-pipeline/runner'
+import { Hub, ISOTimestamp, PipelineEvent, PreIngestionEvent, ProjectId, Team } from '../../types'
+import { EventPipelineHeatmapResult, EventPipelineRunner } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
 import { PersonsStoreForBatch } from '../../worker/ingestion/persons/persons-store-for-batch'
 import { PipelineResultType, dlq, drop, ok } from '../pipelines/results'
@@ -50,22 +49,15 @@ const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
     ...overrides,
 })
 
-const createTestRawKafkaEvent = (overrides: Partial<RawKafkaEvent> = {}): RawKafkaEvent => {
-    const testTimestamp = castTimestampOrNow('2023-01-01T00:00:00.000Z', TimestampFormat.ClickHouse)
+const createTestPreIngestionEvent = (overrides: Partial<PreIngestionEvent> = {}): PreIngestionEvent => {
     return {
-        uuid: 'test-uuid',
+        eventUuid: 'test-uuid',
         event: '$$heatmap',
-        properties: JSON.stringify({ test: 'property' }),
-        timestamp: testTimestamp,
-        team_id: 1,
-        project_id: 1 as ProjectId,
-        distinct_id: 'test-distinct-id',
-        elements_chain: '',
-        created_at: testTimestamp,
-        person_id: 'person-uuid',
-        person_properties: JSON.stringify({}),
-        person_created_at: testTimestamp,
-        person_mode: 'full',
+        teamId: 1,
+        projectId: 1 as ProjectId,
+        distinctId: 'test-distinct-id',
+        properties: { test: 'property' },
+        timestamp: '2023-01-01T00:00:00.000Z' as ISOTimestamp,
         ...overrides,
     }
 }
@@ -110,7 +102,7 @@ describe('event-pipeline-runner-heatmap-step', () => {
 
     it('should create EventPipelineRunner and call runHeatmapPipeline', async () => {
         const mockTimestamp = DateTime.now()
-        const mockResult = ok({ lastStep: 'extractHeatmapDataStep', eventToEmit: createTestRawKafkaEvent() })
+        const mockResult = ok({ lastStep: 'prepareEventStep', preparedEvent: createTestPreIngestionEvent() })
         mockEventPipelineRunner.runHeatmapPipeline.mockResolvedValue(mockResult)
 
         const step = createEventPipelineRunnerHeatmapStep(mockHub, mockHogTransformer)
@@ -135,13 +127,16 @@ describe('event-pipeline-runner-heatmap-step', () => {
             mockHeaders
         )
         expect(mockEventPipelineRunner.runHeatmapPipeline).toHaveBeenCalledWith(mockEvent, mockTimestamp, mockTeam)
-        expect(result).toEqual(mockResult)
         expect(result.type).toBe(PipelineResultType.OK)
+        if (result.type === PipelineResultType.OK) {
+            expect(result.value.preparedEvent).toEqual(createTestPreIngestionEvent())
+            expect(result.value).toMatchObject(input)
+        }
     })
 
     it('should pass through drop results from runHeatmapPipeline', async () => {
         const mockTimestamp = DateTime.now()
-        const mockResult = drop<EventPipelineResult>('heatmap_processing_failed')
+        const mockResult = drop<EventPipelineHeatmapResult>('heatmap_processing_failed')
         mockEventPipelineRunner.runHeatmapPipeline.mockResolvedValue(mockResult)
 
         const step = createEventPipelineRunnerHeatmapStep(mockHub, mockHogTransformer)
@@ -164,7 +159,7 @@ describe('event-pipeline-runner-heatmap-step', () => {
     it('should pass through DLQ results from runHeatmapPipeline', async () => {
         const mockTimestamp = DateTime.now()
         const mockError = new Error('Heatmap processing error')
-        const mockResult = dlq<EventPipelineResult>('heatmap_error', mockError)
+        const mockResult = dlq<EventPipelineHeatmapResult>('heatmap_error', mockError)
         mockEventPipelineRunner.runHeatmapPipeline.mockResolvedValue(mockResult)
 
         const step = createEventPipelineRunnerHeatmapStep(mockHub, mockHogTransformer)
@@ -191,7 +186,7 @@ describe('event-pipeline-runner-heatmap-step', () => {
             custom_header: 'value',
         }
 
-        const mockResult = ok({ lastStep: 'extractHeatmapDataStep', eventToEmit: createTestRawKafkaEvent() })
+        const mockResult = ok({ lastStep: 'prepareEventStep', preparedEvent: createTestPreIngestionEvent() })
         mockEventPipelineRunner.runHeatmapPipeline.mockResolvedValue(mockResult)
 
         const step = createEventPipelineRunnerHeatmapStep(mockHub, mockHogTransformer)

@@ -5,7 +5,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { HogTransformerService, TransformationResult } from '../../../cdp/hog-transformations/hog-transformer.service'
 import { PipelineWarning } from '../../../ingestion/pipelines/pipeline.interface'
 import { PipelineResult, dlq, drop, isOkResult, ok } from '../../../ingestion/pipelines/results'
-import { EventHeaders, Hub, Person, PipelineEvent, PreIngestionEvent, RawKafkaEvent, Team } from '../../../types'
+import { EventHeaders, Hub, Person, PipelineEvent, PreIngestionEvent, Team } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { logger } from '../../../utils/logger'
@@ -16,7 +16,6 @@ import { MergeMode, determineMergeMode } from '../persons/person-merge-types'
 import { PersonsStoreForBatch } from '../persons/persons-store-for-batch'
 import { EventsProcessor } from '../process-event'
 import { dropOldEventsStep } from './dropOldEventsStep'
-import { extractHeatmapDataStep } from './extractHeatmapDataStep'
 import {
     pipelineLastStepCounter,
     pipelineStepErrorCounter,
@@ -42,7 +41,7 @@ export type EventPipelineResult = RunnerResult<{
 }>
 
 export type EventPipelineHeatmapResult = RunnerResult<{
-    eventToEmit?: RawKafkaEvent
+    preparedEvent: PreIngestionEvent
 }>
 
 export type EventPipelinePipelineResult = PipelineResult<EventPipelineResult>
@@ -114,26 +113,8 @@ export class EventPipelineRunner {
         }
         const preparedEvent = prepareResult.value
 
-        const extractResult = await this.runStep<[PreIngestionEvent, Promise<unknown>[]], typeof extractHeatmapDataStep>(
-            extractHeatmapDataStep,
-            [this, preparedEvent],
-            normalizedEvent.team_id,
-            true,
-            kafkaAcks,
-            warnings
-        )
-        if (!isOkResult(extractResult)) {
-            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
-            return extractResult
-        }
-        const [_, heatmapKafkaAcks] = extractResult.value
-
-        if (heatmapKafkaAcks.length > 0) {
-            heatmapKafkaAcks.forEach((ack) => kafkaAcks.push(ack))
-        }
-
-        const result = this.registerLastStep('extractHeatmapDataStep', {
-            eventToEmit: undefined,
+        const result = this.registerLastStep('prepareEventStep', {
+            preparedEvent,
         })
         return ok(result, kafkaAcks, warnings)
     }
@@ -298,26 +279,9 @@ export class EventPipelineRunner {
         }
         const preparedEvent = prepareResult.value
 
-        // TRICKY: old client might still be sending heatmap_data as passengers on other events
-        // so this step is here even though up-to-date clients will be sending heatmap events
-        // for separate processing
-        const extractResult = await this.runStep<
-            [PreIngestionEvent, Promise<unknown>[]],
-            typeof extractHeatmapDataStep
-        >(extractHeatmapDataStep, [this, preparedEvent], event.team_id, true, kafkaAcks, warnings)
-        if (!isOkResult(extractResult)) {
-            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
-            return extractResult
-        }
-        const [preparedEventWithoutHeatmaps, heatmapKafkaAcks] = extractResult.value
-
-        if (heatmapKafkaAcks.length > 0) {
-            heatmapKafkaAcks.forEach((ack) => kafkaAcks.push(ack))
-        }
-
-        const result = this.registerLastStep('extractHeatmapDataStep', {
+        const result = this.registerLastStep('prepareEventStep', {
             person,
-            preparedEvent: preparedEventWithoutHeatmaps,
+            preparedEvent,
             processPerson,
         })
 
