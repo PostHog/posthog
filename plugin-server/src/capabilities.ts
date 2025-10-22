@@ -102,7 +102,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 // NOTE: This is temporary until we have removed plugins
                 appManagementSingleton: true,
             }
-        case PluginServerMode.logs_ingestion:
+        case PluginServerMode.ingestion_logs:
             return {
                 logsIngestion: true,
             }

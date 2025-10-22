@@ -81,7 +81,7 @@ export enum PluginServerMode {
     cdp_cyclotron_worker_delay = 'cdp-cyclotron-worker-delay',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
-    logs_ingestion = 'logs-ingestion',
+    ingestion_logs = 'ingestion-logs',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
