@@ -29,7 +29,14 @@ class RevenueAnalyticsViewSourceBaseTest(ClickhouseTestMixin, QueryMatchingTest,
         super().setUp()
         # Common setup for revenue analytics tests can go here
 
-    def assertBuiltQueryStructure(self, built_query: BuiltQuery, expected_key: str, expected_prefix: str):
+    def assertBuiltQueryStructure(
+        self,
+        built_query: BuiltQuery,
+        expected_key: str,
+        expected_prefix: str,
+        *,
+        expected_test_comments: str | None = "<SENTINEL_VALUE>",
+    ):
         """
         Assert that a BuiltQuery has the expected structure.
 
@@ -40,6 +47,9 @@ class RevenueAnalyticsViewSourceBaseTest(ClickhouseTestMixin, QueryMatchingTest,
         """
         self.assertEqual(built_query.key, expected_key)
         self.assertEqual(built_query.prefix, expected_prefix)
+
+        if expected_test_comments != "<SENTINEL_VALUE>":
+            self.assertEqual(built_query.test_comments, expected_test_comments)
 
     def assertQueryContainsFields(self, query: ast.Expr, schema: Schema):
         """
