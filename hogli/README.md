@@ -50,8 +50,8 @@ Run tests separately in another terminal:
 
 ```bash
 # Pick one—tests are slow and shouldn't run together
-hogli tests:python posthog/api/test/test_foo.py
-hogli tests:js frontend/src/scenes/Foo/
+hogli test:python posthog/api/test/test_foo.py
+hogli test:js frontend/src/scenes/Foo/
 ```
 
 To see all available commands run:
@@ -60,7 +60,7 @@ To see all available commands run:
 hogli --help
 ```
 
-Every subcommand is self-documented. You can append `--help` to any command for detailed options, for example `hogli tests:python --help`.
+Every subcommand is self-documented. You can append `--help` to any command for detailed options, for example `hogli test:python --help`.
 
 ## Design philosophy
 
@@ -69,7 +69,7 @@ hogli follows these principles:
 - **Never bundle slow operations** - Tests run separately from lint/build because they take 15+ minutes. Developers should pick **one** test suite per run.
 - **Fast feedback loops** - `hogli lint` completes in ~5 minutes so you can verify code locally before CI.
 - **Thin wrapper layer** - hogli doesn't duplicate tool logic; it delegates to existing scripts (`bin/migrate`, `bin/start`, etc.). If you need advanced options, use the underlying tools directly.
-- **Explicit over implicit** - Commands require explicit choices (e.g., `hogli tests:python` not `hogli test all`) to prevent accidental long-running operations.
+- **Explicit over implicit** - Commands require explicit choices (e.g., `hogli test:python` not `hogli test all`) to prevent accidental long-running operations.
 
 ## Architecture
 
@@ -115,7 +115,7 @@ Need to add a new command?
 └─ Is it a simple shell command with no logic?
    └─ YES → Add to manifest.yaml with cmd: "your command here"
       When: Single shell command, can be one-liners like docker compose or pnpm
-      Examples: docker:services:up, lint, format, tests:python
+      Examples: docker:services:up, lint, format, test:python
 ```
 
 **Special case - trivial Python (3-5 lines):**

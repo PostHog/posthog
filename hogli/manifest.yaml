@@ -125,20 +125,24 @@ start:
         services:
             - postgresql
             - redis
+        hidden: true
     start:celery:
         bin_script: start-celery
         description: Start Celery worker or beat scheduler with auto-reload
         services:
             - redis
             - kafka
+        hidden: true
     start:frontend:
         bin_script: start-frontend
         description: Install dependencies and start frontend with Vite dev server
         services:
             - docker
+        hidden: true
     start:frontend-vite:
         bin_script: start-frontend-vite
         description: Start Vite dev server for frontend (runs pnpm start-vite)
+        hidden: true
     start:worker:
         bin_script: start-worker
         description: Launch all background workers (Celery worker, beat scheduler, plugin-server)
@@ -146,9 +150,11 @@ start:
             - kafka
             - temporal
             - redis
+        hidden: true
     start:rust-service:
         bin_script: start-rust-service
         description: Build and run live Rust microservice with auto-restart on crash
+        hidden: true
 deploy:
     deploy:hobby:
         bin_script: deploy-hobby
@@ -248,16 +254,16 @@ migrations:
         cmd: python manage.py sync_feature_flags
         description: Sync feature flags from configuration
 tests:
-    tests:python:
+    test:python:
         cmd: pytest
         description: Run Python test suite
-    tests:js:
+    test:js:
         cmd: pnpm --filter=@posthog/frontend test
         description: Run JavaScript test suite
-    tests:run:
+    test:run:
         bin_script: tests
         description: Interactive test runner with watch mode and changed file detection
-    tests:e2e:
+    test:e2e:
         bin_script: e2e-test-runner
         description: Set up test databases and run Playwright E2E tests
 quality:
@@ -329,16 +335,6 @@ tools:
         cmd: python manage.py print_hog_stl_table
         description: Print HogSQL standard library definitions for reference
         hidden: true
-    test:new:script:
-        bin_script: test-new-script
-        description: 'TODO: add description for test-new-script'
-    new:tool:
-        bin_script: new-tool
-        description: 'TODO: add description for new-tool'
-    reset:
-        bin_script: reset
-        description: Full reset - stop services, migrate, load demo data
-        # TODO: deprecated - use hogli dev:reset instead
 utilities:
     utilities:posthog-worktree:
         bin_script: posthog-worktree
