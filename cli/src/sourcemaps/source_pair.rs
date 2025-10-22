@@ -288,6 +288,16 @@ impl MinifiedSourceFile {
                             .unwrap_or_else(|| PathBuf::from(&filename)),
                     );
                 }
+
+                if let Some(filename) = filename.strip_prefix(&format!("{prefix}/")) {
+                    possible_paths.push(
+                        self.inner
+                            .path
+                            .parent()
+                            .map(|p| p.join(&filename))
+                            .unwrap_or_else(|| PathBuf::from(&filename)),
+                    );
+                }
             }
         };
 
