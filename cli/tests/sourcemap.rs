@@ -1,4 +1,7 @@
-use posthog_cli::sourcemaps::source_pair::{read_pairs, SourceMapContent};
+use posthog_cli::sourcemaps::{
+    inject::inject_pairs,
+    source_pair::{read_pairs, SourceMapContent},
+};
 
 use std::{
     fs,
@@ -33,11 +36,11 @@ fn test_search() {
 #[test]
 fn test_ignore() {
     let pairs = read_pairs(&get_case_path(""), &Vec::new()).expect("Failed to read pairs");
-    assert_eq!(pairs.len(), 4);
+    assert_eq!(pairs.len(), 5);
 
     let pairs = read_pairs(&get_case_path(""), &["**/search/**".to_string()])
         .expect("Failed to read pairs");
-    assert_eq!(pairs.len(), 2);
+    assert_eq!(pairs.len(), 3);
 }
 
 #[test]
@@ -100,4 +103,39 @@ fn test_pair_remove() {
         serde_json::from_str(include_str!(case!("inject/chunk.js.map"))).unwrap();
 
     assert_eq!(expected_val, current_pair.sourcemap.inner.content,);
+}
+
+#[test]
+fn test_reinject_without_new_release() {
+    let case_path = get_case_path("reinject");
+    let pairs = read_pairs(&case_path, &Vec::new()).expect("Failed to read pairs");
+    assert_eq!(pairs.len(), 1);
+    let injected_pairs = inject_pairs(pairs, None).expect("Failed to inject pairs");
+    let first_pair = injected_pairs.first().expect("Failed to get first pair");
+    assert_ne!(&first_pair.source.get_chunk_id().unwrap(), "0");
+    assert_eq!(
+        &first_pair.sourcemap.get_chunk_id().unwrap(),
+        &first_pair.source.get_chunk_id().unwrap()
+    );
+    assert!(&first_pair.sourcemap.get_release_id().is_none());
+}
+
+#[test]
+fn test_reinject_with_new_release() {
+    let case_path = get_case_path("reinject");
+    let pairs = read_pairs(&case_path, &Vec::new()).expect("Failed to read pairs");
+    assert_eq!(pairs.len(), 1);
+    let release_id = uuid::Uuid::now_v7().to_string();
+    let injected_pairs =
+        inject_pairs(pairs, Some(release_id.clone())).expect("Failed to inject pairs");
+    let first_pair = injected_pairs.first().expect("Failed to get first pair");
+    assert_ne!(&first_pair.source.get_chunk_id().unwrap(), "0");
+    assert_eq!(
+        &first_pair.sourcemap.get_chunk_id().unwrap(),
+        &first_pair.source.get_chunk_id().unwrap()
+    );
+    assert_eq!(
+        first_pair.sourcemap.get_release_id().unwrap(),
+        release_id.clone()
+    );
 }
