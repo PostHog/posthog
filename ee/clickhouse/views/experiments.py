@@ -955,6 +955,16 @@ class EnterpriseExperimentsViewSet(
         # If we have at least some data (completed or failed), it's partial
         else:
             overall_status = "partial"
+
+        active_recalculation = ExperimentTimeseriesRecalculation.objects.filter(
+            experiment=experiment,
+            fingerprint=fingerprint,
+            status__in=[
+                ExperimentTimeseriesRecalculation.Status.PENDING,
+                ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
+            ],
+        ).first()
+
         first_result = metric_results.first()
         last_result = metric_results.last()
         response_data = {
@@ -966,6 +976,8 @@ class EnterpriseExperimentsViewSet(
             "computed_at": latest_completed_at.isoformat() if latest_completed_at else None,
             "created_at": first_result.created_at.isoformat() if first_result else experiment.created_at.isoformat(),
             "updated_at": last_result.updated_at.isoformat() if last_result else experiment.updated_at.isoformat(),
+            "recalculation_status": active_recalculation.status if active_recalculation else None,
+            "recalculation_created_at": active_recalculation.created_at.isoformat() if active_recalculation else None,
         }
 
         return Response(response_data)
@@ -1014,6 +1026,15 @@ class EnterpriseExperimentsViewSet(
                 },
                 status=200,
             )
+
+        # Delete all existing metric results for this experiment/metric/fingerprint combination
+        metric_uuid = metric.get("uuid")
+        if metric_uuid:
+            ExperimentMetricResult.objects.filter(
+                experiment_id=experiment.id,
+                metric_uuid=metric_uuid,
+                fingerprint=fingerprint,
+            ).delete()
 
         # Create new recalculation request
         recalculation_request = ExperimentTimeseriesRecalculation.objects.create(
