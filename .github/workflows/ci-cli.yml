@@ -39,10 +39,9 @@ jobs:
                     exit 0
                   fi
 
-                  PR_NUMBER=${{ github.event.pull_request.number }}
-                  PR_REF="refs/pull/${PR_NUMBER}/head"
+                  PR_BRANCH="${{ github.event.pull_request.head.ref }}"
 
-                  echo "📝 Setting POSTHOG_DOCS_REF=${PR_REF} for preview branch feat/docs-monorepo-poc"
+                  echo "📝 Setting POSTHOG_DOCS_REF=${PR_BRANCH} for preview branch feat/docs-monorepo-poc"
 
                   # Set env var for the preview branch via Vercel API
                   curl -X POST "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/env?teamId=${VERCEL_TEAM_ID}" \
@@ -50,7 +49,7 @@ jobs:
                     -H "Content-Type: application/json" \
                     -d '{
                       "key": "POSTHOG_DOCS_REF",
-                      "value": "'"$PR_REF"'",
+                      "value": "'"$PR_BRANCH"'",
                       "type": "plain",
                       "target": ["preview"],
                       "gitBranch": "feat/docs-monorepo-poc"
@@ -67,11 +66,10 @@ jobs:
                     exit 0
                   fi
 
-                  PR_NUMBER=${{ github.event.pull_request.number }}
-                  PR_REF="refs/pull/${PR_NUMBER}/head"
+                  PR_BRANCH="${{ github.event.pull_request.head.ref }}"
 
                   echo "📢 Triggering Vercel deployment for posthog.com@feat/docs-monorepo-poc (PoC)"
-                  echo "   PR ref: $PR_REF"
+                  echo "   PR branch: $PR_BRANCH"
 
                   PAYLOAD='{
                     "name": "posthog-com",
