@@ -3,9 +3,9 @@ from typing import Any, Literal
 from django.conf import settings
 
 import posthoganalytics
-from langchain_core.runnables import RunnableConfig
 from langchain_core.output_parsers import SimpleJsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
@@ -59,6 +59,21 @@ Examples:
 - Common sense metrics that are relevant to the product.
 """.strip()
 
+
+ENTITY_SEARCH_TOOL_PROMPT = """
+
+# Other entity kinds
+
+Use this tool to find PostHog entities using full-text search.
+Full-text search is a more powerful way to find entities than natural language search. It relies on the PostgreSQL full-text search capabilities.
+So the query used in this tool should be a natural language query that is optimized for full-text search, consider tokenizing of the query and using synonyms.
+If you want to search for all entities, you should use `all`.
+
+The supported PostHog entity types are:
+{fts_entities}
+
+""".strip()
+
 DOCS_SEARCH_RESULTS_TEMPLATE = """Found {count} relevant documentation page(s):
 
 {docs}
@@ -85,19 +100,6 @@ URL: {url}
 {text}
 """.strip()
 
-ENTITY_SEARCH_TOOL_PROMPT = """
-
-# Other entity kinds
-
-Use this tool to find PostHog entities using full-text search.
-Full-text search is a more powerful way to find entities than natural language search. It relies on the PostgreSQL full-text search capabilities.
-So the query used in this tool should be a natural language query that is optimized for full-text search, consider tokenizing of the query and using synonyms.
-If you want to search for all entities, you should use `all`.
-
-The supported PostHog entity types are:
-{fts_entities}
-
-""".strip()
 
 FTS_SEARCH_FEATURE_FLAG = "hogai-insights-fts-search"
 
