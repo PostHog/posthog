@@ -193,9 +193,13 @@ async function processEvaluationForEvent(
 
             evaluationMatchesCounter.labels({ outcome: 'matched' }).inc()
 
-            await temporalService.startEvaluationWorkflow(evaluation.id, event.uuid)
+            const handle = await temporalService.startEvaluationWorkflow(evaluation.id, event.uuid)
 
-            evaluationSchedulerEventsProcessed.labels({ status: 'success' }).inc()
+            if (handle) {
+                evaluationSchedulerEventsProcessed.labels({ status: 'success' }).inc()
+            } else {
+                evaluationSchedulerEventsProcessed.labels({ status: 'error' }).inc()
+            }
 
             return
         } catch (error: unknown) {

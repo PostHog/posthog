@@ -88,7 +88,8 @@ describe('TemporalService', () => {
 
             expect(mockClient.workflow.start).toHaveBeenCalledWith('run-evaluation', {
                 taskQueue: 'general-purpose-task-queue',
-                workflowId: expect.stringContaining('eval-123'),
+                workflowId: 'eval-123-event-456-ingestion',
+                workflowIdConflictPolicy: 'USE_EXISTING',
                 args: [
                     {
                         evaluation_id: 'eval-123',
@@ -98,7 +99,19 @@ describe('TemporalService', () => {
             })
         })
 
-        it('generates unique workflow IDs', async () => {
+        it('generates deterministic workflow IDs', async () => {
+            await service.startEvaluationWorkflow('eval-123', 'event-456')
+            await service.startEvaluationWorkflow('eval-123', 'event-456')
+
+            const calls = (mockClient.workflow.start as jest.Mock).mock.calls
+            const workflowId1 = calls[0][1].workflowId
+            const workflowId2 = calls[1][1].workflowId
+
+            expect(workflowId1).toEqual(workflowId2)
+            expect(workflowId1).toBe('eval-123-event-456-ingestion')
+        })
+
+        it('generates different workflow IDs for different events', async () => {
             await service.startEvaluationWorkflow('eval-123', 'event-1')
             await service.startEvaluationWorkflow('eval-123', 'event-2')
 
@@ -107,14 +120,23 @@ describe('TemporalService', () => {
             const workflowId2 = calls[1][1].workflowId
 
             expect(workflowId1).not.toEqual(workflowId2)
-            expect(workflowId1).toContain('eval-123')
-            expect(workflowId2).toContain('eval-123')
+            expect(workflowId1).toBe('eval-123-event-1-ingestion')
+            expect(workflowId2).toBe('eval-123-event-2-ingestion')
         })
 
-        it('does not throw on workflow start failure', async () => {
+        it('returns workflow handle on success', async () => {
+            const handle = await service.startEvaluationWorkflow('eval-123', 'event-456')
+
+            expect(handle).toBeDefined()
+            expect(handle).toBe(mockWorkflowHandle)
+        })
+
+        it('returns undefined on workflow start failure', async () => {
             ;(mockClient.workflow.start as jest.Mock).mockRejectedValue(new Error('Temporal unavailable'))
 
-            await expect(service.startEvaluationWorkflow('eval-123', 'event-456')).resolves.not.toThrow()
+            const handle = await service.startEvaluationWorkflow('eval-123', 'event-456')
+
+            expect(handle).toBeUndefined()
         })
 
         it('logs error on workflow start failure', async () => {
