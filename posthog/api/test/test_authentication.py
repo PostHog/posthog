@@ -84,9 +84,13 @@ class TestLoginAPI(APIBaseTest):
 
     CONFIG_AUTO_LOGIN = False
 
+    @patch("posthog.email.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_email_mfa_link.delay")
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_user_logs_in_with_email_and_password(self, mock_capture, mock_identify):
+    def test_user_logs_in_with_email_and_password(
+        self, mock_capture, mock_identify, mock_send_email_delay, mock_is_email_available
+    ):
         self.user.is_email_verified = True
         self.user.save()
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
@@ -110,8 +114,7 @@ class TestLoginAPI(APIBaseTest):
                 "project": str(self.team.uuid),
             },
         )
-        # Email MFA flow adds an extra capture call, so expect 2 total
-        self.assertEqual(mock_capture.call_count, 2)
+        self.assertEqual(mock_capture.call_count, 1)
 
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
