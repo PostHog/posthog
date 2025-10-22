@@ -127,6 +127,26 @@ if TYPE_CHECKING:
 tracer = trace.get_tracer(__name__)
 
 
+@dataclasses.dataclass
+class SerializedField:
+    key: str
+    name: str
+    type: DatabaseSerializedFieldType
+    schema_valid: bool
+    fields: Optional[list[str]] = None
+    table: Optional[str] = None
+    chain: Optional[list[str | int]] = None
+
+
+type DatabaseSchemaTable = (
+    DatabaseSchemaPostHogTable
+    | DatabaseSchemaSystemTable
+    | DatabaseSchemaDataWarehouseTable
+    | DatabaseSchemaViewTable
+    | DatabaseSchemaManagedViewTable
+)
+
+
 class Database(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -287,6 +307,204 @@ class Database(BaseModel):
         self.tables.merge_with(node)
         for name in node.resolve_all_table_names():
             self._view_table_names.append(name)
+
+    def serialize(
+        self,
+        context: HogQLContext,
+        include_only: Optional[set[str]] = None,
+    ) -> dict[str, DatabaseSchemaTable]:
+        from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+        from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
+
+        tables: dict[str, DatabaseSchemaTable] = {}
+
+        if context.team_id is None:
+            raise ResolutionError("Must provide team_id to serialize database")
+
+        # PostHog tables
+        posthog_table_names = self.get_posthog_table_names()
+        for table_name in posthog_table_names:
+            if include_only and table_name not in include_only:
+                continue
+
+            field_input: dict[str, Any] = {}
+            table = self.get_table(table_name)
+            if isinstance(table, FunctionCallTable):
+                field_input = table.get_asterisk()
+            elif isinstance(table, Table):
+                field_input = table.fields
+
+            fields = serialize_fields(field_input, context, table_name.split("."), table_type="posthog")
+            fields_dict = {field.name: field for field in fields}
+            tables[table_name] = DatabaseSchemaPostHogTable(fields=fields_dict, id=table_name, name=table_name)
+
+        # System tables
+        system_tables = self.get_system_table_names()
+        for table_key in system_tables:
+            if include_only and table_key not in include_only:
+                continue
+
+            system_field_input: dict[str, Any] = {}
+            table = self.get_table(table_key)
+            if isinstance(table, FunctionCallTable):
+                system_field_input = table.get_asterisk()
+            elif isinstance(table, Table):
+                system_field_input = table.fields
+
+            fields = serialize_fields(system_field_input, context, table_key.split("."), table_type="posthog")
+            fields_dict = {field.name: field for field in fields}
+            tables[table_key] = DatabaseSchemaSystemTable(fields=fields_dict, id=table_key, name=table_key)
+
+        # Data Warehouse Tables and Views - Fetch all related data in one go
+        warehouse_table_names = self.get_warehouse_table_names()
+        views = self.get_view_names()
+
+        # Fetch warehouse tables with related data in a single query
+        warehouse_tables_with_data = (
+            DataWarehouseTable.objects.select_related("credential", "external_data_source")
+            .prefetch_related(
+                "externaldataschema_set",
+                Prefetch(
+                    "external_data_source__jobs",
+                    queryset=ExternalDataJob.objects.filter(status="Completed", team_id=context.team_id).order_by(
+                        "-created_at"
+                    )[:1],
+                    to_attr="latest_completed_job",
+                ),
+            )
+            .filter(Q(deleted=False) | Q(deleted__isnull=True), team_id=context.team_id, name__in=warehouse_table_names)
+            .order_by("external_data_source__prefix", "external_data_source__source_type", "name")
+            .all()
+            if warehouse_table_names
+            else []
+        )
+
+        # Process warehouse tables
+        for warehouse_table in warehouse_tables_with_data:
+            # Get schema from prefetched data
+            schema_data = list(warehouse_table.externaldataschema_set.all())
+            if not schema_data:
+                schema = None
+            else:
+                db_schema = schema_data[0]
+                schema = DatabaseSchemaSchema(
+                    id=str(db_schema.id),
+                    name=db_schema.name,
+                    should_sync=db_schema.should_sync,
+                    incremental=db_schema.is_incremental,
+                    status=db_schema.status,
+                    last_synced_at=str(db_schema.last_synced_at),
+                )
+
+            # Get source from prefetched data
+            if warehouse_table.external_data_source is None:
+                source = None
+            else:
+                db_source = warehouse_table.external_data_source
+                latest_completed_run = (
+                    db_source.latest_completed_job[0]
+                    if hasattr(db_source, "latest_completed_job") and db_source.latest_completed_job
+                    else None
+                )
+                source = DatabaseSchemaSource(
+                    id=str(db_source.source_id),
+                    status=db_source.status,
+                    source_type=db_source.source_type,
+                    prefix=db_source.prefix or "",
+                    last_synced_at=str(latest_completed_run.created_at) if latest_completed_run else None,
+                )
+
+            # Temp until we migrate all table names in the DB to use dot notation
+            if warehouse_table.external_data_source:
+                source_type = warehouse_table.external_data_source.source_type
+                prefix = warehouse_table.external_data_source.prefix
+                if prefix is not None and isinstance(prefix, str) and prefix != "":
+                    table_name_stripped = warehouse_table.name.replace(f"{prefix}{source_type}_".lower(), "")
+                    table_key = f"{source_type}.{prefix.strip('_')}.{table_name_stripped}".lower()
+                else:
+                    table_name_stripped = warehouse_table.name.replace(f"{source_type}_".lower(), "")
+                    table_key = f"{source_type}.{table_name_stripped}".lower()
+            else:
+                table_key = warehouse_table.name
+
+            if include_only and table_key not in include_only:
+                continue
+
+            field_input = {}
+            table = self.get_table(table_key)
+            if isinstance(table, Table):
+                field_input = table.fields
+
+            fields = serialize_fields(
+                field_input, context, table_key.split("."), warehouse_table.columns, table_type="external"
+            )
+            fields_dict = {field.name: field for field in fields}
+
+            tables[table_key] = DatabaseSchemaDataWarehouseTable(
+                fields=fields_dict,
+                id=str(warehouse_table.id),
+                name=table_key,
+                format=warehouse_table.format,
+                url_pattern=warehouse_table.url_pattern,
+                schema=schema,
+                source=source,
+                row_count=warehouse_table.row_count,
+            )
+
+        # Fetch all views in a single query
+        all_views = (
+            DataWarehouseSavedQuery.objects.select_related("table")
+            .exclude(deleted=True)
+            .filter(team_id=context.team_id)
+            .all()
+            if views
+            else []
+        )
+
+        # Process views using prefetched data
+        views_dict = {view.name: view for view in all_views}
+        for view_name in views:
+            if include_only and view_name not in include_only:
+                continue
+
+            try:
+                view = self.get_table(view_name)
+            except QueryError:
+                continue
+
+            fields = serialize_fields(view.fields, context, view_name.split("."), table_type="external")
+            fields_dict = {field.name: field for field in fields}
+
+            if isinstance(view, RevenueAnalyticsBaseView):
+                tables[view_name] = DatabaseSchemaManagedViewTable(
+                    fields=fields_dict,
+                    id=view.name,  # We don't have a UUID for revenue views because they're not saved, just reuse the name
+                    name=view.name,
+                    kind=view.DATABASE_SCHEMA_TABLE_KIND,
+                    source_id=view.source_id,
+                    query=HogQLQuery(query=view.query),
+                )
+
+                continue
+
+            saved_query = views_dict.get(view_name)
+            if not saved_query:
+                continue
+
+            row_count: int | None = None
+            if saved_query.table:
+                row_count = saved_query.table.row_count
+
+            tables[view_name] = DatabaseSchemaViewTable(
+                fields=fields_dict,
+                id=str(saved_query.pk),
+                name=view_name,
+                query=HogQLQuery(query=saved_query.query["query"]),
+                row_count=row_count,
+            )
+
+        return tables
 
     @staticmethod
     @tracer.start_as_current_span("create_hogql_database")  # Legacy name to keep backwards compatibility
@@ -877,227 +1095,6 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
                 persons_table.fields[field_name] = ast.FieldTraverser(chain=chain)
                 groups_table.fields[field_name] = ast.FieldTraverser(chain=chain)
                 poe.fields[field_name] = ast.FieldTraverser(chain=chain)
-
-
-@dataclasses.dataclass
-class SerializedField:
-    key: str
-    name: str
-    type: DatabaseSerializedFieldType
-    schema_valid: bool
-    fields: Optional[list[str]] = None
-    table: Optional[str] = None
-    chain: Optional[list[str | int]] = None
-
-
-type DatabaseSchemaTable = (
-    DatabaseSchemaPostHogTable
-    | DatabaseSchemaSystemTable
-    | DatabaseSchemaDataWarehouseTable
-    | DatabaseSchemaViewTable
-    | DatabaseSchemaManagedViewTable
-)
-
-
-def serialize_database(
-    context: HogQLContext,
-    include_only: Optional[set[str]] = None,
-) -> dict[str, DatabaseSchemaTable]:
-    from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-
-    from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
-
-    tables: dict[str, DatabaseSchemaTable] = {}
-
-    if context.database is None:
-        raise ResolutionError("Must provide database to serialize_database")
-
-    if context.team_id is None:
-        raise ResolutionError("Must provide team_id to serialize_database")
-
-    # PostHog tables
-    posthog_table_names = context.database.get_posthog_table_names()
-    for table_name in posthog_table_names:
-        if include_only and table_name not in include_only:
-            continue
-
-        field_input: dict[str, Any] = {}
-        table = context.database.get_table(table_name)
-        if isinstance(table, FunctionCallTable):
-            field_input = table.get_asterisk()
-        elif isinstance(table, Table):
-            field_input = table.fields
-
-        fields = serialize_fields(field_input, context, table_name.split("."), table_type="posthog")
-        fields_dict = {field.name: field for field in fields}
-        tables[table_name] = DatabaseSchemaPostHogTable(fields=fields_dict, id=table_name, name=table_name)
-
-    # System tables
-    system_tables = context.database.get_system_table_names()
-    for table_key in system_tables:
-        if include_only and table_key not in include_only:
-            continue
-
-        system_field_input: dict[str, Any] = {}
-        table = context.database.get_table(table_key)
-        if isinstance(table, FunctionCallTable):
-            system_field_input = table.get_asterisk()
-        elif isinstance(table, Table):
-            system_field_input = table.fields
-
-        fields = serialize_fields(system_field_input, context, table_key.split("."), table_type="posthog")
-        fields_dict = {field.name: field for field in fields}
-        tables[table_key] = DatabaseSchemaSystemTable(fields=fields_dict, id=table_key, name=table_key)
-
-    # Data Warehouse Tables and Views - Fetch all related data in one go
-    warehouse_table_names = context.database.get_warehouse_table_names()
-    views = context.database.get_view_names()
-
-    # Fetch warehouse tables with related data in a single query
-    warehouse_tables_with_data = (
-        DataWarehouseTable.objects.select_related("credential", "external_data_source")
-        .prefetch_related(
-            "externaldataschema_set",
-            Prefetch(
-                "external_data_source__jobs",
-                queryset=ExternalDataJob.objects.filter(status="Completed", team_id=context.team_id).order_by(
-                    "-created_at"
-                )[:1],
-                to_attr="latest_completed_job",
-            ),
-        )
-        .filter(Q(deleted=False) | Q(deleted__isnull=True), team_id=context.team_id, name__in=warehouse_table_names)
-        .order_by("external_data_source__prefix", "external_data_source__source_type", "name")
-        .all()
-        if warehouse_table_names
-        else []
-    )
-
-    # Process warehouse tables
-    for warehouse_table in warehouse_tables_with_data:
-        # Get schema from prefetched data
-        schema_data = list(warehouse_table.externaldataschema_set.all())
-        if not schema_data:
-            schema = None
-        else:
-            db_schema = schema_data[0]
-            schema = DatabaseSchemaSchema(
-                id=str(db_schema.id),
-                name=db_schema.name,
-                should_sync=db_schema.should_sync,
-                incremental=db_schema.is_incremental,
-                status=db_schema.status,
-                last_synced_at=str(db_schema.last_synced_at),
-            )
-
-        # Get source from prefetched data
-        if warehouse_table.external_data_source is None:
-            source = None
-        else:
-            db_source = warehouse_table.external_data_source
-            latest_completed_run = (
-                db_source.latest_completed_job[0]
-                if hasattr(db_source, "latest_completed_job") and db_source.latest_completed_job
-                else None
-            )
-            source = DatabaseSchemaSource(
-                id=str(db_source.source_id),
-                status=db_source.status,
-                source_type=db_source.source_type,
-                prefix=db_source.prefix or "",
-                last_synced_at=str(latest_completed_run.created_at) if latest_completed_run else None,
-            )
-
-        # Temp until we migrate all table names in the DB to use dot notation
-        if warehouse_table.external_data_source:
-            source_type = warehouse_table.external_data_source.source_type
-            prefix = warehouse_table.external_data_source.prefix
-            if prefix is not None and isinstance(prefix, str) and prefix != "":
-                table_name_stripped = warehouse_table.name.replace(f"{prefix}{source_type}_".lower(), "")
-                table_key = f"{source_type}.{prefix.strip('_')}.{table_name_stripped}".lower()
-            else:
-                table_name_stripped = warehouse_table.name.replace(f"{source_type}_".lower(), "")
-                table_key = f"{source_type}.{table_name_stripped}".lower()
-        else:
-            table_key = warehouse_table.name
-
-        if include_only and table_key not in include_only:
-            continue
-
-        field_input = {}
-        table = context.database.get_table(table_key)
-        if isinstance(table, Table):
-            field_input = table.fields
-
-        fields = serialize_fields(
-            field_input, context, table_key.split("."), warehouse_table.columns, table_type="external"
-        )
-        fields_dict = {field.name: field for field in fields}
-
-        tables[table_key] = DatabaseSchemaDataWarehouseTable(
-            fields=fields_dict,
-            id=str(warehouse_table.id),
-            name=table_key,
-            format=warehouse_table.format,
-            url_pattern=warehouse_table.url_pattern,
-            schema=schema,
-            source=source,
-            row_count=warehouse_table.row_count,
-        )
-
-    # Fetch all views in a single query
-    all_views = (
-        DataWarehouseSavedQuery.objects.select_related("table")
-        .exclude(deleted=True)
-        .filter(team_id=context.team_id)
-        .all()
-        if views
-        else []
-    )
-
-    # Process views using prefetched data
-    views_dict = {view.name: view for view in all_views}
-    for view_name in views:
-        if include_only and view_name not in include_only:
-            continue
-
-        try:
-            view = context.database.get_table(view_name)
-        except QueryError:
-            continue
-
-        fields = serialize_fields(view.fields, context, view_name.split("."), table_type="external")
-        fields_dict = {field.name: field for field in fields}
-
-        if isinstance(view, RevenueAnalyticsBaseView):
-            tables[view_name] = DatabaseSchemaManagedViewTable(
-                fields=fields_dict,
-                id=view.name,  # We don't have a UUID for revenue views because they're not saved, just reuse the name
-                name=view.name,
-                kind=view.DATABASE_SCHEMA_TABLE_KIND,
-                source_id=view.source_id,
-                query=HogQLQuery(query=view.query),
-            )
-
-            continue
-
-        saved_query = views_dict.get(view_name)
-        if not saved_query:
-            continue
-
-        row_count: int | None = None
-        if saved_query.table:
-            row_count = saved_query.table.row_count
-
-        tables[view_name] = DatabaseSchemaViewTable(
-            fields=fields_dict,
-            id=str(saved_query.pk),
-            name=view_name,
-            query=HogQLQuery(query=saved_query.query["query"]),
-            row_count=row_count,
-        )
-
-    return tables
 
 
 def constant_type_to_serialized_field_type(constant_type: ast.ConstantType) -> DatabaseSerializedFieldType | None:

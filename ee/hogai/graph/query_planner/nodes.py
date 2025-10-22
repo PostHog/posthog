@@ -21,7 +21,7 @@ from posthog.schema import (
 
 from posthog.hogql.ai import SCHEMA_MESSAGE
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database, serialize_database
+from posthog.hogql.database.database import Database
 
 from posthog.models.group_type_mapping import GroupTypeMapping
 
@@ -197,7 +197,7 @@ class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
         """
         # Initial conversation setup
         database = Database.create_for(team=self._team)
-        serialized_database = serialize_database(
+        serialized_database = database.serialize(
             HogQLContext(team=self._team, enable_select_queries=True, database=database)
         )
         hogql_schema_description = "\n\n".join(

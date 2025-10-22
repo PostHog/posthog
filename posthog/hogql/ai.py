@@ -15,7 +15,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.event_usage import report_user_action
 from posthog.utils import get_instance_region
 
-from .database.database import Database, serialize_database
+from .database.database import Database
 from .query import create_default_modifiers_for_team
 
 if TYPE_CHECKING:
@@ -122,7 +122,7 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
         database=database,
         modifiers=create_default_modifiers_for_team(team),
     )
-    serialized_database = serialize_database(context)
+    serialized_database = database.serialize(context)
     schema_description = "\n\n".join(
         (
             f"Table {table_name} with fields:\n"

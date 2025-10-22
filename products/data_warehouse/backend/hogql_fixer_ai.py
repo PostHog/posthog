@@ -5,7 +5,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database, serialize_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
 from posthog.hogql.metadata import get_table_names
@@ -121,7 +121,7 @@ Below is the current HogQL query and the error message
 
 
 def _get_schema_description(ai_context: dict[Any, Any], hogql_context: HogQLContext, database: Database) -> str:
-    serialized_database = serialize_database(hogql_context)
+    serialized_database = database.serialize(hogql_context)
     schema_description = ""
 
     try:

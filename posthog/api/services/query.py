@@ -22,7 +22,7 @@ from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.compiler.bytecode import execute_hog
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database, serialize_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
@@ -167,7 +167,7 @@ def process_query_model(
             database = Database.create_for(team=team, modifiers=create_default_modifiers_for_team(team))
             context = HogQLContext(team_id=team.pk, team=team, database=database)
             result = DatabaseSchemaQueryResponse(
-                tables=serialize_database(context),
+                tables=database.serialize(context),
                 joins=[
                     DataWarehouseViewLink.model_validate(
                         {
