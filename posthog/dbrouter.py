@@ -1,7 +1,12 @@
 from django.conf import settings
 
 # Models that should always be routed to the local DB, even when connected to prod PG in debug
-MODELS_FORCED_LOCAL_IN_PROD_DEBUG = ["Conversation"]
+MODELS_FORCED_LOCAL_IN_PROD_DEBUG = [
+    "Conversation",
+    "ConversationCheckpoint",
+    "ConversationCheckpointBlob",
+    "ConversationCheckpointWrite",
+]
 
 
 class ReplicaRouter:
