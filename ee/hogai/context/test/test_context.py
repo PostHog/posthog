@@ -563,8 +563,6 @@ Query results: 42 events
         assert isinstance(result[3], ContextMessage)
         self.assertEqual(result[2].content, "Context 1")
         self.assertEqual(result[3].content, "Context 2")
-        self.assertFalse(result[2].visible)
-        self.assertFalse(result[3].visible)
 
     async def test_get_state_messages_with_context(self):
         """Test that context messages are properly added to state"""

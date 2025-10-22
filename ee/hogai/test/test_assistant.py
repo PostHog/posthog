@@ -18,7 +18,7 @@ from azure.ai.inference import EmbeddingsClient
 from azure.ai.inference.models import EmbeddingsResult, EmbeddingsUsage
 from azure.core.credentials import AzureKeyCredential
 from langchain_core import messages
-from langchain_core.messages import AIMessageChunk, BaseMessage
+from langchain_core.messages import BaseMessage
 from langchain_core.runnables import RunnableConfig, RunnableLambda
 from langgraph.errors import GraphRecursionError, NodeInterrupt
 from langgraph.graph.state import CompiledStateGraph
@@ -40,6 +40,7 @@ from posthog.schema import (
     AssistantToolCall,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
+    AssistantUpdateEvent,
     ContextMessage,
     DashboardFilter,
     FailureMessage,
@@ -57,8 +58,6 @@ from posthog.schema import (
 )
 
 from posthog.models import Action
-from posthog.models.team.team import Team
-from posthog.models.user import User
 
 from ee.hogai.assistant.base import BaseAssistant
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
@@ -68,7 +67,7 @@ from ee.hogai.graph.memory import prompts as memory_prompts
 from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
 from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
 from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
-from ee.hogai.utils.state import GraphMessageUpdateTuple, GraphValueUpdateTuple, LangGraphState
+from ee.hogai.utils.state import GraphValueUpdateTuple
 from ee.hogai.utils.tests import FakeAnthropicRunnableLambdaWithTokenCounter, FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import (
     AssistantMode,
@@ -77,8 +76,6 @@ from ee.hogai.utils.types import (
     AssistantState,
     PartialAssistantState,
 )
-from ee.hogai.utils.types.base import ReplaceMessages
-from ee.hogai.utils.types.composed import MaxNodeName
 from ee.models.assistant import Conversation, CoreMemory
 
 from ..assistant import Assistant
@@ -201,7 +198,9 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 and expected_msg_type == AssistantEventType.CONVERSATION
             ):
                 self.assertEqual(output_msg, expected_msg)
-            elif output_msg_type == AssistantEventType.MESSAGE and expected_msg_type == AssistantEventType.MESSAGE:
+            elif (
+                output_msg_type == AssistantEventType.MESSAGE and expected_msg_type == AssistantEventType.MESSAGE
+            ) or (output_msg_type == AssistantEventType.UPDATE and expected_msg_type == AssistantEventType.UPDATE):
                 msg_dict = (
                     expected_msg.model_dump(exclude_none=True) if isinstance(expected_msg, BaseModel) else expected_msg
                 )
@@ -309,12 +308,12 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     ),
                 ),
                 (
-                    "message",
-                    {
-                        "parent_tool_call_id": "1",
-                        "content": "Picking relevant events and properties",
-                        "type": "ai/update",
-                    },
+                    "update",
+                    AssistantUpdateEvent(
+                        id="message_1",
+                        content="Picking relevant events and properties",
+                        tool_call_id="1",
+                    ),
                 ),
                 (
                     "message",
@@ -603,14 +602,14 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 ),
             ),
             (
-                "message",
-                {
-                    "parent_tool_call_id": "xyz",
-                    "content": "Picking relevant events and properties",
-                    "type": "ai/update",
-                },
+                "update",
+                AssistantUpdateEvent(
+                    id="message_1",
+                    tool_call_id="xyz",
+                    content="Picking relevant events and properties",
+                ),
             ),
-            ("message", {"parent_tool_call_id": "xyz", "content": "Creating trends query", "type": "ai/update"}),
+            ("update", AssistantUpdateEvent(id="message_2", tool_call_id="xyz", content="Creating trends query")),
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
             ("message", {"tool_call_id": "xyz", "type": "tool"}),  # Don't check content as it's implementation detail
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
@@ -700,14 +699,14 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 ),
             ),
             (
-                "message",
-                {
-                    "parent_tool_call_id": "xyz",
-                    "content": "Picking relevant events and properties",
-                    "type": "ai/update",
-                },
+                "update",
+                AssistantUpdateEvent(
+                    id="message_1",
+                    tool_call_id="xyz",
+                    content="Picking relevant events and properties",
+                ),
             ),
-            ("message", {"parent_tool_call_id": "xyz", "content": "Creating funnel query", "type": "ai/update"}),
+            ("update", AssistantUpdateEvent(id="message_2", tool_call_id="xyz", content="Creating funnel query")),
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
             ("message", {"tool_call_id": "xyz", "type": "tool"}),  # Don't check content as it's implementation detail
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
@@ -799,14 +798,14 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 ),
             ),
             (
-                "message",
-                {
-                    "parent_tool_call_id": "xyz",
-                    "content": "Picking relevant events and properties",
-                    "type": "ai/update",
-                },
+                "update",
+                AssistantUpdateEvent(
+                    id="message_1",
+                    tool_call_id="xyz",
+                    content="Picking relevant events and properties",
+                ),
             ),
-            ("message", {"parent_tool_call_id": "xyz", "content": "Creating retention query", "type": "ai/update"}),
+            ("update", AssistantUpdateEvent(id="message_2", tool_call_id="xyz", content="Creating retention query")),
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
             ("message", {"tool_call_id": "xyz", "type": "tool"}),  # Don't check content as it's implementation detail
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
@@ -890,14 +889,14 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 ),
             ),
             (
-                "message",
-                {
-                    "parent_tool_call_id": "xyz",
-                    "content": "Picking relevant events and properties",
-                    "type": "ai/update",
-                },
+                "update",
+                AssistantUpdateEvent(
+                    id="message_1",
+                    tool_call_id="xyz",
+                    content="Picking relevant events and properties",
+                ),
             ),
-            ("message", {"parent_tool_call_id": "xyz", "content": "Creating SQL query", "type": "ai/update"}),
+            ("update", AssistantUpdateEvent(id="message_2", tool_call_id="xyz", content="Creating SQL query")),
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
             ("message", {"tool_call_id": "xyz", "type": "tool"}),  # Don't check content as it's implementation detail
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
@@ -1261,9 +1260,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                         type="ai",
                     ),
                 ),
+                ("update", AssistantUpdateEvent(id="message_1", tool_call_id="1", content="Searching for information")),
                 (
-                    "message",
-                    {"parent_tool_call_id": "1", "content": "Checking PostHog documentation...", "type": "ai/update"},
+                    "update",
+                    AssistantUpdateEvent(id="message_2", tool_call_id="1", content="Checking PostHog documentation..."),
                 ),
                 (
                     "message",
@@ -1278,7 +1278,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 ),
                 (
                     "message",
-                    {"parent_tool_call_id": "1", "content": "Here's what I found in the docs...", "type": "ai/update"},
+                    AssistantMessage(content="Here's what I found in the docs...", id=str(uuid4())),
                 ),
             ],
         )
@@ -1655,6 +1655,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     ],
                 ),
             ),
+            ("update", AssistantUpdateEvent(id="message_1", tool_call_id="xyz", content="Editing your insight")),
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
             (
                 "message",
@@ -1858,218 +1859,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         config = assistant._get_config()
         self.assertEqual(config.get("configurable", {}).get("billing_context"), billing_context)
 
-    def test_handles_mixed_content_types_in_chunks(self):
-        """Test that assistant correctly handles switching between string and list content formats."""
-        assistant = Assistant.create(
-            team=self.team,
-            conversation=self.conversation,
-            user=self.user,
-        )
-
-        # Test string to list transition
-        assistant._chunks = AIMessageChunk(content="initial string content")
-
-        # Simulate a chunk from OpenAI Responses API (list format)
-        list_chunk = AIMessageChunk(content=[{"type": "text", "text": "new content from o3"}])
-        langgraph_state: LangGraphState = {"langgraph_node": AssistantNodeName.ROOT}
-
-        update: GraphMessageUpdateTuple = ("messages", (list_chunk, langgraph_state))
-        async_to_sync(assistant._aprocess_message_update)(update)
-
-        # Verify the chunks were reset to list format
-        self.assertIsInstance(assistant._chunks.content, list)
-        self.assertEqual(len(assistant._chunks.content), 1)
-        self.assertEqual(assistant._chunks.content[0]["text"], "new content from o3")
-
-        # Test list to string transition
-        string_chunk = AIMessageChunk(content="back to string format")
-        langgraph_state = {"langgraph_node": AssistantNodeName.ROOT}
-
-        update = ("messages", (string_chunk, langgraph_state))
-        async_to_sync(assistant._aprocess_message_update)(update)
-
-        # Verify the chunks were reset to string format
-        self.assertIsInstance(assistant._chunks.content, str)  # type: ignore
-        self.assertEqual(assistant._chunks.content, "back to string format")
-
-    def test_handles_multiple_list_chunks(self):
-        """Test that multiple list-format chunks are properly concatenated."""
-        assistant = Assistant.create(
-            team=self.team,
-            conversation=self.conversation,
-            user=self.user,
-        )
-
-        # Start with empty chunks
-        assistant._chunks = AIMessageChunk(content="")
-
-        # Add first list chunk
-        chunk1 = AIMessageChunk(content=[{"type": "text", "text": "First part"}])
-        langgraph_state: LangGraphState = {"langgraph_node": AssistantNodeName.ROOT}
-        update: GraphMessageUpdateTuple = ("messages", (chunk1, langgraph_state))
-        async_to_sync(assistant._aprocess_message_update)(update)
-
-        # Add second list chunk
-        chunk2 = AIMessageChunk(content=[{"type": "text", "text": " second part"}])
-        update = ("messages", (chunk2, langgraph_state))
-        result = async_to_sync(assistant._aprocess_message_update)(update)
-        result = cast(AssistantMessage, result)
-
-        # Verify the content was extracted correctly
-        self.assertIsNotNone(result)
-        self.assertEqual(result.content, "First part second part")
-
-    async def test_messages_without_id_are_yielded(self):
-        """Test that messages without ID are always yielded."""
-
-        class MessageWithoutIdNode(BaseAssistantNode[AssistantState, PartialAssistantState]):
-            def __init__(self, team: Team, user: User):
-                super().__init__(team, user)
-                self.call_count = 0
-
-            @property
-            def node_name(self) -> MaxNodeName:
-                return AssistantNodeName.ROOT
-
-            async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-                self.call_count += 1
-                # Return message without ID - should always be yielded
-                return PartialAssistantState(
-                    messages=[
-                        AssistantMessage(content=f"Message {self.call_count} without ID"),
-                        AssistantMessage(content=f"Message {self.call_count} without ID"),
-                    ]
-                )
-
-        node = MessageWithoutIdNode(self.team, self.user)
-        graph = (
-            AssistantGraph(self.team, self.user)
-            .add_node(AssistantNodeName.ROOT, node)
-            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-            .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
-            .compile()
-        )
-
-        # Run the assistant multiple times
-        output1, _ = await self._run_assistant_graph(graph, message="First run", conversation=self.conversation)
-        output2, _ = await self._run_assistant_graph(graph, message="Second run", conversation=self.conversation)
-
-        # Both runs should yield their messages (human + assistant message each)
-        self.assertEqual(len(output1), 3)  # Human message + AI message + AI message
-        self.assertEqual(len(output2), 3)  # Human message + AI message + AI message
-
-    async def test_messages_with_id_are_deduplicated(self):
-        """Test that messages with ID are deduplicated during streaming."""
-        message_id = str(uuid4())
-
-        class DuplicateMessageNode(BaseAssistantNode[AssistantState, PartialAssistantState]):
-            def __init__(self, team: Team, user: User):
-                super().__init__(team, user)
-                self.call_count = 0
-
-            @property
-            def node_name(self) -> MaxNodeName:
-                return AssistantNodeName.ROOT
-
-            async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-                self.call_count += 1
-                # Always return the same message with same ID
-                return PartialAssistantState(
-                    messages=[
-                        AssistantMessage(id=message_id, content=f"Call {self.call_count}"),
-                        AssistantMessage(id=message_id, content=f"Call {self.call_count}"),
-                    ]
-                )
-
-        node = DuplicateMessageNode(self.team, self.user)
-        graph = (
-            AssistantGraph(self.team, self.user)
-            .add_node(AssistantNodeName.ROOT, node)
-            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-            .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
-            .compile()
-        )
-
-        # Create assistant and manually test the streaming behavior
-        assistant = Assistant.create(
-            self.team,
-            self.conversation,
-            new_message=HumanMessage(content="Test message"),
-            user=self.user,
-            is_new_conversation=False,
-        )
-        assistant._graph = graph
-
-        # Collect all streamed messages
-        streamed_messages = []
-        async for event_type, message in assistant.astream(stream_first_message=False):
-            if event_type == AssistantEventType.MESSAGE:
-                streamed_messages.append(message)
-
-        # Should only get one message despite the node being called multiple times
-        assistant_messages = [
-            msg for msg in streamed_messages if isinstance(msg, AssistantMessage) and msg.id == message_id
-        ]
-        self.assertEqual(len(assistant_messages), 1, "Message with same ID should only be yielded once")
-
-        # Verify the message ID is in the streamed_update_ids set
-        self.assertIn(message_id, assistant._streamed_update_ids)
-
-    async def test_init_or_update_state_adds_existing_message_ids_to_streamed_set(self):
-        """Test that _init_or_update_state adds existing message IDs to _streamed_update_ids."""
-        # Create messages with IDs that should be tracked
-        message_id_1 = str(uuid4())
-        message_id_2 = str(uuid4())
-
-        # Create a simple graph that returns messages with IDs
-        class MessageWithIdsNode(BaseAssistantNode[AssistantState, PartialAssistantState]):
-            def __init__(self, team: Team, user: User):
-                super().__init__(team, user)
-                self.call_count = 0
-
-            @property
-            def node_name(self) -> MaxNodeName:
-                return AssistantNodeName.ROOT
-
-            async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-                result = None
-                if self.call_count == 0:
-                    result = PartialAssistantState(
-                        messages=[
-                            AssistantMessage(id=message_id_1, content="Message 1"),
-                        ]
-                    )
-                else:
-                    result = PartialAssistantState(
-                        messages=ReplaceMessages(
-                            [
-                                AssistantMessage(id=message_id_1, content="Message 1"),
-                                AssistantMessage(id=message_id_2, content="Message 2"),
-                            ]
-                        )
-                    )
-                self.call_count += 1
-                return result
-
-        graph = (
-            AssistantGraph(self.team, self.user)
-            .add_node(AssistantNodeName.ROOT, MessageWithIdsNode(self.team, self.user))
-            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-            .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
-            .compile()
-        )
-
-        output, _ = await self._run_assistant_graph(graph, message="First run", conversation=self.conversation)
-        # Filter for assistant messages only, as the test is about tracking assistant message IDs
-        assistant_output = [(event_type, msg) for event_type, msg in output if isinstance(msg, AssistantMessage)]
-        self.assertEqual(len(assistant_output), 1)
-        self.assertEqual(cast(AssistantMessage, assistant_output[0][1]).id, message_id_1)
-
-        output, _ = await self._run_assistant_graph(graph, message="Second run", conversation=self.conversation)
-        # Filter for assistant messages only, as the test is about tracking assistant message IDs
-        assistant_output = [(event_type, msg) for event_type, msg in output if isinstance(msg, AssistantMessage)]
-        self.assertEqual(len(assistant_output), 1)
-        self.assertEqual(cast(AssistantMessage, assistant_output[0][1]).id, message_id_2)
 
     @patch(
         "ee.hogai.graph.conversation_summarizer.nodes.AnthropicConversationSummarizer.summarize",

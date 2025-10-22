@@ -5,42 +5,20 @@ This module implements the dispatch/reducer pattern for managing assistant messa
 """
 
 from collections.abc import Callable
-from enum import StrEnum
-from typing import Any, Literal
+from typing import Any
 
 from langgraph.types import StreamWriter
-from pydantic import BaseModel, Field
 
-from posthog.schema import AssistantToolCallMessage
+from posthog.schema import AssistantMessage, AssistantToolCallMessage
 
-from ee.hogai.utils.types.base import AssistantMessageUnion
-
-
-class ActionType(StrEnum):
-    """
-    Action types for state updates.
-
-    All state changes (messages and routing fields) go through dispatch.
-    """
-
-    MESSAGE = "MESSAGE"
-    NODE_START = "NODE_START"
-
-
-class MessageAction(BaseModel):
-    type: Literal[ActionType.MESSAGE] = ActionType.MESSAGE
-    message: AssistantMessageUnion
-
-
-class NodeStartAction(BaseModel):
-    type: Literal[ActionType.NODE_START] = ActionType.NODE_START
-
-
-AssistantActionUnion = MessageAction | NodeStartAction
-
-
-class AssistantDispatcherEvent(BaseModel):
-    action: AssistantActionUnion = Field(discriminator="type")
+from ee.hogai.utils.types.base import (
+    AssistantActionUnion,
+    AssistantDispatcherEvent,
+    AssistantMessageUnion,
+    MessageAction,
+    NodeStartAction,
+)
+from ee.hogai.utils.types.composed import MaxNodeName
 
 
 class AssistantDispatcher:
@@ -54,7 +32,12 @@ class AssistantDispatcher:
 
     _parent_tool_call_id: str | None = None
 
-    def __init__(self, node_name: str, parent_tool_call_id: str | None = None):
+    def __init__(
+        self,
+        writer: StreamWriter | Callable[[Any], None],
+        node_name: MaxNodeName,
+        parent_tool_call_id: str | None = None,
+    ):
         """
         Create a dispatcher for a specific node.
 
@@ -62,17 +45,8 @@ class AssistantDispatcher:
             node_name: The name of the node dispatching actions (for attribution)
         """
         self._node_name = node_name
-        self._writer: StreamWriter | Callable[[Any], None] | None = None
-        self._parent_tool_call_id = parent_tool_call_id
-
-    def set_writer(self, writer: StreamWriter | Callable[[Any], None]) -> None:
-        """
-        Set the stream writer from LangGraph context.
-
-        Args:
-            writer: The LangGraph stream writer or a callable (noop for testing)
-        """
         self._writer = writer
+        self._parent_tool_call_id = parent_tool_call_id
 
     def dispatch(self, action: AssistantActionUnion) -> None:
         """
@@ -85,18 +59,20 @@ class AssistantDispatcher:
         Args:
             action: Action dict with "type" and "payload" keys
         """
-        if not self._writer:
-            return  # No writer (e.g., testing without streaming)
+        try:
+            self._writer(AssistantDispatcherEvent(action=action, node_name=self._node_name))
+        except Exception as e:
+            # Log error but don't crash node execution
+            # The dispatcher should be resilient to writer failures
+            import logging
 
-        # Emit via LangGraph custom stream
-        self._writer(((), "action", (AssistantDispatcherEvent(action=action), {"langgraph_node": self._node_name})))
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to dispatch action: {e}", exc_info=True)
 
     def message(self, message: AssistantMessageUnion) -> None:
         """
         Dispatch a message to the stream.
         """
-        from posthog.schema import AssistantMessage as SchemaAssistantMessage
-
         if self._parent_tool_call_id:
             # If the dispatcher is initialized with a parent tool call id, set the parent tool call id on the message
             # This is to ensure that the message is associated with the correct tool call
@@ -106,7 +82,7 @@ class AssistantDispatcher:
             should_skip = False
             if isinstance(message, AssistantToolCallMessage) and self._parent_tool_call_id == message.tool_call_id:
                 should_skip = True
-            elif isinstance(message, SchemaAssistantMessage) and message.tool_calls:
+            elif isinstance(message, AssistantMessage) and message.tool_calls:
                 # Check if any tool call has the same ID as the parent
                 for tool_call in message.tool_calls:
                     if tool_call.id == self._parent_tool_call_id:
@@ -122,3 +98,9 @@ class AssistantDispatcher:
         Dispatch a node start action to the stream.
         """
         self.dispatch(NodeStartAction())
+
+    def set_as_root(self) -> None:
+        """
+        Set the dispatcher as the root.
+        """
+        self._parent_tool_call_id = None
