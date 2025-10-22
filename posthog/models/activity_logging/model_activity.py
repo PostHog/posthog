@@ -1,8 +1,7 @@
 from typing import Any, cast
 
+from django.conf import settings
 from django.db import models
-
-from loginas.settings import settings
 
 from posthog.models.activity_logging.utils import activity_storage, get_changed_fields_local
 from posthog.models.signals import model_activity_signal
