@@ -20,7 +20,7 @@ class TestSearchToolDocumentation(BaseTest):
         self.tool = SearchTool(team=self.team, user=self.user)
 
     @override_settings(INKEEP_API_KEY="test-inkeep-key")
-    @patch("ee.hogai.graph.root.tools.search.MaxChatOpenAI")
+    @patch("ee.hogai.graph.root.tools.search.ChatOpenAI")
     async def test_search_docs_with_successful_results(self, mock_llm_class):
         response_json = """{
             "content": [
@@ -71,7 +71,7 @@ class TestSearchToolDocumentation(BaseTest):
         self.assertEqual(mock_llm_class.call_args.kwargs["team"], self.team)
 
     @override_settings(INKEEP_API_KEY="test-inkeep-key")
-    @patch("ee.hogai.graph.root.tools.search.MaxChatOpenAI")
+    @patch("ee.hogai.graph.root.tools.search.ChatOpenAI")
     async def test_search_docs_with_no_results(self, mock_llm_class):
         fake_llm = FakeChatOpenAI(responses=[messages.AIMessage(content="{}")])
         mock_llm_class.return_value = fake_llm
@@ -81,7 +81,7 @@ class TestSearchToolDocumentation(BaseTest):
         self.assertEqual(result, DOCS_SEARCH_NO_RESULTS_TEMPLATE)
 
     @override_settings(INKEEP_API_KEY="test-inkeep-key")
-    @patch("ee.hogai.graph.root.tools.search.MaxChatOpenAI")
+    @patch("ee.hogai.graph.root.tools.search.ChatOpenAI")
     async def test_search_docs_with_empty_content(self, mock_llm_class):
         fake_llm = FakeChatOpenAI(responses=[messages.AIMessage(content='{"content": []}')])
         mock_llm_class.return_value = fake_llm
@@ -91,7 +91,7 @@ class TestSearchToolDocumentation(BaseTest):
         self.assertEqual(result, DOCS_SEARCH_NO_RESULTS_TEMPLATE)
 
     @override_settings(INKEEP_API_KEY="test-inkeep-key")
-    @patch("ee.hogai.graph.root.tools.search.MaxChatOpenAI")
+    @patch("ee.hogai.graph.root.tools.search.ChatOpenAI")
     async def test_search_docs_filters_non_document_types(self, mock_llm_class):
         response_json = """{
             "content": [
@@ -120,7 +120,7 @@ class TestSearchToolDocumentation(BaseTest):
         self.assertEqual(result, DOCS_SEARCH_NO_RESULTS_TEMPLATE)
 
     @override_settings(INKEEP_API_KEY="test-inkeep-key")
-    @patch("ee.hogai.graph.root.tools.search.MaxChatOpenAI")
+    @patch("ee.hogai.graph.root.tools.search.ChatOpenAI")
     async def test_search_docs_handles_empty_source_content(self, mock_llm_class):
         response_json = """{
             "content": [
@@ -147,7 +147,7 @@ class TestSearchToolDocumentation(BaseTest):
         self.assertEqual(result, expected_result)
 
     @override_settings(INKEEP_API_KEY="test-inkeep-key")
-    @patch("ee.hogai.graph.root.tools.search.MaxChatOpenAI")
+    @patch("ee.hogai.graph.root.tools.search.ChatOpenAI")
     async def test_search_docs_handles_mixed_document_types(self, mock_llm_class):
         response_json = """{
             "content": [
