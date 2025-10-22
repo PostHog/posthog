@@ -21,6 +21,10 @@ class PydanticModelMixin:
 
 
 class FileSystemViewSetMixin:
+    """
+    A mixin for tracking file system views. Each GET on the resource logs a new view.
+    """
+
     _file_system_view_instance: Any | None = None
 
     def get_object(self) -> Any:
