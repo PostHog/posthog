@@ -715,6 +715,9 @@ class TestPasswordResetAPI(APIBaseTest):
 
         if response.status_code == 400 and response.json().get("code") == "email_mfa_required":
             response = self.complete_email_mfa(str(self.CONFIG_EMAIL), self.user)
+
+        print("response", response)  # noqa: T201
+        print("response.json()", response.json())  # noqa: T201
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # assert events were captured
