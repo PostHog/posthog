@@ -297,11 +297,11 @@ export function SidePanelSupport(): JSX.Element {
                     ) : (
                         <>
                             {showMaxAI && isBillingLoaded && (
-                                <Section title="Ask Max AI">
+                                <Section title="Ask PostHog AI">
                                     <div>
-                                        <p>Max AI can now answer 80%+ of the support questions we receive! Nice.</p>
+                                        <p>PostHog AI can now answer 80%+ of the support questions we receive! Nice.</p>
                                         <p>
-                                            Let Max read 100s of pages of docs for you, write SQL queries and
+                                            Let PostHog AI read 100s of pages of docs for you, write SQL queries and
                                             expressions, regex patterns, etc.
                                         </p>
                                         <LemonButton
@@ -314,7 +314,7 @@ export function SidePanelSupport(): JSX.Element {
                                             targetBlank={false}
                                             className="mt-2"
                                         >
-                                            Chat with Max AI
+                                            Chat with PostHog AI
                                         </LemonButton>
                                     </div>
                                 </Section>
@@ -322,7 +322,7 @@ export function SidePanelSupport(): JSX.Element {
 
                             {showEmailSupport && isBillingLoaded && (
                                 <Section title="Contact us">
-                                    <p>Can't find what you need and Max unable to help?</p>
+                                    <p>Can't find what you need and PostHog AI unable to help?</p>
                                     <LemonButton
                                         type="secondary"
                                         fullWidth
