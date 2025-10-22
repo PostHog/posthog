@@ -54,25 +54,58 @@ impl CheckpointImporter {
 
         // checkpoints iterated in order of recency; we keep the first good one we fetch
         for attempt in checkpoint_metadata {
-            match self.fetch_checkpoint_files(&attempt, local_base_path).await {
-                Ok(local_attempt_path) => {
-                    // TODO: stat this too
-                    info!("Successfully imported checkpoint to: {local_attempt_path:?}");
+            let local_attempt_path = local_base_path.join(attempt.get_attempt_path());
+            let attempt_tag = attempt
+                .to_json()
+                .unwrap_or(local_attempt_path.to_string_lossy().to_string());
+            info!(
+                checkpoint = attempt_tag,
+                "Attempting to import checkpoint to local directory"
+            );
+
+            match self
+                .fetch_checkpoint_files(&attempt, &local_attempt_path)
+                .await
+            {
+                Ok(_) => {
+                    info!(
+                        checkpoint = attempt_tag,
+                        "Successfully imported checkpoint to local directory"
+                    );
                     return Ok(local_attempt_path);
                 }
                 Err(e) => {
-                    // TODO: stat this too
-                    error!("Failed to import checkpoint files for metadata: {attempt:?} got: {e}");
+                    error!(
+                        checkpont = attempt_tag,
+                        error = e.to_string(),
+                        "Failed to import checkpoint files "
+                    );
+                    if local_attempt_path.exists() {
+                        match tokio::fs::remove_dir_all(&local_attempt_path).await {
+                            Ok(_) => {
+                                info!(
+                                    checkpoint = attempt_tag,
+                                    "Removed local directory after checkpoint import failure"
+                                );
+                            }
+                            Err(e) => {
+                                error!(
+                                    checkpoint = attempt_tag,
+                                    error = e.to_string(),
+                                    "Failed to remove local directory after checkpoint import failure");
+                            }
+                        }
+                    }
                     continue;
                 }
             }
         }
 
-        Err(anyhow::anyhow!(
-            "No usable checkpoints identified in search window for topic:{} partition:{}",
-            topic,
-            partition_number
-        ))
+        let err_msg = format!(
+            "No usable checkpoints identified in recovery window for topic:{topic} partition:{partition_number}"
+        );
+        error!(err_msg);
+        Err(anyhow::anyhow!(err_msg))
     }
 
     pub async fn fetch_checkpoint_metadata(
@@ -113,8 +146,8 @@ impl CheckpointImporter {
     pub async fn fetch_checkpoint_files(
         &self,
         checkpoint_metadata: &CheckpointMetadata,
-        local_base_path: &Path,
-    ) -> Result<PathBuf> {
+        local_attempt_path: &Path,
+    ) -> Result<()> {
         let target_files = checkpoint_metadata
             .files
             .iter()
@@ -127,11 +160,9 @@ impl CheckpointImporter {
             "Fetching checkpoint files from metadata tracking list",
         );
 
-        // append <topic>/<partition>/<checkpoint_id>/ to the local base path
-        let local_attempt_path = local_base_path.join(checkpoint_metadata.get_attempt_path());
         match self
             .downloader
-            .download_files(&target_files, &local_attempt_path)
+            .download_files(&target_files, local_attempt_path)
             .await
         {
             Ok(_) => {
@@ -139,7 +170,7 @@ impl CheckpointImporter {
                     "Successfully downloaded {} checkpoint files to: {local_attempt_path:?}",
                     target_files.len()
                 );
-                Ok(local_attempt_path)
+                Ok(())
             }
             Err(e) => {
                 error!("Failed to download checkpoint files to: {local_attempt_path:?}: {e}");
