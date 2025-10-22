@@ -113,8 +113,14 @@ class BinScriptCommand(Command):
         self.script_path = script_path
 
     def get_underlying_command(self) -> str:
-        """Return the script name."""
-        return self.script_path.name
+        """Return the script path relative to repo root."""
+        from hogli.manifest import REPO_ROOT
+
+        try:
+            return str(self.script_path.relative_to(REPO_ROOT))
+        except ValueError:
+            # If not relative to repo root, just return the name
+            return self.script_path.name
 
     def register(self, cli_group: click.Group) -> None:
         """Register command with extra args support."""
