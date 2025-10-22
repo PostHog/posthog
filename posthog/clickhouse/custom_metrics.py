@@ -9,7 +9,7 @@ from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 
 # This view is accesed through an endpoint exposed to Prometheus.
 # It's scraped every minute and store the results in VictoriaMetrics.
-def CUSTOM_METRICS_VIEW(include_counters: bool = False) -> str:
+def CUSTOM_METRICS_VIEW(include_counters: bool = False, include_server_crash: bool = False) -> str:
     statement = """
     CREATE OR REPLACE VIEW custom_metrics
     AS SELECT * REPLACE (toFloat64(value) as value)
@@ -22,7 +22,9 @@ def CUSTOM_METRICS_VIEW(include_counters: bool = False) -> str:
     FROM custom_metrics_events_recent_lag
     """
     if include_counters:
-        statement += "UNION ALL SELECT * FROM custom_metrics_counters"
+        statement += "UNION ALL SELECT * FROM custom_metrics_counters\n"
+    if include_server_crash:
+        statement += "UNION ALL SELECT * REPLACE (toFloat64(value) as value) FROM custom_metrics_server_crash\n"
     return statement
 
 
@@ -84,6 +86,22 @@ def CUSTOM_METRICS_EVENTS_RECENT_LAG_VIEW():
         AND timestamp < now() + toIntervalMinute(3) AND inserted_at > now() - toIntervalHour(3)
     GROUP BY event;
     """ % {"team_ids": settings.INGESTION_LAG_METRIC_TEAM_IDS}
+
+
+def CUSTOM_METRICS_SERVER_CRASH_VIEW():
+    return f"""
+    CREATE OR REPLACE VIEW custom_metrics_server_crash
+    AS
+    SELECT
+        'ClickHouseCustomMetric_ServerCrash' AS name,
+        map('instance', hostname()) AS labels,
+        count() AS value,
+        'Number of server crashes for current date' AS help,
+        'gauge' AS type
+    FROM system.crash_log
+    WHERE event_date = today()
+    GROUP BY hostname()
+    """
 
 
 CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE = f"""
