@@ -2,6 +2,7 @@ from django.utils import timezone
 
 from rest_framework import serializers
 
+from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
 
 from .models import Task, TaskRun
@@ -13,6 +14,7 @@ class TaskSerializer(serializers.ModelSerializer):
     repository_list = serializers.SerializerMethodField()
     primary_repository = serializers.SerializerMethodField()
     latest_run = serializers.SerializerMethodField()
+    created_by = UserBasicSerializer(read_only=True)
 
     title = serializers.CharField(max_length=255, required=False, allow_blank=True)
 
