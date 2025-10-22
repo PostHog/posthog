@@ -1,5 +1,7 @@
 from typing import cast
 
+import posthoganalytics
+
 from posthog.schema import (
     ActionsNode,
     Breakdown as BreakdownSchema,
@@ -115,6 +117,108 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         )
 
     def _outer_select_query(self, inner_query: ast.SelectQuery) -> ast.SelectQuery | ast.SelectSetQuery:
+        if self.breakdown.enabled and self._team_flag_fewer_array_ops():
+            total_count_for_breakdown = parse_expr(
+                "sum(count) OVER (PARTITION BY breakdown_value) AS total_count_for_breakdown"
+            )
+            inner_query.select.append(total_count_for_breakdown)
+            inner_query.order_by = [ast.OrderExpr(expr=ast.Field(chain=["total_count_for_breakdown"]), order="DESC")]
+
+            if self.breakdown.is_multiple_breakdown:
+                breakdown_count = len(self.breakdown.field_exprs)
+                breakdown_other_expr = parse_expr(
+                    str([BREAKDOWN_OTHER_STRING_LABEL] * breakdown_count),
+                )
+            else:
+                breakdown_other_expr = ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL)
+
+            breakdown_limit = None  # TODO: Investigate what this override is used for
+            breakdown_limit_expr = ast.Constant(value=breakdown_limit or self._get_breakdown_limit())
+
+            return parse_select(
+                """
+                WITH (
+                    -- Breakdown values ranked by total count
+                    SELECT
+                        *,
+                        denseRank() OVER (ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                    FROM {inner_query}
+                ) AS ranked_breakdown_values,
+                (
+                    -- Top N breakdown values
+                    SELECT
+                        day_start,
+                        count AS value,
+                        breakdown_value
+                    FROM ranked_breakdown_values
+                    WHERE breakdown_rank <= {breakdown_limit}
+                ) AS top_n_breakdown_values,
+                (
+                    -- "Other" breakdown value
+                    SELECT
+                        day_start,
+                        sum(count) as value,
+                        {breakdown_other} as breakdown_value
+                    FROM ranked_breakdown_values
+                    WHERE breakdown_rank > {breakdown_limit}
+                    GROUP BY breakdown_value, day_start
+                ) AS other_breakdown_values,
+                (
+                    -- Combine and order top N and "other" breakdown values
+                    SELECT * FROM (
+                        SELECT * FROM top_n_breakdown_values
+                        UNION ALL
+                        SELECT * FROM other_breakdown_values
+                    ) ORDER BY day_start, value
+                ) AS top_n_and_other_breakdown_values,
+
+                (
+                    -- All dates in the range; :TODO: Reuse self._get_date_subqueries()
+                    arrayMap(
+                        number -> {date_from_start_of_interval} + {number_interval_period}, -- NOTE: flipped the order around to use start date
+                        range(
+                            0,
+                            coalesce(
+                                dateDiff(
+                                    {interval},
+                                    {date_from_start_of_interval},
+                                    {date_to_start_of_interval}
+                                )
+                            ) + 1
+                        )
+                    )
+
+                ) as all_dates,
+
+                -- Transpose the results into arrays for each breakdown value
+                SELECT
+                    all_dates AS date,
+                    arrayMap(d ->
+                        arraySum(
+                            arrayMap((v, dd) -> dd = d ? v : 0, vals, days)
+                        ),
+                        all_dates
+                    ) AS total,
+                    arraySum(vals) AS grand_total,
+                    breakdown_value
+                FROM (
+                    SELECT
+                        groupArray(day_start) AS days,
+                        groupArray(value) AS vals,
+                        breakdown_value
+                    FROM top_n_and_other_breakdown_values
+                    GROUP BY breakdown_value
+                )
+                ORDER BY (breakdown_value = {breakdown_other}) ASC, grand_total DESC    
+                """,
+                {
+                    "inner_query": inner_query,
+                    "breakdown_other": breakdown_other_expr,
+                    "breakdown_limit": breakdown_limit_expr,
+                    **self.query_date_range.to_placeholders(),
+                },
+            )
+
         total_array = parse_expr(
             """
             arrayMap(
@@ -887,4 +991,25 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             """
             breakdown_value IS NOT NULL
             """
+        )
+
+    def _team_flag_fewer_array_ops(self) -> bool:
+        return True  # :TODO: Remove before release. Temporary override CI tests.
+        return posthoganalytics.feature_enabled(
+            "trends-breakdown-fewer-array-ops",
+            str(self.team.uuid),
+            groups={
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.id),
+            },
+            group_properties={
+                "organization": {
+                    "id": str(self.team.organization_id),
+                },
+                "project": {
+                    "id": str(self.team.id),
+                },
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
         )
