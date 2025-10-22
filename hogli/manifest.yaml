@@ -70,9 +70,15 @@ core:
     dev:setup:
         cmd: python manage.py setup_dev
         description: Initialize local development environment (one-time setup)
+        services:
+            - postgresql
+            - clickhouse
     dev:demo-data:
         cmd: python manage.py generate_demo_data
         description: Generate demo data for local testing
+        services:
+            - postgresql
+            - clickhouse
 health_checks:
     check:clickhouse:
         bin_script: check_clickhouse_up
@@ -185,9 +191,17 @@ docker:
         cmd: docker compose -f docker-compose.dev.yml up -d
         description: Start Docker infrastructure services (Postgres, ClickHouse, Redis,
             Kafka)
+        services:
+            - docker
+            - postgresql
+            - clickhouse
+            - redis
+            - kafka
     docker:services:down:
         cmd: docker compose -f docker-compose.dev.yml down
         description: Stop Docker infrastructure services
+        services:
+            - docker
     docker:deprecated:
         bin_script: docker
         description: '[DEPRECATED] Use `hogli start` instead'
@@ -247,12 +261,17 @@ migrations:
     migrations:check:
         bin_script: migrate-check
         description: Verify all migrations are ready without applying them
+        services:
+            - postgresql
+            - clickhouse
     migrations:kafka:
         bin_script: migrate_kafka_data.py
         description: Migrate data between Kafka clusters/topics with consumer group tracking
     migrations:sync-flags:
         cmd: python manage.py sync_feature_flags
         description: Sync feature flags from configuration
+        services:
+            - postgresql
 tests:
     test:python:
         cmd: pytest
