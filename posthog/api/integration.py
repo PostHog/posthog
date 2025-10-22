@@ -92,7 +92,7 @@ class IntegrationSerializer(serializers.ModelSerializer):
 
         elif validated_data["kind"] == "gitlab":
             config = validated_data.get("config", {})
-            hostname = config.get("server_hostname")
+            hostname = config.get("hostname")
             project_id = config.get("project_id")
             project_access_token = config.get("project_access_token")
 

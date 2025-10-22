@@ -13,7 +13,7 @@ export interface GitLabSetupModalLogicProps {
 }
 
 export interface gitlabFormType {
-    serverHostname: string
+    hostname: string
     clientId: string
     clientSecret: string
 }
@@ -28,13 +28,13 @@ export const gitlabSetupModalLogic = kea<gitlabSetupModalLogicType>([
     forms(({ props, actions, values }) => ({
         gitlabIntegration: {
             defaults: {
-                serverHostname: 'https://gitlab.com',
+                hostname: 'https://gitlab.com',
                 projectId: '',
                 projectAccessToken: '',
             },
-            errors: ({ serverHostname, projectAccessToken }) => ({
-                serverHostname: serverHostname.trim() ? undefined : 'Server hostname is required',
-                projectId: serverHostname.trim() ? undefined : 'Project ID is required',
+            errors: ({ hostname, projectId, projectAccessToken }) => ({
+                hostname: hostname.trim() ? undefined : 'Hostname is required',
+                projectId: projectId.trim() ? undefined : 'Project ID is required',
                 projectAccessToken: projectAccessToken.trim() ? undefined : 'Project access token is required',
             }),
             submit: async () => {
@@ -42,7 +42,7 @@ export const gitlabSetupModalLogic = kea<gitlabSetupModalLogicType>([
                     const integration = await api.integrations.create({
                         kind: 'gitlab',
                         config: {
-                            server_hostname: values.gitlabIntegration.serverHostname,
+                            hostname: values.gitlabIntegration.hostname,
                             project_id: values.gitlabIntegration.projectId,
                             project_access_token: values.gitlabIntegration.projectAccessToken,
                         },
