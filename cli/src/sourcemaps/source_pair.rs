@@ -279,14 +279,15 @@ impl MinifiedSourceFile {
             );
 
             if let Some(prefix) = prefix {
-                let filename = filename.replace(prefix, "");
-                possible_paths.push(
-                    self.inner
-                        .path
-                        .parent()
-                        .map(|p| p.join(&filename))
-                        .unwrap_or_else(|| PathBuf::from(&filename)),
-                );
+                if let Some(filename) = filename.strip_prefix(prefix) {
+                    possible_paths.push(
+                        self.inner
+                            .path
+                            .parent()
+                            .map(|p| p.join(&filename))
+                            .unwrap_or_else(|| PathBuf::from(&filename)),
+                    );
+                }
             }
         };
 
