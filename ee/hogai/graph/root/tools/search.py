@@ -5,9 +5,9 @@ from django.conf import settings
 import posthoganalytics
 from langchain_core.output_parsers import SimpleJsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
-from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
 
 SEARCH_TOOL_PROMPT = """
@@ -140,15 +140,13 @@ class SearchTool(MaxTool):
         )
 
     async def _search_docs(self, query: str) -> str:
-        model = MaxChatOpenAI(
+        model = ChatOpenAI(
             model="inkeep-rag",
             base_url="https://api.inkeep.com/v1/",
             api_key=settings.INKEEP_API_KEY,
             streaming=False,
             stream_usage=False,
             disable_streaming=True,
-            user=self._user,
-            team=self._team,
         )
 
         prompt = ChatPromptTemplate.from_messages([("user", "{query}")])

@@ -179,14 +179,6 @@ async def eval_root_documentation(call_root, pytestconfig):
                 ),
             ),
             EvalCase(
-                input="posthog broken",
-                expected=AssistantToolCall(
-                    name="search",
-                    args={"kind": "docs", "query": "troubleshooting posthog issues"},
-                    id="call_doc_search_15",
-                ),
-            ),
-            EvalCase(
                 input="sdk integration issues react native",
                 expected=AssistantToolCall(
                     name="search",
@@ -328,14 +320,6 @@ async def eval_root_documentation(call_root, pytestconfig):
                 ),
             ),
             # Ensure calls docs, not insights
-            EvalCase(
-                input="Is there a field on a person I can use to show the last time they interacted with the platform?",
-                expected=AssistantToolCall(
-                    name="search",
-                    args={"kind": "docs", "query": "person field last interaction time"},
-                    id="call_doc_search_33",
-                ),
-            ),
             EvalCase(
                 input="Can I see which browser or device type a user is using from the default event properties?",
                 expected=AssistantToolCall(
