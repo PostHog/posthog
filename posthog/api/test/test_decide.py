@@ -1513,7 +1513,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )  # Should be enabled for everyone
 
         # caching flag definitions mean fewer queries
-        response = self._post_decide(api_version=2, assert_num_queries=9)
+        response = self._post_decide(api_version=2, assert_num_queries=8)
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
 
@@ -1524,7 +1524,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "distinct_id": 12345,
                 "$anon_distinct_id": "example_id",
             },
-            assert_num_queries=13,
+            assert_num_queries=12,
         )
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -1548,7 +1548,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "distinct_id": 5,
                 "$anon_distinct_id": 12345,
             },
-            assert_num_queries=9,
+            assert_num_queries=8,
         )
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
