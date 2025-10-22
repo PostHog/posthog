@@ -54,7 +54,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType.choices, null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str] }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -172,6 +172,13 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     def partitioning_keys(self) -> list[str] | None:
         if self.sync_type_config:
             return self.sync_type_config.get("partitioning_keys", None)
+
+        return None
+
+    @property
+    def chunk_size_override(self) -> int | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("chunk_size_override", None)
 
         return None
 
