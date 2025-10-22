@@ -914,7 +914,26 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.ArrayAccess(array=object, property=property, nullish=True)
 
     def visitColumnExprBetween(self, ctx: HogQLParser.ColumnExprBetweenContext):
-        raise NotImplementedError(f"Unsupported node: ColumnExprBetween")
+        # x [NOT] BETWEEN y AND z  =>
+        #   (x >= y AND x <= z) or, when NOT present: (x < y OR x > z)
+        left = self.visit(ctx.columnExpr(0))
+        low = self.visit(ctx.columnExpr(1))
+        high = self.visit(ctx.columnExpr(2))
+
+        if ctx.NOT():
+            return ast.Or(
+                exprs=[
+                    ast.CompareOperation(left=left, right=low, op=ast.CompareOperationOp.Lt),
+                    ast.CompareOperation(left=left, right=high, op=ast.CompareOperationOp.Gt),
+                ]
+            )
+
+        return ast.And(
+            exprs=[
+                ast.CompareOperation(left=left, right=low, op=ast.CompareOperationOp.GtEq),
+                ast.CompareOperation(left=left, right=high, op=ast.CompareOperationOp.LtEq),
+            ]
+        )
 
     def visitColumnExprParens(self, ctx: HogQLParser.ColumnExprParensContext):
         return self.visit(ctx.columnExpr())
