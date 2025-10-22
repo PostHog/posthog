@@ -1,7 +1,7 @@
 import './SurveyView.scss'
 
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { IconGraph, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
@@ -10,6 +10,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -20,6 +21,7 @@ import { DuplicateToProjectModal } from 'scenes/surveys/DuplicateToProjectModal'
 import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 import { SurveyOverview } from 'scenes/surveys/SurveyOverview'
 import { SurveyResponseFilters } from 'scenes/surveys/SurveyResponseFilters'
+import { SurveyResponseRowActions } from 'scenes/surveys/SurveyResponseRowActions'
 import { SurveyResultDemo } from 'scenes/surveys/SurveyResultDemo'
 import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
@@ -38,6 +40,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
+import { QueryContext } from '~/queries/types'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -341,10 +344,38 @@ function SurveyResponsesByQuestionV2(): JSX.Element {
 }
 
 export function SurveyResult({ disableEventsTable }: { disableEventsTable?: boolean }): JSX.Element {
-    const { dataTableQuery, surveyLoading, surveyAsInsightURL, isAnyResultsLoading, processedSurveyStats } =
+    const { dataTableQuery, surveyLoading, surveyAsInsightURL, isAnyResultsLoading, processedSurveyStats, survey } =
         useValues(surveyLogic)
+    const archivalFeatureEnabled = useFeatureFlag('SURVEY_RESPONSE_ARCHIVAL')
 
     const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
+
+    const queryContext: QueryContext | undefined = useMemo(() => {
+        if (!archivalFeatureEnabled || !dataTableQuery) {
+            return undefined
+        }
+
+        return {
+            columns: {
+                __more: {
+                    width: '0',
+                    render: ({ record }) => {
+                        // Extract UUID from the record
+                        // The record is an array where the first element (index 0) contains the event data
+                        const event = record && Array.isArray(record) ? record[0] : null
+                        const responseUuid = event?.uuid
+
+                        if (!responseUuid) {
+                            return null
+                        }
+
+                        return <SurveyResponseRowActions responseUuid={responseUuid} />
+                    },
+                },
+            },
+        }
+    }, [archivalFeatureEnabled, dataTableQuery, survey])
+
     return (
         <div className="deprecated-space-y-4">
             <SurveyResponseFilters />
@@ -366,7 +397,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                             <LemonSkeleton />
                         ) : (
                             <div className="survey-table-results">
-                                <Query query={dataTableQuery} />
+                                <Query query={dataTableQuery} context={queryContext} />
                             </div>
                         ))}
                 </>

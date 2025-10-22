@@ -683,6 +683,25 @@ export const surveyLogic = kea<surveyLogicType>([
                 })
                 return response
             },
+            archiveSurveyResponse: async (responseUuid: string) => {
+                const currentArchivedUuids = values.survey.archived_response_uuids || []
+                if (currentArchivedUuids.includes(responseUuid)) {
+                    return values.survey
+                }
+                const response = await api.surveys.update(props.id, {
+                    archived_response_uuids: [...currentArchivedUuids, responseUuid],
+                })
+                lemonToast.success('Response archived')
+                return response
+            },
+            unarchiveSurveyResponse: async (responseUuid: string) => {
+                const currentArchivedUuids = values.survey.archived_response_uuids || []
+                const response = await api.surveys.update(props.id, {
+                    archived_response_uuids: currentArchivedUuids.filter((uuid) => uuid !== responseUuid),
+                })
+                lemonToast.success('Response unarchived')
+                return response
+            },
         },
         duplicatedSurvey: {
             duplicateSurvey: async () => {
