@@ -727,7 +727,7 @@ function AssistantActionComponent({
                 )}
             >
                 {icon && (
-                    <div className="relative flex-shrink-0 flex items-center justify-center size-7 h-full">
+                    <div className="relative flex-shrink-0 flex items-start justify-center size-7 h-full">
                         {/* Weird icon align issue, had to add a small pt to align it */}
                         <div className="pt-[1px] flex items-center justify-center">
                             {isInProgress && animate ? (
