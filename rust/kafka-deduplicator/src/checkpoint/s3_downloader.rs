@@ -4,7 +4,11 @@ use std::time::Instant;
 use super::config::CheckpointConfig;
 use super::downloader::CheckpointDownloader;
 use super::metadata::{DATE_PLUS_HOURS_ONLY_FORMAT, METADATA_FILENAME};
-use crate::metrics_const::{CHECKPOINT_FILE_FETCH_HISTOGRAM, CHECKPOINT_LIST_METADATA_HISTOGRAM};
+use crate::metrics_const::{
+    CHECKPOINT_BATCH_FETCH_STORE_HISTOGRAM, CHECKPOINT_FILE_DOWNLOADS_COUNTER,
+    CHECKPOINT_FILE_FETCH_HISTOGRAM, CHECKPOINT_FILE_FETCH_STORE_HISTOGRAM,
+    CHECKPOINT_LIST_METADATA_HISTOGRAM,
+};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -48,19 +52,28 @@ impl S3Downloader {
 impl CheckpointDownloader for S3Downloader {
     async fn download_file(&self, remote_key: &str) -> Result<Vec<u8>> {
         let start_time = Instant::now();
-        let get_object = self
+        let get_object = match self
             .client
             .get_object()
             .bucket(&self.config.s3_bucket)
             .key(remote_key)
             .send()
             .await
-            .with_context(|| {
-                format!(
-                    "Failed to get object from S3 bucket: s3://{0}/{remote_key}",
+        {
+            Ok(get_object) => {
+                metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "success")
+                    .increment(1);
+                get_object
+            }
+            Err(e) => {
+                metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "error")
+                    .increment(1);
+                return Err(anyhow::anyhow!(format!(
+                    "Failed to get object from S3 bucket: s3://{0}/{remote_key}: {e}",
                     self.config.s3_bucket
-                )
-            })?;
+                )));
+            }
+        };
 
         let body = get_object.body.collect().await.with_context(|| {
             format!(
@@ -74,14 +87,42 @@ impl CheckpointDownloader for S3Downloader {
         Ok(body.to_vec())
     }
 
+    // Download a single file from remote storage and store it in the given local file path.
+    // The method assumes the local path parent directories were pre-created
+    async fn download_and_store_file(&self, remote_key: &str, local_filepath: &Path) -> Result<()> {
+        let start_time = Instant::now();
+        let contents = self.download_file(remote_key).await.with_context(|| {
+            format!("In download_and_store_file with local filepath: {local_filepath:?}")
+        })?;
+
+        match tokio::fs::write(local_filepath, contents).await {
+            Ok(()) => {
+                metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "success")
+                    .increment(1);
+                let elapsed = start_time.elapsed();
+                metrics::histogram!(CHECKPOINT_FILE_FETCH_STORE_HISTOGRAM)
+                    .record(elapsed.as_secs() as f64);
+                info!("Downloaded remote file {remote_key} to {local_filepath:?}");
+                Ok(())
+            }
+            Err(e) => {
+                metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "error")
+                    .increment(1);
+                Err::<(), anyhow::Error>(anyhow::anyhow!(
+                    "Failed to write remote contents to local filepath: {local_filepath:?}: {e}"
+                ))
+            }
+        }
+    }
+
     async fn download_files(&self, remote_keys: &[String], local_base_path: &Path) -> Result<()> {
+        let start_time = Instant::now();
         tokio::fs::create_dir_all(local_base_path)
             .await
             .with_context(|| {
                 format!("Failed to create local base directory: {local_base_path:?}")
             })?;
 
-        // TODO: get more sophisticated about partial fails, retries, etc.
         let mut download_futures = Vec::with_capacity(remote_keys.len());
         for remote_key in remote_keys {
             let remote_filename = remote_key
@@ -89,26 +130,27 @@ impl CheckpointDownloader for S3Downloader {
                 .next()
                 .with_context(|| format!("Failed to get remote filename from key: {remote_key}"))?
                 .to_string();
+            let local_filepath = local_base_path.join(&remote_filename);
 
             download_futures.push(async move {
-                match self.download_file(remote_key).await {
-                    Ok(contents) => Ok((remote_filename, contents)),
-                    Err(e) => Err(e),
+                match self
+                    .download_and_store_file(remote_key, &local_filepath)
+                    .await
+                {
+                    Ok(()) => Ok::<String, anyhow::Error>(remote_filename),
+                    Err(e) => {
+                        Err::<String, anyhow::Error>(anyhow::anyhow!("In download_files: {e}"))
+                    }
                 }
             });
         }
 
-        let results: Vec<(String, Vec<u8>)> =
-            futures::future::try_join_all(download_futures).await?;
-        for (filename, contents) in results {
-            let local_filepath = local_base_path.join(filename);
-            tokio::fs::write(&local_filepath, contents)
-                .await
-                .with_context(|| {
-                    format!("Failed to write file contents to file: {local_filepath:?}")
-                })?;
-            info!("Downloaded remote file to {local_filepath:?}");
-        }
+        let results = futures::future::try_join_all(download_futures).await?;
+        let file_count = results.len();
+        let elapsed = start_time.elapsed();
+        metrics::histogram!(CHECKPOINT_BATCH_FETCH_STORE_HISTOGRAM)
+            .record(elapsed.as_secs() as f64);
+        info!("Successfully downloaded checkpoint with {file_count} files to local path: {local_base_path:?}");
 
         Ok(())
     }

@@ -16,6 +16,10 @@ pub trait CheckpointDownloader: Send + Sync + std::fmt::Debug {
     /// Download a single file from remote storage and return the byte contents
     async fn download_file(&self, remote_key: &str) -> Result<Vec<u8>>;
 
+    // Download a single file from remote storage and store it in the given local file path.
+    // The method assumes the local path parent directories were pre-created
+    async fn download_and_store_file(&self, remote_key: &str, local_filepath: &Path) -> Result<()>;
+
     /// Given a list of fully-qualified remote file keys, download all
     /// files in parallel from remote storage and into the given local
     /// directory path, creating that base directory if it doesn't exist
