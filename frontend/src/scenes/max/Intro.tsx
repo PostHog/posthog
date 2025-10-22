@@ -2,10 +2,9 @@ import { useValues } from 'kea'
 
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
+import { Logomark } from 'lib/brand/Logomark'
 import { dayjs } from 'lib/dayjs'
 import { userLogic } from 'scenes/userLogic'
-
-import { Logomark } from '~/toolbar/assets/Logomark'
 
 import { maxLogic } from './maxLogic'
 
