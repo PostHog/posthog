@@ -1,11 +1,10 @@
-import { createHash } from 'crypto'
 import { Message } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { Action, ActionManagerCDP } from '~/utils/action-manager-cdp'
 
-import { KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES, KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
+import { KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS, KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult, Hub, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
@@ -15,25 +14,19 @@ import { execHog } from '../utils/hog-exec'
 import { convertClickhouseRawEventToFilterGlobals } from '../utils/hog-function-filtering'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
-export type BehavioralEvent = {
-    teamId: number
-    filterGlobals: HogFunctionFilterGlobals
-    personId: string
-    timestamp: string
-}
-
-export type BehavioralCohortMatch = {
+export type PreCalculatedEvent = {
+    uuid: string // event uuid
     team_id: number
-    cohort_id: number // for testing this will be action_id
-    evaluation_timestamp: string // DateTime64(6) format with microsecond precision
+    evaluation_timestamp: string
     person_id: string
-    condition: string // hashed filter conditions
-    latest_event_is_match: boolean
+    distinct_id: string
+    condition: string // hash of the filter bytecode
+    source: string
 }
 
 export type ProducedEvent = {
     key: string
-    payload: BehavioralCohortMatch
+    payload: PreCalculatedEvent
 }
 
 export const histogramBatchProcessingSteps = new Histogram({
@@ -62,12 +55,11 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
 
         try {
             const messages = events.map((event) => ({
-                topic: KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES,
                 value: JSON.stringify(event.payload),
                 key: event.key,
             }))
 
-            await this.kafkaProducer.queueMessages({ topic: KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES, messages })
+            await this.kafkaProducer.queueMessages({ topic: KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS, messages })
         } catch (error) {
             logger.error('Error publishing events', {
                 error,
@@ -77,20 +69,18 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
         }
     }
 
-    private createFilterHash(bytecode: any): string {
-        const data = typeof bytecode === 'string' ? bytecode : JSON.stringify(bytecode)
-        return createHash('sha256').update(data).digest('hex')
-    }
-
     // Evaluate if event matches action using bytecode execution
-    private async evaluateEventAgainstAction(event: BehavioralEvent, action: Action): Promise<boolean> {
+    private async evaluateEventAgainstAction(
+        filterGlobals: HogFunctionFilterGlobals,
+        action: Action
+    ): Promise<boolean> {
         if (!action.bytecode) {
             return false
         }
 
         try {
             const { execResult } = await execHog(action.bytecode, {
-                globals: event.filterGlobals,
+                globals: filterGlobals,
             })
 
             return execResult?.result ?? false
@@ -110,7 +100,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
             const events: ProducedEvent[] = []
 
             // Step 1: Parse all messages and group by team_id
-            const eventsByTeam = new Map<number, BehavioralEvent[]>()
+            const eventsByTeam = new Map<number, RawClickHouseEvent[]>()
 
             // Parse and group events by team
             for (const message of messages) {
@@ -126,19 +116,10 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                         continue // Skip events without person_id
                     }
 
-                    // Convert to behavioral event with filter globals
-                    const filterGlobals = convertClickhouseRawEventToFilterGlobals(clickHouseEvent)
-                    const behavioralEvent: BehavioralEvent = {
-                        teamId: clickHouseEvent.team_id,
-                        filterGlobals,
-                        personId: clickHouseEvent.person_id,
-                        timestamp: clickHouseEvent.timestamp,
-                    }
-
                     if (!eventsByTeam.has(clickHouseEvent.team_id)) {
                         eventsByTeam.set(clickHouseEvent.team_id, [])
                     }
-                    eventsByTeam.get(clickHouseEvent.team_id)!.push(behavioralEvent)
+                    eventsByTeam.get(clickHouseEvent.team_id)!.push(clickHouseEvent)
                 } catch (e) {
                     logger.error('Error parsing message', e)
                 }
@@ -149,7 +130,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
             const actionsByTeam = await this.actionManager.getActionsForTeams(teamIds)
 
             // Step 3: Process each team's events with their actions
-            for (const [teamId, teamEvents] of eventsByTeam) {
+            for (const [teamId, teamEvents] of Array.from(eventsByTeam.entries())) {
                 try {
                     const actions = actionsByTeam[String(teamId)] || []
 
@@ -159,37 +140,40 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                     }
 
                     // Process each event for this team
-                    for (const behavioralEvent of teamEvents) {
+                    for (const clickHouseEvent of teamEvents) {
                         // Convert timestamp to ClickHouse DateTime64(6) format
                         // Input: '2025-03-03T10:15:46.319000-08:00' -> Output: '2025-03-03 10:15:46.319000'
-                        const evaluationTimestamp = new Date(behavioralEvent.timestamp)
+                        const evaluationTimestamp = new Date(clickHouseEvent.timestamp)
                             .toISOString()
                             .replace('T', ' ')
                             .replace('Z', '')
 
+                        // Convert to filter globals for action evaluation
+                        const filterGlobals = convertClickhouseRawEventToFilterGlobals(clickHouseEvent)
+
                         // Evaluate event against each action for this team
                         for (const action of actions) {
-                            const matches = await this.evaluateEventAgainstAction(behavioralEvent, action)
+                            const matches = await this.evaluateEventAgainstAction(filterGlobals, action)
 
                             // Only publish if event matches the action (don't publish non-matches)
                             if (matches) {
                                 // Hash the action bytecode/id as the condition identifier
                                 // This ensures consistent condition hashes for the same action
-                                const bytecodeHash = this.createFilterHash(action.bytecode)
 
-                                const behavioralCohortMatch: ProducedEvent = {
-                                    key: behavioralEvent.personId, // Partition by person_id
+                                const preCalculatedEvent: ProducedEvent = {
+                                    key: filterGlobals.distinct_id,
                                     payload: {
-                                        team_id: behavioralEvent.teamId,
-                                        cohort_id: action.id, // Use action ID as proxy for cohort_id
+                                        uuid: filterGlobals.uuid,
+                                        team_id: clickHouseEvent.team_id,
                                         evaluation_timestamp: evaluationTimestamp,
-                                        person_id: behavioralEvent.personId,
-                                        condition: bytecodeHash,
-                                        latest_event_is_match: true, // True because we only publish matches
+                                        person_id: clickHouseEvent.person_id!,
+                                        distinct_id: filterGlobals.distinct_id,
+                                        condition: String(action.id),
+                                        source: `action_${action.id}`,
                                     },
                                 }
 
-                                events.push(behavioralCohortMatch)
+                                events.push(preCalculatedEvent)
                             }
                         }
                     }

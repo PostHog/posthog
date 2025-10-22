@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 
 import { ManualLinkSourceType } from '~/types'
 
-import { ExternalTable, marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
+import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { VALID_SELF_MANAGED_MARKETING_SOURCES } from '../../logic/utils'
 import { SharedExternalDataSourceConfiguration } from './SharedExternalDataSourceConfiguration'
 
@@ -14,9 +14,9 @@ import { SharedExternalDataSourceConfiguration } from './SharedExternalDataSourc
 // to the correct fields in the Marketing Analytics product.
 // These sources don't have predefined schemas like native integrations, so users need to manually map their columns.
 export function SelfManagedExternalDataSourceConfiguration(): JSX.Element {
-    const { externalTables, loading } = useValues(marketingAnalyticsLogic)
+    const { externalTablesWithStatus, loading } = useValues(marketingAnalyticsLogic)
     const { toggleManualLinkFormVisible, setManualLinkingProvider } = useActions(sourceWizardLogic)
-    const tables: ExternalTable[] = externalTables.filter((source) =>
+    const tables = externalTablesWithStatus.filter((source) =>
         VALID_SELF_MANAGED_MARKETING_SOURCES.includes(source.source_type as ManualLinkSourceType)
     )
     const handleSourceAdd = (manualLinkSource: ManualLinkSourceType): void => {
