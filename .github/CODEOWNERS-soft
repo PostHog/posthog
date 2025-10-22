@@ -39,9 +39,16 @@ dags/locations/web_analytics.py @PostHog/team-web-analytics
 
 # Analytics Platform
 dags/locations/analytics_platform.py @PostHog/team-analytics-platform
+ee/tasks/subscriptions/** @PostHog/team-analytics-platform
+frontend/src/scenes/data-management/schema/** @PostHog/team-analytics-platform
+posthog/api/schema_property_group.py @PostHog/team-analytics-platform
 posthog/hogql/database/schema/sessions_*.py @PostHog/team-analytics-platform
 posthog/models/raw_sessions/** @PostHog/team-analytics-platform
+posthog/models/schema.py @PostHog/team-analytics-platform
 posthog/models/sessions/** @PostHog/team-analytics-platform
+posthog/tasks/alerts/** @PostHog/team-analytics-platform
+posthog/tasks/exports/** @PostHog/team-analytics-platform
+
 
 # Revenue Analytics team owns revenue analytics stuff
 
