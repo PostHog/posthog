@@ -1,3 +1,5 @@
+import { IconGitLab } from '@posthog/icons'
+
 import { capitalizeFirstLetter } from 'lib/utils'
 
 import { IntegrationKind } from '~/types'
@@ -36,8 +38,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     email: IconMailjet,
     linear: IconLinear,
     github: IconGitHub,
-    // TODO: replace with GitLab icon
-    gitlab: IconGitHub,
+    gitlab: IconGitLab,
     'meta-ads': IconMetaAds,
     twilio: IconTwilio,
     clickup: IconClickUp,
