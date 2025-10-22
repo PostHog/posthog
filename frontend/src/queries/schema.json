@@ -25486,13 +25486,7 @@
                 "ticket_data": {
                     "additionalProperties": false,
                     "properties": {
-                        "created_via": {
-                            "type": "string"
-                        },
                         "priority": {
-                            "type": "string"
-                        },
-                        "source": {
                             "type": "string"
                         },
                         "summary": {
@@ -25500,12 +25494,6 @@
                         },
                         "target_area": {
                             "type": "string"
-                        },
-                        "team_id": {
-                            "type": "number"
-                        },
-                        "user_id": {
-                            "type": "number"
                         }
                     },
                     "required": ["summary", "target_area", "priority"],
