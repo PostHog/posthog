@@ -170,7 +170,7 @@ export function CampaignNameMappingsConfiguration(): JSX.Element {
 
                     <LemonButton
                         type="primary"
-                        icon={<IconPlus />}
+                        icon={<IconPlusSmall />}
                         onClick={addMapping}
                         disabled={!selectedSource || !newCleanName.trim() || !newRawValues.trim()}
                         fullWidth
