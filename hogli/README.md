@@ -2,7 +2,13 @@
 
 `hogli` is the unified command-line interface for common PostHog developer workflows. It wraps the existing scripts and tooling in this monorepo to provide a single entry point for spinning up services, running checks, and working on products. These commands mirror the recommendations in the [Developing Locally handbook guide](https://posthog.com/handbook/engineering/developing-locally), so new contributors can rely on a single interface instead of memorising individual scripts.
 
-## Installation & usage
+---
+
+## Part 1: Using hogli (user guide - will move to handbook)
+
+This section is for all developers using hogli. These docs will move to the handbook.
+
+### Installation & usage
 
 hogli is shipped with the repository. There are two ways to use it:
 
@@ -62,7 +68,7 @@ hogli --help
 
 Every subcommand is self-documented. You can append `--help` to any command for detailed options, for example `hogli test:python --help`.
 
-## Design philosophy
+### Design philosophy
 
 hogli follows these principles:
 
@@ -71,7 +77,13 @@ hogli follows these principles:
 - **Thin wrapper layer** - hogli doesn't duplicate tool logic; it delegates to existing scripts (`bin/migrate`, `bin/start`, etc.). If you need advanced options, use the underlying tools directly.
 - **Explicit over implicit** - Commands require explicit choices (e.g., `hogli test:python` not `hogli test all`) to prevent accidental long-running operations.
 
-## Architecture
+---
+
+## Part 2: Extending hogli (developer guide - stays in repo)
+
+This section is for developers extending hogli itself. These docs stay in the repository.
+
+### Architecture
 
 hogli is built with [Click](https://click.palletsprojects.com/) and discovers all commands from a single manifest:
 
@@ -88,9 +100,9 @@ hogli is built with [Click](https://click.palletsprojects.com/) and discovers al
 **Help Organization:**
 Commands are grouped into categories (see `hogli --help`), auto-formatted in git-style sections. Categories and their display order are defined in the manifest's metadata section.
 
-## Extending the CLI
+### Extending the CLI
 
-### Adding a new command - Decision tree
+#### Adding a new command - Decision tree
 
 There are 4 ways to add commands to hogli. Use this decision tree to choose the right approach:
 
@@ -134,7 +146,7 @@ Add `hidden: true` to any command to hide it from `--help` output while keeping 
 
 Hidden commands are still fully functional and can be invoked directly (e.g., `hogli docker:deprecated`), they just don't clutter the help output.
 
-### Command type reference
+#### Command type reference
 
 Use the decision tree above to choose, then reference these examples for syntax:
 
@@ -202,7 +214,7 @@ docker:deprecated:
     hidden: true # Still works, just not shown in --help
 ```
 
-### Guidelines for exposing npm commands
+#### Guidelines for exposing npm commands
 
 Only expose npm commands that are **high-level workflow entry points**:
 
@@ -227,7 +239,7 @@ format:
     # TODO: candidate for conversion to hogli steps
 ```
 
-### Service metadata
+#### Service metadata
 
 Commands can declare which services they relate to. This enables `hogli meta:concepts` to show which commands work with each service.
 
@@ -239,7 +251,7 @@ command:
 
 Available services are defined in `manifest.yaml` metadata and auto-linked to commands for help text generation.
 
-### CLI-only metadata commands
+#### CLI-only metadata commands
 
 Two special commands manage hogli itself:
 

@@ -13,33 +13,6 @@ import click
 from hogli.commands import BinScriptCommand, CompositeCommand, DirectCommand
 from hogli.manifest import REPO_ROOT, load_manifest
 
-HEDGEHOG_ART = r"""
-
-
-                           00     0
-                      000F  F0FF  0000  00
-                000FF 00  FF00  FFF0 FF F0F
-                 FF   000         00   00 0F 00
-           FF00FF000                        000
-             F0                               F
-          00F0                                00
-        FFF0                   0FFFF   FFFFFFF0F
-          00                  0F    FF         00
-        00                     0F               0F
-      FFFF0                      F0       0F0     FFF
-        F0                      00         0         F000
-       0F                      F0                     F00
-      00FF0                   F0                     F0
-         F                  FF                000FFFF
-        0F00              FF                  000
-        00F0           FFF                0FF
-          F       FFFFF         0    00 FFF
-          0FF00FF               00   0F0  FF
-             00    00000000FFFFF00F   0FF0  000
-              0FFFF00000000       0FF   00FF00
-                                     FFF0
-"""
-
 BIN_DIR = REPO_ROOT / "bin"
 
 
