@@ -35,6 +35,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         setName: (name: string) => ({ name }),
         setScreenshotUrl: (url: string | null) => ({ url }),
         setScreenshotError: (error: string | null) => ({ error }),
+        setGeneratingScreenshot: (generating: boolean) => ({ generating }),
         pollScreenshotStatus: (id: number, width?: number) => ({ id, width }),
     }),
     reducers({
@@ -45,7 +46,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         status: ['processing' as HeatmapStatus, { setStatus: (_, { status }) => status }],
         screenshotUrl: [null as string | null, { setScreenshotUrl: (_, { url }) => url }],
         screenshotError: [null as string | null, { setScreenshotError: (_, { error }) => error }],
-        generatingScreenshot: [false, { setLoading: (state, { loading }) => (loading ? state : state) }],
+        generatingScreenshot: [false, { setGeneratingScreenshot: (_, { generating }) => generating }],
         // expose a screenshotLoading alias for UI compatibility
         screenshotLoading: [false as boolean, { setScreenshotUrl: () => false }],
     }),
@@ -63,7 +64,6 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 actions.setType(item.type)
                 if (item.type === 'screenshot') {
                     const desiredWidth = values.widthOverride ?? 1024
-
                     if (item.status === 'completed' && item.has_content) {
                         actions.setScreenshotUrl(
                             `/api/environments/${window.POSTHOG_APP_CONTEXT?.current_team?.id}/heatmap_screenshots/${item.id}/content/?width=${desiredWidth}`
@@ -83,7 +83,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         },
         pollScreenshotStatus: async ({ id, width }, breakpoint) => {
             let attempts = 0
-            actions.setLoading(true)
+            actions.setGeneratingScreenshot(true)
             const maxAttempts = 60
             while (attempts < maxAttempts) {
                 await breakpoint(1000)
@@ -117,9 +117,11 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     actions.setScreenshotError('Failed to check screenshot status')
                     console.error(e)
                     break
+                } finally {
+                    actions.setGeneratingScreenshot(false)
                 }
             }
-            actions.setLoading(false)
+
             if (attempts >= maxAttempts) {
                 actions.setScreenshotError('Screenshot generation timed out')
             }

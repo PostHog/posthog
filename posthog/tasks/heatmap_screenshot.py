@@ -144,7 +144,7 @@ def _generate_screenshots(screenshot: HeatmapScreenshot) -> None:
                     img = rgb_img
 
                 buffer = io.BytesIO()
-                img.save(buffer, format="JPEG", quality=80, optimize=True)
+                img.save(buffer, format="JPEG", quality=70, optimize=True)
                 image_data = buffer.getvalue()
 
             # Upsert snapshot for this width

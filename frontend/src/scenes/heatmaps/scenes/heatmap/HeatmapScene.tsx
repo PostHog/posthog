@@ -20,8 +20,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
     const logicProps = { id: id }
     const logic = heatmapLogic(logicProps)
 
-    const { name, loading, type, displayUrl, widthOverride, screenshotUrl, screenshotLoading, generatingScreenshot } =
-        useValues(logic)
+    const { name, loading, type, displayUrl, widthOverride, screenshotUrl, generatingScreenshot } = useValues(logic)
     const { setName, updateHeatmap, onIframeLoad, loadHeatmap } = useActions(logic)
 
     const debouncedOnNameChange = useDebouncedCallback((name: string) => {
@@ -73,9 +72,12 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                             className="relative flex w-full justify-center flex-1"
                             style={{ width: widthOverride ?? '100%' }}
                         >
-                            {(screenshotLoading || generatingScreenshot) && (
-                                <div className="absolute inset-0 flex items-center justify-center">
-                                    <Spinner />
+                            {generatingScreenshot && (
+                                <div className="flex-1 flex items-center justify-center min-h-96">
+                                    <div className="text-sm text-muted">
+                                        Generating screenshots...
+                                        <Spinner />
+                                    </div>
                                 </div>
                             )}
                             {screenshotUrl && (
@@ -94,7 +96,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                             height: 'auto',
                                             display: 'block',
                                         }}
-                                        onLoad={() => loadHeatmap()}
+                                        onLoad={loadHeatmap}
                                         className="rounded-b-lg"
                                         onError={() => {
                                             console.error('Failed to load screenshot')
