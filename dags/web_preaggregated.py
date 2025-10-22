@@ -271,7 +271,8 @@ def web_analytics_v2_backfill_schedule(context: dagster.ScheduleEvaluationContex
 
         hours_since_last_run = None
         if runs:
-            last_run_time = runs[0].end_time
+            run_stats = instance.get_run_stats(runs[0].run_id)
+            last_run_time = run_stats.end_time
             if last_run_time:
                 hours_since_last_run = (datetime.now(UTC).timestamp() - last_run_time) / 3600
 
