@@ -15,6 +15,12 @@ pub struct UploadArgs {
     #[arg(short, long)]
     pub directory: PathBuf,
 
+    /// If your bundler adds a public path prefix to sourcemap URLs,
+    /// we need to ignore it while searching for them
+    /// For use alongside e.g. esbuilds "publicPath" config setting.
+    #[arg(short, long)]
+    pub public_path_prefix: Option<String>,
+
     /// One or more directory glob patterns to ignore
     #[arg(short, long)]
     pub ignore: Vec<String>,
@@ -44,6 +50,7 @@ pub struct UploadArgs {
 pub fn upload_cmd(args: UploadArgs) -> Result<()> {
     let UploadArgs {
         directory,
+        public_path_prefix,
         ignore,
         delete_after,
         skip_ssl_verification: _,
@@ -58,7 +65,7 @@ pub fn upload_cmd(args: UploadArgs) -> Result<()> {
 
     context().capture_command_invoked("sourcemap_upload");
 
-    let pairs = read_pairs(&directory, &ignore)?;
+    let pairs = read_pairs(&directory, &ignore, &public_path_prefix)?;
     let sourcemap_paths = pairs
         .iter()
         .map(|pair| pair.sourcemap.inner.path.clone())
