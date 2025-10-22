@@ -1,4 +1,6 @@
 import { useActions, useValues } from 'kea'
+// import { SearchHints } from './components/SearchHints'
+import { router } from 'kea-router'
 import { useRef, useState } from 'react'
 
 import {
@@ -23,7 +25,6 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { cn } from 'lib/utils/css-classes'
-import { maxLogic } from 'scenes/max/maxLogic'
 import {
     NEW_TAB_CATEGORY_ITEMS,
     NEW_TAB_COMMANDS,
@@ -32,13 +33,11 @@ import {
     newTabSceneLogic,
 } from 'scenes/new-tab/newTabSceneLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { SidePanelTab } from '~/types'
 
 import { Results } from './components/Results'
-// import { SearchHints } from './components/SearchHints'
 import { SearchHints } from './components/SearchHints'
 import { SearchInput, SearchInputCommand, SearchInputHandle } from './components/SearchInput'
 
@@ -92,8 +91,6 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
     const { setSearch, setSelectedCategory, toggleNewTabSceneDataInclude, refreshDataAfterToggle } = useActions(
         newTabSceneLogic({ tabId })
     )
-    const { openSidePanel } = useActions(sidePanelStateLogic({ tabId }))
-    const { setQuestion, focusInput: focusMaxInput } = useActions(maxLogic({ tabId: 'sidepanel' }))
     const { showSceneDashboardChoiceModal } = useActions(
         sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
     )
@@ -110,9 +107,10 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
 
     const handleAskAi = (question?: string): void => {
         const nextQuestion = (question ?? search).trim()
-        openSidePanel(SidePanelTab.Max)
-        setQuestion(nextQuestion)
-        focusMaxInput()
+        // openSidePanel(SidePanelTab.Max)
+        // setQuestion(nextQuestion)
+        // focusMaxInput()
+        router.actions.push(urls.max(undefined, nextQuestion))
     }
 
     // Determine active commands based on current state
