@@ -8,6 +8,8 @@ const DEFAULT_COLUMN_CONFIG = {
     align: 'center',
 } as QueryContextColumn
 
+const ZENDESK_TICKETS_QUERY_COLUMNS = ['id', 'url', 'subject', 'status', 'priority', 'created_at', 'updated_at']
+
 interface ZendeskTicketsQueryProps {
     personId: string
     status?: string
@@ -62,7 +64,7 @@ export const zendeskTicketsQuery = ({
         showTimings: false,
         showOpenEditorButton: false,
         hiddenColumns: ['url'],
-        columns: ['id', 'url', 'subject', 'status', 'priority', 'created_at', 'updated_at'],
+        columns: ZENDESK_TICKETS_QUERY_COLUMNS,
     }
 }
 
@@ -75,13 +77,14 @@ export const useZendeskTicketsQueryContext = (): QueryContext => {
             created_at: { ...DEFAULT_COLUMN_CONFIG, title: 'created' },
             updated_at: { ...DEFAULT_COLUMN_CONFIG, title: 'updated' },
             subject: {
-                render: ({ query, record, columnName }) => {
-                    const subjectIndex = query.columns.indexOf(columnName)
-                    const urlIndex = query.columns.indexOf('url')
-                    const url = record[urlIndex].replace('/api/v2', '').replace('.json', '')
+                render: ({ record, columnName }) => {
+                    const row = record as (number | string)[]
+                    const subjectIndex = ZENDESK_TICKETS_QUERY_COLUMNS.indexOf(columnName)
+                    const urlIndex = ZENDESK_TICKETS_QUERY_COLUMNS.indexOf('url')
+                    const url = (row[urlIndex] as string).replace('/api/v2', '').replace('.json', '')
                     return (
                         <Link to={url} target="_new" className="truncate">
-                            {record[subjectIndex]}
+                            {row[subjectIndex]}
                         </Link>
                     )
                 },

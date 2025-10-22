@@ -24,7 +24,7 @@ export const PriorityFilter = (): JSX.Element => {
 
     return (
         <LemonSelect
-            placeholder="Status"
+            placeholder="Priority"
             options={options.map((key) => ({ value: key, label: label(key) }))}
             value={priority}
             onChange={(value) => setPriority(value)}

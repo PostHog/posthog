@@ -7,7 +7,7 @@ const DEFAULT_STATUS = 'all'
 const DEFAULT_ORDER_BY = 'updated_at'
 const DEFAULT_ORDER_DIRECTION = 'desc'
 
-interface ZendeskTicketsFiltersLogicProps {
+export interface ZendeskTicketsFiltersLogicProps {
     logicKey: string
 }
 

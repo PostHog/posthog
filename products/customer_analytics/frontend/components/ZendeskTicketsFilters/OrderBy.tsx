@@ -27,7 +27,7 @@ export const OrderBy = (): JSX.Element => {
         <div className="flex flex-row gap-1 items-center">
             <span>Sort by:</span>
             <LemonSelect
-                placeholder="Status"
+                placeholder="Order by"
                 options={options.map((key) => ({ value: key, label: label(key) }))}
                 value={orderBy}
                 onChange={(value) => setOrderBy(value)}
