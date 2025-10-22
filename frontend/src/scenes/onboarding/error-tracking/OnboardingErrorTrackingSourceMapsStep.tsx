@@ -81,10 +81,7 @@ export function OnboardingErrorTrackingSourceMapsStep({ stepKey }: { stepKey: On
                                 by running the respective sourcemap commands.
                             </p>
                             <CodeSnippet language={Language.Bash}>
-                                {[
-                                    'posthog-cli sourcemap inject --directory ./path/to/assets',
-                                    'posthog-cli sourcemap upload --directory ./path/to/assets',
-                                ].join('\n')}
+                                posthog-cli sourcemap process --directory ./path/to/assets
                             </CodeSnippet>
                         </div>
                     </div>
