@@ -1,9 +1,8 @@
 import { useValues } from 'kea'
-import { useEffect } from 'react'
 
-import api from 'lib/api'
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import type { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -26,13 +25,12 @@ export function Experiment(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const isUnifiedCreateFormEnabled = useFeatureFlag('EXPERIMENTS_UNIFIED_CREATE_FORM', 'test')
 
-    useEffect(() => {
-        if (!currentTeamId || experimentMissing || typeof experimentId !== 'number') {
-            return
-        }
-
-        void api.fileSystemLogView.create({ type: 'experiment', ref: String(experimentId) })
-    }, [currentTeamId, experimentId, experimentMissing])
+    useFileSystemLogView({
+        type: 'experiment',
+        ref: experimentId,
+        enabled: Boolean(currentTeamId && !experimentMissing && typeof experimentId === 'number'),
+        deps: [currentTeamId, experimentId, experimentMissing],
+    })
 
     if (experimentMissing) {
         return <NotFound object="experiment" />

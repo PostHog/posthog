@@ -28,7 +28,11 @@ class TestFileSystemViewLog(TestCase):
 
     def test_recent_items_sorting_by_views(self) -> None:
         insight = Insight.objects.create(
-            team=self.team, name="Insight", created_by=self.user, last_modified_by=self.user
+            team=self.team,
+            name="Insight",
+            saved=True,
+            created_by=self.user,
+            last_modified_by=self.user,
         )
         dashboard = Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
 
@@ -78,7 +82,11 @@ class TestFileSystemViewLog(TestCase):
     def test_recent_viewers_for_resource(self) -> None:
         other_user = User.objects.create_user("other@posthog.com", "password", "Other")
         insight = Insight.objects.create(
-            team=self.team, name="Insight", created_by=self.user, last_modified_by=self.user
+            team=self.team,
+            name="Insight",
+            saved=True,
+            created_by=self.user,
+            last_modified_by=self.user,
         )
 
         with freeze_time("2024-01-01T09:00:00Z"):

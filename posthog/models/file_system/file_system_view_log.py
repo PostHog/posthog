@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional, cast
 
 from django.db import models
-from django.db.models import Count, Max, OuterRef, QuerySet, Subquery, Value
+from django.db.models import Count, Max, OuterRef, Q, QuerySet, Subquery, Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -91,7 +91,7 @@ def get_recent_file_system_items(*, team_id: int, user_id: int, limit: Optional[
     queryset = annotate_file_system_with_view_logs(
         team_id=team_id,
         user_id=user_id,
-        queryset=FileSystem.objects.filter(shortcut=False),
+        queryset=FileSystem.objects.filter(Q(shortcut=False) | Q(shortcut__isnull=True)),
     )
 
     queryset = queryset.order_by(models.F("last_viewed_at").desc(nulls_last=True))

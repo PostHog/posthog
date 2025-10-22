@@ -5,7 +5,7 @@ import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { PostHogFeature } from 'posthog-js/react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import {
     IconCollapse,
@@ -22,7 +22,6 @@ import {
 } from '@posthog/icons'
 import { LemonDialog, LemonSegmentedButton, LemonSkeleton, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -32,6 +31,7 @@ import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrD
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
@@ -232,20 +232,19 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
 
     const isNewFeatureFlag = id === 'new' || id === undefined
 
-    useEffect(() => {
-        if (
-            !currentTeamId ||
-            featureFlagMissing ||
-            accessDeniedToFeatureFlag ||
-            props.id === 'new' ||
-            props.id === 'link' ||
-            !featureFlag?.id
-        ) {
-            return
-        }
-
-        void api.fileSystemLogView.create({ type: 'feature_flag', ref: String(featureFlag.id) })
-    }, [currentTeamId, featureFlag?.id, featureFlagMissing, accessDeniedToFeatureFlag, props.id])
+    useFileSystemLogView({
+        type: 'feature_flag',
+        ref: featureFlag?.id,
+        enabled: Boolean(
+            currentTeamId &&
+                !featureFlagMissing &&
+                !accessDeniedToFeatureFlag &&
+                props.id !== 'new' &&
+                props.id !== 'link' &&
+                featureFlag?.id
+        ),
+        deps: [currentTeamId, featureFlag?.id, featureFlagMissing, accessDeniedToFeatureFlag, props.id],
+    })
 
     if (featureFlagMissing) {
         return <NotFound object="feature flag" />
