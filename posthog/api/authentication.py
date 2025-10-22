@@ -243,21 +243,22 @@ class LoginSerializer(serializers.Serializer):
             # Check if user has TOTP device
             totp_device = default_device(user)
             if totp_device:
-                # Existing TOTP flow
+                # TOTP flow
                 raise TwoFactorRequired()
             else:
                 # Email MFA flow
+                if is_email_available(with_absolute_urls=True):
+                    token = email_mfa_token_generator.make_token(user)
+                    request.session["email_mfa_pending_user_id"] = user.pk
+                    request.session["email_mfa_token_created_at"] = int(time.time())
 
-                token = email_mfa_token_generator.make_token(user)
+                    send_email_mfa_link.delay(user.id, token)
 
-                # Store in session for verification
-                request.session["email_mfa_pending_user_id"] = user.pk
-                request.session["email_mfa_token_created_at"] = int(time.time())
+                    raise serializers.ValidationError({"email": user.email}, code="email_mfa_required")
 
-                # Send email with link
-                send_email_mfa_link.delay(user.id, token)
-
-                raise serializers.ValidationError({"email": user.email}, code="email_mfa_required")
+                else:
+                    # No TOTP device and email not available - fall through to allow login without MFA, mainly for testing purposes
+                    pass
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
@@ -469,6 +470,11 @@ class EmailMFAViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             user = User.objects.get(pk=user_id)
         except User.DoesNotExist:
             raise serializers.ValidationError({"detail": "User not found."}, code="user_not_found")
+
+        if not is_email_available(with_absolute_urls=True):
+            raise serializers.ValidationError(
+                {"detail": "Email is not configured on this instance."}, code="email_not_available"
+            )
 
         # Generate new token and send email
         token = email_mfa_token_generator.make_token(user)
