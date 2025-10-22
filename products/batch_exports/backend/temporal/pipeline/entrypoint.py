@@ -81,6 +81,9 @@ async def execute_batch_export_using_internal_stage(
             Assuming the error that triggered the retry is not in non_retryable_error_types.
         initial_retry_interval_seconds: When retrying, seconds until the first retry.
         maximum_retry_interval_seconds: Maximum interval in seconds between retries.
+        override_start_to_close_timeout_seconds: Optionally, override the start-to-close
+            timeout of the main activity. If this is lower than the calculated default
+            timeout for the main activity, then the default will be preferred.
     """
     get_export_started_metric().add(1)
 

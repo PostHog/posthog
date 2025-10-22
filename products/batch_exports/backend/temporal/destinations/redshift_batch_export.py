@@ -1468,7 +1468,7 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
                     interval=inputs.interval,
                     # TODO: Temporarily bump start to close timeout until we speed up
                     # Redshift inserts.
-                    override_start_to_close_timeout_seconds=60 * 60 * 24,
+                    override_start_to_close_timeout_seconds=60 * 60 * 24,  # 24 hours
                     maximum_retry_interval_seconds=240,
                 )
         else:
