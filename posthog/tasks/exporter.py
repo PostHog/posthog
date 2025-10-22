@@ -150,4 +150,5 @@ def export_asset_direct(exported_asset: ExportedAsset, limit: Optional[int] = No
             raise
 
         exported_asset.exception = str(e)
+        exported_asset.exception_type = type(e).__name__
         exported_asset.save()
