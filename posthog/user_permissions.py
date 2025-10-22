@@ -135,9 +135,7 @@ class UserPermissions:
         """
         from ee.models.rbac.role import RoleMembership
 
-        memberships = RoleMembership.objects.filter(user=self.user).values(
-            "organization_member_id", "role_id"
-        )
+        memberships = RoleMembership.objects.filter(user=self.user).values("organization_member_id", "role_id")
 
         result: dict[UUID, list[UUID]] = {}
         for membership in memberships:
