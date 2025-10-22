@@ -107,7 +107,8 @@
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
          "posthog_survey"."schedule",
-         "posthog_survey"."enable_partial_responses"
+         "posthog_survey"."enable_partial_responses",
+         "posthog_survey"."archived_response_uuids"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
   '''
@@ -144,7 +145,8 @@
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
          "posthog_survey"."schedule",
-         "posthog_survey"."enable_partial_responses"
+         "posthog_survey"."enable_partial_responses",
+         "posthog_survey"."archived_response_uuids"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
   '''
@@ -827,7 +829,8 @@
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
          "posthog_survey"."schedule",
-         "posthog_survey"."enable_partial_responses"
+         "posthog_survey"."enable_partial_responses",
+         "posthog_survey"."archived_response_uuids"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
   '''
@@ -864,7 +867,8 @@
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
          "posthog_survey"."schedule",
-         "posthog_survey"."enable_partial_responses"
+         "posthog_survey"."enable_partial_responses",
+         "posthog_survey"."archived_response_uuids"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
   '''
