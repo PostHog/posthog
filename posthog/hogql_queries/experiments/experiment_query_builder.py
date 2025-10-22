@@ -5,6 +5,7 @@ from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
+    ExperimentRatioMetric,
     MultipleVariantHandling,
 )
 
@@ -84,8 +85,12 @@ class ExperimentQueryBuilder:
                 return self._build_funnel_query()
             case ExperimentMeanMetric():
                 return self._build_mean_query()
+            case ExperimentRatioMetric():
+                return self._build_ratio_query()
             case _:
-                raise NotImplementedError(f"Only funnel and mean metrics are supported. Got {type(self.metric)}")
+                raise NotImplementedError(
+                    f"Only funnel, mean, and ratio metrics are supported. Got {type(self.metric)}"
+                )
 
     def _get_conversion_window_seconds(self) -> int:
         """
@@ -349,35 +354,160 @@ class ExperimentQueryBuilder:
         assert isinstance(query, ast.SelectQuery)
         return query
 
+    def _build_ratio_query(self) -> ast.SelectQuery:
+        """
+        Builds query for ratio metrics.
+
+        Structure:
+        - exposures: all exposures with variant assignment
+        - numerator_events: events for numerator metric with value
+        - denominator_events: events for denominator metric with value
+        - numerator_aggregated: numerator aggregated per entity
+        - denominator_aggregated: denominator aggregated per entity
+        - entity_metrics: joined numerator + denominator per entity
+        - Final SELECT: aggregated statistics per variant
+        """
+        assert isinstance(self.metric, ExperimentRatioMetric)
+
+        # Get common CTE structure parts
+        common_ctes = f"""
+            exposures AS (
+                {{exposure_select_query}}
+            ),
+
+            numerator_events AS (
+                SELECT
+                    {{entity_key}} AS entity_id,
+                    timestamp,
+                    {{numerator_value_expr}} AS value
+                FROM events
+                WHERE {{numerator_predicate}}
+            ),
+
+            denominator_events AS (
+                SELECT
+                    {{entity_key}} AS entity_id,
+                    timestamp,
+                    {{denominator_value_expr}} AS value
+                FROM events
+                WHERE {{denominator_predicate}}
+            ),
+
+            numerator_aggregated AS (
+                SELECT
+                    exposures.entity_id AS entity_id,
+                    exposures.variant AS variant,
+                    {{numerator_agg}} AS numerator_value
+                FROM exposures
+                LEFT JOIN numerator_events ON exposures.entity_id = numerator_events.entity_id
+                    AND {{numerator_conversion_window_predicate}}
+                GROUP BY exposures.entity_id, exposures.variant
+            ),
+
+            denominator_aggregated AS (
+                SELECT
+                    exposures.entity_id AS entity_id,
+                    exposures.variant AS variant,
+                    {{denominator_agg}} AS denominator_value
+                FROM exposures
+                LEFT JOIN denominator_events ON exposures.entity_id = denominator_events.entity_id
+                    AND {{denominator_conversion_window_predicate}}
+                GROUP BY exposures.entity_id, exposures.variant
+            ),
+
+            entity_metrics AS (
+                SELECT
+                    numerator_aggregated.variant AS variant,
+                    numerator_aggregated.entity_id AS entity_id,
+                    numerator_aggregated.numerator_value AS numerator_value,
+                    COALESCE(denominator_aggregated.denominator_value, 0) AS denominator_value
+                FROM numerator_aggregated
+                LEFT JOIN denominator_aggregated
+                    ON numerator_aggregated.entity_id = denominator_aggregated.entity_id
+                    AND numerator_aggregated.variant = denominator_aggregated.variant
+            )
+        """
+
+        query = parse_select(
+            f"""
+            WITH {common_ctes}
+
+            SELECT
+                entity_metrics.variant AS variant,
+                count(entity_metrics.entity_id) AS num_users,
+                sum(entity_metrics.numerator_value) AS total_sum,
+                sum(power(entity_metrics.numerator_value, 2)) AS total_sum_of_squares,
+                sum(entity_metrics.denominator_value) AS denominator_sum,
+                sum(power(entity_metrics.denominator_value, 2)) AS denominator_sum_squares,
+                sum(entity_metrics.numerator_value * entity_metrics.denominator_value) AS numerator_denominator_sum_product
+            FROM entity_metrics
+            GROUP BY entity_metrics.variant
+            """,
+            placeholders={
+                "exposure_select_query": self._build_exposure_select_query(),
+                "entity_key": parse_expr(self.entity_key),
+                "numerator_predicate": self._build_metric_predicate(source=self.metric.numerator),
+                "numerator_value_expr": self._build_value_expr(source=self.metric.numerator),
+                "numerator_agg": self._build_value_aggregation_expr(
+                    source=self.metric.numerator, events_alias="numerator_events"
+                ),
+                "numerator_conversion_window_predicate": self._build_conversion_window_predicate_for_events(
+                    "numerator_events"
+                ),
+                "denominator_predicate": self._build_metric_predicate(source=self.metric.denominator),
+                "denominator_value_expr": self._build_value_expr(source=self.metric.denominator),
+                "denominator_agg": self._build_value_aggregation_expr(
+                    source=self.metric.denominator, events_alias="denominator_events"
+                ),
+                "denominator_conversion_window_predicate": self._build_conversion_window_predicate_for_events(
+                    "denominator_events"
+                ),
+            },
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
     def _build_conversion_window_predicate(self) -> ast.Expr:
         """
         Build the predicate for limiting metric events to the conversion window for the user.
+        Uses "metric_events" as the events alias.
+        """
+        return self._build_conversion_window_predicate_for_events("metric_events")
+
+    def _build_conversion_window_predicate_for_events(self, events_alias: str) -> ast.Expr:
+        """
+        Build the predicate for limiting metric events to the conversion window for the user.
+        Parameterized to support different event table aliases (for ratio metrics).
         """
         conversion_window_seconds = self._get_conversion_window_seconds()
         if conversion_window_seconds > 0:
             return parse_expr(
-                """
-                metric_events.timestamp >= exposures.first_exposure_time
-                AND metric_events.timestamp < exposures.first_exposure_time + toIntervalSecond({conversion_window_seconds})
+                f"""
+                {events_alias}.timestamp >= exposures.first_exposure_time
+                AND {events_alias}.timestamp < exposures.first_exposure_time + toIntervalSecond({{conversion_window_seconds}})
                 """,
                 placeholders={
                     "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
                 },
             )
         else:
-            return parse_expr("metric_events.timestamp >= exposures.first_exposure_time")
+            return parse_expr(f"{events_alias}.timestamp >= exposures.first_exposure_time")
 
-    def _build_metric_predicate(self) -> ast.Expr:
+    def _build_metric_predicate(self, source=None) -> ast.Expr:
         """
         Builds the metric predicate as an AST expression.
+        For ratio metrics, pass the specific source (numerator or denominator).
+        For mean metrics, uses self.metric.source by default.
         """
-
-        assert isinstance(self.metric, ExperimentMeanMetric)
+        if source is None:
+            assert isinstance(self.metric, ExperimentMeanMetric)
+            source = self.metric.source
 
         # TODO: Implement support for DatawarehouseNode
-        assert isinstance(self.metric.source, EventsNode | ActionsNode)
+        assert isinstance(source, EventsNode | ActionsNode)
 
-        metric_event_filter = event_or_action_to_filter(self.team, self.metric.source)
+        metric_event_filter = event_or_action_to_filter(self.team, source)
 
         conversion_window_seconds = self._get_conversion_window_seconds()
 
@@ -395,21 +525,29 @@ class ExperimentQueryBuilder:
             },
         )
 
-    def _build_value_expr(self) -> ast.Expr:
+    def _build_value_expr(self, source=None) -> ast.Expr:
         """
         Extracts the value expression from the metric source configuration.
+        For ratio metrics, pass the specific source (numerator or denominator).
+        For mean metrics, uses self.metric.source by default.
         """
-        assert isinstance(self.metric, ExperimentMeanMetric)
-        return get_source_value_expr(self.metric.source)
+        if source is None:
+            assert isinstance(self.metric, ExperimentMeanMetric)
+            source = self.metric.source
+        return get_source_value_expr(source)
 
-    def _build_value_aggregation_expr(self) -> ast.Expr:
+    def _build_value_aggregation_expr(self, source=None, events_alias: str = "metric_events") -> ast.Expr:
         """
         Returns the value aggregation expression based on math type.
+        For ratio metrics, pass the specific source (numerator or denominator) and events_alias.
+        For mean metrics, uses self.metric.source by default with "metric_events" alias.
         """
-        assert isinstance(self.metric, ExperimentMeanMetric)
+        if source is None:
+            assert isinstance(self.metric, ExperimentMeanMetric)
+            source = self.metric.source
 
         # Get metric source details
-        math_type = getattr(self.metric.source, "math", ExperimentMetricMathType.TOTAL)
+        math_type = getattr(source, "math", ExperimentMetricMathType.TOTAL)
 
         if math_type in [
             ExperimentMetricMathType.UNIQUE_SESSION,
@@ -419,29 +557,29 @@ class ExperimentQueryBuilder:
             # Count distinct values, filtering out null UUIDs and empty strings
             # This matches the old implementation's behavior
             return parse_expr(
-                """toFloat(count(distinct
+                f"""toFloat(count(distinct
                     multiIf(
-                        toTypeName(metric_events.value) = 'UUID' AND reinterpretAsUInt128(metric_events.value) = 0, NULL,
-                        toString(metric_events.value) = '', NULL,
-                        metric_events.value
+                        toTypeName({events_alias}.value) = 'UUID' AND reinterpretAsUInt128({events_alias}.value) = 0, NULL,
+                        toString({events_alias}.value) = '', NULL,
+                        {events_alias}.value
                     )
                 ))"""
             )
         elif math_type == ExperimentMetricMathType.MIN:
-            return parse_expr("min(coalesce(toFloat(metric_events.value), 0))")
+            return parse_expr(f"min(coalesce(toFloat({events_alias}.value), 0))")
         elif math_type == ExperimentMetricMathType.MAX:
-            return parse_expr("max(coalesce(toFloat(metric_events.value), 0))")
+            return parse_expr(f"max(coalesce(toFloat({events_alias}.value), 0))")
         elif math_type == ExperimentMetricMathType.AVG:
-            return parse_expr("avg(coalesce(toFloat(metric_events.value), 0))")
+            return parse_expr(f"avg(coalesce(toFloat({events_alias}.value), 0))")
         elif math_type == ExperimentMetricMathType.HOGQL:
-            math_hogql = getattr(self.metric.source, "math_hogql", None)
+            math_hogql = getattr(source, "math_hogql", None)
             if math_hogql is not None:
                 aggregation_function, _ = extract_aggregation_and_inner_expr(math_hogql)
                 if aggregation_function:
-                    return parse_expr(f"{aggregation_function}(coalesce(toFloat(metric_events.value), 0))")
-            return parse_expr(f"sum(coalesce(toFloat(metric_events.value), 0))")
+                    return parse_expr(f"{aggregation_function}(coalesce(toFloat({events_alias}.value), 0))")
+            return parse_expr(f"sum(coalesce(toFloat({events_alias}.value), 0))")
         else:
-            return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
+            return parse_expr(f"sum(coalesce(toFloat({events_alias}.value), 0))")
 
     def _build_test_accounts_filter(self) -> ast.Expr:
         if (
