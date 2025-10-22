@@ -47,6 +47,7 @@ from products.batch_exports.backend.temporal.sql import (
 from products.batch_exports.backend.temporal.utils import set_status_to_running_task
 
 LOGGER = get_write_only_logger()
+SESSION = aioboto3.Session()
 
 
 def _get_s3_endpoint_url() -> str:
@@ -63,8 +64,7 @@ def _get_s3_endpoint_url() -> str:
 @asynccontextmanager
 async def get_s3_client():
     """Async context manager for creating and managing an S3 client."""
-    session = aioboto3.Session()
-    async with session.client(
+    async with SESSION.client(
         "s3",
         aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
