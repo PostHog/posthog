@@ -208,29 +208,37 @@ class ExperimentQueryBuilder:
     def _get_mean_query_common_ctes(self) -> str:
         """
         Returns the common CTEs used by both regular and winsorized mean queries.
+        Supports both regular events and data warehouse sources.
         """
-        return """
+        assert isinstance(self.metric, ExperimentMeanMetric)
+        is_dw = isinstance(self.metric.source, ExperimentDataWarehouseNode)
+
+        table = self.metric.source.table_name if is_dw else "events"
+        timestamp_field = f"{table}.{self.metric.source.timestamp_field}" if is_dw else "timestamp"
+        join_condition = "{join_condition}" if is_dw else "exposures.entity_id = metric_events.entity_id"
+
+        return f"""
             exposures AS (
-                {exposure_select_query}
+                {{exposure_select_query}}
             ),
 
             metric_events AS (
                 SELECT
-                    {entity_key} AS entity_id,
-                    timestamp,
-                    {value_expr} AS value
-                FROM events
-                WHERE {metric_predicate}
+                    {{entity_key}} AS entity_id,
+                    {timestamp_field} AS timestamp,
+                    {{value_expr}} AS value
+                FROM {table}
+                WHERE {{metric_predicate}}
             ),
 
             entity_metrics AS (
                 SELECT
                     exposures.entity_id AS entity_id,
                     exposures.variant AS variant,
-                    {value_agg} AS value
+                    {{value_agg}} AS value
                 FROM exposures
-                LEFT JOIN metric_events ON exposures.entity_id = metric_events.entity_id
-                    AND {conversion_window_predicate}
+                LEFT JOIN metric_events ON {join_condition}
+                    AND {{conversion_window_predicate}}
                 GROUP BY exposures.entity_id, exposures.variant
             )
         """
@@ -238,15 +246,42 @@ class ExperimentQueryBuilder:
     def _get_mean_query_common_placeholders(self) -> dict:
         """
         Returns the common placeholders used by both regular and winsorized mean queries.
+        Supports both regular events and data warehouse sources.
         """
-        return {
-            "exposure_select_query": self._build_exposure_select_query(),
-            "entity_key": parse_expr(self.entity_key),
-            "metric_predicate": self._build_metric_predicate(),
+        assert isinstance(self.metric, ExperimentMeanMetric)
+        is_dw = isinstance(self.metric.source, ExperimentDataWarehouseNode)
+
+        # Build exposure query with exposure_identifier for data warehouse
+        exposure_query = self._build_exposure_select_query()
+        if is_dw:
+            exposure_query.select.append(
+                ast.Alias(
+                    alias="exposure_identifier",
+                    expr=ast.Field(chain=self.metric.source.events_join_key.split(".")),
+                )
+            )
+            if exposure_query.group_by:
+                exposure_query.group_by.append(ast.Field(chain=self.metric.source.events_join_key.split(".")))
+
+        table = self.metric.source.table_name if is_dw else "events"
+        entity_field = self.metric.source.data_warehouse_join_key if is_dw else self.entity_key
+
+        placeholders = {
+            "exposure_select_query": exposure_query,
+            "entity_key": parse_expr(entity_field),
+            "metric_predicate": self._build_metric_predicate(table_alias=table),
             "value_expr": self._build_value_expr(),
             "value_agg": self._build_value_aggregation_expr(),
             "conversion_window_predicate": self._build_conversion_window_predicate(),
         }
+
+        # Add join condition for data warehouse
+        if is_dw:
+            placeholders["join_condition"] = (
+                "toString(exposures.exposure_identifier) = toString(metric_events.entity_id)"
+            )
+
+        return placeholders
 
     def _build_mean_query(self) -> ast.SelectQuery:
         """
