@@ -95,6 +95,11 @@ export function ConversionGoalDropdown({ value, onChange, typeKey }: ConversionG
                     properties: firstSerie?.properties || [], // if we clear the filter we need the properties to be set to an empty array
                 }
 
+                // Remove the event field from ActionsNode to prevent validation errors
+                if (newFilter.kind === NodeKind.ActionsNode && 'event' in newFilter) {
+                    delete (newFilter as any).event
+                }
+
                 // Override the schema with the schema from the data warehouse
                 if (data_warehouse?.[0]?.type === EntityTypes.DATA_WAREHOUSE) {
                     const dwNode = data_warehouse[0] as DataWarehouseFilter & Record<ConversionGoalSchema, string>

@@ -13,18 +13,34 @@ import {
     VALID_SELF_MANAGED_MARKETING_SOURCES,
 } from '../../logic/utils'
 
-export function AddIntegrationButton(): JSX.Element {
+interface AddIntegrationButtonProps {
+    onIntegrationSelect?: (integrationId: string) => void
+    filterSources?: {
+        native?: string[]
+        external?: string[]
+        selfManaged?: string[]
+    }
+}
+
+export function AddIntegrationButton({
+    onIntegrationSelect,
+    filterSources,
+}: AddIntegrationButtonProps = {}): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
 
     const groupedIntegrations = {
-        native: VALID_NATIVE_MARKETING_SOURCES,
-        external: VALID_NON_NATIVE_MARKETING_SOURCES,
-        'self-managed': VALID_SELF_MANAGED_MARKETING_SOURCES,
+        native: filterSources?.native || VALID_NATIVE_MARKETING_SOURCES,
+        external: filterSources?.external || VALID_NON_NATIVE_MARKETING_SOURCES,
+        'self-managed': filterSources?.selfManaged || VALID_SELF_MANAGED_MARKETING_SOURCES,
     }
 
     const handleIntegrateClick = (integrationId: string): void => {
-        router.actions.push(urls.dataWarehouseSourceNew(integrationId))
-
+        if (onIntegrationSelect) {
+            onIntegrationSelect(integrationId)
+        } else {
+            // Default behavior: navigate to data warehouse source creation
+            router.actions.push(urls.dataWarehouseSourceNew(integrationId))
+        }
         setShowPopover(false)
     }
 
@@ -77,7 +93,7 @@ export function AddIntegrationButton(): JSX.Element {
             }
         >
             <LemonButton type="primary" size="small" icon={<IconPlusSmall />} data-attr="add-integration">
-                Add integration
+                Add source
             </LemonButton>
         </LemonDropdown>
     )

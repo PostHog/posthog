@@ -86,8 +86,12 @@ export function IntegrationFilter(): JSX.Element {
                                     checked={selectedIds.includes(source.id)}
                                     className="pointer-events-none"
                                 />
-                                <DataWarehouseSourceIcon type={source.name} size="xsmall" disableTooltip />
-                                <span>{formatSourceLabel(source)}</span>
+                                <DataWarehouseSourceIcon type={source.source_type} size="xsmall" disableTooltip />
+                                <span className="flex-1">{formatSourceLabel(source)}</span>
+                                {/* We don't show the status icon for Completed sources because it would be too many statuses */}
+                                {source.status && source.statusMessage && source.status !== 'Completed' && (
+                                    <StatusIcon status={source.status} message={source.statusMessage} />
+                                )}
                             </span>
                         </LemonButton>
                     ))}
