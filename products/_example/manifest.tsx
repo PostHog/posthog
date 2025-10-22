@@ -15,7 +15,7 @@ export const manifest: ProductManifest = {
             iconType: 'example_icon_type',
             // Descriptions are used for the scene title section, and for the nav bar app's tooltip.
             description:
-                'We define our description here to describe what this scene is about. This is a list view of example apps.',
+                'This is a boilerplate for a new app, showcasing best practices for building new apps interm of UX/UI and logic (and more).',
         },
         [Scene.ExampleAppDetail]: {
             import: () => import('./frontend/ExampleAppDetailScene'),

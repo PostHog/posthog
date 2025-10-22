@@ -1,16 +1,19 @@
+import { useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { IconGear, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTabs, LemonTabsProps } from '@posthog/lemon-ui'
 
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { Scene } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+
+import { exampleAppLogic } from './exampleAppLogic'
 
 type ExampleAppTabs = 'main' | 'secondary'
 
@@ -21,9 +24,12 @@ export interface ExampleAppMockPerson {
     createdAt: string
     updatedAt: string
 }
-function ExampleAppIndexTab(): JSX.Element {
+function ExampleAppIndexTab({ tabId }: { tabId: string }): JSX.Element {
+    const { persons, personsLoading } = useValues(exampleAppLogic({ tabId: tabId }))
+
     return (
         <LemonTable
+            loading={personsLoading}
             columns={[
                 {
                     title: 'Name',
@@ -33,7 +39,7 @@ function ExampleAppIndexTab(): JSX.Element {
                         <LemonTableLink
                             title={item.name}
                             to={urls.exampleAppDetail(item.id)}
-                            description={`${item.name} was created at ${item.createdAt}`}
+                            description={item.description || `${item.name} was created at ${item.createdAt}`}
                         />
                     ),
                 },
@@ -49,40 +55,7 @@ function ExampleAppIndexTab(): JSX.Element {
                     render: (_, person) => `${person.updatedAt}`,
                 },
             ]}
-            dataSource={
-                [
-                    {
-                        id: '1',
-                        name: 'Resource 1',
-                        createdAt: '2025-10-01',
-                        updatedAt: '2025-10-01',
-                    },
-                    {
-                        id: '2',
-                        name: 'Resource 2',
-                        createdAt: '2025-10-01',
-                        updatedAt: '2025-10-01',
-                    },
-                    {
-                        id: '3',
-                        name: 'Resource 3',
-                        createdAt: '2025-10-01',
-                        updatedAt: '2025-10-01',
-                    },
-                    {
-                        id: '4',
-                        name: 'Resource 4',
-                        createdAt: '2025-10-01',
-                        updatedAt: '2025-10-01',
-                    },
-                    {
-                        id: '5',
-                        name: 'Resource 5',
-                        createdAt: '2025-10-01',
-                        updatedAt: '2025-10-01',
-                    },
-                ] as ExampleAppMockPerson[]
-            }
+            dataSource={persons}
         />
     )
 }
@@ -98,21 +71,27 @@ function ConfigureSettingsButton(): JSX.Element {
 }
 function MainCallToActionButton(): JSX.Element {
     return (
-        <LemonButton size="small" type="primary" icon={<IconPlusSmall />}>
-            Main call to action
+        <LemonButton size="small" type="primary" icon={<IconPlusSmall />} to={urls.exampleAppDetail('new')}>
+            Create new item
         </LemonButton>
     )
 }
 
-export function ExampleAppScene(): JSX.Element {
-    // Don't do this: instead you shoud build a kea logic instead
+interface ExampleAppSceneProps {
+    tabId?: string
+}
+export const scene: SceneExport = {
+    component: ExampleAppScene,
+    logic: exampleAppLogic,
+}
+export function ExampleAppScene({ tabId }: ExampleAppSceneProps = {}): JSX.Element {
     const [activeTab, setActiveTab] = useState<ExampleAppTabs>('main')
 
     const tabs: LemonTabsProps<ExampleAppTabs>['tabs'] = [
         {
             key: 'main',
             label: 'Main list view',
-            content: <ExampleAppIndexTab />,
+            content: <ExampleAppIndexTab tabId={tabId || 'default'} />,
             tooltip: 'Use tab tooltips to explain what the tab is about',
         },
         {
