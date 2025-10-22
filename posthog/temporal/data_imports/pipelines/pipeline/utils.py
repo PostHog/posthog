@@ -439,7 +439,7 @@ def append_partition_key_to_table(
                 elif partition_format == "week":
                     date_format = "%G-w%V"
                 elif partition_format == "month":
-                    date_format = "%Y-%m-%d"
+                    date_format = "%Y-%m"
 
                 if isinstance(date, int):
                     date = datetime.datetime.fromtimestamp(date)
