@@ -189,53 +189,61 @@ class TestResolver(BaseTest):
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(node) == self.snapshot
 
+    def test_resolve_cte_types(self):
+        node = self._select("with cte as (select event from events) select event from cte")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        assert isinstance(node.select[0], ast.Alias)
+
+        printed = self._print_hogql("with cte as (select event from events) select event from cte")
+
+        assert printed == "WITH cte AS (SELECT event FROM events) SELECT event FROM cte LIMIT 50000"
+
     def test_ctes_loop(self):
         with self.assertRaises(QueryError) as e:
             self._print_hogql("with cte as (select * from cte) select * from cte")
-        self.assertIn("Too many CTE expansions (50+). Probably a CTE loop.", str(e.exception))
+        self.assertIn('Unknown table "cte".', str(e.exception))
 
     def test_ctes_basic_column(self):
         expr = self._print_hogql("with 1 as cte select cte from events")
-        expected = self._print_hogql("select 1 from events")
-        self.assertEqual(expr, expected)
+        self.assertEqual(expr, "WITH 1 AS cte SELECT cte FROM events LIMIT 50000")
 
     def test_ctes_recursive_column(self):
         self.assertEqual(
             self._print_hogql("with 1 as cte, cte as soap select soap from events"),
-            self._print_hogql("select 1 from events"),
+            "WITH 1 AS cte, cte AS soap SELECT soap FROM events LIMIT 50000",
         )
 
     def test_ctes_field_access(self):
         with self.assertRaises(QueryError) as e:
             self._print_hogql("with properties as cte select cte.$browser from events")
-        self.assertIn("Cannot access fields on CTE cte yet", str(e.exception))
+        self.assertIn("No scope or CTE available", str(e.exception))
 
     def test_ctes_subqueries(self):
         self.assertEqual(
-            self._print_hogql("with my_table as (select * from events) select * from my_table"),
-            self._print_hogql("select * from (select * from events) my_table"),
+            self._print_hogql("with my_table as (select event from events) select event from my_table"),
+            "WITH my_table AS (SELECT event FROM events) SELECT event FROM my_table LIMIT 50000",
         )
 
         self.assertEqual(
-            self._print_hogql("with my_table as (select * from events) select my_table.timestamp from my_table"),
-            self._print_hogql("select my_table.timestamp from (select * from events) my_table"),
+            self._print_hogql(
+                "with my_table as (select timestamp from events) select my_table.timestamp from my_table"
+            ),
+            "WITH my_table AS (SELECT timestamp FROM events) SELECT my_table.timestamp FROM my_table LIMIT 50000",
         )
 
         self.assertEqual(
-            self._print_hogql("with my_table as (select * from events) select timestamp from my_table"),
-            self._print_hogql("select timestamp from (select * from events) my_table"),
+            self._print_hogql("with my_table as (select timestamp from events) select timestamp from my_table"),
+            "WITH my_table AS (SELECT timestamp FROM events) SELECT timestamp FROM my_table LIMIT 50000",
         )
 
     def test_ctes_subquery_deep(self):
         self.assertEqual(
             self._print_hogql(
-                "with my_table as (select * from events), "
-                "other_table as (select * from (select * from (select * from my_table))) "
-                "select * from other_table"
+                "with my_table as (select event from events), "
+                "other_table as (select event from (select event from (select event from my_table))) "
+                "select event from other_table"
             ),
-            self._print_hogql(
-                "select * from (select * from (select * from (select * from (select * from events) as my_table))) as other_table"
-            ),
+            "WITH my_table AS (SELECT event FROM events), other_table AS (SELECT event FROM (SELECT event FROM (SELECT event FROM my_table))) SELECT event FROM other_table LIMIT 50000",
         )
 
     def test_ctes_subquery_recursion(self):
@@ -243,9 +251,7 @@ class TestResolver(BaseTest):
             self._print_hogql(
                 "with users as (select event, timestamp as tt from events ), final as ( select tt from users ) select * from final"
             ),
-            self._print_hogql(
-                "select * from (select tt from (select event, timestamp as tt from events) AS users) AS final"
-            ),
+            "WITH users AS (SELECT event, timestamp AS tt FROM events), final AS (SELECT tt FROM users) SELECT tt FROM final LIMIT 50000",
         )
 
     def test_ctes_with_aliases(self):
@@ -253,31 +259,25 @@ class TestResolver(BaseTest):
             self._print_hogql(
                 "WITH initial_alias AS (SELECT 1 AS a) SELECT a FROM initial_alias AS new_alias WHERE new_alias.a=1"
             ),
-            self._print_hogql("SELECT a FROM (SELECT 1 AS a) AS new_alias WHERE new_alias.a=1"),
+            "WITH initial_alias AS (SELECT 1 AS a) SELECT a FROM initial_alias AS new_alias WHERE equals(new_alias.a, 1) LIMIT 50000",
         )
 
     def test_ctes_with_union_all(self):
+        union_printed = self._print_hogql(
+            """
+                WITH cte1 AS (SELECT 1 AS a)
+                SELECT 1 AS a
+                UNION ALL
+                WITH cte2 AS (SELECT 2 AS a)
+                SELECT * FROM cte2
+                UNION ALL
+                SELECT * FROM cte1
+                    """
+        )
+
         self.assertEqual(
-            self._print_hogql(
-                """
-                    WITH cte1 AS (SELECT 1 AS a)
-                    SELECT 1 AS a
-                    UNION ALL
-                    WITH cte2 AS (SELECT 2 AS a)
-                    SELECT * FROM cte2
-                    UNION ALL
-                    SELECT * FROM cte1
-                        """
-            ),
-            self._print_hogql(
-                """
-                    SELECT 1 AS a
-                    UNION ALL
-                    SELECT * FROM (SELECT 2 AS a) AS cte2
-                    UNION ALL
-                    SELECT * FROM (SELECT 1 AS a) AS cte1
-                        """
-            ),
+            union_printed,
+            "WITH cte1 AS (SELECT 1 AS a), cte2 AS (SELECT 2 AS a) SELECT 1 AS a LIMIT 50000 UNION ALL SELECT a FROM cte2 LIMIT 50000 UNION ALL SELECT a FROM cte1 LIMIT 50000",
         )
 
     def test_join_using(self):
@@ -291,7 +291,7 @@ class TestResolver(BaseTest):
         assert isinstance(node.select_from.next_join.constraint, ast.JoinConstraint)
         constraint = node.select_from.next_join.constraint
         assert constraint.constraint_type == "USING"
-        assert cast(ast.Field, cast(ast.Alias, constraint.expr).expr).chain == ["a"]
+        assert cast(ast.Field, constraint.expr).chain == ["a"]
 
         node = self._select("SELECT q1.event FROM events AS q1 INNER JOIN events AS q2 USING event")
         node = resolve_types(node, self.context, dialect="clickhouse")
