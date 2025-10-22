@@ -1,4 +1,6 @@
 name: CI CLI
+permissions:
+    contents: read
 on:
     pull_request:
         paths:
