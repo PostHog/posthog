@@ -87,7 +87,7 @@ export class EventPipelineRunner {
      */
     async runHeatmapPipelineSteps(
         event: PluginEvent,
-        kafkaAcks: Promise<void>[],
+        kafkaAcks: Promise<unknown>[],
         warnings: PipelineWarning[]
     ): Promise<EventPipelinePipelineResult> {
         const processPerson = false
@@ -120,14 +120,10 @@ export class EventPipelineRunner {
         }
         const preparedEvent = prepareResult.value
 
-        const extractResult = await this.runStep<[PreIngestionEvent, Promise<void>[]], typeof extractHeatmapDataStep>(
-            extractHeatmapDataStep,
-            [this, preparedEvent],
-            event.team_id,
-            true,
-            kafkaAcks,
-            warnings
-        )
+        const extractResult = await this.runStep<
+            [PreIngestionEvent, Promise<unknown>[]],
+            typeof extractHeatmapDataStep
+        >(extractHeatmapDataStep, [this, preparedEvent], event.team_id, true, kafkaAcks, warnings)
         if (!isOkResult(extractResult)) {
             // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
             return extractResult
@@ -177,7 +173,7 @@ export class EventPipelineRunner {
         processPerson: boolean,
         forceDisablePersonProcessing: boolean
     ): Promise<EventPipelinePipelineResult> {
-        const kafkaAcks: Promise<void>[] = []
+        const kafkaAcks: Promise<unknown>[] = []
         const warnings: PipelineWarning[] = []
 
         if (event.event === '$$heatmap') {
@@ -281,14 +277,10 @@ export class EventPipelineRunner {
         // TRICKY: old client might still be sending heatmap_data as passengers on other events
         // so this step is here even though up-to-date clients will be sending heatmap events
         // for separate processing
-        const extractResult = await this.runStep<[PreIngestionEvent, Promise<void>[]], typeof extractHeatmapDataStep>(
-            extractHeatmapDataStep,
-            [this, preparedEvent],
-            event.team_id,
-            true,
-            kafkaAcks,
-            warnings
-        )
+        const extractResult = await this.runStep<
+            [PreIngestionEvent, Promise<unknown>[]],
+            typeof extractHeatmapDataStep
+        >(extractHeatmapDataStep, [this, preparedEvent], event.team_id, true, kafkaAcks, warnings)
         if (!isOkResult(extractResult)) {
             // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
             return extractResult
@@ -338,7 +330,7 @@ export class EventPipelineRunner {
         args: Parameters<Step>,
         teamId: number,
         sentToDql = true,
-        kafkaAcks: Promise<void>[] = [],
+        kafkaAcks: Promise<unknown>[] = [],
         warnings: PipelineWarning[] = []
     ): Promise<PipelineResult<T>> {
         const timer = new Date()
@@ -371,7 +363,7 @@ export class EventPipelineRunner {
         args: Parameters<Step>,
         teamId: number,
         sentToDql = true,
-        kafkaAcks: Promise<void>[] = [],
+        kafkaAcks: Promise<unknown>[] = [],
         warnings: PipelineWarning[] = []
     ): Promise<PipelineResult<T>> {
         const timer = new Date()
@@ -427,7 +419,7 @@ export class EventPipelineRunner {
         currentArgs: any,
         teamId: number,
         sendToDlq: boolean,
-        kafkaAcks: Promise<void>[] = [],
+        kafkaAcks: Promise<unknown>[] = [],
         warnings: PipelineWarning[] = []
     ): PipelineResult<T> {
         logger.error('🔔', 'step_failed', { currentStepName, err })
