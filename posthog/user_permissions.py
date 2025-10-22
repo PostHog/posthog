@@ -124,7 +124,7 @@ class UserPermissions:
             team_id = ac["team_id"]
             if team_id not in result:
                 result[team_id] = []
-            result[team_id].append(ac)
+            result[team_id].append(dict(ac))
         return result
 
     @cached_property
