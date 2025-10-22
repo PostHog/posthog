@@ -56,5 +56,4 @@ pub struct FeatureFlagEvaluationContext {
     pub hash_key_override: Option<String>,
     /// Contains explicitly requested flag keys and their dependencies. If empty, all flags will be evaluated.
     pub flag_keys: Option<Vec<String>>,
-    pub config: Arc<crate::config::Config>,
 }

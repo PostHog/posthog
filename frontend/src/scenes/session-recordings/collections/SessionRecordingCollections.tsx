@@ -258,27 +258,24 @@ export function SessionRecordingCollections(): JSX.Element {
             {!playlistsLoading && playlists.count < 1 ? (
                 <SessionRecordingCollectionsEmptyState />
             ) : (
-                <div>
-                    <LemonTable
-                        loading={playlistsLoading}
-                        columns={columns}
-                        dataSource={playlists.results}
-                        pagination={pagination}
-                        noSortingCancellation
-                        sorting={sorting}
-                        onSort={(newSorting) =>
-                            setSavedPlaylistsFilters({
-                                order: newSorting
-                                    ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                                    : undefined,
-                            })
-                        }
-                        rowKey="id"
-                        loadingSkeletonRows={PLAYLISTS_PER_PAGE}
-                        nouns={['collection', 'collections']}
-                        className="h-auto"
-                    />
-                </div>
+                <LemonTable
+                    loading={playlistsLoading}
+                    columns={columns}
+                    dataSource={playlists.results}
+                    pagination={pagination}
+                    noSortingCancellation
+                    sorting={sorting}
+                    onSort={(newSorting) =>
+                        setSavedPlaylistsFilters({
+                            order: newSorting
+                                ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                : undefined,
+                        })
+                    }
+                    rowKey="id"
+                    loadingSkeletonRows={PLAYLISTS_PER_PAGE}
+                    nouns={['collection', 'collections']}
+                />
             )}
         </>
     )

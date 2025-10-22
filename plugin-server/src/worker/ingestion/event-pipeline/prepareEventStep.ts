@@ -16,7 +16,7 @@ export async function prepareEventStep(
     processPerson: boolean
 ): Promise<PreIngestionEvent> {
     const { team_id, uuid } = event
-    const tsParsingIngestionWarnings: Promise<void>[] = []
+    const tsParsingIngestionWarnings: Promise<unknown>[] = []
     const invalidTimestampCallback = function (type: string, details: Record<string, any>) {
         invalidTimestampCounter.labels(type).inc()
 

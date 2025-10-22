@@ -127,7 +127,7 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
                                     <BindLogic logic={multitabEditorLogic} props={{ tabId, monaco, editor }}>
                                         <div
                                             data-attr="editor-scene"
-                                            className="EditorScene w-full grow flex flex-row overflow-hidden"
+                                            className="EditorScene w-full h-[calc(var(--scene-layout-rect-height)-var(--scene-layout-header-height))] flex flex-row overflow-hidden"
                                             ref={ref}
                                         >
                                             <QueryWindow
