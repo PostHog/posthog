@@ -177,12 +177,13 @@ class Command(BaseCommand):
                                 cohort_to_uuids[cohort_id].append(uuid)
 
                         batch_inserted = 0
-                        team_id = clickhouse_batch[0][2]  # Get team_id from first record
 
                         for cohort_id, person_uuids in cohort_to_uuids.items():
                             try:
                                 cohort = Cohort.objects.get(id=cohort_id)
-                                cohort.insert_users_list_by_uuid_into_pg_only(items=person_uuids, team_id=team_id)
+                                cohort.insert_users_list_by_uuid_into_pg_only(
+                                    items=person_uuids, team_id=cohort.team_id
+                                )
                                 batch_inserted += len(person_uuids)
                             except Exception as e:
                                 self.stdout.write(self.style.ERROR(f"Error inserting into cohort {cohort_id}: {e}"))
