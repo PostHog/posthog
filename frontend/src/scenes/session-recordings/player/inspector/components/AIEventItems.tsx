@@ -8,6 +8,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { ConversationMessagesDisplay } from 'products/llm_analytics/frontend/ConversationDisplay/ConversationMessagesDisplay'
 import { LLMInputOutput } from 'products/llm_analytics/frontend/LLMInputOutput'
+import { CompatMessage } from 'products/llm_analytics/frontend/types'
 import { normalizeMessages } from 'products/llm_analytics/frontend/utils'
 
 export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.Element {
@@ -65,19 +66,22 @@ export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.
     )
 }
 
-const isHumanMessage = (message: Record<string, any>): boolean => {
-    return message.type === 'human' || message.role === 'user' || message.role === 'human'
+const isHumanMessage = (message: CompatMessage): boolean => {
+    return (
+        typeof message.content === 'string' &&
+        (message.type === 'human' || message.role === 'user' || message.role === 'human')
+    )
 }
 
-const isAIMessage = (message: Record<string, any>): boolean => {
+const isAIMessage = (message: CompatMessage): boolean => {
     return (
+        typeof message.content === 'string' &&
         (message.type === 'ai' || message.role === 'assistant' || message.role === 'ai') &&
-        !!message.content?.length &&
         message.visible !== false
     )
 }
 
-const isDisplayableAIMessage = (message: Record<string, any>): boolean => {
+const isDisplayableAIMessage = (message: CompatMessage): boolean => {
     return isHumanMessage(message) || isAIMessage(message)
 }
 
@@ -97,20 +101,24 @@ export function AIEventSummary({ event }: { event: Record<string, any> }): JSX.E
         return null
     }
 
-    const inputMessages = (
-        (event.properties?.$ai_input_state?.messages as Record<string, any>[] | undefined) ??
-        (event.properties?.$ai_input as Record<string, any>[] | undefined) ??
-        []
-    ).filter(isDisplayableAIMessage)
-    const outputMessages = (
-        (event.properties?.$ai_output_state?.messages as Record<string, any>[] | undefined) ??
-        (event.properties?.$ai_output_choices as Record<string, any>[] | undefined) ??
-        []
-    ).filter(isDisplayableAIMessage)
+    const inputMessages = [
+        ...normalizeMessages(event.properties?.$ai_input, 'user'),
+        ...normalizeMessages(event.properties?.$ai_input_state, 'user'),
+    ].filter(isDisplayableAIMessage)
+
+    const outputMessages = [
+        ...normalizeMessages(event.properties?.$ai_output_choices, 'assistant'),
+        ...normalizeMessages(event.properties?.$ai_output_state, 'assistant'),
+    ].filter(isDisplayableAIMessage)
+
     const seen = new Set<string>()
     const messageChain: Array<{ id: string; content: string; role: string }> = []
 
     for (const m of [...inputMessages, ...outputMessages]) {
+        if (typeof m.content !== 'string') {
+            continue
+        }
+
         const role = m.role && !m.type ? (m.role === 'user' ? 'human' : 'ai') : m.type
         const key = `${role}:${m.content}`
 
