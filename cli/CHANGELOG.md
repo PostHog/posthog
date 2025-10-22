@@ -1,5 +1,9 @@
 # posthog-cli
 
+# 0.5.3
+
+- When running inject command multiple times, we only update chunk ids when releases are different
+
 # 0.5.2
 
 - Fixes a bug where chunks which shared a sourcemap were mishandled, leading to an error during upload in recent versions, and a silent
