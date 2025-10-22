@@ -55,7 +55,7 @@ export const getCategoryDisplayName = (category: string): string => {
         persons: 'Persons',
         eventDefinitions: 'Events',
         propertyDefinitions: 'Properties',
-        askAI: 'Ask Posthog AI',
+        askAI: 'Posthog AI',
     }
     return displayNames[category] || category
 }
@@ -398,7 +398,6 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                     tabId={tabId || ''}
                                     searchInputRef={commandInputRef.current?.getInputRef() || { current: null }}
                                     listboxRef={listboxRef}
-                                    handleAskAi={handleAskAi}
                                 />
                             </div>
                         )}

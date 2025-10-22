@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import { IconApps, IconDatabase, IconHogQL, IconPerson, IconSparkles, IconToggle } from '@posthog/icons'
+import { IconApps, IconArrowRight, IconDatabase, IconHogQL, IconPerson, IconSparkles, IconToggle } from '@posthog/icons'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -60,7 +60,7 @@ export const NEW_TAB_COMMANDS_ITEMS: SearchInputCommand<NEW_TAB_COMMANDS>[] = [
     { value: 'persons', displayName: 'Persons' },
     { value: 'eventDefinitions', displayName: 'Events' },
     { value: 'propertyDefinitions', displayName: 'Properties' },
-    { value: 'askAI', displayName: 'Ask Posthog AI' },
+    { value: 'askAI', displayName: 'Posthog AI' },
 ]
 
 export interface NewTabTreeDataItem extends TreeDataItem {
@@ -495,12 +495,13 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             (s) => [s.search],
             (search: string): NewTabTreeDataItem[] => {
                 const searchTerm = search.trim()
+                const items: NewTabTreeDataItem[] = []
 
-                const item: NewTabTreeDataItem = {
+                const askDirectQuestionToAiItem: NewTabTreeDataItem = {
                     id: 'ask-ai',
-                    name: searchTerm ? `${searchTerm}` : 'Ask Posthog AI anything...',
+                    name: searchTerm ? `Ask: ${searchTerm}` : 'Ask Posthog AI anything...',
                     category: 'askAI',
-                    href: '#',
+                    href: urls.max(undefined, searchTerm),
                     icon: <IconSparkles />,
                     record: {
                         type: 'ai',
@@ -510,7 +511,25 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         onClick: () => actions.askAI(searchTerm),
                     },
                 }
-                return [item]
+                const openAiInTabItem: NewTabTreeDataItem = {
+                    id: 'open-ai',
+                    name: 'Open',
+                    category: 'askAI',
+                    href: urls.max(undefined, undefined),
+                    icon: <IconArrowRight />,
+                    record: {
+                        type: 'ai',
+                        path: 'Open',
+                        href: '#',
+                        searchTerm: '',
+                    },
+                }
+                // Only if there is a search term, add the ask direct question to ai item
+                if (searchTerm) {
+                    items.push(askDirectQuestionToAiItem)
+                }
+                items.push(openAiInTabItem)
+                return items
             },
         ],
         getSectionItemLimit: [

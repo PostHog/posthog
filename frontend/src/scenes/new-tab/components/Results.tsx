@@ -34,14 +34,12 @@ function Category({
     category,
     columnIndex,
     isFirstCategoryWithResults,
-    handleAskAi,
 }: {
     tabId: string
     items: NewTabTreeDataItem[]
     category: string
     columnIndex: number
     isFirstCategoryWithResults: boolean
-    handleAskAi: (searchTerm?: string) => void
 }): JSX.Element {
     const typedItems = items as NewTabTreeDataItem[]
     const isFirstCategory = columnIndex === 0
@@ -186,15 +184,6 @@ function Category({
                                                 <Link
                                                     to={item.href || '#'}
                                                     className="w-full"
-                                                    onClick={(e) => {
-                                                        if (
-                                                            item.category === 'askAI' &&
-                                                            item.record?.searchTerm !== undefined
-                                                        ) {
-                                                            e.preventDefault()
-                                                            handleAskAi()
-                                                        }
-                                                    }}
                                                     buttonProps={{
                                                         size: 'base',
                                                         hasSideActionRight: true,
@@ -329,12 +318,10 @@ export function Results({
     tabId,
     searchInputRef,
     listboxRef,
-    handleAskAi,
 }: {
     tabId: string
     searchInputRef: React.RefObject<HTMLInputElement>
     listboxRef: React.RefObject<ListBoxHandle>
-    handleAskAi: (searchTerm?: string) => void
 }): JSX.Element {
     const {
         filteredItemsGrid,
@@ -471,15 +458,6 @@ export function Results({
                                                 <Link
                                                     to={item.href || '#'}
                                                     className="w-full"
-                                                    onClick={(e) => {
-                                                        if (
-                                                            item.category === 'askAI' &&
-                                                            item.record?.searchTerm !== undefined
-                                                        ) {
-                                                            e.preventDefault()
-                                                            handleAskAi()
-                                                        }
-                                                    }}
                                                     buttonProps={{
                                                         size: 'base',
                                                         hasSideActionRight: true,
@@ -552,14 +530,12 @@ export function Results({
                     category={category}
                     columnIndex={columnIndex}
                     isFirstCategoryWithResults={category === firstCategoryWithResults}
-                    handleAskAi={handleAskAi}
                     key={category}
                 />
             ))}
 
             {/* Show "No results found" when there's a search term but no results */}
-            {(!newTabSceneData && filteredItemsGrid.length === 0 && !isSearching) ||
-            (newTabSceneData && search.trim() !== '' && !hasResults && !isSearching) ? (
+            {!newTabSceneData && filteredItemsGrid.length === 0 && !isSearching ? (
                 <div className="flex flex-col gap-4 px-2 py-2 bg-glass-bg-3000 rounded-lg col-span-full">
                     <div className="flex flex-col gap-1">
                         <p className="text-tertiary mb-1">
