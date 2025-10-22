@@ -48,7 +48,7 @@ fn test_search_with_prefix() {
 #[test]
 fn test_ignore() {
     let pairs = read_pairs(&get_case_path(""), &Vec::new(), &None).expect("Failed to read pairs");
-    assert_eq!(pairs.len(), 5);
+    assert_eq!(pairs.len(), 6);
 
     let pairs = read_pairs(&get_case_path(""), &["**/search/**".to_string()], &None)
         .expect("Failed to read pairs");
