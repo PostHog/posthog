@@ -14705,6 +14705,12 @@
         "HogQLMetadataResponse": {
             "additionalProperties": false,
             "properties": {
+                "ch_table_names": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "errors": {
                     "items": {
                         "$ref": "#/definitions/HogQLNotice"
@@ -14872,6 +14878,9 @@
                     "type": "string"
                 },
                 "optimizeJoinedFilters": {
+                    "type": "boolean"
+                },
+                "optimizeProjections": {
                     "type": "boolean"
                 },
                 "personsArgMaxVersion": {
@@ -17466,6 +17475,9 @@
                 },
                 {
                     "$ref": "#/definitions/RecordingPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/GroupPropertyFilter"
                 }
             ]
         },
@@ -18871,6 +18883,12 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "ch_table_names": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
                         "errors": {
                             "items": {
                                 "$ref": "#/definitions/HogQLNotice"

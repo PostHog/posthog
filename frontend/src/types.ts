@@ -5033,7 +5033,6 @@ export type BatchExportServiceDatabricks = {
         schema: string
         table_name: string
         use_variant_type: boolean
-        table_partition_field: string | null
         exclude_events: string[]
         include_events: string[]
     }

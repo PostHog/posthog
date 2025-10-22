@@ -3,7 +3,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime
 from difflib import get_close_matches
-from typing import Literal, Union, cast
+from typing import Literal, Optional, Union, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -51,6 +51,7 @@ from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
+from posthog.hogql.transforms.projection_pushdown import pushdown_projections
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
 from posthog.hogql.visitor import Visitor, clone_expr
 
@@ -92,7 +93,7 @@ def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType]
 
 def to_printed_hogql(query: ast.Expr, team: Team, modifiers: HogQLQueryModifiers | None = None) -> str:
     """Prints the HogQL query without mutating the node"""
-    return print_ast(
+    return prepare_and_print_ast(
         clone_expr(query),
         dialect="hogql",
         context=HogQLContext(
@@ -101,20 +102,20 @@ def to_printed_hogql(query: ast.Expr, team: Team, modifiers: HogQLQueryModifiers
             modifiers=create_default_modifiers_for_team(team, modifiers),
         ),
         pretty=True,
-    )
+    )[0]
 
 
-def print_ast(
+def prepare_and_print_ast(
     node: _T_AST,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
     stack: list[ast.SelectQuery] | None = None,
     settings: HogQLGlobalSettings | None = None,
     pretty: bool = False,
-) -> str:
+) -> tuple[str, Optional[_T_AST]]:
     prepared_ast = prepare_ast_for_printing(node=node, context=context, dialect=dialect, stack=stack, settings=settings)
     if prepared_ast is None:
-        return ""
+        return "", None
     return print_prepared_ast(
         node=prepared_ast,
         context=context,
@@ -122,11 +123,11 @@ def print_ast(
         stack=stack,
         settings=settings,
         pretty=pretty,
-    )
+    ), prepared_ast
 
 
 def prepare_ast_for_printing(
-    node: _T_AST,
+    node: _T_AST,  # node is mutated
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
     stack: list[ast.SelectQuery] | None = None,
@@ -149,6 +150,10 @@ def prepare_ast_for_printing(
             resolve_in_cohorts_conjoined(node, dialect, context, stack)
     with context.timings.measure("resolve_types"):
         node = resolve_types(node, context, dialect=dialect, scopes=[node.type for node in stack] if stack else None)
+
+    if context.modifiers.optimizeProjections:
+        with context.timings.measure("projection_pushdown"):
+            node = pushdown_projections(node, context)
 
     if dialect == "clickhouse":
         with context.timings.measure("resolve_property_types"):
