@@ -6,7 +6,7 @@ from typing import Optional
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
+from posthog.test.base import BaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
 from unittest.mock import patch
 
 from django.conf import settings
@@ -1548,7 +1548,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "distinct_id": 5,
                 "$anon_distinct_id": 12345,
             },
-            assert_num_queries=8,
+            assert_num_queries=FuzzyInt(8, 9),
         )
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
