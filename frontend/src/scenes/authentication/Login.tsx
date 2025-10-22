@@ -100,6 +100,13 @@ export function Login(): JSX.Element {
                         )}
                     </LemonBanner>
                 )}
+                {preflight?.is_debug === 'prod_data' && (
+                    <LemonBanner type="error">
+                        Login unavailable in production debug mode because of <code>SECRET_KEY</code> discrepancy.
+                        <br />
+                        Use env var <code>DEBUG_LOG_IN_AS_EMAIL</code>.
+                    </LemonBanner>
+                )}
                 <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="deprecated-space-y-4">
                     <RegionSelect />
                     <LemonField name="email" label="Email">
