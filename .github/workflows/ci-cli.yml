@@ -43,18 +43,27 @@ jobs:
 
                   echo "📝 Updating POSTHOG_DOCS_REF=${PR_BRANCH} for preview branch feat/docs-monorepo-poc"
 
-                  # Delete existing env var if it exists (ignore 404 errors)
-                  curl -s -X DELETE "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}/env/POSTHOG_DOCS_REF?teamId=${VERCEL_TEAM_ID}&gitBranch=feat/docs-monorepo-poc&target=preview" \
-                    -H "Authorization: Bearer $VERCEL_TOKEN" || true
+                  # Find existing env var ID
+                  ENV_ID=$(curl -s "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}/env?teamId=${VERCEL_TEAM_ID}" \
+                    -H "Authorization: Bearer $VERCEL_TOKEN" | \
+                    jq -r --arg key "POSTHOG_DOCS_REF" --arg branch "feat/docs-monorepo-poc" \
+                      '.envs[] | select(.key==$key and .gitBranch==$branch) | .id')
+
+                  # Delete existing env var if it exists
+                  if [ -n "$ENV_ID" ]; then
+                    echo "   Deleting existing env var (ID: ${ENV_ID})"
+                    curl -s -X DELETE "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}/env/${ENV_ID}?teamId=${VERCEL_TEAM_ID}" \
+                      -H "Authorization: Bearer $VERCEL_TOKEN" > /dev/null
+                  fi
 
                   # Create new env var with updated value
-                  RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/env?teamId=${VERCEL_TEAM_ID}" \
+                  RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}/env?teamId=${VERCEL_TEAM_ID}" \
                     -H "Authorization: Bearer $VERCEL_TOKEN" \
                     -H "Content-Type: application/json" \
                     -d '{
+                      "type": "encrypted",
                       "key": "POSTHOG_DOCS_REF",
                       "value": "'"$PR_BRANCH"'",
-                      "type": "encrypted",
                       "target": ["preview"],
                       "gitBranch": "feat/docs-monorepo-poc"
                     }')
