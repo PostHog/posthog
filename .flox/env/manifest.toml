@@ -158,8 +158,8 @@ if [[ -t 0 ]]; then
 \033[3mYou're all set! Here's what you can do:\033[0m
 
 \033[32m🚀 Start the development environment:\033[0m
-\033[32mbin/start\033[0m                    \033[3m# Full stack (default, recommended for first time running the stack)\033[0m
-\033[32mbin/start --minimal\033[0m          \033[3m# Minimal stack (faster startup)\033[0m
+\033[32mbin/start\033[0m                    \033[3m# Full stack (default, required for first time running the stack)\033[0m
+\033[32mbin/start --minimal\033[0m          \033[3m# Minimal stack (faster startup, lesser memory usage, not all features are included)\033[0m
 \033[32mbin/start --custom <config>\033[0m  \033[3m# Use custom mprocs config\033[0m
 
 \033[3m📋 Useful processes available in mprocs (press R to start manually):\033[0m
@@ -170,7 +170,7 @@ if [[ -t 0 ]]; then
 \033[2;90m─────────────────────────────────────────────────────────────\033[0m
 
 \033[3m💡 Pro tips:\033[0m
-• Use \033[32mbin/start --minimal\033[0m for faster development
+• Use \033[32mbin/start --minimal\033[0m for faster development at the cost of not enabling all of our services
 • Check \033[34mbin/mprocs-*.yaml\033[0m for available process configurations
 • Most processes include hot-reloading on file changes (except migrations)
 • You can run follow-up migrations with \033[32mbin/migrate\033[0m
