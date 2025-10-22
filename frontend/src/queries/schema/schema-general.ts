@@ -366,6 +366,7 @@ export interface HogQLQueryModifiers {
     convertToProjectTimezone?: boolean
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level **/
     usePreaggregatedTableTransforms?: boolean
+    optimizeProjections?: boolean
 }
 
 export interface DataWarehouseEventsModifier {
@@ -530,6 +531,7 @@ export interface HogQLMetadataResponse {
     notices: HogQLNotice[]
     query_status?: never
     table_names?: string[]
+    ch_table_names?: string[]
 }
 
 export type AutocompleteCompletionItemKind =
@@ -2863,6 +2865,8 @@ export interface ExperimentMetricTimeseries {
     computed_at: string | null
     created_at: string
     updated_at: string
+    recalculation_status?: string | null
+    recalculation_created_at?: string | null
 }
 
 /**
