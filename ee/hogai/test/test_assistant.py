@@ -1209,7 +1209,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                         type="ai",
                     ),
                 ),
-                ("update", AssistantUpdateEvent(id="message_1", tool_call_id="1", content="Searching for information")),
                 (
                     "update",
                     AssistantUpdateEvent(id="message_2", tool_call_id="1", content="Checking PostHog documentation..."),
@@ -1604,7 +1603,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     ],
                 ),
             ),
-            ("update", AssistantUpdateEvent(id="message_1", tool_call_id="xyz", content="Editing your insight")),
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
             (
                 "message",
