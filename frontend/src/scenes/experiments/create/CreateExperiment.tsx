@@ -18,7 +18,6 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import type { Experiment } from '~/types'
 
-import { ExperimentTypePanel } from './ExperimentTypePanel'
 import { ExposureCriteriaPanel } from './ExposureCriteriaPanel'
 import { ExposureCriteriaPanelHeader } from './ExposureCriteriaPanelHeader'
 import { MetricsPanel, MetricsPanelHeader } from './MetricsPanel'
@@ -37,12 +36,6 @@ const LemonFieldError = ({ error }: { error: string }): JSX.Element => {
 type CreateExperimentProps = Partial<{
     draftExperiment: Experiment
 }>
-
-/**
- * temporary setup. We may want to put this behind a feature flag for testing.
- */
-const SHOW_EXPERIMENT_TYPE_PANEL = false
-const SHOW_TARGETING_PANEL = false
 
 export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JSX.Element => {
     const { HogfettiComponent } = useHogfetti({ count: 100, duration: 3000 })
@@ -120,26 +113,9 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
                                 key: 'experiment-exposure',
                                 header: <ExposureCriteriaPanelHeader experiment={experiment} />,
                                 content: (
-                                    <ExposureCriteriaPanel
-                                        experiment={experiment}
-                                        onChange={(exposureCriteria) => exposureCriteria}
-                                    />
+                                    <ExposureCriteriaPanel experiment={experiment} onChange={setExposureCriteria} />
                                 ),
                             },
-                            ...(SHOW_EXPERIMENT_TYPE_PANEL
-                                ? [
-                                      {
-                                          key: 'experiment-type',
-                                          header: 'Experiment type',
-                                          content: (
-                                              <ExperimentTypePanel
-                                                  experiment={experiment}
-                                                  setExperimentType={(type) => setExperimentValue('type', type)}
-                                              />
-                                          ),
-                                      },
-                                  ]
-                                : []),
                             {
                                 key: 'experiment-variants',
                                 header: <VariantsPanelHeader experiment={experiment} />,
@@ -147,19 +123,6 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
                                     <VariantsPanel experiment={experiment} updateFeatureFlag={setFeatureFlagConfig} />
                                 ),
                             },
-                            ...(SHOW_TARGETING_PANEL
-                                ? [
-                                      {
-                                          key: 'experiment-targeting',
-                                          header: 'Targeting',
-                                          content: (
-                                              <div className="p-4">
-                                                  <span>Targeting Panel Goes Here</span>
-                                              </div>
-                                          ),
-                                      },
-                                  ]
-                                : []),
                             {
                                 key: 'experiment-metrics',
                                 header: <MetricsPanelHeader experiment={experiment} />,
