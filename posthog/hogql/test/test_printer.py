@@ -1852,9 +1852,9 @@ class TestPrinter(BaseTest):
 
     def test_field_nullable_like(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
-        context.database.get_table("events").fields["nullable_field"] = StringDatabaseField(
+        context.database.get_table("events").fields["nullable_field"] = StringDatabaseField(  # type: ignore
             name="nullable_field", nullable=True
-        )  # type: ignore
+        )
         generated_sql_statements1 = self._select(
             "SELECT "
             "nullable_field like 'a' as a, "
@@ -1868,9 +1868,9 @@ class TestPrinter(BaseTest):
         )
 
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
-        context.database.get_table("events").fields["nullable_field"] = StringDatabaseField(
+        context.database.get_table("events").fields["nullable_field"] = StringDatabaseField(  # type: ignore
             name="nullable_field", nullable=True
-        )  # type: ignore
+        )
         generated_sql_statements2 = self._select(
             "SELECT "
             "like(nullable_field, 'a') as a, "
@@ -1902,9 +1902,9 @@ class TestPrinter(BaseTest):
 
     def test_field_nullable_not_like(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
-        context.database.get_table("events").fields["nullable_field"] = StringDatabaseField(
+        context.database.get_table("events").fields["nullable_field"] = StringDatabaseField(  # type: ignore
             name="nullable_field", nullable=True
-        )  # type: ignore
+        )
         generated_sql_statements1 = self._select(
             "SELECT "
             "nullable_field not like 'a' as a, "
@@ -1918,9 +1918,9 @@ class TestPrinter(BaseTest):
         )
 
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
-        context.database.get_table("events").fields["nullable_field"] = StringDatabaseField(
+        context.database.get_table("events").fields["nullable_field"] = StringDatabaseField(  # type: ignore
             name="nullable_field", nullable=True
-        )  # type: ignore
+        )
         generated_sql_statements2 = self._select(
             "SELECT "
             "notLike(nullable_field, 'a') as a, "
