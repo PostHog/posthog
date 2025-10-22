@@ -641,6 +641,57 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             mock.return_value = RunnableLambda(interrupt_graph_2)
             await self._run_assistant_graph(graph, conversation=self.conversation)
 
+    async def test_memory_collector_handles_interrupt_with_pending_tool_calls(self):
+        """Test that memory collector correctly routes to tools when resuming from an interrupt with pending tool calls."""
+        graph = (
+            AssistantGraph(self.team, self.user)
+            .add_memory_collector(AssistantNodeName.END)
+            .add_memory_collector_tools()
+            .compile()
+        )
+
+        config: RunnableConfig = {
+            "configurable": {
+                "thread_id": self.conversation.id,
+            }
+        }
+
+        # Simulate an interrupt: Set state with AIMessage that has tool_calls but no corresponding ToolMessage
+        await graph.aupdate_state(
+            config,
+            {
+                "messages": [HumanMessage(content="We use a subscription model")],
+                "memory_collection_messages": [
+                    messages.AIMessage(
+                        content="Analyzing business model",
+                        tool_calls=[
+                            {
+                                "id": "tool_1",
+                                "name": "core_memory_append",
+                                "args": {"memory_content": "Company uses subscription pricing model"},
+                            }
+                        ],
+                    )
+                ],
+            },
+        )
+
+        # Now resume - it should route to tools first to execute the pending tool call
+        with patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model") as model_mock:
+            # After tool execution, the model should return [Done]
+            model_mock.return_value = RunnableLambda(lambda _: messages.AIMessage(content="[Done]"))
+
+            output, _ = await self._run_assistant_graph(
+                graph,
+                conversation=self.conversation,
+                is_new_conversation=False,
+                message=None,
+            )
+
+        # Verify the memory was appended (tool was executed)
+        await self.core_memory.arefresh_from_db()
+        self.assertIn("Company uses subscription pricing model", self.core_memory.text)
+
     async def test_recursion_error_is_handled(self):
         class FakeStream:
             def __init__(self, *args, **kwargs):
