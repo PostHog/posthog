@@ -19,6 +19,7 @@ import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-
 import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 import { PersonsStoreForBatch } from '~/worker/ingestion/persons/persons-store-for-batch'
 
+import { createCreateEventStep } from '../../src/ingestion/event-processing/create-event-step'
 import { createEmitEventStep } from '../../src/ingestion/event-processing/emit-event-step'
 import { isOkResult } from '../../src/ingestion/pipelines/results'
 import { ClickHouseEvent, Hub, Person, PluginsServerConfig, Team } from '../../src/types'
@@ -113,16 +114,23 @@ describe('processEvent', () => {
         const runner = new EventPipelineRunner(hub, pluginEvent, null, personsStoreForBatch, groupStoreForBatch)
         const res = await runner.runEventPipeline(pluginEvent, team)
         if (isOkResult(res)) {
-            // Use emit event step to emit the event
-            const emitEventStep = createEmitEventStep({
-                kafkaProducer: hub.kafkaProducer,
-                clickhouseJsonEventsTopic: hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-            })
-            const emitResult = await emitEventStep(res.value)
+            // Create the event
+            const createEventStep = createCreateEventStep()
+            const { person, preparedEvent, processPerson } = res.value
+            const createResult = await createEventStep({ person, preparedEvent, processPerson })
 
-            // Handle side effects using side effect handling pipeline
-            if (isOkResult(emitResult) && emitResult.sideEffects.length > 0) {
-                await Promise.allSettled(emitResult.sideEffects)
+            if (isOkResult(createResult)) {
+                // Use emit event step to emit the event
+                const emitEventStep = createEmitEventStep({
+                    kafkaProducer: hub.kafkaProducer,
+                    clickhouseJsonEventsTopic: hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                })
+                const emitResult = await emitEventStep(createResult.value)
+
+                // Handle side effects using side effect handling pipeline
+                if (isOkResult(emitResult) && emitResult.sideEffects.length > 0) {
+                    await Promise.allSettled(emitResult.sideEffects)
+                }
             }
 
             await flushPersonStoreToKafka(hub, personsStoreForBatch, res.sideEffects ?? [])
@@ -235,16 +243,23 @@ describe('processEvent', () => {
         const runner = new EventPipelineRunner(hub, event, null, personsStoreForBatch, groupStoreForBatch)
         const res = await runner.runEventPipeline(event, team)
         if (isOkResult(res)) {
-            // Use emit event step to emit the event
-            const emitEventStep = createEmitEventStep({
-                kafkaProducer: hub.kafkaProducer,
-                clickhouseJsonEventsTopic: hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-            })
-            const emitResult = await emitEventStep(res.value)
+            // Create the event
+            const createEventStep = createCreateEventStep()
+            const { person, preparedEvent, processPerson } = res.value
+            const createResult = await createEventStep({ person, preparedEvent, processPerson })
 
-            // Handle side effects using side effect handling pipeline
-            if (isOkResult(emitResult) && emitResult.sideEffects.length > 0) {
-                await Promise.allSettled(emitResult.sideEffects)
+            if (isOkResult(createResult)) {
+                // Use emit event step to emit the event
+                const emitEventStep = createEmitEventStep({
+                    kafkaProducer: hub.kafkaProducer,
+                    clickhouseJsonEventsTopic: hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                })
+                const emitResult = await emitEventStep(createResult.value)
+
+                // Handle side effects using side effect handling pipeline
+                if (isOkResult(emitResult) && emitResult.sideEffects.length > 0) {
+                    await Promise.allSettled(emitResult.sideEffects)
+                }
             }
 
             await flushPersonStoreToKafka(hub, personsStoreForBatch, res.sideEffects ?? [])

@@ -18,19 +18,9 @@ import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-
 import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 
 import { KafkaProducerWrapper } from '../../../../src/kafka/producer'
-import {
-    ClickHouseTimestamp,
-    ISOTimestamp,
-    Person,
-    PipelineEvent,
-    PreIngestionEvent,
-    ProjectId,
-    RawKafkaEvent,
-    Team,
-} from '../../../../src/types'
+import { ISOTimestamp, Person, PipelineEvent, PreIngestionEvent, ProjectId, Team } from '../../../../src/types'
 import { createEventsToDropByToken } from '../../../../src/utils/db/hub'
 import { parseJSON } from '../../../../src/utils/json-parse'
-import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/createEventStep'
 import * as metrics from '../../../../src/worker/ingestion/event-pipeline/metrics'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
@@ -40,7 +30,6 @@ import { PostgresPersonRepository } from '../../../../src/worker/ingestion/perso
 
 jest.mock('../../../../src/worker/ingestion/event-pipeline/processPersonsStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/prepareEventStep')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/createEventStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep')
 
 class TestEventPipelineRunner extends EventPipelineRunner {
@@ -160,21 +149,6 @@ const preIngestionEvent: PreIngestionEvent = {
     ip: '127.0.0.1',
 }
 
-const createdEvent: RawKafkaEvent = {
-    created_at: '2024-11-18 14:54:33.606' as ClickHouseTimestamp,
-    distinct_id: 'my_id',
-    elements_chain: '',
-    event: '$pageview',
-    person_created_at: '2024-11-18 14:54:33' as ClickHouseTimestamp,
-    person_mode: 'full',
-    person_properties: '{}',
-    project_id: 1 as ProjectId,
-    properties: '{}',
-    team_id: 2,
-    timestamp: '2020-02-23 02:15:00.000' as ClickHouseTimestamp,
-    uuid: 'uuid1',
-}
-
 const person: Person = {
     // @ts-expect-error TODO: Check if we need to pass id in here
     id: 123,
@@ -244,8 +218,6 @@ describe('EventPipelineRunner', () => {
             ])
         )
         jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
-
-        jest.mocked(createEventStep).mockResolvedValue(createdEvent)
     })
 
     describe('runEventPipeline()', () => {
@@ -259,7 +231,6 @@ describe('EventPipelineRunner', () => {
                 'processPersonsStep',
                 'prepareEventStep',
                 'extractHeatmapDataStep',
-                'createEventStep',
             ])
             expect(forSnapshot(runner.stepsWithArgs)).toMatchSnapshot()
         })
@@ -272,8 +243,7 @@ describe('EventPipelineRunner', () => {
             if (isOkResult(result)) {
                 expect(result.value.error).toBeUndefined()
             }
-            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(7)
-            expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('createEventStep')
+            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(6)
             expect(pipelineStepErrorCounterSpy).not.toHaveBeenCalled()
         })
 
@@ -392,7 +362,6 @@ describe('EventPipelineRunner', () => {
                 ])
             )
             jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
-            jest.mocked(createEventStep).mockResolvedValue(createdEvent)
         })
 
         it('should always call processPersonsStep even when forceDisablePersonProcessing=true', async () => {

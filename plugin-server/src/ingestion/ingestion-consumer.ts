@@ -3,7 +3,6 @@ import { Counter } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { MessageSizeTooLarge } from '~/utils/db/error'
-import { EventPipelineResult } from '~/worker/ingestion/event-pipeline/runner'
 import { captureIngestionWarning } from '~/worker/ingestion/utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
@@ -42,8 +41,9 @@ import {
     createValidateEventPropertiesStep,
     createValidateEventUuidStep,
 } from './event-preprocessing'
+import { createCreateEventStep } from './event-processing/create-event-step'
 import { createDisablePersonProcessingStep } from './event-processing/disable-person-processing-step'
-import { createEmitEventStep } from './event-processing/emit-event-step'
+import { EmitEventStepInput, createEmitEventStep } from './event-processing/emit-event-step'
 import { createEventPipelineRunnerHeatmapStep } from './event-processing/event-pipeline-runner-heatmap-step'
 import { createEventPipelineRunnerV1Step } from './event-processing/event-pipeline-runner-v1-step'
 import { createHandleClientIngestionWarningStep } from './event-processing/handle-client-ingestion-warning-step'
@@ -329,7 +329,7 @@ export class IngestionConsumer {
                                     retry
                                         .branching<
                                             'client_ingestion_warning' | 'heatmap' | 'event',
-                                            EventPipelineResult
+                                            EmitEventStepInput
                                         >(
                                             (input) => {
                                                 switch (input.event.event) {
@@ -366,6 +366,7 @@ export class IngestionConsumer {
                                                                     this.hogTransformer
                                                                 )
                                                             )
+                                                            .pipe(createCreateEventStep())
                                                     )
                                             }
                                         )
