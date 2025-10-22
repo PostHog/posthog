@@ -9,7 +9,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, create_hogql_database
 from posthog.hogql.database.models import LazyJoin
 from posthog.hogql.database.utils import get_join_field_chain
-from posthog.hogql.errors import SyntaxError
+from posthog.hogql.errors import QueryError, SyntaxError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -244,5 +244,13 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             is_safe = look_up_error_code_meta(e).user_safe
             if is_safe:
                 response_data["detail"] = str(e)
+        except QueryError as e:
+            response_data = {
+                "attr": None,
+                "code": "validation_error",
+                "detail": str(e),  # QueryError inherits from ExposedHogQLError, so it is safe to show the message
+                "type": "query_error",
+            }
+            status_code = status.HTTP_400_BAD_REQUEST  # type: ignore[assignment]
 
         return response.Response(response_data, status=status_code)
