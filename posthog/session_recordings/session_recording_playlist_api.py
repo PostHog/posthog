@@ -2,7 +2,7 @@ import json
 from typing import Any, Optional, cast
 
 from django.contrib.auth.models import AnonymousUser
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import Q, QuerySet
 from django.utils.timezone import now
 
@@ -495,13 +495,21 @@ class SessionRecordingPlaylistViewSet(
         if user.is_anonymous:
             raise ValidationError("Only authenticated users can mark a playlist as viewed.")
 
+        viewed_at = now()
+
         # only create if it doesn't exist
         try:
-            SessionRecordingPlaylistViewed.objects.create(user=user, playlist=playlist, team=team)
+            with transaction.atomic():
+                SessionRecordingPlaylistViewed.objects.create(
+                    user=user,
+                    playlist=playlist,
+                    team=team,
+                    viewed_at=viewed_at,
+                )
         except IntegrityError:
             # that's okay... if the viewed at clashes then we're ok skipping creation
             pass
 
-        log_api_file_system_view(request, playlist)
+        log_api_file_system_view(request, playlist, viewed_at=viewed_at)
 
         return response.Response({"success": True})
