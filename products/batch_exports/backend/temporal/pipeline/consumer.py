@@ -48,7 +48,7 @@ class Consumer:
         schema: pa.Schema,
         transformer: TransformerProtocol,
         max_file_size_bytes: int = 0,
-        json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
+        json_columns: collections.abc.Iterable[str] = ("properties", "person_properties", "set", "set_once"),
     ) -> BatchExportResult:
         """Start consuming record batches from queue.
 
@@ -187,7 +187,7 @@ async def run_consumer_from_stage(
     transformer: TransformerProtocol,
     schema: pa.Schema,
     max_file_size_bytes: int = 0,
-    json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
+    json_columns: collections.abc.Iterable[str] = ("properties", "person_properties", "set", "set_once"),
 ) -> BatchExportResult:
     """Run a consumer that takes record batches from a queue and writes them to a destination.
 

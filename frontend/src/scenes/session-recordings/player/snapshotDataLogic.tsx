@@ -7,7 +7,7 @@ import '@posthog/rrweb-types'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import 'lib/dayjs'
-import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { SourceKey, keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 
@@ -32,6 +32,8 @@ export interface SnapshotLogicProps {
     accessToken?: string
 }
 
+export const DEFAULT_LOADING_BUFFER = 15 * 60 * 1000
+
 export const snapshotDataLogic = kea<snapshotDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'snapshotLogic', key]),
     props({} as SnapshotLogicProps),
@@ -47,12 +49,27 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         loadSnapshotsForSource: (sources: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[]) => ({
             sources,
         }),
+        loadUntilTimestamp: (targetBufferTimestampMillis: number | null) => ({ targetBufferTimestampMillis }),
     }),
     reducers(() => ({
         snapshotsBySourceSuccessCount: [
             0,
             {
                 loadSnapshotsForSourceSuccess: (state) => state + 1,
+            },
+        ],
+        targetTimestampToBufferMillis: [
+            null as number | null,
+            {
+                loadUntilTimestamp: (_, { targetBufferTimestampMillis }) => targetBufferTimestampMillis,
+            },
+        ],
+        loadingSources: [
+            [] as Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key' | 'start_timestamp' | 'end_timestamp'>[],
+            {
+                loadSnapshotsForSource: (_, { sources }) => sources,
+                loadSnapshotsForSourceSuccess: () => [],
+                loadSnapshotsForSourceFailure: () => [],
             },
         ],
     })),
@@ -70,10 +87,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         headers.Authorization = `Bearer ${props.accessToken}`
                     }
 
-                    const blob_v2 =
-                        values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY] || !!props.accessToken
-                    const blob_v2_lts =
-                        values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_LTS_REPLAY] || !!props.accessToken
+                    const blob_v2 = true
+                    const blob_v2_lts = true
                     const response = await api.recordings.listSnapshotSources(
                         props.sessionRecordingId,
                         {
@@ -136,6 +151,12 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     if (props.accessToken) {
                         headers.Authorization = `Bearer ${props.accessToken}`
                     }
+
+                    const clientSideDecompression = values.featureFlags[FEATURE_FLAGS.REPLAY_CLIENT_SIDE_DECOMPRESSION]
+                    if (clientSideDecompression) {
+                        params = { ...params, decompress: false }
+                    }
+
                     const response = await api.recordings.getSnapshots(props.sessionRecordingId, params, headers)
 
                     // sorting is very cheap for already sorted lists
@@ -206,22 +227,33 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         loadNextSnapshotSource: () => {
             // yes this is ugly duplication, but we're going to deprecate v1 and I want it to be clear which is which
             if (values.snapshotSources?.some((s) => s.source === SnapshotSourceType.blob_v2)) {
-                const nextSourcesToLoad =
-                    values.snapshotSources?.filter((s) => {
-                        const sourceKey = keyForSource(s)
-                        return (
-                            !cache.snapshotsBySource?.[sourceKey]?.sourceLoaded && s.source !== SnapshotSourceType.file
-                        )
-                    }) || []
+                const nextSourcesToLoad = values.snapshotSources.filter((s) => {
+                    if (s.source === SnapshotSourceType.file) {
+                        return false
+                    }
+                    const sourceKey = keyForSource(s)
+                    if (cache.snapshotsBySource?.[sourceKey]?.sourceLoaded) {
+                        return false
+                    }
+                    // Load sources that have timestamps <= target, once a target is set
+                    if (s.start_timestamp && values.targetTimestampToBufferMillis) {
+                        const sourceStartTime = new Date(s.start_timestamp).getTime()
+                        return sourceStartTime <= values.targetTimestampToBufferMillis
+                    }
 
+                    return true
+                })
+
+                // Load up to 10 sources at once
                 if (nextSourcesToLoad.length > 0) {
-                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 15))
+                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 10))
                 }
 
                 if (!props.blobV2PollingDisabled) {
                     actions.loadSnapshotSources(DEFAULT_V2_POLLING_INTERVAL_MS)
                 }
             } else {
+                // V1 behavior unchanged
                 const nextSourceToLoad = values.snapshotSources?.find((s) => {
                     const sourceKey = keyForSource(s)
                     return !cache.snapshotsBySource?.[sourceKey]?.sourceLoaded && s.source !== SnapshotSourceType.file
@@ -235,21 +267,14 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
     })),
     selectors(({ cache }) => ({
         snapshotsLoading: [
-            (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading, s.featureFlags, s.snapshotsBySources],
+            (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading, s.snapshotsBySources],
             (
                 snapshotSourcesLoading: boolean,
                 snapshotsForSourceLoading: boolean,
-                featureFlags: FeatureFlagsSet,
                 snapshotsBySources: Record<string, RecordingSnapshot[]>
             ): boolean => {
                 const snapshots = Object.values(snapshotsBySources).flat()
-                // For v2 recordings, only show loading if we have no snapshots AND we're actually loading something.
-                if (featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY]) {
-                    return snapshots?.length === 0 && (snapshotSourcesLoading || snapshotsForSourceLoading)
-                }
-
-                // Default behavior for non-v2 recordings
-                return snapshotSourcesLoading || snapshotsForSourceLoading
+                return snapshots?.length === 0 && (snapshotSourcesLoading || snapshotsForSourceLoading)
             },
         ],
 
@@ -265,6 +290,13 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     return {}
                 }
                 return cache.snapshotsBySource
+            },
+        ],
+
+        isLoadingSnapshots: [
+            (s) => [s.loadingSources],
+            (loadingSources): boolean => {
+                return loadingSources.length > 0
             },
         ],
     })),

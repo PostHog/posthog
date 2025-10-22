@@ -10,7 +10,7 @@ import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 
-import { DateRange, LogsQuery } from '~/queries/schema/schema-general'
+import { DateRange, LogMessage, LogsQuery } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
 import { PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
 
@@ -97,6 +97,8 @@ export const logsLogic = kea<logsLogicType>([
         toggleAttributeBreakdown: (key: string) => ({ key }),
         setExpandedAttributeBreaksdowns: (expandedAttributeBreaksdowns: string[]) => ({ expandedAttributeBreaksdowns }),
         zoomDateRange: (multiplier: number) => ({ multiplier }),
+        setDateRangeFromSparkline: (startIndex: number, endIndex: number) => ({ startIndex, endIndex }),
+        setTimestampFormat: (timestampFormat: 'absolute' | 'relative') => ({ timestampFormat }),
     }),
 
     reducers({
@@ -146,6 +148,13 @@ export const logsLogic = kea<logsLogicType>([
             true as boolean,
             {
                 setWrapBody: (_, { wrapBody }) => wrapBody,
+            },
+        ],
+        timestampFormat: [
+            'absolute' as 'absolute' | 'relative',
+            { persist: true },
+            {
+                setTimestampFormat: (_, { timestampFormat }) => timestampFormat,
             },
         ],
         logsAbortController: [
@@ -199,7 +208,7 @@ export const logsLogic = kea<logsLogicType>([
 
     loaders(({ values, actions }) => ({
         logs: [
-            [],
+            [] as LogMessage[],
             {
                 fetchLogs: async () => {
                     const logsController = new AbortController()
@@ -263,10 +272,12 @@ export const logsLogic = kea<logsLogicType>([
                 let lastTime = ''
                 let i = -1
                 const labels: string[] = []
+                const dates: string[] = []
                 const data = Object.entries(
                     sparkline.reduce((accumulator, currentItem) => {
                         if (currentItem.time !== lastTime) {
                             labels.push(humanFriendlyDetailedTime(currentItem.time))
+                            dates.push(currentItem.time)
                             lastTime = currentItem.time
                             i++
                         }
@@ -292,7 +303,7 @@ export const logsLogic = kea<logsLogicType>([
                     }))
                     .filter((series) => series.values.reduce((a, b) => a + b) > 0)
 
-                return { data, labels }
+                return { data, labels, dates }
             },
         ],
     })),
@@ -325,6 +336,22 @@ export const logsLogic = kea<logsLogicType>([
         },
         zoomDateRange: ({ multiplier }) => {
             const newDateRange = zoomDateRange(values.dateRange, multiplier)
+            actions.setDateRange(newDateRange)
+        },
+        setDateRangeFromSparkline: ({ startIndex, endIndex }) => {
+            const dates = values.sparklineData.dates
+            const dateFrom = dates[startIndex]
+            const dateTo = dates[endIndex]
+
+            if (!dateFrom || !dateTo) {
+                return
+            }
+
+            // NOTE: I don't know how accurate this really is but its a good starting point
+            const newDateRange = {
+                date_from: dateFrom,
+                date_to: dateTo,
+            }
             actions.setDateRange(newDateRange)
         },
     })),

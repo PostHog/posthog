@@ -35,6 +35,10 @@ from posthog.hogql_queries.experiments.base_query_utils import (
     get_winsorized_metric_values_query,
 )
 from posthog.hogql_queries.experiments.error_handling import experiment_error_handler
+from posthog.hogql_queries.experiments.experiment_query_builder import (
+    ExperimentQueryBuilder,
+    get_exposure_config_params_for_builder,
+)
 from posthog.hogql_queries.experiments.exposure_query_logic import (
     get_entity_key,
     get_multiple_variant_handling_from_experiment,
@@ -60,7 +64,12 @@ class ExperimentQueryRunner(QueryRunner):
     query: ExperimentQuery
     cached_response: CachedExperimentQueryResponse
 
-    def __init__(self, *args, override_end_date: Optional[datetime] = None, **kwargs):
+    def __init__(
+        self,
+        *args,
+        override_end_date: Optional[datetime] = None,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self.override_end_date = override_end_date
 
@@ -106,6 +115,21 @@ class ExperimentQueryRunner(QueryRunner):
 
         # Just to simplify access
         self.metric = self.query.metric
+
+        # NOTE: Temporary flag to control the usage of the new query builder
+        if self.experiment.stats_config is None:
+            self.use_new_query_builder = False
+        else:
+            self.use_new_query_builder = self.experiment.stats_config.get("use_new_query_builder", False)
+
+    def _should_use_new_query_builder(self) -> bool:
+        """
+        Determines whether to use the new CTE-based query builder.
+        """
+        if not isinstance(self.metric, ExperimentFunnelMetric):
+            return False
+
+        return self.use_new_query_builder is True
 
     def _get_metrics_aggregated_per_entity_query(
         self,
@@ -439,6 +463,31 @@ class ExperimentQueryRunner(QueryRunner):
         )
 
     def _get_experiment_query(self) -> ast.SelectQuery:
+        """
+        Returns the main experiment query.
+        """
+        if self._should_use_new_query_builder():
+            assert isinstance(self.metric, ExperimentFunnelMetric)
+
+            # Get the "missing" (not directly accessible) parameters required for the builder
+            exposure_config, multiple_variant_handling, filter_test_accounts = get_exposure_config_params_for_builder(
+                self.experiment
+            )
+
+            builder = ExperimentQueryBuilder(
+                team=self.team,
+                feature_flag_key=self.feature_flag.key,
+                metric=self.metric,
+                exposure_config=exposure_config,
+                filter_test_accounts=filter_test_accounts,
+                multiple_variant_handling=multiple_variant_handling,
+                variants=self.variants,
+                date_range_query=self.date_range_query,
+                entity_key=self.entity_key,
+            )
+            return builder.build_query()
+
+        # Old implementation
         # Get all entities that should be included in the experiment
         exposure_query = get_experiment_exposure_query(
             self.experiment,

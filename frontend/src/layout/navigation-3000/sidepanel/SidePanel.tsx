@@ -23,6 +23,7 @@ import { SidePanelTab } from '~/types'
 
 import { SidePanelDocs } from './panels/SidePanelDocs'
 import { SidePanelMax } from './panels/SidePanelMax'
+import { SidePanelSdkDoctor, SidePanelSdkDoctorIcon } from './panels/SidePanelSdkDoctor'
 import { SidePanelSettings } from './panels/SidePanelSettings'
 import { SidePanelStatus, SidePanelStatusIcon } from './panels/SidePanelStatus'
 import { SidePanelSupport } from './panels/SidePanelSupport'
@@ -31,7 +32,7 @@ import { SidePanelActivation, SidePanelActivationIcon } from './panels/activatio
 import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
 import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion'
 import { sidePanelLogic } from './sidePanelLogic'
-import { WithinSidePanelContext, sidePanelStateLogic } from './sidePanelStateLogic'
+import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 export const SIDE_PANEL_TABS: Record<
     SidePanelTab,
@@ -105,6 +106,11 @@ export const SIDE_PANEL_TABS: Record<
         label: 'Access control',
         Icon: IconLock,
         Content: SidePanelAccessControl,
+    },
+    [SidePanelTab.SdkDoctor]: {
+        label: 'SDK Doctor',
+        Icon: SidePanelSdkDoctorIcon,
+        Content: SidePanelSdkDoctor,
     },
 }
 
@@ -240,11 +246,9 @@ export function SidePanel(): JSX.Element | null {
 
             {PanelContent ? (
                 <div className="SidePanel3000__content">
-                    <WithinSidePanelContext.Provider value={true}>
-                        <ErrorBoundary>
-                            <PanelContent />
-                        </ErrorBoundary>
-                    </WithinSidePanelContext.Provider>
+                    <ErrorBoundary>
+                        <PanelContent />
+                    </ErrorBoundary>
                 </div>
             ) : null}
         </div>

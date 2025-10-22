@@ -7,7 +7,6 @@ import { LemonModal, Link, Spinner } from '@posthog/lemon-ui'
 
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
-import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonModalContent, LemonModalHeader } from 'lib/lemon-ui/LemonModal/LemonModal'
@@ -15,6 +14,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuOpenIndicator,
     DropdownMenuTrigger,
@@ -70,9 +70,9 @@ const IssueModalContent = ({ issueId }: { issueId: string }): JSX.Element => {
     )
 }
 
-export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
+export const ErrorTrackingIssueScenePanel = ({ showActions = true }: { showActions?: boolean }): JSX.Element | null => {
     const { issue } = useValues(errorTrackingIssueSceneLogic)
-    const { updateName, updateDescription, updateAssignee, updateStatus } = useActions(errorTrackingIssueSceneLogic)
+    const { updateName, updateAssignee, updateStatus } = useActions(errorTrackingIssueSceneLogic)
     const hasTasks = useFeatureFlag('TASKS')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
     const hasSimilarIssues = useFeatureFlag('ERROR_TRACKING_RELATED_ISSUES')
@@ -81,53 +81,51 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
 
     return issue ? (
         <div className="flex flex-col gap-2 @container">
-            <ScenePanelActionsSection>
-                <div className="grid grid-cols-2 gap-1">
-                    <ButtonPrimitive
-                        onClick={() => {
-                            if (!hasDiscussions) {
-                                posthog.updateEarlyAccessFeatureEnrollment('discussions', true)
-                            }
-                            openSidePanel(SidePanelTab.Discussion)
-                        }}
-                        tooltip="Comment"
-                        menuItem
-                        className="justify-center"
-                    >
-                        <IconComment />
-                        <span className="hidden @[200px]:block">Comment</span>
-                    </ButtonPrimitive>
+            {showActions && (
+                <>
+                    <ScenePanelActionsSection>
+                        <div className="grid grid-cols-2 gap-1">
+                            <ButtonPrimitive
+                                onClick={() => {
+                                    if (!hasDiscussions) {
+                                        posthog.updateEarlyAccessFeatureEnrollment('discussions', true)
+                                    }
+                                    openSidePanel(SidePanelTab.Discussion)
+                                }}
+                                tooltip="Comment"
+                                menuItem
+                                className="justify-center"
+                            >
+                                <IconComment />
+                                <span className="hidden @[200px]:block">Comment</span>
+                            </ButtonPrimitive>
 
-                    <ButtonPrimitive
-                        onClick={() => {
-                            void copyToClipboard(
-                                window.location.origin + urls.errorTrackingIssue(issue.id),
-                                'issue link'
-                            )
-                        }}
-                        tooltip="Share"
-                        data-attr={`${RESOURCE_TYPE}-share`}
-                        menuItem
-                        className="justify-center"
-                    >
-                        <IconShare />
-                        <span className="hidden @[200px]:block">Share</span>
-                    </ButtonPrimitive>
-                </div>
-            </ScenePanelActionsSection>
+                            <ButtonPrimitive
+                                onClick={() => {
+                                    void copyToClipboard(
+                                        window.location.origin + urls.errorTrackingIssue(issue.id),
+                                        'issue link'
+                                    )
+                                }}
+                                tooltip="Share"
+                                data-attr={`${RESOURCE_TYPE}-share`}
+                                menuItem
+                                className="justify-center"
+                            >
+                                <IconShare />
+                                <span className="hidden @[200px]:block">Share</span>
+                            </ButtonPrimitive>
+                        </div>
+                    </ScenePanelActionsSection>
 
-            <ScenePanelDivider />
+                    <ScenePanelDivider />
+                </>
+            )}
 
             <SceneTextInput
                 name="name"
                 defaultValue={issue.name ?? ''}
                 onSave={updateName}
-                dataAttrKey={RESOURCE_TYPE}
-            />
-            <SceneTextarea
-                name="description"
-                defaultValue={issue.description ?? ''}
-                onSave={updateDescription}
                 dataAttrKey={RESOURCE_TYPE}
             />
 
@@ -164,26 +162,28 @@ const IssueStatusSelect = ({
                 </DropdownMenuTrigger>
 
                 <DropdownMenuContent loop matchTriggerWidth>
-                    {status === 'active' ? (
-                        <>
+                    <DropdownMenuGroup>
+                        {status === 'active' ? (
+                            <>
+                                <DropdownMenuItem asChild>
+                                    <ButtonPrimitive menuItem onClick={() => onChange('resolved')}>
+                                        <StatusIndicator status="resolved" intent />
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem asChild>
+                                    <ButtonPrimitive menuItem onClick={() => onChange('suppressed')}>
+                                        <StatusIndicator status="suppressed" intent />
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
+                            </>
+                        ) : (
                             <DropdownMenuItem asChild>
-                                <ButtonPrimitive menuItem onClick={() => onChange('resolved')}>
-                                    <StatusIndicator status="resolved" intent />
+                                <ButtonPrimitive menuItem onClick={() => onChange('active')}>
+                                    <StatusIndicator status="active" intent />
                                 </ButtonPrimitive>
                             </DropdownMenuItem>
-                            <DropdownMenuItem asChild>
-                                <ButtonPrimitive menuItem onClick={() => onChange('suppressed')}>
-                                    <StatusIndicator status="suppressed" intent />
-                                </ButtonPrimitive>
-                            </DropdownMenuItem>
-                        </>
-                    ) : (
-                        <DropdownMenuItem asChild>
-                            <ButtonPrimitive menuItem onClick={() => onChange('active')}>
-                                <StatusIndicator status="active" intent />
-                            </ButtonPrimitive>
-                        </DropdownMenuItem>
-                    )}
+                        )}
+                    </DropdownMenuGroup>
                 </DropdownMenuContent>
             </DropdownMenu>
         </ScenePanelLabel>
