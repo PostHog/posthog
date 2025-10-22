@@ -57,13 +57,20 @@ Examples:
 DOCS_SEARCH_RESULTS_TEMPLATE = """Found {count} relevant documentation page(s):
 
 {docs}
-<system_reminder>Use retrieved documentation to answer the user's question if it is relevant to the user's query. Format the response using markdown and reference the documentation using hyperlinks.</system_reminder>
+<system_reminder>
+Use retrieved documentation to answer the user's question if it is relevant to the user's query.
+Format the response using Markdown and reference the documentation using hyperlinks.
+Every link to docs clearly explicitly be labeled, for example as "(see docs)".
+</system_reminder>
 """.strip()
 
 DOCS_SEARCH_NO_RESULTS_TEMPLATE = """
 No documentation found.
 
-<system_reminder>Do not answer the user's question if you did not find any documentation. Try rewriting the query. If after a couple of attempts you still do not find any documentation, suggest the user navigate to the documentation page, which is available at `https://posthog.com/docs`.</system_reminder>
+<system_reminder>
+Do not answer the user's question if you did not find any documentation. Try rewriting the query.
+If after a couple of attempts you still do not find any documentation, suggest the user navigate to the documentation page, which is available at `https://posthog.com/docs`.
+</system_reminder>
 """.strip()
 
 DOC_ITEM_TEMPLATE = """
