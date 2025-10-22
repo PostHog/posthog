@@ -164,17 +164,13 @@ const { config: tsconfig } = ts.readConfigFile(
     ts.sys.readFile
 )
 
-// Custom config for publicPath vs sourcemap URL
-export const PUBLIC_PATH = '/static'
-export const SOURCEMAP_PATH = '' // relative path for sourcemap comments
-
 /** @type {import('esbuild').BuildOptions} */
 export const commonConfig = {
     sourcemap: true,
     minify: !isDev,
     target: tsconfig.compilerOptions.target, // We want the same target as tsconfig, should fail if tsconfig not found
     resolveExtensions: ['.ts', '.tsx', '.js', '.jsx', '.scss', '.css', '.less'],
-    publicPath: PUBLIC_PATH,
+    publicPath: '/static',
     assetNames: 'assets/[name]-[hash]',
     chunkNames: '[name]-[hash]',
     // no hashes in dev mode for faster reloads --> we save the old hash in index.html otherwise
@@ -196,77 +192,6 @@ export const commonConfig = {
                 crypto: true,
             },
         }),
-        // Plugin to rewrite sourceMappingURL to use custom path
-        {
-            name: 'rewrite-sourcemap-url',
-            setup(build) {
-                build.onEnd(async () => {
-                    const debugInfo = []
-
-                    // Get output directory from build config
-                    const outdir = build.initialOptions.outdir
-                    const outfile = build.initialOptions.outfile
-
-                    let outputFiles = []
-
-                    if (outdir) {
-                        // Scan the output directory for .js files
-                        const files = await fs.readdir(outdir)
-                        outputFiles = files.filter((f) => f.endsWith('.js')).map((f) => path.join(outdir, f))
-                    } else if (outfile && outfile.endsWith('.js')) {
-                        // Single output file
-                        outputFiles = [outfile]
-                    }
-
-                    for (const output of outputFiles) {
-                        const content = await fs.readFile(output, 'utf-8')
-
-                        // Find ALL sourceMappingURL comments
-                        const matches = [...content.matchAll(/\/\/# sourceMappingURL=(.*)$/gm)]
-
-                        if (matches.length === 0) {
-                            continue
-                        }
-
-                        // Get the last one
-                        const lastMatch = matches[matches.length - 1]
-                        const originalUrl = lastMatch[1]
-                        const filename = originalUrl.split('/').pop()
-                        const newUrl = `${SOURCEMAP_PATH ? SOURCEMAP_PATH + '/' : ''}${filename}`
-
-                        debugInfo.push({
-                            file: output,
-                            original: originalUrl,
-                            new: newUrl,
-                            changed: originalUrl !== newUrl,
-                            totalMatches: matches.length,
-                        })
-
-                        // Replace only the last occurrence
-                        if (originalUrl !== newUrl) {
-                            const lastIndex = lastMatch.index
-                            const newContent =
-                                content.substring(0, lastIndex) +
-                                `//# sourceMappingURL=${newUrl}` +
-                                content.substring(lastIndex + lastMatch[0].length)
-
-                            await fs.writeFile(output, newContent)
-                        }
-                    }
-
-                    // Write debug info to file per build
-                    const buildName = build.initialOptions.globalName || 'main'
-                    const debugFile = path.resolve(
-                        build.initialOptions.absWorkingDir || '.',
-                        `sourcemap-rewrite-debug-${buildName}.json`
-                    )
-                    await fs.writeFile(debugFile, JSON.stringify(debugInfo, null, 2))
-                    console.info(
-                        `📝 [${buildName}] Rewrote ${debugInfo.filter((d) => d.changed).length} sourcemap URLs (see sourcemap-rewrite-debug-${buildName}.json)`
-                    )
-                })
-            },
-        },
     ],
     tsconfig: tsconfigPath,
     define: {
