@@ -2138,3 +2138,191 @@ async fn test_ai_event_ip_redacted_for_internal_events() {
     let props = event_json["properties"].as_object().unwrap();
     assert_eq!(props["capture_internal"], true);
 }
+
+// ----------------------------------------------------------------------------
+// Timestamp Conversion Tests
+// ----------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_ai_event_with_invalid_sent_at_skips_clock_skew_correction() {
+    let (router, sink) = setup_ai_test_router_with_capturing_sink();
+    let test_client = TestClient::new(router);
+
+    let event_uuid = "e50e8400-e29b-41d4-a716-446655440009";
+    let event_timestamp = "2024-01-01T11:59:55Z";
+
+    let event_data = json!({
+        "uuid": event_uuid,
+        "event": "$ai_generation",
+        "distinct_id": "test_user",
+        "timestamp": event_timestamp,
+        "sent_at": "invalid-timestamp-format"  // Invalid sent_at that can't be parsed
+    });
+
+    let properties = json!({
+        "$ai_model": "gpt-4"
+    });
+
+    let form = Form::new()
+        .part(
+            "event",
+            Part::bytes(serde_json::to_vec(&event_data).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties",
+            Part::bytes(serde_json::to_vec(&properties).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        );
+
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify timestamp was not adjusted (sent_at was invalid, so treated as missing)
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 1);
+
+    let event = &events[0];
+    let computed_timestamp = event.metadata.computed_timestamp.unwrap();
+
+    // Should use the event timestamp directly without clock skew correction
+    // (same behavior as if sent_at was missing)
+    let expected = DateTime::parse_from_rfc3339(event_timestamp)
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    assert_eq!(
+        computed_timestamp, expected,
+        "With invalid sent_at, timestamp should match event timestamp exactly (no clock skew correction)"
+    );
+}
+
+#[tokio::test]
+async fn test_ai_event_without_sent_at_uses_event_timestamp() {
+    let (router, sink) = setup_ai_test_router_with_capturing_sink();
+    let test_client = TestClient::new(router);
+
+    let event_uuid = "f50e8400-e29b-41d4-a716-446655440010";
+    let event_timestamp = "2024-01-01T11:59:55Z";
+
+    let event_data = json!({
+        "uuid": event_uuid,
+        "event": "$ai_generation",
+        "distinct_id": "test_user",
+        "timestamp": event_timestamp
+        // No sent_at field
+    });
+
+    let properties = json!({
+        "$ai_model": "gpt-4"
+    });
+
+    let form = Form::new()
+        .part(
+            "event",
+            Part::bytes(serde_json::to_vec(&event_data).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties",
+            Part::bytes(serde_json::to_vec(&properties).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        );
+
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify timestamp uses event timestamp without clock skew correction
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 1);
+
+    let event = &events[0];
+    let computed_timestamp = event.metadata.computed_timestamp.unwrap();
+
+    // Should use the event timestamp directly
+    let expected = DateTime::parse_from_rfc3339(event_timestamp)
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    assert_eq!(
+        computed_timestamp, expected,
+        "Without sent_at, timestamp should match event timestamp exactly"
+    );
+}
+
+#[tokio::test]
+async fn test_ai_event_with_valid_sent_at_applies_clock_skew_correction() {
+    let (router, sink) = setup_ai_test_router_with_capturing_sink();
+    let test_client = TestClient::new(router);
+
+    let event_uuid = "050e8400-e29b-41d4-a716-446655440011";
+    let event_timestamp = "2024-01-01T11:59:55Z";
+    let sent_at = "2024-01-01T12:00:05Z"; // 10 seconds later
+
+    let event_data = json!({
+        "uuid": event_uuid,
+        "event": "$ai_generation",
+        "distinct_id": "test_user",
+        "timestamp": event_timestamp,
+        "sent_at": sent_at  // Valid sent_at
+    });
+
+    let properties = json!({
+        "$ai_model": "gpt-4"
+    });
+
+    let form = Form::new()
+        .part(
+            "event",
+            Part::bytes(serde_json::to_vec(&event_data).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties",
+            Part::bytes(serde_json::to_vec(&properties).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        );
+
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify timestamp was adjusted using clock skew correction
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 1);
+
+    let event = &events[0];
+    let computed_timestamp = event.metadata.computed_timestamp.unwrap();
+
+    // With clock skew correction:
+    // computed = now + (timestamp - sent_at)
+    // now = DEFAULT_TEST_TIME (2025-07-01T11:00:00Z)
+    // timestamp - sent_at = 11:59:55 - 12:00:05 = -10 seconds
+    // computed = 2025-07-01T11:00:00Z - 10s = 2025-07-01T10:59:50Z
+    let expected = chrono::Utc
+        .with_ymd_and_hms(2025, 7, 1, 10, 59, 50)
+        .unwrap();
+
+    assert_eq!(
+        computed_timestamp, expected,
+        "With valid sent_at, clock skew correction should be applied"
+    );
+}

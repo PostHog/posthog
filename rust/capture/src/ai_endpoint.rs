@@ -212,8 +212,9 @@ fn build_kafka_event(
     let now = state.timesource.current_time();
 
     // Convert sent_at to chrono DateTime for timestamp computation
-    let sent_at_utc = parsed.sent_at.map(|sa| {
-        chrono::DateTime::from_timestamp(sa.unix_timestamp(), sa.nanosecond()).unwrap_or_default()
+    // If conversion fails, treat it as if sent_at wasn't provided (rather than using epoch)
+    let sent_at_utc = parsed.sent_at.and_then(|sa| {
+        chrono::DateTime::from_timestamp(sa.unix_timestamp(), sa.nanosecond())
     });
 
     // Extract $ignore_sent_at from event properties
