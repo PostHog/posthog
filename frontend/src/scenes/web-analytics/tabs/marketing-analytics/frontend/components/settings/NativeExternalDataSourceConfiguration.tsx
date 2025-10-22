@@ -14,7 +14,7 @@ import { FEATURE_FLAGS } from '~/lib/constants'
 import { ExternalDataSource } from '~/types'
 
 import { useSortedPaginatedList } from '../../hooks/useSortedPaginatedList'
-import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
+import { MarketingSourceStatus, SourceStatus, marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import {
     MAX_ITEMS_TO_SHOW,
     NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
@@ -170,7 +170,7 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
                         ): JSX.Element => {
                             return (
                                 <StatusIcon
-                                    status={item.status || 'error'}
+                                    status={(item.status as SourceStatus) || MarketingSourceStatus.Error}
                                     message={item.statusMessage || 'Unknown status'}
                                 />
                             )
