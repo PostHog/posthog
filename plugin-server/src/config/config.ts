@@ -353,7 +353,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         POD_TERMINATION_JITTER_MINUTES: 45, // Default: 45 hour, so timeout is between 30 minutes and 1h15m
 
         // Logs ingestion
-        LOGS_INGESTION_CONSUMER_GROUP_ID: 'logs-ingestion-consumer',
+        LOGS_INGESTION_CONSUMER_GROUP_ID: 'ingestion-logs',
         LOGS_INGESTION_CONSUMER_CONSUME_TOPIC: KAFKA_LOGS_INGESTION,
         LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC: KAFKA_LOGS_INGESTION_OVERFLOW,
         LOGS_INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_LOGS_INGESTION_DLQ,
