@@ -75,7 +75,7 @@ class VitallySource(BaseSource[VitallySourceConfig]):
             partition_count=1,  # this enables partitioning
             partition_size=1,  # this enables partitioning
             partition_mode="datetime",
-            partition_format="month",
+            partition_format="week",
             partition_keys=["created_at"],
             sort_mode="desc" if inputs.schema_name == "Messages" else "asc",
         )

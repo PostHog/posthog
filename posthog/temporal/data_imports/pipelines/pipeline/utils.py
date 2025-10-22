@@ -433,6 +433,8 @@ def append_partition_key_to_table(
 
                 if partition_format == "day":
                     date_format = "%Y-%m-%d"
+                elif partition_format == "week":
+                    date_format = "%Y-W%V"  # W + iso8601 week number (e.g. W01, W02, ..., W52)
                 else:
                     date_format = "%Y-%m"
 

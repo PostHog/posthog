@@ -1766,31 +1766,38 @@ async def test_partition_folders_with_uuid_id_and_created_at(team, postgres_conf
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "partition_format,test_dates,expected_partitions",
+    [
+        ("day", ["2025-01-01", "2025-01-02", "2025-01-03"], ["2025-01-01", "2025-01-02", "2025-01-03"]),
+        ("week", ["2025-01-01", "2025-01-08", "2025-01-15"], ["2025-W01", "2025-W02", "2025-W03"]),
+        ("month", ["2025-01-01", "2025-02-01", "2025-03-01"], ["2025-01", "2025-02", "2025-03"]),
+    ],
+)
 async def test_partition_folders_with_uuid_id_and_created_at_with_day_format(
-    team, postgres_config, postgres_connection, minio_client
+    team, postgres_config, postgres_connection, minio_client, partition_format, test_dates, expected_partitions
 ):
+    table_name = f"test_partition_{partition_format}"
+
     await postgres_connection.execute(
-        "CREATE TABLE IF NOT EXISTS {schema}.test_partition_folders (id uuid, created_at timestamp)".format(
-            schema=postgres_config["schema"]
+        "CREATE TABLE IF NOT EXISTS {schema}.{table_name} (id uuid, created_at timestamp)".format(
+            schema=postgres_config["schema"], table_name=table_name
         )
     )
 
-    await postgres_connection.execute(
-        "INSERT INTO {schema}.test_partition_folders (id, created_at) VALUES ('{uuid}', '2025-01-01T12:00:00.000Z')".format(
-            schema=postgres_config["schema"], uuid=str(uuid.uuid4())
+    for date in test_dates:
+        await postgres_connection.execute(
+            "INSERT INTO {schema}.{table_name} (id, created_at) VALUES ('{uuid}', '{date}T12:00:00.000Z')".format(
+                schema=postgres_config["schema"], table_name=table_name, uuid=str(uuid.uuid4()), date=date
+            )
         )
-    )
-    await postgres_connection.execute(
-        "INSERT INTO {schema}.test_partition_folders (id, created_at) VALUES ('{uuid}', '2025-01-02T12:00:00.000Z')".format(
-            schema=postgres_config["schema"], uuid=str(uuid.uuid4())
-        )
-    )
+
     await postgres_connection.commit()
 
     workflow_id, inputs = await _run(
         team=team,
-        schema_name="test_partition_folders",
-        table_name="postgres_test_partition_folders",
+        schema_name=table_name,
+        table_name=f"postgres_{table_name}",
         source_type="Postgres",
         job_inputs={
             "host": postgres_config["host"],
@@ -1809,7 +1816,7 @@ async def test_partition_folders_with_uuid_id_and_created_at_with_day_format(
 
     # Set the parition format on the schema - this will persist after a reset_pipeline
     schema: ExternalDataSchema = await sync_to_async(ExternalDataSchema.objects.get)(id=inputs.external_data_schema_id)
-    schema.sync_type_config["partition_format"] = "day"
+    schema.sync_type_config["partition_format"] = partition_format
     await sync_to_async(schema.save)()
 
     # Resync with reset_pipeline = True
@@ -1837,17 +1844,19 @@ async def test_partition_folders_with_uuid_id_and_created_at_with_day_format(
     latest_job = jobs[0]
     folder_path = await sync_to_async(latest_job.folder_path)()
 
-    s3_objects = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/test_partition_folders/")
+    s3_objects = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/{table_name}/")
 
-    # Using datetime partition mode with created_at - formatted to the day
-    assert any(f"{PARTITION_KEY}=2025-01-01" in obj["Key"] for obj in s3_objects["Contents"])
-    assert any(f"{PARTITION_KEY}=2025-01-02" in obj["Key"] for obj in s3_objects["Contents"])
+    # using datetime partition mode with created_at - formatted to day, week, or month
+    for expected_partition in expected_partitions:
+        assert any(f"{PARTITION_KEY}={expected_partition}" in obj["Key"] for obj in s3_objects["Contents"]), (
+            f"Expected partition {expected_partition} not found in S3 objects"
+        )
 
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
     assert schema.partitioning_enabled is True
     assert schema.partitioning_keys == ["created_at"]
     assert schema.partition_mode == "datetime"
-    assert schema.partition_format == "day"
+    assert schema.partition_format == partition_format
     assert schema.partition_count is not None
 
 
