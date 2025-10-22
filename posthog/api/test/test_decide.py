@@ -1536,7 +1536,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "distinct_id": "xyz",
                 "$anon_distinct_id": 12345,
             },
-            assert_num_queries=8,
+            assert_num_queries=9,
         )
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -2458,7 +2458,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # E   4. SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key", "posthog_featureflaghashkeyoverride"."hash_key", "posthog_featureflaghashkeyoverride"."person_id" FROM "posthog_featureflaghashkeyoverride"
         #            WHERE ("posthog_featureflaghashkeyoverride"."person_id" IN (7) AND "posthog_featureflaghashkeyoverride"."team_id" = 1)
         # E   5. RELEASE SAVEPOINT "s4379526528_x103"
-        response = self._post_decide(api_version=3, assert_num_queries=6)
+        response = self._post_decide(api_version=3, assert_num_queries=5)
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
         self.assertEqual(
@@ -2588,7 +2588,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=12)
+        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=10)
         self.assertEqual(response.json()["featureFlags"], {"cohort-flag": True})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
@@ -2664,7 +2664,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        response = self._post_decide(api_version=3, distinct_id=person1_distinct_id, assert_num_queries=9)
+        response = self._post_decide(api_version=3, distinct_id=person1_distinct_id, assert_num_queries=10)
         self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
@@ -2734,7 +2734,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        response = self._post_decide(api_version=3, distinct_id=person1_distinct_id, assert_num_queries=9)
+        response = self._post_decide(api_version=3, distinct_id=person1_distinct_id, assert_num_queries=10)
         self.assertEqual(response.json()["featureFlags"], {"cohort-flag": True})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
@@ -2965,7 +2965,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=12)
+        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=10)
         self.assertEqual(response.json()["featureFlags"], {})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
 
