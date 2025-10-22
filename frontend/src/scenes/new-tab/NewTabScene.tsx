@@ -36,6 +36,7 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
+
 import { Results } from './components/Results'
 import { SearchHints } from './components/SearchHints'
 import { SearchInput, SearchInputCommand, SearchInputHandle } from './components/SearchInput'
@@ -339,6 +340,20 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                             )}
                                         </>
                                     )}
+
+                                    {source === 'homepage' ? (
+                                        <>
+                                            <ButtonPrimitive
+                                                size="xxs"
+                                                data-attr="project-home-customize-homepage"
+                                                className="ml-auto text-xs"
+                                                onClick={showSceneDashboardChoiceModal}
+                                            >
+                                                Customize homepage
+                                            </ButtonPrimitive>
+                                            <SceneDashboardChoiceModal scene={Scene.ProjectHomepage} />
+                                        </>
+                                    ) : null}
                                 </div>
                             </div>
                         </div>
