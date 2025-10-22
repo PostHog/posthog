@@ -168,7 +168,7 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
-        context["database"] = create_hogql_database(team_id=self.team_id)
+        context["database"] = Database.create_for(team_id=self.team_id)
         return context
 
     def safely_get_queryset(self, queryset):

@@ -17,7 +17,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.base import AST, CTE, ConstantType
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import HOGQL_CHARACTERS_TO_BE_WRAPPED, Database, create_hogql_database
+from posthog.hogql.database.database import HOGQL_CHARACTERS_TO_BE_WRAPPED, Database
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
@@ -393,7 +393,7 @@ def get_hogql_autocomplete(
     if database_arg is not None:
         database = database_arg
     else:
-        database = create_hogql_database(team=team, timings=timings)
+        database = Database.create_for(team=team, timings=timings)
 
     context = HogQLContext(team_id=team.pk, team=team, database=database, timings=timings)
     if query.sourceQuery:
