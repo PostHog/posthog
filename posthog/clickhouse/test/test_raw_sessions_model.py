@@ -3,7 +3,7 @@ import datetime
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 
 from posthog.clickhouse.client import query_with_columns, sync_execute
-from posthog.models.raw_sessions.sql import RAW_SESSION_TABLE_BACKFILL_SELECT_SQL
+from posthog.models.raw_sessions.sessions_v2 import RAW_SESSION_TABLE_BACKFILL_SELECT_SQL
 from posthog.models.utils import uuid7
 
 distinct_id_counter = 0

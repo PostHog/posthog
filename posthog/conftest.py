@@ -84,7 +84,8 @@ def reset_clickhouse_tables():
         TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
         TRUNCATE_PERSON_TABLE_SQL,
     )
-    from posthog.models.raw_sessions.sql import TRUNCATE_RAW_SESSIONS_TABLE_SQL
+    from posthog.models.raw_sessions.sessions_v2 import TRUNCATE_RAW_SESSIONS_TABLE_SQL
+    from posthog.models.raw_sessions.sessions_v3 import TRUNCATE_RAW_SESSIONS_TABLE_SQL_V3
     from posthog.models.sessions.sql import TRUNCATE_SESSIONS_TABLE_SQL
     from posthog.session_recordings.sql.session_recording_event_sql import TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL
 
@@ -116,6 +117,7 @@ def reset_clickhouse_tables():
         TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL,
         TRUNCATE_EXCHANGE_RATE_TABLE_SQL(),
         TRUNCATE_SESSIONS_TABLE_SQL(),
+        TRUNCATE_RAW_SESSIONS_TABLE_SQL_V3(),
         TRUNCATE_RAW_SESSIONS_TABLE_SQL(),
         TRUNCATE_HEATMAPS_TABLE_SQL(),
         TRUNCATE_PG_EMBEDDINGS_TABLE_SQL(),

@@ -91,6 +91,7 @@ def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
             db_incremental_field_last_value=None,
             incremental_field=None,
             incremental_field_type=None,
+            chunk_size_override=None,
             team_id=team.id,
         )
 
@@ -127,6 +128,7 @@ def test_postgres_source_without_ssh_tunnel(activity_environment, team, **kwargs
             incremental_field=None,
             incremental_field_type=None,
             db_incremental_field_last_value=None,
+            chunk_size_override=None,
             team_id=team.id,
         )
 
@@ -175,6 +177,7 @@ def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, team, **
             incremental_field=None,
             incremental_field_type=None,
             db_incremental_field_last_value=None,
+            chunk_size_override=None,
             team_id=team.id,
         )
 
@@ -239,5 +242,6 @@ def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, team, **k
             incremental_field=None,
             incremental_field_type=None,
             db_incremental_field_last_value=None,
+            chunk_size_override=None,
             team_id=team.id,
         )
