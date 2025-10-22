@@ -54,7 +54,7 @@ export function MarketingAnalyticsSettings({
                 panels={[
                     {
                         key: 'advanced',
-                        header: 'Advanced settings',
+                        header: 'Advanced marketing settings',
                         content: <CampaignNameMappingsConfiguration />,
                     },
                 ]}
