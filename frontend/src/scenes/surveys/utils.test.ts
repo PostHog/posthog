@@ -12,6 +12,7 @@ import {
 } from '~/types'
 
 import {
+    buildArchivedResponsesFilter,
     buildSurveyTimestampFilter,
     calculateNpsBreakdown,
     createAnswerFilterHogQLExpression,
@@ -990,6 +991,90 @@ describe('timezone handling in survey date queries', () => {
             } finally {
                 Date.prototype.getTimezoneOffset = originalGetTimezoneOffset
             }
+        })
+    })
+
+    describe('buildArchivedResponsesFilter', () => {
+        it('returns empty string when includeArchived is true', () => {
+            const survey = {
+                id: 'test-survey',
+                archived_response_uuids: ['uuid1', 'uuid2'],
+            } as Survey
+
+            const result = buildArchivedResponsesFilter(survey, true)
+
+            expect(result).toBe('')
+        })
+
+        it('returns empty string when archived_response_uuids is empty', () => {
+            const survey = {
+                id: 'test-survey',
+                archived_response_uuids: [],
+            } as Survey
+
+            const result = buildArchivedResponsesFilter(survey, false)
+
+            expect(result).toBe('')
+        })
+
+        it('returns empty string when archived_response_uuids is null', () => {
+            const survey = {
+                id: 'test-survey',
+                archived_response_uuids: null,
+            } as Survey
+
+            const result = buildArchivedResponsesFilter(survey, false)
+
+            expect(result).toBe('')
+        })
+
+        it('returns empty string when archived_response_uuids is undefined', () => {
+            const survey = {
+                id: 'test-survey',
+            } as Survey
+
+            const result = buildArchivedResponsesFilter(survey, false)
+
+            expect(result).toBe('')
+        })
+
+        it('builds filter with single UUID', () => {
+            const survey = {
+                id: 'test-survey',
+                archived_response_uuids: ['01234567-89ab-cdef-0123-456789abcdef'],
+            } as Survey
+
+            const result = buildArchivedResponsesFilter(survey, false)
+
+            expect(result).toBe("AND uuid NOT IN ('01234567-89ab-cdef-0123-456789abcdef')")
+        })
+
+        it('builds filter with multiple UUIDs', () => {
+            const survey = {
+                id: 'test-survey',
+                archived_response_uuids: [
+                    '01234567-89ab-cdef-0123-456789abcdef',
+                    'fedcba98-7654-3210-fedc-ba9876543210',
+                    '11111111-2222-3333-4444-555555555555',
+                ],
+            } as Survey
+
+            const result = buildArchivedResponsesFilter(survey, false)
+
+            expect(result).toBe(
+                "AND uuid NOT IN ('01234567-89ab-cdef-0123-456789abcdef', 'fedcba98-7654-3210-fedc-ba9876543210', '11111111-2222-3333-4444-555555555555')"
+            )
+        })
+
+        it('defaults includeArchived to false', () => {
+            const survey = {
+                id: 'test-survey',
+                archived_response_uuids: ['uuid1'],
+            } as Survey
+
+            const result = buildArchivedResponsesFilter(survey)
+
+            expect(result).toBe("AND uuid NOT IN ('uuid1')")
         })
     })
 })

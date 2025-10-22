@@ -48,6 +48,7 @@ from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey, ensure_qu
 from posthog.models.surveys.util import (
     SurveyEventName,
     SurveyEventProperties,
+    build_archived_responses_filter,
     get_unique_survey_event_uuids_sql_subquery,
 )
 from posthog.models.team.team import Team
@@ -1075,6 +1076,18 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             ],
         )
 
+        # Get archived responses filter for specific survey
+        # Feature flag is checked in frontend; if archived_response_uuids has values, apply the filter
+        archived_responses_filter = ""
+        if survey_id:
+            try:
+                survey = Survey.objects.get(id=survey_id, team_id=self.team_id)
+                archived_filter = build_archived_responses_filter(survey)
+                if archived_filter:
+                    archived_responses_filter = f"AND ({archived_filter.replace('AND ', '', 1)})"
+            except Survey.DoesNotExist:
+                pass
+
         # Query 1: Base Stats (Similar to original query)
         base_stats_query = f"""
             SELECT
@@ -1096,7 +1109,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             AND (
                 event != %(sent)s
                 OR
-                {partial_responses_filter}
+                ({partial_responses_filter} {archived_responses_filter})
             )
             GROUP BY event
         """
@@ -1122,6 +1135,11 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                     event != %(dismissed)s
                     OR
                     COALESCE(JSONExtractBool(properties, '{SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'), False) = False
+                )
+                AND (
+                    event != %(sent)s
+                    OR
+                    (1=1 {archived_responses_filter})
                 )
                 GROUP BY person_id
                 HAVING sum(if(event = %(dismissed)s, 1, 0)) > 0
