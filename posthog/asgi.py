@@ -43,40 +43,11 @@ def self_capture_wrapper(func):
 
     async def inner(scope, receive, send):
         if (
-            not getattr(inner, "local_write_db_prod_synced", False)
-            and settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG
-            and settings.LOG_IN_AS_USER_EMAIL
+            settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG
+            and settings.DEBUG_LOG_IN_AS_EMAIL
+            and not getattr(inner, "local_write_db_prod_synced", False)
         ):
-            from posthog.models import Organization, Project, Team, User
-
-            user: User = await User.objects.aget(email=settings.LOG_IN_AS_USER_EMAIL)
-            try:
-                await User.objects.using("default").acreate(email=settings.LOG_IN_AS_USER_EMAIL, id=user.id)  # At PyWaw
-            except Exception:
-                pass
-            try:
-                await Organization.objects.using("default").acreate(
-                    name=f"Placeholder for {settings.LOG_IN_AS_USER_EMAIL}", id=user.current_organization_id
-                )
-            except Exception:
-                pass
-            try:
-                await Project.objects.using("default").acreate(
-                    name=f"Placeholder for {settings.LOG_IN_AS_USER_EMAIL}",
-                    id=user.current_team_id,
-                    organization_id=user.current_organization_id,
-                )
-            except Exception:
-                pass
-            try:
-                await Team.objects.using("default").acreate(
-                    name=f"Placeholder for {settings.LOG_IN_AS_USER_EMAIL}",
-                    id=user.current_team_id,
-                    project_id=user.current_team_id,
-                    organization_id=user.current_organization_id,
-                )
-            except Exception:
-                pass
+            await _prep_local_db_for_prod_reads()
             inner.local_write_db_prod_synced = True  # type: ignore
 
         if not getattr(inner, "debug_analytics_initialized", False) and not settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG:
@@ -88,6 +59,39 @@ def self_capture_wrapper(func):
         return await func(scope, receive, send)
 
     return inner
+
+
+async def _prep_local_db_for_prod_reads():
+    from posthog.models import Organization, Project, Team, User
+
+    user: User = await User.objects.aget(email=settings.DEBUG_LOG_IN_AS_EMAIL)
+    try:
+        await User.objects.using("default").acreate(email=settings.DEBUG_LOG_IN_AS_EMAIL, id=user.id)
+    except Exception:
+        pass
+    try:
+        await Organization.objects.using("default").acreate(
+            name=f"Placeholder for {settings.DEBUG_LOG_IN_AS_EMAIL}", id=user.current_organization_id
+        )
+    except Exception:
+        pass
+    try:
+        await Project.objects.using("default").acreate(
+            name=f"Placeholder for {settings.DEBUG_LOG_IN_AS_EMAIL}",
+            id=user.current_team_id,
+            organization_id=user.current_organization_id,
+        )
+    except Exception:
+        pass
+    try:
+        await Team.objects.using("default").acreate(
+            name=f"Placeholder for {settings.DEBUG_LOG_IN_AS_EMAIL}",
+            id=user.current_team_id,
+            project_id=user.current_team_id,
+            organization_id=user.current_organization_id,
+        )
+    except Exception:
+        pass
 
 
 application = lifetime_wrapper(self_capture_wrapper(get_asgi_application()))

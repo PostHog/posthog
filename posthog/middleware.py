@@ -18,6 +18,7 @@ from django.middleware.csrf import CsrfViewMiddleware
 from django.shortcuts import redirect
 from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
+from django.utils.functional import SimpleLazyObject
 
 import structlog
 from django_prometheus.middleware import Metrics
@@ -68,9 +69,11 @@ cookie_api_paths_to_ignore = {"decide", "api", "flags"}
 
 
 class OverridableAuthenticationMiddleware(AuthenticationMiddleware):
+    """This is exactly the plain Django AuthenticationMiddleware, but with support for a local dev-only login override."""
+
     def process_request(self, request):
-        if settings.LOG_IN_AS_USER_EMAIL:
-            request.user = User.objects.get(email=settings.LOG_IN_AS_USER_EMAIL)
+        if settings.DEBUG and settings.DEBUG_LOG_IN_AS_EMAIL:
+            request.user = SimpleLazyObject(lambda: User.objects.get(email=settings.DEBUG_LOG_IN_AS_EMAIL))  # type: ignore
             return
         super().process_request(request)
 
