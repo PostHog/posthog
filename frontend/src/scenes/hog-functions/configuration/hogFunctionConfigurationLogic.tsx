@@ -1159,7 +1159,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (type, template, hogFunction) => {
                 const codeLanguage = template?.code_language || hogFunction?.template?.code_language
 
-                // Allow editing for site_app regardless of code language
                 if (type === 'site_app') {
                     return true
                 }
