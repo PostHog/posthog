@@ -28,12 +28,13 @@ jobs:
         name: Trigger docs preview (PoC)
         runs-on: ubuntu-latest
         steps:
-            - name: Trigger Vercel build
+            - name: Set POSTHOG_DOCS_REF env var for preview branch
               env:
                   VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+                  VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
                   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
               run: |
-                  if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
+                  if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_TEAM_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
                     echo "⚠️ Vercel secrets not configured, skipping"
                     exit 0
                   fi
@@ -41,33 +42,65 @@ jobs:
                   PR_NUMBER=${{ github.event.pull_request.number }}
                   PR_REF="refs/pull/${PR_NUMBER}/head"
 
+                  echo "📝 Setting POSTHOG_DOCS_REF=${PR_REF} for preview branch feat/docs-monorepo-poc"
+
+                  # Set env var for the preview branch via Vercel API
+                  curl -X POST "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/env?teamId=${VERCEL_TEAM_ID}" \
+                    -H "Authorization: Bearer $VERCEL_TOKEN" \
+                    -H "Content-Type: application/json" \
+                    -d '{
+                      "key": "POSTHOG_DOCS_REF",
+                      "value": "'"$PR_REF"'",
+                      "type": "plain",
+                      "target": ["preview"],
+                      "gitBranch": "feat/docs-monorepo-poc"
+                    }' || echo "⚠️ Failed to set env var (may already exist)"
+
+            - name: Trigger Vercel build
+              env:
+                  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+                  VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+                  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+              run: |
+                  if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_TEAM_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
+                    echo "⚠️ Vercel secrets not configured (need VERCEL_TOKEN, VERCEL_TEAM_ID, VERCEL_PROJECT_ID)"
+                    exit 0
+                  fi
+
+                  PR_NUMBER=${{ github.event.pull_request.number }}
+                  PR_REF="refs/pull/${PR_NUMBER}/head"
+
                   echo "📢 Triggering Vercel deployment for posthog.com@feat/docs-monorepo-poc (PoC)"
+                  echo "   PR ref: $PR_REF"
 
                   PAYLOAD='{
                     "name": "posthog-com",
                     "project": "'"$VERCEL_PROJECT_ID"'",
+                    "target": "preview",
                     "gitSource": {
                       "type": "github",
-                      "repo": "PostHog/posthog.com",
+                      "repoId": "260550412",
                       "ref": "feat/docs-monorepo-poc"
-                    },
-                    "env": [{
-                      "key": "POSTHOG_DOCS_REF",
-                      "value": "'"$PR_REF"'",
-                      "target": ["production", "preview", "development"]
-                    }]
+                    }
                   }'
 
-                  RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://api.vercel.com/v13/deployments" \
+                  RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://api.vercel.com/v13/deployments?teamId=${VERCEL_TEAM_ID}" \
                     -H "Authorization: Bearer $VERCEL_TOKEN" \
                     -H "Content-Type: application/json" \
                     -d "$PAYLOAD")
 
                   HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+                  BODY=$(echo "$RESPONSE" | head -n-1)
+
                   if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 201 ]; then
+                    DEPLOYMENT_URL=$(echo "$BODY" | jq -r '.url // empty')
                     echo "✅ Successfully triggered Vercel preview build"
+                    if [ -n "$DEPLOYMENT_URL" ]; then
+                      echo "   Preview URL: https://${DEPLOYMENT_URL}"
+                    fi
                   else
                     echo "❌ Failed to trigger preview build (HTTP $HTTP_CODE)"
+                    echo "$BODY" | jq '.' 2>/dev/null || echo "$BODY"
                   fi
 
             - name: Comment on PR
