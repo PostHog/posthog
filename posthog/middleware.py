@@ -722,7 +722,10 @@ class CSPMiddleware:
             connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
             frame_ancestors = "frame-ancestors https://posthog.com https://preview.posthog.com"
             if request.path.startswith("/render_query"):
-                frame_ancestors = "frame-ancestors https: http:"
+                if settings.DEBUG or settings.TEST:
+                    frame_ancestors = "frame-ancestors https: http:"
+                else:
+                    frame_ancestors = "frame-ancestors https:"
 
             csp_parts = [
                 "default-src 'self'",
