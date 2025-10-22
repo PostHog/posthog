@@ -1,4 +1,5 @@
 import type { ApiClient } from '@/api/client'
+import type { PrefixedString } from '@/lib/types'
 import type { StateManager } from '@/lib/utils/StateManager'
 import type { SessionManager } from '@/lib/utils/SessionManager'
 import type { ScopedCache } from '@/lib/utils/cache/ScopedCache'
