@@ -79,7 +79,10 @@ async def fetch_evaluation_activity(inputs: RunEvaluationInputs) -> dict[str, An
             return {
                 "id": str(evaluation.id),
                 "name": evaluation.name,
-                "prompt": evaluation.prompt,
+                "evaluation_type": evaluation.evaluation_type,
+                "evaluation_config": evaluation.evaluation_config,
+                "output_type": evaluation.output_type,
+                "output_config": evaluation.output_config,
                 "team_id": evaluation.team_id,
             }
         except Evaluation.DoesNotExist:
@@ -93,6 +96,14 @@ async def fetch_evaluation_activity(inputs: RunEvaluationInputs) -> dict[str, An
 async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dict[str, Any]) -> dict[str, Any]:
     """Execute LLM judge to evaluate the target event"""
     import openai
+
+    if evaluation["evaluation_type"] != "llm_judge" or evaluation["output_type"] != "boolean":
+        raise ValueError(f"Unsupported evaluation: {evaluation['evaluation_type']}/{evaluation['output_type']}")
+
+    evaluation_config = evaluation.get("evaluation_config", {})
+    prompt = evaluation_config.get("prompt")
+    if not prompt:
+        raise ValueError("Missing prompt in evaluation_config")
 
     # Build context from event
     event_type = event_data["event"]
@@ -120,7 +131,7 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
     # Build judge prompt
     system_prompt = f"""You are an AI evaluator. Evaluate the following AI generation according to this criteria:
 
-{evaluation["prompt"]}
+{prompt}
 
 Respond with ONLY a JSON object in this exact format:
 {{
