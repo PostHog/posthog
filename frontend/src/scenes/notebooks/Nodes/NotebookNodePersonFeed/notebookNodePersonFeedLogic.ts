@@ -1,6 +1,5 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -30,10 +29,9 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
         summarizeSessions: true,
         summarizeSession: (sessionId: string) => ({ sessionId }),
         setSummarizingState: (state: 'idle' | 'loading' | 'completed') => ({ state }),
-        setSummarizingErrors: (error: Record<string, string>) => ({ error }),
     }),
 
-    loaders(({ actions, values, props }) => ({
+    loaders(({ values, props }) => ({
         sessions: [
             null as SessionsTimelineQueryResponse['results'] | null,
             {
@@ -52,17 +50,10 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
             {} as Record<string, SessionSummary>,
             {
                 summarizeSession: async ({ sessionId }) => {
-                    try {
-                        const response = await api.sessionSummaries.createIndividual({
-                            session_ids: [sessionId],
-                        })
-                        return { ...values.summaries, ...response }
-                    } catch (error) {
-                        posthog.captureException(error)
-                        const errorMessage = error instanceof Error ? error.message : 'Failed to generate summary'
-                        actions.setSummarizingErrors({ [sessionId]: errorMessage })
-                        return { ...values.summaries }
-                    }
+                    const response = await api.sessionSummaries.createIndividual({
+                        session_ids: [sessionId],
+                    })
+                    return { ...values.summaries, ...response }
                 },
             },
         ],
@@ -73,7 +64,7 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
             values.sessionIdsWithRecording.forEach((sessionId) => actions.summarizeSession(sessionId))
         },
         summarizeSessionSuccess: () => {
-            if (values.numSessionsProcessed === values.numSessionsWithRecording) {
+            if (values.numSummaries === values.numSessionsWithRecording) {
                 actions.setSummarizingState('completed')
             }
         },
@@ -87,30 +78,19 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
                 summarizeSessions: () => 'loading',
             },
         ],
-        summarizingErrors: [
-            {} as Record<string, string>,
-            {
-                setSummarizingErrors: (state, { error }) => ({ ...state, ...error }),
-            },
-        ],
     }),
 
     selectors({
         canSummarize: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY]],
-        numErrors: [(s) => [s.summarizingErrors], (summarizingErrors) => Object.keys(summarizingErrors).length],
-        numSessionsProcessed: [
-            (s) => [s.numErrors, s.numSummaries],
-            (numErrors, numSummaries) => numErrors + numSummaries,
-        ],
         numSessionsWithRecording: [
             (s) => [s.sessionIdsWithRecording],
             (sessionIdsWithRecording) => sessionIdsWithRecording.length,
         ],
         numSummaries: [(s) => [s.summaries], (summaries) => Object.keys(summaries).length],
         progressText: [
-            (s) => [s.numSessionsProcessed, s.numSessionsWithRecording],
-            (numSessionsProcessed, numSessionsWithRecording) =>
-                `${numSessionsProcessed} out of ${pluralize(numSessionsWithRecording, 'session')} analyzed.`,
+            (s) => [s.numSummaries, s.numSessionsWithRecording],
+            (numSummaries, numSessionsWithRecording) =>
+                `${numSummaries} out of ${pluralize(numSessionsWithRecording, 'session')} analyzed.`,
         ],
         sessionIdsWithRecording: [
             (s) => [s.sessions],
