@@ -4459,6 +4459,7 @@ const api = {
         },
 
         async create(data: {
+            name: string
             url: string
             data_url?: string | null
             width?: number

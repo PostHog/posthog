@@ -260,7 +260,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             },
         ],
         widthOverride: [
-            null as number | null,
+            1024 as number | null,
             {
                 setIframeWidth: (_, { width }) => width,
             },

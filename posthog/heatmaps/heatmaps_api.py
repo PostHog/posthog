@@ -290,13 +290,30 @@ class LegacyHeatmapViewSet(HeatmapViewSet):
 
 
 # Heatmap Screenshot functionality
+DEFAULT_TARGET_WIDTHS = [320, 375, 425, 768, 1024, 1440, 1920]
+
+
 class HeatmapScreenshotRequestSerializer(serializers.Serializer):
     url = serializers.URLField(required=True, max_length=2000)
-    width = serializers.IntegerField(required=False, default=1400, min_value=100, max_value=3000)
-    force_reload = serializers.BooleanField(required=False, default=False)
+    widths = serializers.ListField(
+        child=serializers.IntegerField(min_value=100, max_value=3000), required=False, allow_empty=False
+    )
+    # Back-compat: allow a single width and coerce to widths
+    width = serializers.IntegerField(required=False, min_value=100, max_value=3000)
+
+    def validate(self, attrs: dict) -> dict:
+        widths = attrs.get("widths")
+        width = attrs.get("width")
+        if not widths and width:
+            attrs["widths"] = [width]
+        if not attrs.get("widths"):
+            attrs["widths"] = DEFAULT_TARGET_WIDTHS
+        return attrs
 
 
 class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
+    snapshots = serializers.SerializerMethodField()
+
     class Meta:
         model = HeatmapScreenshot
         fields = [
@@ -305,10 +322,11 @@ class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
             "name",
             "url",
             "data_url",
-            "width",
+            "target_widths",
             "type",
             "status",
             "has_content",
+            "snapshots",
             "created_at",
             "updated_at",
             "exception",
@@ -322,6 +340,18 @@ class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
             "updated_at",
             "exception",
         ]
+
+    def get_snapshots(self, obj: HeatmapScreenshot) -> list[dict]:
+        # Expose metadata of generated snapshots (width + readiness)
+        snaps = []
+        for snap in obj.snapshots.all():
+            snaps.append(
+                {
+                    "width": snap.width,
+                    "has_content": bool(snap.content or snap.content_location),
+                }
+            )
+        return sorted(snaps, key=lambda s: s["width"]) if snaps else []
 
 
 class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -340,12 +370,12 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_serializer.is_valid(raise_exception=True)
 
         url = request_serializer.validated_data["url"]
-        width = request_serializer.validated_data["width"]
+        widths = request_serializer.validated_data.get("widths", DEFAULT_TARGET_WIDTHS)
 
         screenshot = HeatmapScreenshot.objects.create(
             team=self.team,
             url=url,
-            width=width,
+            target_widths=widths,
             created_by=request.user,
             status=HeatmapScreenshot.Status.PROCESSING,
         )
@@ -359,18 +389,33 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def content(self, request: request.Request, *args: Any, **kwargs: Any) -> HttpResponse:
         screenshot = self.get_object()
 
-        if not screenshot.has_content:
-            # Return JSON response with screenshot status instead of plain text error
+        # Pick requested width or default
+        try:
+            requested_width = int(request.query_params.get("width", 1024))
+        except Exception:
+            requested_width = 1024
+
+        # Try exact match snapshot
+        snapshot = screenshot.snapshots.filter(width=requested_width).first()
+
+        # If not found, pick closest by absolute difference among available snapshots
+        if not snapshot:
+            all_snaps = list(screenshot.snapshots.all())
+            if all_snaps:
+                snapshot = min(all_snaps, key=lambda s: abs(s.width - requested_width))
+
+        if not snapshot:
+            # Nothing generated yet
             response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
             return response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED)
 
-        if screenshot.content:
-            http_response = HttpResponse(screenshot.content, content_type="image/jpeg")
-            http_response["Content-Disposition"] = f'attachment; filename="screenshot-{screenshot.id}.jpg"'
+        if snapshot.content:
+            http_response = HttpResponse(snapshot.content, content_type="image/jpeg")
+            http_response["Content-Disposition"] = (
+                f'attachment; filename="screenshot-{screenshot.id}-{snapshot.width}.jpg"'
+            )
             return http_response
-        elif screenshot.content_location:
-            # Handle object storage case (similar to ExportedAsset)
-            # For now, just return not implemented
+        elif snapshot.content_location:
             response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
             return response.Response(
                 {**response_serializer.data, "error": "Content location not implemented yet"},
@@ -378,20 +423,21 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         else:
             response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
-            return response.Response(
-                {**response_serializer.data, "error": "No content available"}, status=status.HTTP_404_NOT_FOUND
-            )
+            return response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED)
 
 
 class HeatmapSavedRequestSerializer(serializers.ModelSerializer):
+    widths = serializers.ListField(
+        child=serializers.IntegerField(min_value=100, max_value=3000), required=False, allow_empty=False
+    )
+
     class Meta:
         model = HeatmapScreenshot
-        fields = ["name", "url", "data_url", "width", "type"]
+        fields = ["name", "url", "data_url", "widths", "type"]
         extra_kwargs = {
             "name": {"required": False, "allow_null": True},
             "url": {"required": True},
             "data_url": {"required": False, "allow_null": True},
-            "width": {"required": False, "default": 1400},
             "type": {"required": False, "default": HeatmapScreenshot.Type.SCREENSHOT},
         }
 
@@ -436,7 +482,7 @@ class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         name = serializer.validated_data.get("name")
         url = serializer.validated_data["url"]
         data_url = serializer.validated_data.get("data_url") or url
-        width = serializer.validated_data.get("width", 1400)
+        widths = serializer.validated_data.get("widths", DEFAULT_TARGET_WIDTHS)
         heatmap_type = serializer.validated_data.get("type", HeatmapScreenshot.Type.SCREENSHOT)
 
         screenshot = HeatmapScreenshot.objects.create(
@@ -444,7 +490,7 @@ class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             name=name,
             url=url,
             data_url=data_url,
-            width=width,
+            target_widths=widths,
             type=heatmap_type,
             created_by=request.user,
             status=HeatmapScreenshot.Status.PROCESSING

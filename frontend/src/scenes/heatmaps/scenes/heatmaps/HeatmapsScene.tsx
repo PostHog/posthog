@@ -60,11 +60,6 @@ export function HeatmapsScene(): JSX.Element {
             render: (_, row) => row.type.charAt(0).toUpperCase() + row.type.slice(1),
         },
         {
-            title: 'Width',
-            dataIndex: 'width',
-            render: (_, row) => `${row.width} px`,
-        },
-        {
             title: 'Created',
             dataIndex: 'created_at',
             render: (_, row) => new Date(row.created_at).toLocaleString(),

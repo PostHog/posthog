@@ -1,14 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconLaptop, IconTabletLandscape, IconTabletPortrait } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
-import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
-import { IconPhone } from 'lib/lemon-ui/icons'
 import { InvalidURL } from 'scenes/heatmaps/components/HeatmapsBrowser'
 import { urls } from 'scenes/urls'
 
@@ -22,39 +19,8 @@ import { heatmapLogic } from './heatmapLogic'
 
 export function HeatmapNewScene(): JSX.Element {
     const logic = new heatmapLogic({ id: 'new' })
-    const { loading, displayUrl, isDisplayUrlValid, type, name, width } = useValues(logic)
-    const { setDisplayUrl, setType, setName, createHeatmap, setWidth } = useActions(logic)
-
-    const widthOptions = [
-        {
-            value: 320,
-            icon: <IconPhone />,
-        },
-        {
-            value: 375,
-            icon: <IconPhone />,
-        },
-        {
-            value: 425,
-            icon: <IconPhone />,
-        },
-        {
-            value: 768,
-            icon: <IconTabletPortrait />,
-        },
-        {
-            value: 1024,
-            icon: <IconTabletLandscape />,
-        },
-        {
-            value: 1440,
-            icon: <IconLaptop />,
-        },
-        {
-            value: 1920,
-            icon: <IconLaptop />,
-        },
-    ]
+    const { loading, displayUrl, isDisplayUrlValid, type, name, dataUrl } = useValues(logic)
+    const { setDisplayUrl, setType, setName, createHeatmap, setDataUrl } = useActions(logic)
 
     const debouncedOnNameChange = useDebouncedCallback((name: string) => {
         setName(name)
@@ -86,9 +52,25 @@ export function HeatmapNewScene(): JSX.Element {
                 }}
             />
             <ScenePanelDivider />
-            <SceneSection title="URL of heatmap" description="URL to your website">
+            <SceneSection title="Page URL" description="URL to your website">
                 <LemonInput value={displayUrl || ''} onChange={setDisplayUrl} placeholder="https://www.example.com" />
                 {!isDisplayUrlValid ? <InvalidURL /> : null}
+            </SceneSection>
+            <SceneDivider />
+            <SceneSection
+                title="Heatmap data URL"
+                description="An exact match or a pattern for heatmap data. A pattern can be for example if you have a page with an ID. E.g. https://www.example.com/users/* will aggregate data from all pages with the /users/ ID."
+            >
+                <LemonInput
+                    size="small"
+                    placeholder={displayUrl ? `Same as display URL: ${displayUrl}` : 'Enter a URL'}
+                    value={dataUrl ?? ''}
+                    onChange={(value) => {
+                        setDataUrl(value || null)
+                    }}
+                    fullWidth={true}
+                />
+                <div className="text-xs text-muted mt-1">Add * for wildcards to aggregate data from multiple pages</div>
             </SceneSection>
             <SceneDivider />
             <SceneSection title="Capture method" description="Select the method to represent the source of the heatmap">
@@ -111,19 +93,6 @@ export function HeatmapNewScene(): JSX.Element {
                 />
             </SceneSection>
             <SceneDivider />
-            <SceneSection title="Viewport width" description="Width of the viewport to capture">
-                <LemonSegmentedSelect
-                    options={widthOptions.map((option) => ({
-                        label: `${option.value}px`,
-                        value: option.value,
-                        icon: option.icon,
-                    }))}
-                    disabledReason={type === 'upload' ? 'You cannot change the width when uploading an image' : false}
-                    value={width}
-                    onChange={(value: number) => setWidth(value)}
-                />
-            </SceneSection>
-            <SceneDivider />
             <div className="flex gap-2">
                 <LemonButton
                     className="w-fit"
@@ -131,7 +100,15 @@ export function HeatmapNewScene(): JSX.Element {
                     data-attr="save-heatmap"
                     onClick={createHeatmap}
                     loading={false}
-                    disabledReason={!isDisplayUrlValid ? 'Invalid URL' : !displayUrl ? 'URL is required' : null}
+                    disabledReason={
+                        !isDisplayUrlValid
+                            ? 'Invalid URL'
+                            : !displayUrl
+                              ? 'URL is required'
+                              : !dataUrl
+                                ? 'Heatmap data URL is required'
+                                : null
+                    }
                 >
                     Save
                 </LemonButton>

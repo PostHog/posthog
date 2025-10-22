@@ -1,5 +1,4 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useCallback, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { IconBrowser } from '@posthog/icons'
@@ -23,17 +22,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
 
     const { name, loading, type, displayUrl, widthOverride, screenshotUrl, screenshotLoading, generatingScreenshot } =
         useValues(logic)
-    const { setName, updateHeatmap, onIframeLoad } = useActions(logic)
-
-    const [actualImageDimensions, setActualImageDimensions] = useState<{ width: number; height: number } | null>(null)
-    const imageRef = useRef<HTMLImageElement>(null)
-
-    const handleImageLoad = useCallback(() => {
-        if (imageRef.current) {
-            const { offsetWidth, offsetHeight } = imageRef.current
-            setActualImageDimensions({ width: offsetWidth, height: offsetHeight })
-        }
-    }, [])
+    const { setName, updateHeatmap, onIframeLoad, loadHeatmap } = useActions(logic)
 
     const debouncedOnNameChange = useDebouncedCallback((name: string) => {
         setName(name)
@@ -68,9 +57,6 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                             <LemonButton type="primary" onClick={updateHeatmap} size="small">
                                 Save
                             </LemonButton>
-                            <LemonButton type="primary" onClick={updateHeatmap} size="small">
-                                Export
-                            </LemonButton>
                         </>
                     }
                 />
@@ -78,14 +64,14 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                 <HeatmapHeader />
                 <FilterPanel />
                 <ScenePanelDivider />
-                <div className="border bg-white rounded-lg">
+                <div className="border mx-auto bg-white rounded-lg" style={{ width: widthOverride ?? '100%' }}>
                     <div className="p-2 border-b text-muted-foreground gap-x-2 flex items-center">
                         <IconBrowser /> {displayUrl}
                     </div>
                     {type === 'screenshot' ? (
                         <div
                             className="relative flex w-full justify-center flex-1"
-                            style={{ width: actualImageDimensions?.width ?? widthOverride ?? '100%' }}
+                            style={{ width: widthOverride ?? '100%' }}
                         >
                             {(screenshotLoading || generatingScreenshot) && (
                                 <div className="absolute inset-0 flex items-center justify-center">
@@ -95,20 +81,20 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                             {screenshotUrl && (
                                 <>
                                     <HeatmapCanvas
+                                        key={widthOverride ?? 'auto'}
                                         positioning="absolute"
-                                        widthOverride={actualImageDimensions?.width ?? widthOverride}
+                                        widthOverride={widthOverride}
                                         context="in-app"
                                     />
                                     <img
                                         id="heatmap-screenshot"
-                                        ref={imageRef}
                                         src={screenshotUrl}
                                         style={{
                                             maxWidth: widthOverride ?? '100%',
                                             height: 'auto',
                                             display: 'block',
                                         }}
-                                        onLoad={handleImageLoad}
+                                        onLoad={() => loadHeatmap()}
                                         className="rounded-b-lg"
                                         onError={() => {
                                             console.error('Failed to load screenshot')

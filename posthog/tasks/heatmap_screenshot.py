@@ -11,7 +11,7 @@ from celery import shared_task
 from PIL import Image
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.heatmap_screenshot import HeatmapScreenshot
+from posthog.models.heatmap_screenshot import HeatmapScreenshot, HeatmapSnapshot
 from posthog.tasks.exports.image_exporter import HEIGHT_OFFSET, get_driver
 from posthog.tasks.utils import CeleryQueue
 
@@ -29,7 +29,7 @@ TMP_DIR = "/tmp"
     max_retries=3,
 )
 @transaction.atomic
-def generate_heatmap_screenshot(screenshot_id: int) -> None:
+def generate_heatmap_screenshot(screenshot_id: str) -> None:
     """
     Generate a screenshot of a website for heatmap purposes.
     Similar to image_exporter but for arbitrary URLs.
@@ -45,7 +45,7 @@ def generate_heatmap_screenshot(screenshot_id: int) -> None:
         posthoganalytics.tag("screenshot_id", screenshot.id)
 
         try:
-            _generate_screenshot(screenshot)
+            _generate_screenshots(screenshot)
 
             screenshot.status = HeatmapScreenshot.Status.COMPLETED
             screenshot.save()
@@ -82,85 +82,94 @@ def generate_heatmap_screenshot(screenshot_id: int) -> None:
             raise
 
 
-def _generate_screenshot(screenshot: HeatmapScreenshot) -> None:
-    """Generate screenshot using Selenium WebDriver."""
-    image_path = None
+def _generate_screenshots(screenshot: HeatmapScreenshot) -> None:
+    """Generate screenshots for multiple widths using a single Selenium WebDriver session."""
     driver: Optional = None
+    temp_files: list[str] = []
+
+    # Determine target widths
+    target_widths = screenshot.target_widths or [320, 375, 425, 768, 1024, 1440, 1920]
+    # Deduplicate and keep order
+    seen = set()
+    widths: list[int] = []
+    for w in target_widths:
+        if isinstance(w, int) and 100 <= w <= 3000 and w not in seen:
+            widths.append(w)
+            seen.add(w)
+
+    if not widths:
+        widths = [1024]
 
     try:
-        image_id = str(uuid.uuid4())
-        image_path = os.path.join(TMP_DIR, f"heatmap_screenshot_{image_id}.png")
-
         if not os.path.exists(TMP_DIR):
             os.makedirs(TMP_DIR)
 
         driver = get_driver()
 
-        # Set window size to requested width with reasonable initial height
-        driver.set_window_size(screenshot.width, 800)
-
-        # Navigate to URL
+        # Navigate once
+        driver.set_window_size(1024, 800)
         driver.get(screenshot.url)
         posthoganalytics.tag("url", screenshot.url)
-
-        # Wait for page to load
         driver.implicitly_wait(1000)
 
-        # Get full page height
-        total_height = driver.execute_script(
-            "return Math.max(document.body.scrollHeight, document.body.offsetHeight, "
-            "document.documentElement.clientHeight, document.documentElement.scrollHeight, "
-            "document.documentElement.offsetHeight);"
-        )
+        for w in widths:
+            image_id = str(uuid.uuid4())
+            image_path = os.path.join(TMP_DIR, f"heatmap_screenshot_{image_id}_{w}.png")
+            temp_files.append(image_path)
 
-        # Set window to full page size
-        driver.set_window_size(screenshot.width, total_height + HEIGHT_OFFSET)
+            # Set window to width and initial height
+            driver.set_window_size(w, 800)
 
-        # Allow page to adjust to new size
-        driver.execute_script("return new Promise(resolve => setTimeout(resolve, 1000))")
+            # Compute full page height
+            total_height = driver.execute_script(
+                "return Math.max(document.body.scrollHeight, document.body.offsetHeight, "
+                "document.documentElement.clientHeight, document.documentElement.scrollHeight, "
+                "document.documentElement.offsetHeight);"
+            )
 
-        # Take screenshot
-        driver.save_screenshot(image_path)
+            # Resize to full height for capture
+            driver.set_window_size(w, total_height + HEIGHT_OFFSET)
+            driver.execute_script("return new Promise(resolve => setTimeout(resolve, 1000))")
 
-        # Process and compress the image
-        with Image.open(image_path) as img:
-            # Scale down if width > 1400px, keeping aspect ratio
-            if img.width > 1400:
-                ratio = 1400 / img.width
-                new_height = int(img.height * ratio)
-                img = img.resize((1400, new_height), Image.Resampling.LANCZOS)
+            # Take screenshot
+            driver.save_screenshot(image_path)
 
-            # Convert to RGB for JPEG (remove transparency)
-            if img.mode in ("RGBA", "LA", "P"):
-                rgb_img = Image.new("RGB", img.size, (255, 255, 255))  # White background
-                if img.mode == "P":
-                    img = img.convert("RGBA")
-                rgb_img.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
-                img = rgb_img
+            # Process and compress to JPEG (keep exact width; no downscale)
+            with Image.open(image_path) as img:
+                if img.mode in ("RGBA", "LA", "P"):
+                    rgb_img = Image.new("RGB", img.size, (255, 255, 255))
+                    if img.mode == "P":
+                        img = img.convert("RGBA")
+                    rgb_img.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
+                    img = rgb_img
 
-            # Save as JPEG with 80% quality
-            buffer = io.BytesIO()
-            img.save(buffer, format="JPEG", quality=80, optimize=True)
-            image_data = buffer.getvalue()
+                buffer = io.BytesIO()
+                img.save(buffer, format="JPEG", quality=80, optimize=True)
+                image_data = buffer.getvalue()
 
-        screenshot.content = image_data
-
-        # Clean up temp file
-        os.remove(image_path)
+            # Upsert snapshot for this width
+            snapshot, _ = HeatmapSnapshot.objects.get_or_create(heatmap=screenshot, width=w)
+            snapshot.content = image_data
+            snapshot.content_location = None
+            snapshot.save()
 
     except Exception:
-        # Clean up on error
-        if image_path and os.path.exists(image_path):
-            os.remove(image_path)
-
+        # Attempt to capture an error screenshot path for diagnostics
         if driver:
             try:
-                driver.save_screenshot(image_path)
-                posthoganalytics.tag("error_screenshot_path", image_path)
+                err_path = os.path.join(TMP_DIR, f"heatmap_error_{uuid.uuid4()}.png")
+                driver.save_screenshot(err_path)
+                posthoganalytics.tag("error_screenshot_path", err_path)
             except Exception:
                 pass
-
         raise
     finally:
+        # Cleanup temp files and driver
+        for f in temp_files:
+            try:
+                if os.path.exists(f):
+                    os.remove(f)
+            except Exception:
+                pass
         if driver:
             driver.quit()
