@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -363,6 +363,14 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
         },
     })),
 
+    afterMount(({ actions, props }) => {
+        // Auto-load data for components that need immediate loading
+        if (props.loadOnChanges) {
+            actions.loadAppMetricsTrends()
+            actions.loadAppMetricsTrendsPreviousPeriod()
+        }
+    }),
+
     propsChanged(({ actions, props }, oldProps) => {
         if (props.forceParams && !objectsEqual(props.forceParams, oldProps.forceParams)) {
             actions.setParams({ ...props.forceParams })
@@ -373,7 +381,7 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
         setParams: async (_, breakpoint) => {
             await breakpoint(100)
 
-            if (props.loadOnChanges ?? true) {
+            if (props.loadOnChanges) {
                 if (values.appMetricsTrends !== null) {
                     actions.loadAppMetricsTrends()
                     actions.loadAppMetricsTrendsPreviousPeriod()
