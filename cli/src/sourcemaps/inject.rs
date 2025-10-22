@@ -87,11 +87,12 @@ pub fn inject(args: &InjectArgs) -> Result<()> {
         }
         let chunk_id = uuid::Uuid::now_v7().to_string();
         pair.set_chunk_id(chunk_id)?;
-
-        // If we've got a release, and the user asked us to, or a set is missing one,
-        // put the release ID on the pair
-        if created_release.is_some() && !pair.has_release_id() {
-            pair.set_release_id(created_release.as_ref().unwrap().id.to_string());
+        if !pair.has_release_id() {
+            // If we've got a release, and the user asked us to, or a set is missing one,
+            // put the release ID on the pair
+            if let Some(ref release) = created_release {
+                pair.set_release_id(release.id.to_string());
+            }
         }
     }
     if skipped_pairs > 0 {
