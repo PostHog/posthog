@@ -35,10 +35,14 @@ class HeatmapScreenshot(UUIDTModel):
     # Error handling
     exception = models.TextField(null=True, blank=True)
 
+    # Soft delete
+    deleted = models.BooleanField(default=False)
+
     class Meta:
         indexes = [
             models.Index(fields=["team", "url"]),
             models.Index(fields=["status"]),
+            models.Index(fields=["deleted"]),
         ]
         constraints: list = []
         unique_together = ("team", "short_id")

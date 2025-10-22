@@ -1,6 +1,7 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
@@ -46,7 +47,7 @@ export const heatmapsSceneLogic = kea<heatmapsSceneLogicType>([
             },
         ],
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadSavedHeatmaps: async () => {
             actions.setLoading(true)
             try {
@@ -57,12 +58,15 @@ export const heatmapsSceneLogic = kea<heatmapsSceneLogicType>([
             }
         },
         deleteHeatmap: async ({ short_id }) => {
-            try {
-                await api.heatmapSaved.delete(short_id)
-                actions.loadSavedHeatmaps()
-            } catch (error) {
-                console.error(error)
-            }
+            const item = values.savedHeatmaps.find((h) => h.short_id === short_id)
+            const object = { id: item?.id, short_id, name: item?.name || item?.url || 'Heatmap' }
+            await deleteWithUndo({
+                object,
+                idField: 'short_id',
+                // project/environment-scoped API path; backend must support soft-delete via PATCH
+                endpoint: 'environments/@current/saved',
+                callback: () => actions.loadSavedHeatmaps(),
+            })
         },
     })),
     afterMount(({ actions }) => {

@@ -327,6 +327,7 @@ class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
             "status",
             "has_content",
             "snapshots",
+            "deleted",
             "created_at",
             "updated_at",
             "exception",
@@ -433,12 +434,13 @@ class HeatmapSavedRequestSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = HeatmapScreenshot
-        fields = ["name", "url", "data_url", "widths", "type"]
+        fields = ["name", "url", "data_url", "widths", "type", "deleted"]
         extra_kwargs = {
             "name": {"required": False, "allow_null": True},
             "url": {"required": True},
             "data_url": {"required": False, "allow_null": True},
             "type": {"required": False, "default": HeatmapScreenshot.Type.SCREENSHOT},
+            "deleted": {"required": False},
         }
 
 
@@ -454,7 +456,7 @@ class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return queryset.filter(team=self.team)
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        qs = self.safely_get_queryset(self.get_queryset()).order_by("-updated_at")
+        qs = self.safely_get_queryset(self.get_queryset()).filter(deleted=False).order_by("-updated_at")
 
         type_param = request.query_params.get("type")
         status_param = request.query_params.get("status")
