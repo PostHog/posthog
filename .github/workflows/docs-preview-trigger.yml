@@ -3,9 +3,7 @@ name: Trigger Docs Preview Build
 on:
   pull_request:
     paths:
-      - 'docs/published/**'
-      - 'docs/DOCS_MIGRATION_PLAN.md'
-      - 'docs/MONOREPO_DOCS_BUILD_GUIDE.md'
+      - 'docs/**'
 
 permissions:
   pull-requests: write
@@ -45,7 +43,7 @@ jobs:
           PR_NUMBER=${{ github.event.pull_request.number }}
           PR_REF="refs/pull/${PR_NUMBER}/head"
 
-          echo "📢 Triggering Vercel deployment for posthog.com@master"
+          echo "📢 Triggering Vercel deployment for posthog.com@feat/docs-monorepo-poc (PoC)"
           echo "   with POSTHOG_DOCS_REF=${PR_REF}"
 
           # Build request payload with env var for monorepo docs
@@ -55,7 +53,7 @@ jobs:
             "gitSource": {
               "type": "github",
               "repo": "PostHog/posthog.com",
-              "ref": "master"
+              "ref": "feat/docs-monorepo-poc"
             },
             "env": [
               {
@@ -134,26 +132,24 @@ See [MONOREPO_DOCS_BUILD_GUIDE.md](https://github.com/PostHog/posthog/blob/maste
 Successfully triggered Vercel deployment! Your docs are being built...
 
 ### What's happening:
-1. posthog.com@master is being deployed with your docs
+1. posthog.com@feat/docs-monorepo-poc (PoC) is being deployed with your docs
 2. Prebuild script clones posthog at: \`${prRef}\`
-3. Gatsby loads docs from \`docs/published/\` directory
+3. Gatsby loads docs from entire \`docs/\` directory
 4. Pages created at \`/docs-from-monorepo/\` (PoC path)
 
 ### Preview URL:
 Check the **Vercel** deployment check below - preview link will appear in 1-2 minutes
 
 ### What to test:
-- [ ] Architecture docs at \`/docs-from-monorepo/architecture/\`
-- [ ] Contributing guides at \`/docs-from-monorepo/contributing/\`
-- [ ] Runbooks at \`/docs-from-monorepo/runbooks/\`
+- [ ] Docs accessible at \`/docs-from-monorepo/<path>\` (mirrors your docs/ structure)
 - [ ] Relative links between docs work
 - [ ] Images render
 - [ ] Sidebar navigation displays
 - [ ] Frontmatter parsed correctly
 
-**Tip:** All files in \`docs/published/\` must have YAML frontmatter for rendering to work.
+**Tip:** All doc files must have YAML frontmatter for rendering to work.
 
-See [DOCS_MIGRATION_PLAN.md](https://github.com/PostHog/posthog/blob/master/docs/DOCS_MIGRATION_PLAN.md) for architecture details.`;
+See [DOCS_MIGRATION_PLAN.md](https://github.com/PostHog/posthog/blob/master/docs/DOCS_MIGRATION_PLAN.md) for details.`;
             } else {
               message = `## 📚 Docs Preview Build ❌
 
