@@ -291,7 +291,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         encrypted_inputs = data.encrypted_inputs or {} if isinstance(data, HogFunction) else {}
         data = super().to_representation(data)
 
-        inputs_schema = data.get("inputs_schema", [])
+        inputs_schema = data.get("inputs_schema", []) or []
         inputs = data.get("inputs") or {}
 
         for schema in inputs_schema:
