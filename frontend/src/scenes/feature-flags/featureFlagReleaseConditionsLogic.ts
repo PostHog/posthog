@@ -486,7 +486,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                         value: isEmptyProperty(property) ? "Property filters can't be empty" : undefined,
                     })),
                     rollout_percentage:
-                        rollout_percentage === undefined
+                        rollout_percentage === undefined || rollout_percentage === null
                             ? 'You need to set a rollout % value'
                             : isNaN(Number(rollout_percentage))
                               ? 'Rollout percentage must be a valid number'

@@ -430,7 +430,9 @@ export function FeatureFlagReleaseConditions({
                                         {`${
                                             Math.max(
                                                 computeBlastRadiusPercentage(
-                                                    group.rollout_percentage,
+                                                    Number.isNaN(group.rollout_percentage)
+                                                        ? 0
+                                                        : group.rollout_percentage,
                                                     group.sort_key
                                                 ).toPrecision(2) * 1,
                                                 0
@@ -449,11 +451,11 @@ export function FeatureFlagReleaseConditions({
                                         affectedUserCount >= 0 &&
                                         totalUsers !== null
                                     ) {
+                                        const rolloutPct = Number.isNaN(group.rollout_percentage)
+                                            ? 0
+                                            : (group.rollout_percentage ?? 100)
                                         return `(${humanFriendlyNumber(
-                                            Math.floor(
-                                                (affectedUserCount * clamp(group.rollout_percentage ?? 100, 0, 100)) /
-                                                    100
-                                            )
+                                            Math.floor((affectedUserCount * clamp(rolloutPct, 0, 100)) / 100)
                                         )} / ${humanFriendlyNumber(totalUsers)})`
                                     }
                                     return ''
