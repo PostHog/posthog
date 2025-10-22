@@ -66,7 +66,7 @@ export const VariantsPanelCreateFeatureFlag = ({
     ]
 
     const ensureExperienceContinuity =
-        (experiment.parameters as { ensure_experience_continuity?: boolean })?.ensure_experience_continuity ?? true
+        (experiment.parameters as { ensure_experience_continuity?: boolean })?.ensure_experience_continuity ?? false
 
     const variantRolloutSum = variants.reduce((sum, { rollout_percentage }) => sum + rollout_percentage, 0)
     const areVariantRolloutsValid =
