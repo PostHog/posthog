@@ -237,7 +237,7 @@ export enum AssistantEventType {
     Update = 'update',
 }
 
-export interface UpdateEvent {
+export interface AssistantUpdateEvent {
     id: string
     tool_call_id: string
     content: string

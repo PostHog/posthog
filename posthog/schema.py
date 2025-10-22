@@ -113,7 +113,6 @@ class AssistantEventType(StrEnum):
     STATUS = "status"
     MESSAGE = "message"
     CONVERSATION = "conversation"
-    NOTEBOOK = "notebook"
     UPDATE = "update"
 
 
@@ -185,7 +184,6 @@ class AssistantMessageType(StrEnum):
     AI_NOTEBOOK = "ai/notebook"
     AI_PLANNING = "ai/planning"
     AI_TASK_EXECUTION = "ai/task_execution"
-    AI_UPDATE = "ai/update"
 
 
 class AssistantNavigateUrl(StrEnum):
@@ -421,11 +419,9 @@ class AssistantUpdateEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    type: Literal["update"] = "update"
-
-
-class AssistantUpdateEventType(RootModel[Literal["update"]]):
-    root: Literal["update"] = "update"
+    content: str
+    id: str
+    tool_call_id: str
 
 
 class AttributionMode(StrEnum):
@@ -2911,16 +2907,6 @@ class TrendsFormulaNode(BaseModel):
     )
     custom_name: Optional[str] = Field(default=None, description="Optional user-defined name for the formula")
     formula: str
-
-
-class UpdateEvent(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    content: str
-    id: str
-    tool_call_id: str
-    type: Literal["ai/update"] = "ai/update"
 
 
 class UsageMetricDisplay(StrEnum):

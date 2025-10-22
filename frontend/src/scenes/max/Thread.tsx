@@ -182,7 +182,7 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
     return (
         <MessageGroupContainer groupType={groupType}>
             <div className={clsx('flex flex-col min-w-0 w-full', groupType === 'human' ? 'items-end' : 'items-start')}>
-                {() => {
+                {(() => {
                     if (isHumanMessage(message)) {
                         const maybeCommand = MAX_SLASH_COMMANDS.find(
                             (cmd) => cmd.name === message.content.split(' ', 1)[0]
@@ -316,7 +316,7 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                         return <NotebookUpdateAnswer key={key} message={message} />
                     }
                     return null // We currently skip other types of messages
-                }}
+                })()}
                 {isLastInGroup && message.status === 'error' && (
                     <MessageTemplate type="ai" boxClassName="border-warning">
                         <div className="flex items-center gap-1.5">
@@ -727,8 +727,9 @@ function AssistantActionComponent({
                 )}
             >
                 {icon && (
-                    <div className="relative flex-shrink-0 flex items-start justify-center size-7 h-full">
-                        <div className="p-1 flex items-center justify-center">
+                    <div className="relative flex-shrink-0 flex items-center justify-center size-7 h-full">
+                        {/* Weird icon align issue, had to add a small pt to align it */}
+                        <div className="pt-[1px] flex items-center justify-center">
                             {isInProgress && animate ? (
                                 <ShimmeringContent>{icon}</ShimmeringContent>
                             ) : (
@@ -856,15 +857,14 @@ function ToolCallsAnswer({ toolCalls }: ToolCallsAnswerProps): JSX.Element {
                         const commentary = toolCall.args.commentary as string
                         const updates = toolCall.updates ?? []
                         const definition = getToolDefinition(toolCall.name)
-                        let description =
-                            toolCall.status === 'completed'
-                                ? definition?.passiveDescription
-                                : definition?.activeDescription
-                        if (!description) {
-                            description = `Executing ${toolCall.name}`
-                        }
-                        if (commentary) {
-                            description = commentary
+                        let description = `Executing ${toolCall.name}`
+                        if (definition) {
+                            if (definition.displayFormatter) {
+                                description = definition.displayFormatter(toolCall)
+                            }
+                            if (commentary) {
+                                description = commentary
+                            }
                         }
                         return (
                             <AssistantActionComponent
