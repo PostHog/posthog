@@ -151,8 +151,8 @@ class EntitySearchToolkit:
                 entity_types,
                 query,
                 self._team.project_id,
-                self,
-                ENTITY_MAP,  # type: ignore
+                self,  # type: ignore
+                ENTITY_MAP,
             )
 
             content = self._format_results_for_display(query, entity_types, results, counts)
