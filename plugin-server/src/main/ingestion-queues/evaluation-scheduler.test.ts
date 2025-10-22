@@ -23,7 +23,7 @@ describe('Evaluation Scheduler', () => {
         hub = await createHub()
 
         mockTemporalService = {
-            startEvaluationWorkflow: jest.fn().mockResolvedValue(undefined),
+            startEvaluationWorkflow: jest.fn().mockResolvedValue({ workflowId: 'test-workflow-id' }),
             disconnect: jest.fn().mockResolvedValue(undefined),
         } as any
 
@@ -38,7 +38,7 @@ describe('Evaluation Scheduler', () => {
     })
 
     describe('event filtering', () => {
-        it('handles malformed event JSON gracefully', () => {
+        it('malformed event JSON throws an error', () => {
             const malformedMessage: Message = {
                 partition: 1,
                 topic: 'test',

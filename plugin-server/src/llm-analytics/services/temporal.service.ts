@@ -1,9 +1,11 @@
-import { Client, Connection, TLSConfig } from '@temporalio/client'
+import { Client, Connection, TLSConfig, WorkflowHandle } from '@temporalio/client'
 import { Counter } from 'prom-client'
 
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
+
+const EVALUATION_TASK_QUEUE = 'general-purpose-task-queue'
 
 const temporalWorkflowsStarted = new Counter({
     name: 'evaluation_temporal_workflows_started',
@@ -67,21 +69,22 @@ export class TemporalService {
         return client
     }
 
-    async startEvaluationWorkflow(evaluationId: string, targetEventId: string): Promise<void> {
+    async startEvaluationWorkflow(evaluationId: string, targetEventId: string): Promise<WorkflowHandle | undefined> {
         try {
             const client = await this.ensureConnected()
 
-            const workflowId = `eval-${evaluationId}-${targetEventId}-${Date.now()}`
+            const workflowId = `${evaluationId}-${targetEventId}-ingestion`
 
-            await client.workflow.start('run-evaluation', {
+            const handle = await client.workflow.start('run-evaluation', {
                 args: [
                     {
                         evaluation_id: evaluationId,
                         target_event_id: targetEventId,
                     },
                 ],
-                taskQueue: 'general-purpose-task-queue',
+                taskQueue: EVALUATION_TASK_QUEUE,
                 workflowId,
+                workflowIdConflictPolicy: 'USE_EXISTING',
             })
 
             temporalWorkflowsStarted.labels({ status: 'success' }).inc()
@@ -91,6 +94,8 @@ export class TemporalService {
                 evaluationId,
                 targetEventId,
             })
+
+            return handle
         } catch (error: unknown) {
             temporalWorkflowsStarted.labels({ status: 'error' }).inc()
             logger.error('Failed to start evaluation workflow', {
@@ -100,6 +105,7 @@ export class TemporalService {
             })
             captureException(error)
             // Don't throw - we don't want to fail event processing
+            return undefined
         }
     }
 
