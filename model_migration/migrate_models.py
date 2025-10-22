@@ -72,6 +72,10 @@ class ImportTransformer(cst.CSTTransformer):
     ) -> cst.ImportFrom | cst.RemovalSentinel | cst.FlattenSentinel:
         """Transform ImportFrom statements using pattern matching"""
 
+        # Preserve lazy imports (inside functions) - don't transform them
+        if self._is_inside_function(original_node):
+            return updated_node
+
         # Try to match against our patterns
         for pattern in self.patterns:
             if pattern.matches(updated_node, self.context):
@@ -132,6 +136,18 @@ class ImportTransformer(cst.CSTTransformer):
         else:
             # Remove this import (all items were transformed)
             return cst.RemovalSentinel.REMOVE
+
+    def _is_inside_function(self, node: cst.CSTNode) -> bool:
+        """Check if a node is inside a function definition"""
+        try:
+            # Use metadata provider to get parent nodes
+            parents = self.get_metadata(cst.metadata.ParentNodeProvider, node)
+            for parent in parents:
+                if isinstance(parent, cst.FunctionDef | cst.AsyncFunctionDef):
+                    return True
+        except Exception:
+            pass
+        return False
 
     def leave_Module(self, original_node: cst.Module, updated_node: cst.Module) -> cst.Module:
         """Add collected imports at the end of import section and remove duplicates"""
