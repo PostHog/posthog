@@ -78,7 +78,7 @@ export class LogsIngestionConsumer {
                 return this.kafkaProducer!.produce({
                     topic: this.clickhouseTopic,
                     value: message.message.value,
-                    key: null, // TODO: Check we want random partitioning or not
+                    key: null,
                     headers: {
                         token: message.token,
                         team_id: message.teamId.toString(),
