@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated on: 2025-10-21
+// Generated on: 2025-10-22
 
 export type CanonicalProvider =
     | 'ai21-fp8'
@@ -89,6 +89,7 @@ export type CanonicalProvider =
     | 'openai'
     | 'openai-default'
     | 'parasail-bf16'
+    | 'parasail-fp4'
     | 'parasail-fp8'
     | 'perplexity'
     | 'phala'
@@ -107,6 +108,7 @@ export type CanonicalProvider =
     | 'together-fp8'
     | 'together-int4'
     | 'together-turbo'
+    | 'venice-beta'
     | 'venice-fp16'
     | 'venice-fp8'
     | 'wandb-bf16'
