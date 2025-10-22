@@ -55,12 +55,40 @@ Assistant: It would be great if PostHog supported that integration in the future
 """.strip()
 
 
+TARGET_AREA_DESCRIPTIONS = {
+    "experiments": "A/B testing, feature experiments, and statistical analysis",
+    "apps": "PostHog apps, plugins, and integrations with third-party services",
+    "login": "Authentication, SSO, SAML, user management, and access issues",
+    "billing": "Pricing, invoices, subscription management, and payment issues",
+    "onboarding": "Getting started, initial setup, and product guidance",
+    "cohorts": "User segments, behavioral cohorts, and dynamic groups",
+    "data_management": "Data management including event/property definitions and actions",
+    "notebooks": "Analysis notebooks, templates, and collaborative features",
+    "data_warehouse": "Data warehouse connections, external data sources, and SQL queries",
+    "feature_flags": "Feature flags, release conditions, early access features.",
+    "analytics": "Product analytics, funnels, retention, and user behavior analysis - insights",
+    "session_replay": "Session recordings, privacy controls, and replay analysis",
+    "toolbar": "PostHog toolbar, heatmaps",
+    "surveys": "User feedback collection, survey creation, and response analysis",
+    "web_analytics": "Website analytics including web vitals, traffic/session analysis, and conversion tracking",
+    "error_tracking": "Error and exception capture and monitoring. Do not use this for errors in the PostHog app!",
+    "cdp_destinations": "Customer Data Platform destinations and data forwarding",
+    "data_ingestion": "Event capture, SDKs, and data pipeline issues",
+    "batch_exports": "Data exports, scheduled exports, and external data delivery",
+    "workflows": "Automation, triggers, and workflow configuration",
+    "platform_addons": "Additional platform features and premium add-ons",
+    "max-ai": "PostHog AI assistant, Max, and AI-powered features",
+    "customer-analytics": "Customer journey analysis, lifecycle tracking, and revenue analytics",
+}
+
+
 class CreateSupportTicketToolArgs(BaseModel):
     user_summary: str = Field(
-        description="A clear, concise summary written on behalf of the user, describing their main issue or question (1-2 sentences max)"
+        description="A clear, concise summary written on behalf of the user, describing their main issue or question (3-4 sentences max)"
     )
     # NOTE: These values must match SupportTicketTargetArea in frontend/src/lib/components/Support/supportLogic.ts
     # If you update this list, also update the frontend type definition
+    # also keep in sync with the descriptions in TARGET_AREA_DESCRIPTIONS
     suggested_area: Literal[
         "experiments",
         "apps",
@@ -86,7 +114,8 @@ class CreateSupportTicketToolArgs(BaseModel):
         "max-ai",
         "customer-analytics",
     ] = Field(
-        description="The most appropriate target area for this ticket based on the user's issue", default="max-ai"
+        description=f"The most appropriate target area for this ticket based on the user's issue. Choose from: {', '.join(f'{k} ({v})' for k, v in TARGET_AREA_DESCRIPTIONS.items())}",
+        default="max-ai",
     )
     # NOTE: These values must match SupportTicketSeverityLevel keys in frontend/src/lib/components/Support/supportLogic.ts
     # If you update this list, also update SEVERITY_LEVEL_TO_NAME in the frontend
@@ -98,7 +127,7 @@ class CreateSupportTicketToolArgs(BaseModel):
 class CreateSupportTicketTool(MaxTool):
     name: str = "create_support_ticket"
     description: str = SUPPORT_TICKET_TOOL_PROMPT
-    thinking_message: str = "Drafting a message for support"
+    thinking_message: str = "Drafting a message to PostHog support"
 
     args_schema: type[BaseModel] = CreateSupportTicketToolArgs
 

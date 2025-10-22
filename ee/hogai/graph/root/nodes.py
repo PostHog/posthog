@@ -266,7 +266,6 @@ class RootNode(AssistantNode):
         available_tools: list[RootTool] = []
 
         # Initialize the static toolkit
-        # Build list of tool classes, conditionally including support ticket tool based on feature flag
         tool_classes = [
             ReadTaxonomyTool,
             ReadDataTool,
@@ -274,7 +273,6 @@ class RootNode(AssistantNode):
             TodoWriteTool,
         ]
 
-        # Only include support ticket tool if feature flag is enabled
         if self._has_support_escalation_feature_flag():
             tool_classes.append(CreateSupportTicketTool)
 

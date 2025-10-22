@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
 
 import { IconBug, IconInfo, IconQuestion } from '@posthog/icons'
 import {
@@ -90,7 +90,7 @@ Thanks,`
         })
     }, [ticketData, resetSendSupportRequest])
 
-    const handleSubmit = async (): Promise<void> => {
+    const handleSubmit = useCallback(async (): Promise<void> => {
         try {
             await submitSendSupportRequest()
             onSubmitted?.()
@@ -98,7 +98,7 @@ Thanks,`
             console.error('Failed to submit support ticket:', error)
             throw error // Re-throw to let the button handle the error state
         }
-    }
+    }, [submitSendSupportRequest, onSubmitted])
 
     // Expose submit function to parent
     useEffect(() => {

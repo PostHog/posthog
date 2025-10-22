@@ -1162,8 +1162,8 @@ function SupportTicketAnswer({ message }: SupportTicketAnswerProps): JSX.Element
 
                 <div className="space-y-2">
                     <p className="text-xs text-muted">
-                        Here's a draft of your support ticket. Please review it and submit it to get help from our
-                        support team.
+                        Here's a draft of your support ticket. Please review and submit it to get help from PostHog
+                        support.
                     </p>
 
                     <div className="bg-bg-3000 rounded border border-border-light p-3">
