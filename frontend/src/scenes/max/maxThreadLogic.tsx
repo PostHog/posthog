@@ -36,11 +36,11 @@ import {
     AssistantGenerationStatusType,
     AssistantMessage,
     AssistantMessageType,
+    AssistantUpdateEvent,
     FailureMessage,
     HumanMessage,
     RootAssistantMessage,
     TaskExecutionStatus,
-    UpdateEvent,
 } from '~/queries/schema/schema-assistant-messages'
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
@@ -156,7 +156,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setDeepResearchMode: (deepResearchMode: boolean) => ({ deepResearchMode }),
         processNotebookUpdate: (notebookId: string, notebookContent: JSONContent) => ({ notebookId, notebookContent }),
         setForAnotherAgenticIteration: (value: boolean) => ({ value }),
-        setToolCallUpdate: (update: UpdateEvent) => ({ update }),
+        setToolCallUpdate: (update: AssistantUpdateEvent) => ({ update }),
     }),
 
     reducers(({ props }) => ({
@@ -231,7 +231,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         toolCallUpdateMap: [
             new Map<string, string[]>(),
             {
-                setToolCallUpdate: (value, { update }: { update: UpdateEvent }) => {
+                setToolCallUpdate: (value, { update }: { update: AssistantUpdateEvent }) => {
                     const currentValue = value.get(update.tool_call_id) || []
                     if (currentValue.includes(update.content)) {
                         return value
@@ -768,7 +768,7 @@ async function onEventImplementation(
         actions.setConversation(conversationWithTitle)
         actions.updateGlobalConversationCache(conversationWithTitle)
     } else if (event === AssistantEventType.Update) {
-        const parsedResponse = parseResponse<UpdateEvent>(data)
+        const parsedResponse = parseResponse<AssistantUpdateEvent>(data)
         if (!parsedResponse) {
             return
         }

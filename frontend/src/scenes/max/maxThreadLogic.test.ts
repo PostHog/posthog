@@ -876,22 +876,21 @@ describe('maxThreadLogic', () => {
         })
     })
 
-    describe('UpdateMessage handling', () => {
+    describe('assistant update event handling', () => {
         beforeEach(() => {
             logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
             logic.mount()
         })
 
         it('setToolCallUpdate adds update to toolCallUpdateMap', async () => {
-            const updateMessage = {
-                type: AssistantMessageType.Update,
+            const updateEvent = {
                 id: 'update-1',
                 tool_call_id: 'tool-call-123',
                 content: 'Processing data...',
             }
 
             await expectLogic(logic, () => {
-                logic.actions.setToolCallUpdate(updateMessage)
+                logic.actions.setToolCallUpdate(updateEvent)
             })
 
             expect(logic.values.toolCallUpdateMap.get('tool-call-123')).toEqual(['Processing data...'])
@@ -902,19 +901,16 @@ describe('maxThreadLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setToolCallUpdate({
-                    type: AssistantMessageType.Update,
                     id: 'update-1',
                     tool_call_id: toolCallId,
                     content: 'Step 1 complete',
                 })
                 logic.actions.setToolCallUpdate({
-                    type: AssistantMessageType.Update,
                     id: 'update-2',
                     tool_call_id: toolCallId,
                     content: 'Step 2 complete',
                 })
                 logic.actions.setToolCallUpdate({
-                    type: AssistantMessageType.Update,
                     id: 'update-3',
                     tool_call_id: toolCallId,
                     content: 'Step 3 complete',
@@ -934,13 +930,11 @@ describe('maxThreadLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setToolCallUpdate({
-                    type: AssistantMessageType.Update,
                     id: 'update-1',
                     tool_call_id: toolCallId,
                     content: sameContent,
                 })
                 logic.actions.setToolCallUpdate({
-                    type: AssistantMessageType.Update,
                     id: 'update-2',
                     tool_call_id: toolCallId,
                     content: sameContent,
@@ -954,13 +948,11 @@ describe('maxThreadLogic', () => {
         it('setToolCallUpdate handles updates for different tool calls', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setToolCallUpdate({
-                    type: AssistantMessageType.Update,
                     id: 'update-1',
                     tool_call_id: 'tool-1',
                     content: 'Tool 1 update',
                 })
                 logic.actions.setToolCallUpdate({
-                    type: AssistantMessageType.Update,
                     id: 'update-2',
                     tool_call_id: 'tool-2',
                     content: 'Tool 2 update',
@@ -989,7 +981,6 @@ describe('maxThreadLogic', () => {
                 ])
                 // UpdateMessages should not appear in thread directly
                 logic.actions.setToolCallUpdate({
-                    type: AssistantMessageType.Update,
                     id: 'update-1',
                     tool_call_id: 'tool-call-123',
                     content: 'This should not appear',
@@ -1111,13 +1102,11 @@ describe('maxThreadLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setToolCallUpdate({
-                    type: AssistantMessageType.Update,
                     id: 'update-1',
                     tool_call_id: toolCallId,
                     content: 'Progress update 1',
                 })
                 logic.actions.setToolCallUpdate({
-                    type: AssistantMessageType.Update,
                     id: 'update-2',
                     tool_call_id: toolCallId,
                     content: 'Progress update 2',

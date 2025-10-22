@@ -1540,8 +1540,7 @@
                 "ai/failure",
                 "ai/notebook",
                 "ai/planning",
-                "ai/task_execution",
-                "ai/update"
+                "ai/task_execution"
             ],
             "type": "string"
         },
@@ -2198,17 +2197,18 @@
         "AssistantUpdateEvent": {
             "additionalProperties": false,
             "properties": {
-                "type": {
-                    "const": "update",
+                "content": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "tool_call_id": {
                     "type": "string"
                 }
             },
-            "required": ["type"],
+            "required": ["id", "tool_call_id", "content"],
             "type": "object"
-        },
-        "AssistantUpdateEventType": {
-            "const": "update",
-            "type": "string"
         },
         "AttributionMode": {
             "enum": ["first_touch", "last_touch"],
@@ -26804,26 +26804,6 @@
                 }
             },
             "required": ["results"],
-            "type": "object"
-        },
-        "UpdateEvent": {
-            "additionalProperties": false,
-            "properties": {
-                "content": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "tool_call_id": {
-                    "type": "string"
-                },
-                "type": {
-                    "const": "ai/update",
-                    "type": "string"
-                }
-            },
-            "required": ["type", "id", "tool_call_id", "content"],
             "type": "object"
         },
         "UsageMetric": {
