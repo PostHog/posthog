@@ -34,7 +34,7 @@ metadata:
         docker:
             name: Docker
             about: Isolates services and dependencies in containers to match production
-                without requiring local installation.
+                without requiring local installation. Orbstack strongly recommended over Docker Desktop.
         migration:
             name: Database migrations
             about: Schema updates and data migrations across PostgreSQL, ClickHouse, and
