@@ -383,7 +383,7 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
         setParams: async (_, breakpoint) => {
             await breakpoint(100)
 
-            if (props.loadOnChanges) {
+            if (props.loadOnChanges ?? true) {
                 if (values.appMetricsTrends !== null) {
                     actions.loadAppMetricsTrends()
                     actions.loadAppMetricsTrendsPreviousPeriod()
