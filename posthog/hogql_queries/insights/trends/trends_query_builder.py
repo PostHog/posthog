@@ -199,7 +199,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         ),
                         all_dates
                     ) AS total,
-                    arraySum(vals) AS grand_total,
                     breakdown_value
                 FROM (
                     SELECT
@@ -209,7 +208,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     FROM top_n_and_other_breakdown_values
                     GROUP BY breakdown_value
                 )
-                ORDER BY (breakdown_value = {breakdown_other}) ASC, grand_total DESC    
+                ORDER BY (breakdown_value = {breakdown_other}) ASC, arraySum(vals) DESC, breakdown_value ASC
                 """,
                 {
                     "inner_query": inner_query,
