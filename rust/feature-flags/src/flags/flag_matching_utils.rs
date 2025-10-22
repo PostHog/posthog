@@ -25,9 +25,11 @@ use crate::{
     cohorts::cohort_models::CohortId,
     flags::flag_models::FeatureFlagId,
     metrics::consts::{
-        FLAG_COHORT_PROCESSING_TIME, FLAG_COHORT_QUERY_TIME, FLAG_CONNECTION_HOLD_TIME,
+        FLAG_CLIENT_TIMEOUT_COUNTER, FLAG_COHORT_PROCESSING_TIME, FLAG_COHORT_QUERY_TIME,
+        FLAG_CONNECTION_HOLD_TIME, FLAG_CONNECTION_OVERLAP_TIME_MS, FLAG_DATABASE_ERROR_COUNTER,
         FLAG_DB_CONNECTION_TIME, FLAG_DEFINITION_QUERY_TIME, FLAG_GROUP_PROCESSING_TIME,
-        FLAG_GROUP_QUERY_TIME, FLAG_HASH_KEY_RETRIES_COUNTER, FLAG_PERSON_PROCESSING_TIME,
+        FLAG_GROUP_QUERY_TIME, FLAG_HASH_KEY_RETRIES_COUNTER,
+        FLAG_MULTI_CONNECTION_OPERATION_COUNTER, FLAG_PERSON_PROCESSING_TIME,
         FLAG_PERSON_QUERY_TIME, FLAG_POOL_UTILIZATION_GAUGE,
         FLAG_READER_TIMEOUT_WITH_WRITER_STATE_COUNTER,
     },
@@ -412,6 +414,45 @@ fn should_retry_on_error(error: &FlagError) -> bool {
     }
 }
 
+/// Classify and track database errors
+fn classify_and_track_error(error: &FlagError, operation: &str, will_retry: bool) {
+    let (error_type, timeout_subtype) = match error {
+        FlagError::DatabaseError(sqlx_error, _) => {
+            let err_type = if common_database::is_foreign_key_constraint_error(sqlx_error) {
+                "foreign_key"
+            } else if common_database::is_transient_error(sqlx_error) {
+                "transient"
+            } else if common_database::is_timeout_error(sqlx_error) {
+                "timeout"
+            } else {
+                match sqlx_error {
+                    sqlx::Error::PoolTimedOut | sqlx::Error::PoolClosed => "connection",
+                    _ => "unknown",
+                }
+            };
+            (err_type, None)
+        }
+        FlagError::TimeoutError(timeout_type) => {
+            let subtype = timeout_type.as_ref().map(|s| s.as_str());
+            ("timeout", subtype)
+        }
+        _ => return, // Only track database-related errors
+    };
+
+    let mut labels = vec![
+        ("error_type".to_string(), error_type.to_string()),
+        ("operation".to_string(), operation.to_string()),
+        ("retried".to_string(), will_retry.to_string()),
+    ];
+
+    // Add timeout subtype if available
+    if let Some(subtype) = timeout_subtype {
+        labels.push(("timeout_type".to_string(), subtype.to_string()));
+    }
+
+    common_metrics::inc(FLAG_DATABASE_ERROR_COUNTER, &labels, 1);
+}
+
 /// Check if all properties match the given filters
 pub fn all_properties_match(
     flag_condition_properties: &[PropertyFilter],
@@ -491,7 +532,12 @@ pub async fn get_feature_flag_hash_key_overrides(
 
         // Log retry attempts for observability
         if let Err(ref e) = result {
-            if should_retry_on_error(e) {
+            let will_retry = should_retry_on_error(e);
+
+            // Track error classification
+            classify_and_track_error(e, "get_hash_key_overrides", will_retry);
+
+            if will_retry {
                 // Increment retry counter for monitoring
                 common_metrics::inc(
                     FLAG_HASH_KEY_RETRIES_COUNTER,
@@ -631,6 +677,9 @@ pub async fn set_feature_flag_hash_key_overrides(
         // Only retry on foreign key constraint errors (person deletion race condition)
         match &result {
             Err(e) if flag_error_is_foreign_key_constraint(e) => {
+                // Track error classification
+                classify_and_track_error(e, "set_hash_key_overrides", true);
+
                 // Increment retry counter for monitoring
                 common_metrics::inc(
                     FLAG_HASH_KEY_RETRIES_COUNTER,
@@ -655,7 +704,12 @@ pub async fn set_feature_flag_hash_key_overrides(
                 result
             }
             // For other errors, don't retry - return immediately to stop retrying
-            Err(_) => result,
+            Err(e) => {
+                // Track error classification for non-retried errors
+                classify_and_track_error(e, "set_hash_key_overrides", false);
+
+                result
+            }
             // Success case - return the result
             Ok(_) => result,
         }
@@ -1064,6 +1118,19 @@ async fn try_should_write_hash_key_override(
             ),
         ];
 
+        // Track that we're about to hold multiple connections
+        common_metrics::inc(
+            FLAG_MULTI_CONNECTION_OPERATION_COUNTER,
+            &[
+                ("operation".to_string(), "should_write_hash_key_override".to_string()),
+                ("connection_count".to_string(), "2".to_string()),
+            ],
+            1,
+        );
+
+        // Start tracking connection overlap time
+        let overlap_start = persons_conn_start;
+
         // Log that we're holding one connection while acquiring another
         info!(
             team_id = %team_id,
@@ -1115,6 +1182,16 @@ async fn try_should_write_hash_key_override(
             }
         }
 
+        // Record connection overlap time (time holding both connections)
+        common_metrics::histogram(
+            FLAG_CONNECTION_OVERLAP_TIME_MS,
+            &[
+                ("operation".to_string(), "should_write_hash_key_override".to_string()),
+                ("connection_count".to_string(), "2".to_string()),
+            ],
+            overlap_start.elapsed().as_millis() as f64,
+        );
+
         // Record how long both connections were held
         common_metrics::histogram(
             FLAG_CONNECTION_HOLD_TIME,
@@ -1155,6 +1232,22 @@ async fn try_should_write_hash_key_override(
             Err(e)
         }
         Err(_) => {
+            // Track client timeout
+            common_metrics::inc(
+                FLAG_CLIENT_TIMEOUT_COUNTER,
+                &[
+                    (
+                        "operation".to_string(),
+                        "should_write_hash_key_override".to_string(),
+                    ),
+                    (
+                        "timeout_ms".to_string(),
+                        QUERY_TIMEOUT.as_millis().to_string(),
+                    ),
+                ],
+                1,
+            );
+
             // Capture all pool states on timeout
             let persons_reader_stats = router.get_persons_reader().get_pool_stats();
             let non_persons_reader_stats = router.get_non_persons_reader().get_pool_stats();
