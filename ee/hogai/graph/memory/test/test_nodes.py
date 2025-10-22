@@ -567,13 +567,10 @@ class TestMemoryOnboardingFinalizeNode(ClickhouseTestMixin, BaseTest):
             self.core_memory.initial_text = "Question: What does the company do?\nAnswer: Product description"
             self.core_memory.save()
             new_state = self.node.run(AssistantState(messages=[]), {})
-            self.assertEqual(len(new_state.messages), 2)
-            self.assertEqual(
-                cast(AssistantMessage, new_state.messages[0]).content, prompts.SCRAPING_MEMORY_SAVED_MESSAGE
-            )
-            self.assertIsInstance(new_state.messages[1], ContextMessage)
-            self.assertEqual(new_state.messages[1].id, new_state.root_conversation_start_id)
-            self.assertEqual(new_state.messages[1].id, new_state.start_id)
+            self.assertEqual(len(new_state.messages), 1)
+            self.assertIsInstance(new_state.messages[0], ContextMessage)
+            self.assertEqual(new_state.messages[0].id, new_state.root_conversation_start_id)
+            self.assertEqual(new_state.messages[0].id, new_state.start_id)
             self.core_memory.refresh_from_db()
             self.assertEqual(self.core_memory.text, "Compressed memory about enterprise product")
 
@@ -602,10 +599,8 @@ Additional context: Our system also handles nested configurations like {"feature
             # This should not raise a KeyError about missing template variables
             new_state = self.node.run(AssistantState(messages=[]), {})
 
-            self.assertEqual(len(new_state.messages), 2)
-            self.assertEqual(
-                cast(AssistantMessage, new_state.messages[0]).content, prompts.SCRAPING_MEMORY_SAVED_MESSAGE
-            )
+            self.assertEqual(len(new_state.messages), 1)
+            self.assertIsInstance(new_state.messages[0], ContextMessage)
             self.core_memory.refresh_from_db()
             self.assertEqual(self.core_memory.text, "Company uses structured JSON for event tracking")
 

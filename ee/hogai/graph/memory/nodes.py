@@ -59,7 +59,6 @@ from .prompts import (
     ONBOARDING_COMPRESSION_PROMPT,
     SCRAPING_CONFIRMATION_MESSAGE,
     SCRAPING_INITIAL_MESSAGE,
-    SCRAPING_MEMORY_SAVED_MESSAGE,
     SCRAPING_REJECTION_MESSAGE,
     SCRAPING_SUCCESS_KEY_PHRASE,
     SCRAPING_TERMINATION_MESSAGE,
@@ -368,10 +367,7 @@ class MemoryOnboardingFinalizeNode(AssistantNode):
             id=str(uuid4()),
         )
         return PartialAssistantState(
-            messages=[
-                AssistantMessage(content=SCRAPING_MEMORY_SAVED_MESSAGE, id=str(uuid4())),
-                context_message,
-            ],
+            messages=[context_message],
             start_id=context_message.id,
             root_conversation_start_id=context_message.id,
         )

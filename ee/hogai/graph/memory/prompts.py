@@ -57,9 +57,6 @@ SCRAPING_CONFIRMATION_MESSAGE = "Yes, save this"
 
 SCRAPING_REJECTION_MESSAGE = "No, not quite right"
 
-SCRAPING_MEMORY_SAVED_MESSAGE = (
-    "Thanks! I've updated my initial memory. Remember that you can always ask me to remember information!"
-)
 
 ONBOARDING_COMPRESSION_PROMPT = """
 Segment the provided information into a series of brief, independent paragraphs, preserving the original meaning of the text.
