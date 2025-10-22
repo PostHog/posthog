@@ -1,50 +1,37 @@
 from posthog.test.base import BaseTest
+from unittest.mock import AsyncMock, MagicMock
 
 from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantMessage, AssistantToolCall
 
 from ee.hogai.graph.base import BaseAssistantNode
-from ee.hogai.utils.dispatcher import ActionType, AssistantDispatcher, AssistantDispatcherEvent, NodeStartAction
-from ee.hogai.utils.state import is_dispatcher_update
+from ee.hogai.utils.dispatcher import AssistantDispatcher
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import AssistantDispatcherEvent, AssistantNodeName
 
 
 class TestMessageDispatcher(BaseTest):
+    def setUp(self):
+        self._writer = MagicMock()
+        self._writer.__aiter__ = AsyncMock(return_value=iter([]))
+        self._writer.write = AsyncMock()
+
     def test_create_dispatcher(self):
         """Test creating a MessageDispatcher"""
-        dispatcher = AssistantDispatcher(node_name="test_node")
+        dispatcher = AssistantDispatcher(self._writer, node_name=AssistantNodeName.ROOT)
 
-        self.assertEqual(dispatcher._node_name, "test_node")
-        self.assertIsNone(dispatcher._writer)
-
-    def test_set_writer(self):
-        """Test setting the writer"""
-        dispatcher = AssistantDispatcher(node_name="test_node")
-
-        def mock_writer(data):
-            pass
-
-        dispatcher.set_writer(mock_writer)
-        self.assertEqual(dispatcher._writer, mock_writer)
-
-    async def test_dispatch_without_writer(self):
-        """Test dispatching without a writer (should not error)"""
-        dispatcher = AssistantDispatcher(node_name="test_node")
-
-        # Should not raise an error
-        dispatcher.message(AssistantMessage(content="test"))
+        self.assertEqual(dispatcher._node_name, AssistantNodeName.ROOT)
+        self.assertEqual(dispatcher._writer, self._writer)
 
     async def test_dispatch_with_writer(self):
         """Test dispatching with a writer"""
-        dispatcher = AssistantDispatcher(node_name="test_node")
-
         dispatched_actions = []
 
         def mock_writer(data):
             dispatched_actions.append(data)
 
-        dispatcher.set_writer(mock_writer)
+        dispatcher = AssistantDispatcher(mock_writer, node_name=AssistantNodeName.ROOT)
 
         message = AssistantMessage(content="test message", parent_tool_call_id="tc1")
         dispatcher.message(message)
@@ -52,15 +39,11 @@ class TestMessageDispatcher(BaseTest):
         self.assertEqual(len(dispatched_actions), 1)
 
         # Verify action structure
-        action_data = dispatched_actions[0]
-        self.assertEqual(action_data[0], ())
-        self.assertEqual(action_data[1], "action")
-
-        event, state = action_data[2]
-        action = event.action
-        self.assertEqual(action.type, ActionType.MESSAGE)
-        self.assertEqual(action.message, message)
-        self.assertEqual(state["langgraph_node"], "test_node")
+        event = dispatched_actions[0]
+        self.assertIsInstance(event, AssistantDispatcherEvent)
+        self.assertEqual(event.action.type, "MESSAGE")
+        self.assertEqual(event.action.message, message)
+        self.assertEqual(event.node_name, AssistantNodeName.ROOT)
 
 
 class MockNode(BaseAssistantNode[AssistantState, PartialAssistantState]):
@@ -68,7 +51,7 @@ class MockNode(BaseAssistantNode[AssistantState, PartialAssistantState]):
 
     @property
     def node_name(self):
-        return "mock_node"
+        return AssistantNodeName.ROOT
 
     async def arun(self, state, config):
         # Use dispatch to add a message
@@ -91,8 +74,7 @@ class TestDispatcherIntegration(BaseTest):
             dispatched_actions.append(data)
 
         # Set up node's dispatcher
-        node._dispatcher = AssistantDispatcher(node_name="mock_node")
-        node._dispatcher.set_writer(mock_writer)
+        node._dispatcher = AssistantDispatcher(mock_writer, node_name=AssistantNodeName.ROOT)
 
         # Run the node
         state = AssistantState(messages=[])
@@ -103,22 +85,22 @@ class TestDispatcherIntegration(BaseTest):
         # Verify action was dispatched
         self.assertEqual(len(dispatched_actions), 1)
 
-        _, _, (event, state) = dispatched_actions[0]
-        self.assertEqual(event.action.type, ActionType.MESSAGE)
+        event = dispatched_actions[0]
+        self.assertIsInstance(event, AssistantDispatcherEvent)
+        self.assertEqual(event.action.type, "MESSAGE")
         self.assertEqual(event.action.message.content, "Test message from node")
         self.assertEqual(event.action.message.parent_tool_call_id, None)
-        self.assertEqual(state["langgraph_node"], "mock_node")
+        self.assertEqual(event.node_name, AssistantNodeName.ROOT)
 
     async def test_action_preservation_through_stream(self):
         """Test that action data is preserved through the stream"""
-        dispatcher = AssistantDispatcher(node_name="test_node")
 
         captured_updates = []
 
         def mock_writer(data):
             captured_updates.append(data)
 
-        dispatcher.set_writer(mock_writer)
+        dispatcher = AssistantDispatcher(mock_writer, node_name=AssistantNodeName.ROOT)
 
         # Create complex message with metadata
         message = AssistantMessage(
@@ -130,7 +112,8 @@ class TestDispatcherIntegration(BaseTest):
         dispatcher.message(message)
 
         # Extract action
-        _, _, (event, state) = captured_updates[0]
+        event = captured_updates[0]
+        self.assertIsInstance(event, AssistantDispatcherEvent)
 
         # Verify all message fields preserved
         payload = event.action.message
@@ -148,7 +131,7 @@ class TestDispatcherIntegration(BaseTest):
         class MultiDispatchNode(BaseAssistantNode[AssistantState, PartialAssistantState]):
             @property
             def node_name(self):
-                return "multi_dispatch"
+                return AssistantNodeName.ROOT
 
             async def arun(self, state, config):
                 # Dispatch multiple messages
@@ -164,8 +147,7 @@ class TestDispatcherIntegration(BaseTest):
         def mock_writer(data):
             dispatched_actions.append(data)
 
-        node._dispatcher = AssistantDispatcher(node_name="multi_dispatch")
-        node._dispatcher.set_writer(mock_writer)
+        node._dispatcher = AssistantDispatcher(mock_writer, node_name=AssistantNodeName.ROOT)
 
         state = AssistantState(messages=[])
         config = RunnableConfig(configurable={})
@@ -176,21 +158,8 @@ class TestDispatcherIntegration(BaseTest):
         self.assertEqual(len(dispatched_actions), 3)
 
         contents = []
-        for update in dispatched_actions:
-            _, _, (event, _) = update
+        for event in dispatched_actions:
+            self.assertIsInstance(event, AssistantDispatcherEvent)
             contents.append(event.action.message.content)
 
         self.assertEqual(contents, ["First message", "Second message", "Third message"])
-
-    def test_custom_update_recognizer(self):
-        """Test is_custom_update correctly identifies custom updates"""
-        # Valid custom update
-        valid_update = ["action", (AssistantDispatcherEvent(action=NodeStartAction()), {"langgraph_node": "test_node"})]
-        self.assertTrue(is_dispatcher_update(valid_update))
-
-        # Invalid updates
-        self.assertFalse(is_dispatcher_update(["messages", ("data", {})]))
-        self.assertFalse(is_dispatcher_update(["values", {}]))
-        self.assertFalse(is_dispatcher_update(["custom", "wrong_format"]))
-        self.assertFalse(is_dispatcher_update(["custom", ("not_action", {})]))
-        self.assertFalse(is_dispatcher_update(["custom", ("action",)]))  # Missing action dict

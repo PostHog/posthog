@@ -27,7 +27,7 @@ from ee.hogai.utils.types import (
     AssistantState,
     PartialAssistantState,
 )
-from ee.hogai.utils.types.base import AssistantMessageOrStatusUnion
+from ee.hogai.utils.types.base import AssistantResultUnion
 from ee.hogai.utils.types.composed import MaxNodeName
 from ee.models import Conversation
 
@@ -128,7 +128,7 @@ class InsightsAssistant(BaseAssistant):
             },
         )
 
-    async def _aprocess_value_update(self, update: GraphValueUpdateTuple) -> AssistantMessageOrStatusUnion | None:
+    async def _aprocess_value_update(self, update: GraphValueUpdateTuple) -> AssistantResultUnion | None:
         _, maybe_state_update = update
         state_update = validate_value_update(maybe_state_update)
         if intersected_nodes := state_update.keys() & self.VISUALIZATION_NODES.keys():

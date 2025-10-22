@@ -5,10 +5,10 @@ These tests ensure that the dispatcher pattern works correctly end-to-end in rea
 """
 
 import uuid
-from typing import Any, cast
+from typing import Any
 
 from posthog.test.base import BaseTest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from langchain_core.runnables import RunnableConfig
 
@@ -17,7 +17,7 @@ from posthog.schema import AssistantMessage
 from ee.hogai.graph.base import BaseAssistantNode
 from ee.hogai.utils.dispatcher import MessageAction, NodeStartAction
 from ee.hogai.utils.types import AssistantNodeName
-from ee.hogai.utils.types.base import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import AssistantDispatcherEvent, AssistantState, PartialAssistantState
 
 
 class MockAssistantNode(BaseAssistantNode):
@@ -30,7 +30,7 @@ class MockAssistantNode(BaseAssistantNode):
 
     @property
     def node_name(self) -> AssistantNodeName:
-        return cast(AssistantNodeName, "mock_node")
+        return AssistantNodeName.ROOT
 
     async def arun(self, state, config: RunnableConfig) -> PartialAssistantState:
         self.arun_called = True
@@ -59,10 +59,6 @@ class TestDispatcherIntegration(BaseTest):
         state = AssistantState(messages=[])
         config = RunnableConfig()
 
-        mock_writer = MagicMock()
-        mock_writer.__aiter__ = AsyncMock(return_value=iter([]))
-        node.dispatcher.set_writer(mock_writer)
-
         await node.arun(state, config)
 
         self.assertTrue(node.arun_called)
@@ -89,14 +85,19 @@ class TestDispatcherIntegration(BaseTest):
         # 1. NODE_START from __call__
         # 2. Two MESSAGE actions from arun (Processing..., Done!)
         # 3. One MESSAGE action from returned state (Final result)
+
         self.assertEqual(len(dispatched_actions), 4)
-        self.assertIsInstance(dispatched_actions[0][2][0].action, NodeStartAction)
-        self.assertIsInstance(dispatched_actions[1][2][0].action, MessageAction)
-        self.assertEqual(dispatched_actions[1][2][0].action.message.content, "Processing...")
-        self.assertIsInstance(dispatched_actions[2][2][0].action, MessageAction)
-        self.assertEqual(dispatched_actions[2][2][0].action.message.content, "Done!")
-        self.assertIsInstance(dispatched_actions[3][2][0].action, MessageAction)
-        self.assertEqual(dispatched_actions[3][2][0].action.message.content, "Final result")
+        self.assertIsInstance(dispatched_actions[0], AssistantDispatcherEvent)
+        self.assertIsInstance(dispatched_actions[0].action, NodeStartAction)
+        self.assertIsInstance(dispatched_actions[1], AssistantDispatcherEvent)
+        self.assertIsInstance(dispatched_actions[1].action, MessageAction)
+        self.assertEqual(dispatched_actions[1].action.message.content, "Processing...")
+        self.assertIsInstance(dispatched_actions[2], AssistantDispatcherEvent)
+        self.assertIsInstance(dispatched_actions[2].action, MessageAction)
+        self.assertEqual(dispatched_actions[2].action.message.content, "Done!")
+        self.assertIsInstance(dispatched_actions[3], AssistantDispatcherEvent)
+        self.assertIsInstance(dispatched_actions[3].action, MessageAction)
+        self.assertEqual(dispatched_actions[3].action.message.content, "Final result")
 
     async def test_node_start_action_dispatched(self):
         """Test that NODE_START action is dispatched at node entry."""
@@ -108,10 +109,8 @@ class TestDispatcherIntegration(BaseTest):
         dispatched_actions = []
 
         def capture_write(update):
-            if isinstance(update, tuple) and len(update) == 3:
-                _, event_type, event_data = update
-                if event_type == "action":
-                    dispatched_actions.append(event_data[0].action)
+            if isinstance(update, AssistantDispatcherEvent):
+                dispatched_actions.append(update.action)
 
         with patch("ee.hogai.graph.base.get_stream_writer", return_value=capture_write):
             await node(state, config)
@@ -122,14 +121,15 @@ class TestDispatcherIntegration(BaseTest):
         node_start_actions = [action for action in dispatched_actions if isinstance(action, NodeStartAction)]
         self.assertGreater(len(node_start_actions), 0)
 
-    async def test_parent_tool_call_id_propagation(self):
+    @patch("ee.hogai.graph.base.get_stream_writer")
+    async def test_parent_tool_call_id_propagation(self, mock_get_stream_writer):
         """Test that parent_tool_call_id is propagated to dispatched messages."""
         parent_tool_call_id = str(uuid.uuid4())
 
         class NodeWithParent(BaseAssistantNode):
             @property
             def node_name(self):
-                return "test_node"
+                return AssistantNodeName.ROOT
 
             async def arun(self, state, config: RunnableConfig) -> PartialAssistantState:
                 # Dispatch message - should inherit parent_tool_call_id from state
@@ -143,18 +143,11 @@ class TestDispatcherIntegration(BaseTest):
 
         dispatched_messages = []
 
-        async def capture_write(update):
-            if isinstance(update, tuple) and len(update) == 2:
-                event_type, event_data = update
-                if event_type == "custom":
-                    action_event, _ = event_data
-                    if hasattr(action_event, "action") and isinstance(action_event.action, MessageAction):
-                        dispatched_messages.append(action_event.action.message)
+        def capture_write(update):
+            if isinstance(update, AssistantDispatcherEvent) and isinstance(update.action, MessageAction):
+                dispatched_messages.append(update.action.message)
 
-        mock_writer_instance = MagicMock()
-        mock_writer_instance.__aiter__ = AsyncMock(return_value=iter([]))
-        mock_writer_instance.write = AsyncMock(side_effect=capture_write)
-        node.dispatcher.set_writer(mock_writer_instance)
+        mock_get_stream_writer.return_value = capture_write
 
         await node.arun(state, config)
 
@@ -166,13 +159,14 @@ class TestDispatcherIntegration(BaseTest):
             if msg.parent_tool_call_id:
                 self.assertEqual(msg.parent_tool_call_id, parent_tool_call_id)
 
-    async def test_dispatcher_error_handling(self):
+    @patch("ee.hogai.graph.base.get_stream_writer")
+    async def test_dispatcher_error_handling(self, mock_get_stream_writer):
         """Test that errors in dispatcher don't crash node execution."""
 
         class FailingDispatcherNode(BaseAssistantNode):
             @property
             def node_name(self):
-                return "failing_node"
+                return AssistantNodeName.ROOT
 
             async def arun(self, state, config: RunnableConfig) -> PartialAssistantState:
                 # Try to dispatch - if writer fails, should handle gracefully
@@ -185,10 +179,10 @@ class TestDispatcherIntegration(BaseTest):
         config = RunnableConfig()
 
         # Make writer raise an error
-        mock_writer_instance = MagicMock()
-        mock_writer_instance.__aiter__ = AsyncMock(return_value=iter([]))
-        mock_writer_instance.write = AsyncMock(side_effect=RuntimeError("Writer failed"))
-        node.dispatcher.set_writer(mock_writer_instance)
+        def failing_writer(data):
+            raise RuntimeError("Writer failed")
+
+        mock_get_stream_writer.return_value = failing_writer
 
         # Should not crash - node should complete
         result = await node.arun(state, config)
@@ -200,7 +194,7 @@ class TestDispatcherIntegration(BaseTest):
         class NodeReturningMessages(BaseAssistantNode):
             @property
             def node_name(self):
-                return "message_node"
+                return AssistantNodeName.ROOT
 
             async def arun(self, state, config: RunnableConfig) -> PartialAssistantState:
                 # Return messages in state - should be auto-dispatched
@@ -219,12 +213,8 @@ class TestDispatcherIntegration(BaseTest):
         dispatched_messages = []
 
         def capture_write(update):
-            if isinstance(update, tuple) and len(update) == 3:
-                _, event_type, event_data = update
-                if event_type == "action":
-                    action_event, _ = event_data
-                    if hasattr(action_event, "action") and isinstance(action_event.action, MessageAction):
-                        dispatched_messages.append(action_event.action.message)
+            if isinstance(update, AssistantDispatcherEvent) and isinstance(update.action, MessageAction):
+                dispatched_messages.append(update.action.message)
 
         with patch("ee.hogai.graph.base.get_stream_writer", return_value=capture_write):
             await node(state, config)
@@ -239,7 +229,7 @@ class TestDispatcherIntegration(BaseTest):
         class NoneStateNode(BaseAssistantNode):
             @property
             def node_name(self):
-                return "none_node"
+                return AssistantNodeName.ROOT
 
             async def arun(self, state, config: RunnableConfig) -> None:
                 # Dispatch a message but return None state
@@ -250,11 +240,6 @@ class TestDispatcherIntegration(BaseTest):
 
         state = AssistantState(messages=[])
         config = RunnableConfig()
-
-        mock_writer_instance = MagicMock()
-        mock_writer_instance.__aiter__ = AsyncMock(return_value=iter([]))
-        mock_writer_instance.write = AsyncMock()
-        node.dispatcher.set_writer(mock_writer_instance)
 
         result = await node(state, config)
         # Should handle None gracefully

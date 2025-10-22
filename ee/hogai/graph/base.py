@@ -102,20 +102,21 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
         if self._dispatcher:
             return self._dispatcher
 
-        dispatcher = AssistantDispatcher(node_name=str(self.node_name), parent_tool_call_id=self._parent_tool_call_id)
-
         # Set writer from LangGraph context
         try:
             writer = get_stream_writer()
-            dispatcher.set_writer(writer)
         except RuntimeError:
             # Not in streaming context (e.g., testing)
             # Use noop writer
             def noop(*_args, **_kwargs):
                 pass
 
-            dispatcher.set_writer(noop)
+            writer = noop
 
+        dispatcher = AssistantDispatcher(
+            writer, node_name=self.node_name, parent_tool_call_id=self._parent_tool_call_id
+        )
+        self._dispatcher = dispatcher
         return dispatcher
 
     async def _is_conversation_cancelled(self, conversation_id: UUID) -> bool:
