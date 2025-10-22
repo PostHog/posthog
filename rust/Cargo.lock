@@ -4291,6 +4291,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serve-metrics",
+ "sha2",
  "strum 0.27.2",
  "strum_macros 0.27.2",
  "tempfile",
@@ -7077,9 +7078,9 @@ checksum = "ae1a47186c03a32177042e55dbc5fd5aee900b8e0069a8d70fba96a9375cd012"
 
 [[package]]
 name = "sha2"
-version = "0.10.8"
+version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "793db75ad2bcafc3ffa7c68b215fee268f537982cd901d132f89c6343f3a3dc8"
+checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
 dependencies = [
  "cfg-if",
  "cpufeatures",

@@ -46,6 +46,9 @@ procs:
     temporal-worker-session-replay:
         shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue session-replay-task-queue --metrics-port 8010'
 
+    temporal-worker-analytics-platform:
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue analytics-platform-task-queue --metrics-port 8011'
+
     dagster:
         shell: |-
             bin/check_postgres_up && \

@@ -20,8 +20,10 @@ import type { Experiment } from '~/types'
 
 import { ExperimentTypePanel } from './ExperimentTypePanel'
 import { ExposureCriteriaPanel } from './ExposureCriteriaPanel'
-import { MetricsPanel } from './MetricsPanel/MetricsPanel'
+import { ExposureCriteriaPanelHeader } from './ExposureCriteriaPanelHeader'
+import { MetricsPanel, MetricsPanelHeader } from './MetricsPanel'
 import { VariantsPanel } from './VariantsPanel'
+import { VariantsPanelHeader } from './VariantsPanelHeader'
 import { createExperimentLogic } from './createExperimentLogic'
 
 const LemonFieldError = ({ error }: { error: string }): JSX.Element => {
@@ -109,12 +111,22 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
                     <SceneDivider />
                     <LemonCollapse
                         activeKey={selectedPanel ?? undefined}
-                        defaultActiveKey="experiment-variants"
+                        defaultActiveKey="experiment-exposure"
                         onChange={(key) => {
                             setSelectedPanel(key as string | null)
                         }}
                         className="bg-surface-primary"
                         panels={[
+                            {
+                                key: 'experiment-exposure',
+                                header: <ExposureCriteriaPanelHeader experiment={experiment} />,
+                                content: (
+                                    <ExposureCriteriaPanel
+                                        experiment={experiment}
+                                        onChange={(exposureCriteria) => exposureCriteria}
+                                    />
+                                ),
+                            },
                             ...(SHOW_EXPERIMENT_TYPE_PANEL
                                 ? [
                                       {
@@ -131,7 +143,7 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
                                 : []),
                             {
                                 key: 'experiment-variants',
-                                header: 'Feature flag & variants',
+                                header: <VariantsPanelHeader experiment={experiment} />,
                                 content: (
                                     <VariantsPanel
                                         experiment={experiment}
@@ -163,18 +175,8 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
                                   ]
                                 : []),
                             {
-                                key: 'experiment-exposure',
-                                header: 'Exposure criteria',
-                                content: (
-                                    <ExposureCriteriaPanel
-                                        experiment={experiment}
-                                        onChange={(exposureCriteria) => exposureCriteria}
-                                    />
-                                ),
-                            },
-                            {
                                 key: 'experiment-metrics',
-                                header: 'Metrics',
+                                header: <MetricsPanelHeader experiment={experiment} />,
                                 content: (
                                     <MetricsPanel
                                         experiment={experiment}
@@ -255,12 +257,6 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
                     />
                 </SceneContent>
             </Form>
-            {/* Sidebar Checklist */}
-            <div className="h-full">
-                <div className="sticky top-16">
-                    <span>Sidebar Checklist Goes Here</span>
-                </div>
-            </div>
         </div>
     )
 }
