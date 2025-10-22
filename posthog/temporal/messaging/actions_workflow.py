@@ -125,7 +125,7 @@ def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActionsRes
                     FROM prefiltered_events
                     WHERE
                         team_id = %(team_id)s
-                        AND condition = %(action_id)s
+                        AND condition = toString(%(action_id)s)
                         AND date >= now() - toIntervalDay(%(days)s)
                     GROUP BY team_id, person_id
                     HAVING count() >= %(min_matches)s -- TODO: We could test the performance of uniq here (instead of count) to deduplicate if needed.
