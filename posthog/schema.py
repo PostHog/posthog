@@ -4186,6 +4186,7 @@ class HogQLQueryModifiers(BaseModel):
     inCohortVia: Optional[InCohortVia] = None
     materializationMode: Optional[MaterializationMode] = None
     optimizeJoinedFilters: Optional[bool] = None
+    optimizeProjections: Optional[bool] = None
     personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
     personsJoinMode: Optional[PersonsJoinMode] = None
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
