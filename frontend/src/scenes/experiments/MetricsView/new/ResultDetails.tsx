@@ -30,7 +30,7 @@ import {
 
 import {
     ExperimentVariantResult,
-    formatChanceToWin,
+    formatChanceToWinForGoal,
     formatMetricValue,
     formatPValue,
     getIntervalLabel,
@@ -139,7 +139,7 @@ export function ResultDetails({
                 }
 
                 if (isBayesianResult(item)) {
-                    return <div className="font-semibold">{formatChanceToWin(item.chance_to_win)}</div>
+                    return <div className="font-semibold">{formatChanceToWinForGoal(item, metric.goal)}</div>
                 } else if (isFrequentistResult(item)) {
                     return <div className="font-semibold">{formatPValue(item.p_value)}</div>
                 }

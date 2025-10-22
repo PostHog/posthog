@@ -438,13 +438,14 @@ export function DashboardHeader(): JSX.Element | null {
                                 Exit full screen
                             </LemonButton>
                         ) : (
-                            <div className="flex gap-2">
+                            <>
                                 {dashboard && (
                                     <>
                                         <LemonButton
                                             type="secondary"
                                             data-attr="dashboard-share-button"
                                             onClick={() => push(urls.dashboardSharing(dashboard.id))}
+                                            size="small"
                                         >
                                             Share
                                         </LemonButton>
@@ -463,6 +464,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                 }}
                                                 data-attr="add-text-tile-to-dashboard"
                                                 type="secondary"
+                                                size="small"
                                             >
                                                 Add text card
                                             </LemonButton>
@@ -492,6 +494,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                     onClick={showAddInsightToDashboardModal}
                                                     type="primary"
                                                     data-attr="dashboard-add-graph-header"
+                                                    size="small"
                                                 >
                                                     Add insight
                                                 </LemonButton>
@@ -499,7 +502,7 @@ export function DashboardHeader(): JSX.Element | null {
                                         </MaxTool>
                                     </>
                                 ) : null}
-                            </div>
+                            </>
                         )}
                     </>
                 }
