@@ -64,9 +64,10 @@ from posthog.models import Action
 
 from ee.hogai.assistant.base import BaseAssistant
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.graph.base import AssistantCompiledStateGraph
 from ee.hogai.graph.deep_research.types import DeepResearchNodeName
 from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
-from ee.hogai.graph.graph import AssistantCompiledStateGraph
+from ee.hogai.graph.insights_graph.graph import InsightsGraph
 from ee.hogai.graph.memory import prompts as memory_prompts
 from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
 from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
@@ -84,7 +85,7 @@ from ee.hogai.utils.types.base import ReplaceMessages
 from ee.models.assistant import Conversation, CoreMemory
 
 from ..assistant import Assistant
-from ..graph import AssistantGraph, InsightsAssistantGraph
+from ..graph import AssistantGraph
 
 title_generator_mock = patch(
     "ee.hogai.graph.title_generator.nodes.TitleGeneratorNode._model",
@@ -123,7 +124,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ),
         ).start()
 
-        self.checkpointer_patch = patch("ee.hogai.graph.graph.global_checkpointer", new=DjangoCheckpointer())
+        self.checkpointer_patch = patch("ee.hogai.graph.base.graph.global_checkpointer", new=DjangoCheckpointer())
         self.checkpointer_patch.start()
 
     def tearDown(self):
@@ -257,7 +258,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     )
     async def test_reasoning_messages_added(self, _mock_query_executor_run, _mock_query_planner_run):
         output, _ = await self._run_assistant_graph(
-            InsightsAssistantGraph(self.team, self.user)
+            InsightsGraph(self.team, self.user)
             .add_edge(AssistantNodeName.START, AssistantNodeName.QUERY_PLANNER)
             .add_query_planner(
                 {
@@ -347,7 +348,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     )
     async def test_reasoning_messages_with_substeps_added(self, _mock_query_planner_run):
         output, _ = await self._run_assistant_graph(
-            InsightsAssistantGraph(self.team, self.user)
+            InsightsGraph(self.team, self.user)
             .add_edge(AssistantNodeName.START, AssistantNodeName.QUERY_PLANNER)
             .add_query_planner(
                 {
@@ -466,7 +467,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ),
         ):
             test_graph = (
-                InsightsAssistantGraph(self.team, self.user)
+                InsightsGraph(self.team, self.user)
                 .add_edge(AssistantNodeName.START, AssistantNodeName.QUERY_PLANNER)
                 .add_query_planner(
                     {
@@ -528,12 +529,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_root(
                 {
-                    "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
                     "root": AssistantNodeName.ROOT,
                     "end": AssistantNodeName.END,
                 }
             )
-            .add_insights(AssistantNodeName.ROOT)
             .compile()
         )
 
@@ -563,7 +562,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                         {
                             "id": "1",
                             "name": "create_and_query_insight",
-                            "args": {"query_description": "Foobar", "query_kind": insight_type},
+                            "args": {"query_description": "Foobar"},
                         }
                     ],
                 )
@@ -615,7 +614,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     async def test_ai_messages_appended_after_interrupt(self):
         with patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model") as mock:
-            graph = InsightsAssistantGraph(self.team, self.user).compile_full_graph()
+            graph = InsightsGraph(self.team, self.user).compile_full_graph()
             config: RunnableConfig = {
                 "configurable": {
                     "thread_id": self.conversation.id,
@@ -795,7 +794,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     {
                         "id": "xyz",
                         "name": "create_and_query_insight",
-                        "args": {"query_description": "Foobar", "query_kind": "trends"},
+                        "args": {"query_description": "Foobar"},
                     }
                 ],
             )
@@ -867,7 +866,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     {
                         "id": "xyz",
                         "name": "create_and_query_insight",
-                        "args": {"query_description": "Foobar", "query_kind": "funnel"},
+                        "args": {"query_description": "Foobar"},
                     }
                 ],
             )
@@ -946,7 +945,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     {
                         "id": "xyz",
                         "name": "create_and_query_insight",
-                        "args": {"query_description": "Foobar", "query_kind": "retention"},
+                        "args": {"query_description": "Foobar"},
                     }
                 ],
             )
@@ -1023,7 +1022,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     {
                         "id": "xyz",
                         "name": "create_and_query_insight",
-                        "args": {"query_description": "Foobar", "query_kind": "sql"},
+                        "args": {"query_description": "Foobar"},
                     }
                 ],
             )
@@ -1255,7 +1254,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                         {
                             "id": str(uuid4()),
                             "name": "create_and_query_insight",
-                            "args": {"query_description": "Foobar", "query_kind": "trends"},
+                            "args": {"query_description": "Foobar"},
                         }
                     ],
                 )
@@ -1336,7 +1335,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                         {
                             "id": "1",
                             "name": "create_and_query_insight",
-                            "args": {"query_description": "Foobar", "query_kind": "trends"},
+                            "args": {"query_description": "Foobar"},
                         }
                     ],
                 )
@@ -1680,7 +1679,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     {
                         "id": "xyz",
                         "name": "create_and_query_insight",
-                        "args": {"query_description": "Foobar", "query_kind": "trends"},
+                        "args": {"query_description": "Foobar"},
                     }
                 ],
             )
@@ -1719,11 +1718,9 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             .add_root(
                 {
                     "root": AssistantNodeName.ROOT,
-                    "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
                     "end": AssistantNodeName.END,
                 }
             )
-            .add_insights()
             .compile(),
             conversation=self.conversation,
             is_new_conversation=True,
@@ -1736,8 +1733,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("conversation", self.conversation),
             ("message", HumanMessage(content="Hello")),
             ("message", ReasoningMessage(content="Coming up with an insight")),
-            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
-            ("message", ReasoningMessage(content="Creating trends query")),
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
             (
                 "message",
@@ -1745,7 +1740,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     content="The results indicate a great future for you.",
                     tool_call_id="xyz",
                     ui_payload={"create_and_query_insight": query.model_dump(exclude_none=True)},
-                    visible=False,
+                    visible=True,
                 ),
             ),
             ("message", AssistantMessage(content="Everything is fine")),
@@ -1756,7 +1751,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         state = AssistantState.model_validate(snapshot.values)
         expected_state_messages = [
             ContextMessage(
-                content="<system_reminder>\nContextual tools that are available to you on this page are:\n<create_and_query_insight>\nThe user is currently editing an insight (aka query). Here is that insight's current definition, which can be edited using the `create_and_query_insight` tool:\n\n```json\nquery\n```\n\nIMPORTANT: DO NOT REMOVE ANY FIELDS FROM THE CURRENT INSIGHT DEFINITION. DO NOT CHANGE ANY OTHER FIELDS THAN THE ONES THE USER ASKED FOR. KEEP THE REST AS IS.\n</create_and_query_insight>\nIMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.\n</system_reminder>"
+                content="<system_reminder>\nContextual tools that are available to you on this page are:\n<create_and_query_insight>\nThe user is currently editing an insight (aka query). Here is that insight's current definition, which can be edited using the `create_and_query_insight` tool:\n\n```json\nquery\n```\n\n<system_reminder>\nDo not remove any fields from the current insight definition. Do not change any other fields than the ones the user asked for. Keep the rest as is.\n</system_reminder>\n</create_and_query_insight>\nIMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.\n</system_reminder>"
             ),
             HumanMessage(content="Hello"),
             AssistantMessage(
@@ -1765,7 +1760,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     AssistantToolCall(
                         id="xyz",
                         name="create_and_query_insight",
-                        args={"query_description": "Foobar", "query_kind": "trends"},
+                        args={"query_description": "Foobar"},
                     )
                 ],
             ),
@@ -1774,7 +1769,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 content="The results indicate a great future for you.",
                 tool_call_id="xyz",
                 ui_payload={"create_and_query_insight": query.model_dump(exclude_none=True)},
-                visible=False,
+                visible=True,
             ),
             AssistantMessage(content="Everything is fine"),
         ]
