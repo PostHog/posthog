@@ -13,7 +13,7 @@ from langchain_core.messages import (
 from langchain_core.runnables import RunnableLambda
 from langgraph.errors import NodeInterrupt
 
-from posthog.schema import AssistantMessage, EventTaxonomyItem, HumanMessage
+from posthog.schema import AssistantMessage, ContextMessage, EventTaxonomyItem, HumanMessage
 
 from ee.hogai.graph.memory import prompts
 from ee.hogai.graph.memory.nodes import (
@@ -571,6 +571,9 @@ class TestMemoryOnboardingFinalizeNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(
                 cast(AssistantMessage, new_state.messages[0]).content, prompts.SCRAPING_MEMORY_SAVED_MESSAGE
             )
+            self.assertIsInstance(new_state.messages[1], ContextMessage)
+            self.assertEqual(new_state.messages[1].id, new_state.root_conversation_start_id)
+            self.assertEqual(new_state.messages[1].id, new_state.start_id)
             self.core_memory.refresh_from_db()
             self.assertEqual(self.core_memory.text, "Compressed memory about enterprise product")
 

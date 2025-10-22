@@ -373,7 +373,7 @@ class MemoryOnboardingFinalizeNode(AssistantNode):
                 context_message,
             ],
             start_id=context_message.id,
-            root_window_start_id=context_message.id,
+            root_conversation_start_id=context_message.id,
         )
 
     @property
