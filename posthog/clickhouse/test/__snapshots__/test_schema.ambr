@@ -1075,7 +1075,7 @@
 # name: test_create_table_query[events_recent_json_mv]
   '''
   
-  CREATE MATERIALIZED VIEW IF NOT EXISTS events_recent_json_mv ON CLUSTER 'posthog'
+  CREATE MATERIALIZED VIEW IF NOT EXISTS events_recent_json_mv
   TO posthog_test.writable_events_recent
   AS SELECT
   uuid,
