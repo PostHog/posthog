@@ -20,8 +20,8 @@ export function StepBars({ step, stepIndex }: StepBarsProps): JSX.Element {
                     />
                 ))}
             </div>
-            {step.nested_breakdown?.map((series) => (
-                <StepBar key={`bar-${stepIndex}-${series.order}`} step={series} stepIndex={stepIndex} />
+            {step.nested_breakdown?.map((series, i) => (
+                <StepBar key={`bar-${stepIndex}-${i}`} step={series} stepIndex={stepIndex} />
             )) || <StepBar step={step} stepIndex={stepIndex} />}
         </div>
     )

@@ -35,7 +35,7 @@ describe('CyclotronJobQueueDelay', () => {
     beforeEach(() => {
         config = { ...defaultConfig }
         mockConsumeBatch = jest.fn().mockResolvedValue({ backgroundTask: Promise.resolve() })
-        delayQueue = new CyclotronJobQueueDelay(config, 'delay_10m', mockConsumeBatch)
+        delayQueue = new CyclotronJobQueueDelay(config, 'delay10m', mockConsumeBatch)
 
         jest.clearAllMocks()
 
@@ -90,11 +90,11 @@ describe('CyclotronJobQueueDelay', () => {
                 value: Buffer.from('test-value'),
                 offset: 123,
                 size: 100,
-                topic: 'cdp_cyclotron_delay_10m',
+                topic: 'cdp_cyclotron_delay10m',
                 partition: 0,
                 headers: [
                     {
-                        returnTopic: Buffer.from('delay_10m'),
+                        returnTopic: Buffer.from('delay10m'),
                         queueScheduledAt: Buffer.from(DateTime.now().plus({ minutes: 1 }).toISO()),
                     },
                 ],

@@ -12,6 +12,7 @@ from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.experiments.base_query_utils import (
+    conversion_window_to_seconds,
     event_or_action_to_filter,
     funnel_evaluation_expr,
     funnel_steps_to_filter,
@@ -283,11 +284,38 @@ class ExperimentQueryBuilder:
 
     def _build_funnel_steps_filter(self) -> ast.Expr:
         """
-        Returns the OR expression for all funnel steps (matches ANY step).
-        NB: Includes the exposure criteria as the first step!
+        Returns the expression to filter funnel steps (matches ANY step) within
+        the time period of the experiment + the conversion window if set.
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
-        return funnel_steps_to_filter(self.team, self.metric.series)
+
+        conversion_window_seconds = 0
+        if self.metric.conversion_window and self.metric.conversion_window_unit:
+            conversion_window_seconds = conversion_window_to_seconds(
+                self.metric.conversion_window,
+                self.metric.conversion_window_unit,
+            )
+            date_to = parse_expr(
+                "{to_date} + toIntervalSecond({conversion_window_seconds})",
+                placeholders={
+                    "to_date": self.date_range_query.date_to_as_hogql(),
+                    "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
+                },
+            )
+        else:
+            date_to = self.date_range_query.date_to_as_hogql()
+
+        return parse_expr(
+            """
+            timestamp >= {date_from} AND timestamp <= {date_to}
+            AND {funnel_steps_filter}
+            """,
+            placeholders={
+                "date_from": self.date_range_query.date_from_as_hogql(),
+                "date_to": date_to,
+                "funnel_steps_filter": funnel_steps_to_filter(self.team, self.metric.series),
+            },
+        )
 
     def _build_funnel_aggregation_expr(self) -> ast.Expr:
         """

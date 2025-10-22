@@ -28,7 +28,7 @@ where
 #[derive(Debug, Clone, Copy)]
 pub enum FlagRequestType {
     Decide,
-    LocalEvaluation,
+    FlagDefinitions,
 }
 
 #[derive(Default, Debug, Deserialize, Serialize)]
