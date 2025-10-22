@@ -8,6 +8,8 @@ import { dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
+import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
+import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -651,6 +653,22 @@ export class ApiRequest {
 
     public sessionPropertyDefinitions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('sessions').addPathComponent('property_definitions')
+    }
+
+    public schemaPropertyGroups(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('schema_property_groups')
+    }
+
+    public schemaPropertyGroupsDetail(id: string, projectId?: ProjectType['id']): ApiRequest {
+        return this.schemaPropertyGroups(projectId).addPathComponent(id)
+    }
+
+    public eventSchemas(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('event_schemas')
+    }
+
+    public eventSchemasDetail(id: string, projectId?: ProjectType['id']): ApiRequest {
+        return this.eventSchemas(projectId).addPathComponent(id)
     }
 
     public dataManagementActivity(teamId?: TeamType['id']): ApiRequest {
@@ -2253,6 +2271,43 @@ const api = {
                 .sessionPropertyDefinitions(teamId)
                 .withQueryString(toParams({ search, ...(properties ? { properties: properties.join(',') } : {}) }))
                 .get()
+        },
+    },
+
+    schemaPropertyGroups: {
+        async list(projectId?: ProjectType['id']): Promise<{ results: SchemaPropertyGroup[] }> {
+            return new ApiRequest().schemaPropertyGroups(projectId).get()
+        },
+        async get(id: string, projectId?: ProjectType['id']): Promise<SchemaPropertyGroup> {
+            return new ApiRequest().schemaPropertyGroupsDetail(id, projectId).get()
+        },
+        async create(data: Partial<SchemaPropertyGroup>, projectId?: ProjectType['id']): Promise<SchemaPropertyGroup> {
+            return new ApiRequest().schemaPropertyGroups(projectId).create({ data })
+        },
+        async update(
+            id: string,
+            data: Partial<SchemaPropertyGroup>,
+            projectId?: ProjectType['id']
+        ): Promise<SchemaPropertyGroup> {
+            return new ApiRequest().schemaPropertyGroupsDetail(id, projectId).update({ data })
+        },
+        async delete(id: string, projectId?: ProjectType['id']): Promise<void> {
+            return new ApiRequest().schemaPropertyGroupsDetail(id, projectId).delete()
+        },
+    },
+
+    eventSchemas: {
+        async list(eventDefinitionId: string, projectId?: ProjectType['id']): Promise<{ results: EventSchema[] }> {
+            return new ApiRequest()
+                .eventSchemas(projectId)
+                .withQueryString(toParams({ event_definition: eventDefinitionId }))
+                .get()
+        },
+        async create(data: Partial<EventSchema>, projectId?: ProjectType['id']): Promise<EventSchema> {
+            return new ApiRequest().eventSchemas(projectId).create({ data })
+        },
+        async delete(id: string, projectId?: ProjectType['id']): Promise<void> {
+            return new ApiRequest().eventSchemasDetail(id, projectId).delete()
         },
     },
 

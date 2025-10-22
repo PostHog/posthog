@@ -51,7 +51,10 @@ export function RenameModal({ typeKey, view }: RenameModalProps): JSX.Element {
                 onPressEnter={() => renameFilter(name)}
                 onChange={(value) => setName(value)}
                 suffix={
-                    <span className="text-secondary whitespace-nowrap">
+                    <span
+                        className="text-secondary truncate max-w-[200px]"
+                        title={getDisplayNameFromEntityFilter(selectedFilter, false) ?? ''}
+                    >
                         {getDisplayNameFromEntityFilter(selectedFilter, false) ?? ''}
                     </span>
                 }
