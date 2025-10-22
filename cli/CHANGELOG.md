@@ -1,5 +1,9 @@
 # posthog-cli
 
+# 0.5.4
+
+- Added no fail flag to disable non-zero exit codes on errors.
+
 # 0.5.3
 
 - Add support for ignoring public path prefixes appended by bundlers to sourceMappingURLs when searching for sourcemaps
