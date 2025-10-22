@@ -26,6 +26,9 @@ metadata:
           title: Multi-step workflows
         - key: environment
           title: Environment and shell
+    # Services/topics describe PostHog's infrastructure for new developers.
+    # They appear in command help text and `hogli meta:concepts` output.
+    # Each service explains what it does and why it matters to PostHog.
     services:
         flox:
             name: Flox
@@ -61,6 +64,26 @@ metadata:
             name: Testing
             about: Automated test suites (unit, integration, E2E) to ensure code quality
                 and prevent regressions.
+        celery:
+            name: Celery
+            about: Distributed task queue for running background jobs like async exports,
+                scheduled tasks, and email sending.
+        plugin-server:
+            name: Plugin server
+            about: Event ingestion pipeline that processes incoming events, runs plugins,
+                and writes to ClickHouse.
+        django:
+            name: Django
+            about: Python web framework powering PostHog's backend API, admin interface,
+                and business logic.
+        frontend:
+            name: Frontend
+            about: React-based web application providing PostHog's user interface. Built
+                with TypeScript, Vite, and Kea for state management.
+        mprocs:
+            name: mprocs
+            about: Process orchestrator that runs all dev services in parallel with live
+                output and easy process management.
 core:
     categories:
         description: Show all available commands grouped by category
@@ -119,7 +142,12 @@ start:
         bin_script: start
         description: Main entry point that launches all dev services via mprocs orchestrator
         services:
+            - mprocs
             - docker
+            - django
+            - frontend
+            - celery
+            - plugin-server
             - postgresql
             - redis
             - kafka
@@ -129,6 +157,7 @@ start:
         bin_script: start-backend
         description: Run Django development server on port 8000 with auto-reload
         services:
+            - django
             - postgresql
             - redis
         hidden: true
@@ -136,6 +165,7 @@ start:
         bin_script: start-celery
         description: Start Celery worker or beat scheduler with auto-reload
         services:
+            - celery
             - redis
             - kafka
         hidden: true
@@ -143,6 +173,7 @@ start:
         bin_script: start-frontend
         description: Install dependencies and start frontend with Vite dev server
         services:
+            - frontend
             - docker
         hidden: true
     start:frontend-vite:
@@ -153,6 +184,8 @@ start:
         bin_script: start-worker
         description: Launch all background workers (Celery worker, beat scheduler, plugin-server)
         services:
+            - celery
+            - plugin-server
             - kafka
             - temporal
             - redis
@@ -174,6 +207,8 @@ build:
     build:frontend:
         cmd: pnpm --filter=@posthog/frontend build
         description: Build frontend packages and run TypeScript compilation
+        services:
+            - frontend
     build:schema-json:
         cmd: pnpm --filter=@posthog/frontend run schema:build:json
         description: Generate schema.json from frontend
