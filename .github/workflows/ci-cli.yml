@@ -43,15 +43,32 @@ jobs:
 
                   echo "📝 Updating POSTHOG_DOCS_REF=${PR_BRANCH} for preview branch feat/docs-monorepo-poc"
 
-                  # PATCH with key name - upserts if doesn't exist
-                  curl -X PATCH "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}/env/POSTHOG_DOCS_REF?teamId=${VERCEL_TEAM_ID}" \
+                  # Delete existing env var if it exists (ignore 404 errors)
+                  curl -s -X DELETE "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}/env/POSTHOG_DOCS_REF?teamId=${VERCEL_TEAM_ID}&gitBranch=feat/docs-monorepo-poc&target=preview" \
+                    -H "Authorization: Bearer $VERCEL_TOKEN" || true
+
+                  # Create new env var with updated value
+                  RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/env?teamId=${VERCEL_TEAM_ID}" \
                     -H "Authorization: Bearer $VERCEL_TOKEN" \
                     -H "Content-Type: application/json" \
                     -d '{
+                      "key": "POSTHOG_DOCS_REF",
                       "value": "'"$PR_BRANCH"'",
+                      "type": "encrypted",
                       "target": ["preview"],
                       "gitBranch": "feat/docs-monorepo-poc"
-                    }'
+                    }')
+
+                  HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+                  BODY=$(echo "$RESPONSE" | head -n-1)
+
+                  if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 201 ]; then
+                    echo "✅ Successfully updated env var to: ${PR_BRANCH}"
+                  else
+                    echo "❌ Failed to update env var (HTTP $HTTP_CODE)"
+                    echo "$BODY" | jq '.' 2>/dev/null || echo "$BODY"
+                    exit 1
+                  fi
 
                   echo "   Waiting 5 seconds for env var to propagate..."
                   sleep 5
