@@ -384,7 +384,15 @@ export function Results({
         return orderedSections
             .map((section) => [section, newTabSceneDataGroupedItems[section] || []] as [string, any[]])
             .filter(([section, items]) => {
-                // Always show enabled sections (even when empty) for data sections
+                // When searching, hide empty data sections (persons, events, properties)
+                const isSearching = search.trim() !== ''
+                const isDataSection = ['persons', 'eventDefinitions', 'propertyDefinitions'].includes(section)
+
+                if (isSearching && isDataSection && items.length === 0) {
+                    return false
+                }
+
+                // Always show enabled sections for data sections when not searching
                 if (section === 'persons' && (showAll || newTabSceneDataInclude.includes('persons'))) {
                     return true
                 }
