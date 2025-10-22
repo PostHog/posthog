@@ -16,8 +16,8 @@ COMMENT 'column_materializer::properties::$ai_session_id'
 ADD_INDEX_SHARDED_EVENTS = """
 ALTER TABLE sharded_events
 ADD INDEX IF NOT EXISTS `bloom_filter_$ai_session_id` `mat_$ai_session_id`
-TYPE bloom_filter(0.001)
-GRANULARITY 2
+TYPE bloom_filter
+GRANULARITY 1
 """
 
 operations = [
