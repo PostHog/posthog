@@ -532,9 +532,9 @@ class TestMemoryEnquiryInterruptNode(ClickhouseTestMixin, BaseTest):
         self.core_memory = CoreMemory.objects.create(team=self.team)
         self.node = MemoryOnboardingEnquiryInterruptNode(team=self.team, user=self.user)
 
-    def test_run(self):
+    async def test_run(self):
         with self.assertRaises(NodeInterrupt) as e:
-            self.node.run(
+            await self.node.arun(
                 AssistantState(
                     messages=[AssistantMessage(content="What is your name?"), HumanMessage(content="Hello")],
                     onboarding_question="What is your target market?",
@@ -545,7 +545,7 @@ class TestMemoryEnquiryInterruptNode(ClickhouseTestMixin, BaseTest):
         self.assertIsInstance(e.exception.args[0][0].value, AssistantMessage)
         self.assertEqual(e.exception.args[0][0].value.content, "What is your target market?")
 
-        new_state = self.node.run(
+        new_state = await self.node.arun(
             AssistantState(
                 messages=[AssistantMessage(content="What is your target market?"), HumanMessage(content="Hello")],
                 onboarding_question="What is your target market?",
@@ -567,7 +567,7 @@ class TestMemoryOnboardingFinalizeNode(ClickhouseTestMixin, BaseTest):
             self.core_memory.initial_text = "Question: What does the company do?\nAnswer: Product description"
             self.core_memory.save()
             new_state = self.node.run(AssistantState(messages=[]), {})
-            self.assertEqual(len(new_state.messages), 1)
+            self.assertEqual(len(new_state.messages), 2)
             self.assertEqual(
                 cast(AssistantMessage, new_state.messages[0]).content, prompts.SCRAPING_MEMORY_SAVED_MESSAGE
             )
@@ -599,7 +599,7 @@ Additional context: Our system also handles nested configurations like {"feature
             # This should not raise a KeyError about missing template variables
             new_state = self.node.run(AssistantState(messages=[]), {})
 
-            self.assertEqual(len(new_state.messages), 1)
+            self.assertEqual(len(new_state.messages), 2)
             self.assertEqual(
                 cast(AssistantMessage, new_state.messages[0]).content, prompts.SCRAPING_MEMORY_SAVED_MESSAGE
             )

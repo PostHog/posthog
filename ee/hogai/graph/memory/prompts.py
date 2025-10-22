@@ -248,3 +248,9 @@ If you have no more questions to ask, or you consider your job done, just output
 </format_instructions>
 """.strip()
 )
+
+MEMORY_INITIALIZED_CONTEXT_PROMPT = """
+{{{core_memory}}}
+
+<system_reminder>You have just initialized the core memory for a user's product.</system_reminder>
+""".strip()
