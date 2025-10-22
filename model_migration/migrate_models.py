@@ -25,6 +25,7 @@ from import_patterns import (
     ModelsPackageLevelImport,
     PackageLevelImport,
 )
+from simple_import_replacer import ImportPathPattern, SimpleImportReplacer
 
 logger = logging.getLogger(__name__)
 
@@ -1324,9 +1325,72 @@ class {app_name.title()}Config(AppConfig):
         return True
 
     def _update_imports_for_module(self, module_name: str, target_app: str):
-        """Update imports for a specific module using libcst"""
-        logger.info("🔄 Using libcst to update imports for %s...", module_name)
+        """Update imports for a specific module using simple regex or libcst"""
+        # For non-merge (simple module move) migrations, use fast regex replacer
+        if not self.merge_models:
+            logger.info("🔄 Using simple regex to update imports for %s...", module_name)
+            return self._update_imports_for_module_regex(module_name, target_app)
 
+        # For merge-mode migrations, use libcst for semantic understanding
+        logger.info("🔄 Using libcst to update imports for %s...", module_name)
+        return self._update_imports_for_module_libcst(module_name, target_app)
+
+    def _update_imports_for_module_regex(self, module_name: str, target_app: str) -> bool:
+        """Update imports using simple regex replacement (preserves lazy imports)"""
+        # Get the target path for the new location
+        target_base_path = f"products.{target_app}.backend"
+
+        # Create pattern for the module migration
+        pattern = ImportPathPattern(
+            source_pattern=self.import_base_path,
+            target_path=target_base_path,
+        )
+        replacer = SimpleImportReplacer([pattern])
+
+        updated_files = 0
+
+        # Find files that might contain imports from the old location
+        logger.info("Finding files with imports from %s...", self.import_base_path)
+
+        relevant_patterns = [
+            f"{self.import_base_path}\\.",  # Any import from the old location
+        ]
+
+        candidate_files = set()
+        for grep_pattern in relevant_patterns:
+            try:
+                result = subprocess.run(
+                    ["grep", "-r", "-l", "--include=*.py", grep_pattern, str(self.root_dir)],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if result.returncode == 0:
+                    files = result.stdout.strip().split("\n")
+                    candidate_files.update(Path(f) for f in files if f)
+            except Exception as e:
+                logger.warning("Failed to grep for pattern %s: %s", grep_pattern, e)
+
+        logger.info("Found %d candidate files to process", len(candidate_files))
+
+        # Process files with simple regex replacement
+        for file_path in candidate_files:
+            if not file_path.exists():
+                continue
+
+            try:
+                if replacer.replace_in_file(file_path):
+                    updated_files += 1
+                    logger.debug("Updated imports in %s", file_path)
+            except Exception as e:
+                logger.warning("Failed to process %s: %s", file_path, e)
+                continue
+
+        logger.info("✅ Updated imports in %d files", updated_files)
+        return True
+
+    def _update_imports_for_module_libcst(self, module_name: str, target_app: str) -> bool:
+        """Update imports using libcst (for merge-mode migrations)"""
         # Get model class names that were moved from this module
         # Use source_base_path which is set during migration_spec initialization
         model_names = self._extract_class_names_from_files([f"{module_name}.py"])
@@ -1340,8 +1404,6 @@ class {app_name.title()}Config(AppConfig):
 
         # First, find files that actually contain imports we need to update
         logger.info("Finding files with relevant imports...")
-
-        import subprocess
 
         # Handle both direct files and subdirectories for search patterns
         if "/" in module_name:
