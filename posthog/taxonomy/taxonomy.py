@@ -1887,6 +1887,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The trace ID of the request made to the LLM API. Used to group together multiple generations into a single trace.",
             "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"],
         },
+        "$ai_session_id": {
+            "label": "AI Session ID (LLM)",
+            "description": "Groups related traces together in a session (e.g., a conversation or workflow). One session can contain many traces.",
+            "examples": ["session-abc-123", "conv-user-456"],
+        },
         "$ai_request_url": {
             "label": "AI Request URL (LLM)",
             "description": "The full URL of the request made to the LLM API.",

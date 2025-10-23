@@ -54,7 +54,7 @@ export const processAiEvent = (event: PluginEvent): PluginEvent | EventWithPrope
 
 export const normalizeTraceProperties = (event: EventWithProperties): EventWithProperties => {
     // List of properties that should always be strings
-    const keys = ['$ai_trace_id', '$ai_parent_id', '$ai_span_id', '$ai_generation_id']
+    const keys = ['$ai_trace_id', '$ai_parent_id', '$ai_span_id', '$ai_generation_id', '$ai_session_id']
 
     for (const key of keys) {
         const value: unknown = event.properties[key]
