@@ -1,35 +1,27 @@
-import { Message } from 'node-rdkafka'
+import { KafkaMessage } from 'kafkajs'
 
 import { createAiGenerationEvent, createEvaluation, createEvaluationCondition } from '~/llm-analytics/_tests/fixtures'
-import { Evaluation } from '~/llm-analytics/types'
-import { Hub, RawKafkaEvent } from '~/types'
+import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
-import { parseJSON } from '~/utils/json-parse'
 
-import { EvaluationManagerService } from '../../llm-analytics/services/evaluation-manager.service'
-import { TemporalService } from '../../llm-analytics/services/temporal.service'
+import {
+    EvaluationMatcher,
+    checkRolloutPercentage,
+    filterAndParseMessages,
+    groupEventsByTeam,
+} from './evaluation-scheduler'
 
 jest.mock('../../llm-analytics/services/temporal.service')
 jest.mock('../../llm-analytics/services/evaluation-manager.service')
+jest.mock('../../cdp/utils/hog-exec')
 
 describe('Evaluation Scheduler', () => {
     let hub: Hub
-    let mockTemporalService: jest.Mocked<TemporalService>
-    let mockEvaluationManager: jest.Mocked<EvaluationManagerService>
 
     const teamId = 1
 
     beforeEach(async () => {
         hub = await createHub()
-
-        mockTemporalService = {
-            startEvaluationWorkflow: jest.fn().mockResolvedValue({ workflowId: 'test-workflow-id' }),
-            disconnect: jest.fn().mockResolvedValue(undefined),
-        } as any
-
-        mockEvaluationManager = {
-            getEvaluationsForTeams: jest.fn().mockResolvedValue({}),
-        } as any
     })
 
     afterEach(async () => {
@@ -37,197 +29,226 @@ describe('Evaluation Scheduler', () => {
         jest.clearAllMocks()
     })
 
-    describe('event filtering', () => {
-        it('malformed event JSON throws an error', () => {
-            const malformedMessage: Message = {
-                partition: 1,
-                topic: 'test',
-                offset: 0,
-                timestamp: Date.now(),
-                size: 1,
-                value: Buffer.from('not valid json{'),
-            }
+    describe('filterAndParseMessages', () => {
+        it('filters messages by productTrack header and parses JSON', () => {
+            const messages: KafkaMessage[] = [
+                {
+                    headers: { productTrack: Buffer.from('llma') },
+                    value: Buffer.from(JSON.stringify(createAiGenerationEvent(teamId))),
+                } as any,
+                {
+                    headers: { productTrack: Buffer.from('general') },
+                    value: Buffer.from(JSON.stringify({ event: '$pageview', team_id: teamId })),
+                } as any,
+                {
+                    headers: { productTrack: Buffer.from('llma') },
+                    value: Buffer.from(JSON.stringify(createAiGenerationEvent(teamId))),
+                } as any,
+            ]
 
-            expect(() => parseJSON(malformedMessage.value!.toString())).toThrow()
+            const result = filterAndParseMessages(messages)
+
+            expect(result).toHaveLength(2)
+            result.forEach((event) => expect(event.event).toContain('$ai'))
+        })
+
+        it('handles malformed JSON gracefully', () => {
+            const messages: KafkaMessage[] = [
+                {
+                    headers: { productTrack: Buffer.from('llma') },
+                    value: Buffer.from('invalid json{'),
+                } as any,
+                {
+                    headers: { productTrack: Buffer.from('llma') },
+                    value: Buffer.from(JSON.stringify(createAiGenerationEvent(teamId))),
+                } as any,
+            ]
+
+            const result = filterAndParseMessages(messages)
+
+            expect(result).toHaveLength(1)
+        })
+
+        it('filters out messages without llma header', () => {
+            const messages: KafkaMessage[] = [
+                {
+                    headers: { productTrack: Buffer.from('general') },
+                    value: Buffer.from(JSON.stringify({ event: '$pageview' })),
+                } as any,
+                {
+                    value: Buffer.from(JSON.stringify({ event: '$pageview' })),
+                } as any,
+            ]
+
+            const result = filterAndParseMessages(messages)
+
+            expect(result).toHaveLength(0)
         })
     })
 
-    describe('condition matching', () => {
-        it('matches evaluation when bytecode returns true', () => {
-            const condition = createEvaluationCondition({
-                rollout_percentage: 100,
-                properties: [],
-                bytecode: ['_H', 1, 32, true], // Simple bytecode that returns true
-            })
+    describe('groupEventsByTeam', () => {
+        it('groups events by team_id', () => {
+            const events = [
+                createAiGenerationEvent(1),
+                createAiGenerationEvent(1),
+                createAiGenerationEvent(2),
+                createAiGenerationEvent(3),
+                createAiGenerationEvent(1),
+            ]
 
-            expect(condition.bytecode).toBeDefined()
+            const grouped = groupEventsByTeam(events)
+
+            expect(grouped.size).toBe(3)
+            expect(grouped.get(1)).toHaveLength(3)
+            expect(grouped.get(2)).toHaveLength(1)
+            expect(grouped.get(3)).toHaveLength(1)
         })
 
-        it('skips evaluation when bytecode has errors', () => {
-            const condition = createEvaluationCondition({
-                rollout_percentage: 100,
-                properties: [],
-                bytecode_error: 'Failed to compile',
-            })
+        it('handles empty array', () => {
+            const grouped = groupEventsByTeam([])
+            expect(grouped.size).toBe(0)
+        })
+    })
 
-            expect(condition.bytecode_error).toBe('Failed to compile')
-            expect(condition.bytecode).toBeUndefined()
+    describe('checkRolloutPercentage', () => {
+        it('always includes when rollout is 100%', () => {
+            expect(checkRolloutPercentage('user-1', 100)).toBe(true)
+            expect(checkRolloutPercentage('user-2', 100)).toBe(true)
+            expect(checkRolloutPercentage('any-user', 100)).toBe(true)
         })
 
-        it('skips evaluation when bytecode_error field is set', () => {
+        it('is deterministic for same distinct_id', () => {
+            const result1 = checkRolloutPercentage('user-123', 50)
+            const result2 = checkRolloutPercentage('user-123', 50)
+            expect(result1).toBe(result2)
+        })
+
+        it('excludes some users at 0% rollout', () => {
+            expect(checkRolloutPercentage('user-1', 0)).toBe(false)
+            expect(checkRolloutPercentage('user-2', 0)).toBe(false)
+        })
+
+        it('includes roughly correct percentage of users', () => {
+            const testUsers = Array.from({ length: 1000 }, (_, i) => `user-${i}`)
+            const included = testUsers.filter((user) => checkRolloutPercentage(user, 30))
+
+            // Should be roughly 30%, allow 5% variance
+            expect(included.length).toBeGreaterThan(250)
+            expect(included.length).toBeLessThan(350)
+        })
+    })
+
+    describe('EvaluationMatcher', () => {
+        let matcher: EvaluationMatcher
+        let mockExecHog: jest.Mock
+
+        beforeEach(() => {
+            matcher = new EvaluationMatcher()
+            mockExecHog = require('../../cdp/utils/hog-exec').execHog as jest.Mock
+        })
+
+        it('returns disabled when evaluation is not enabled', async () => {
+            const event = createAiGenerationEvent(teamId)
+            const evaluation = createEvaluation({ enabled: false })
+
+            const result = await matcher.shouldTriggerEvaluation(event, evaluation)
+
+            expect(result).toEqual({ matched: false, reason: 'disabled' })
+        })
+
+        it('returns no_conditions when evaluation has no conditions', async () => {
+            const event = createAiGenerationEvent(teamId)
+            const evaluation = createEvaluation({ enabled: true, conditions: [] })
+
+            const result = await matcher.shouldTriggerEvaluation(event, evaluation)
+
+            expect(result).toEqual({ matched: false, reason: 'no_conditions' })
+        })
+
+        it('returns filtered when bytecode returns false', async () => {
+            mockExecHog.mockResolvedValue({
+                execResult: { result: false },
+            })
+
+            const event = createAiGenerationEvent(teamId)
             const evaluation = createEvaluation({
+                enabled: true,
+                conditions: [createEvaluationCondition({ rollout_percentage: 100, bytecode: ['_H', 1, 32, false] })],
+            })
+
+            const result = await matcher.shouldTriggerEvaluation(event, evaluation)
+
+            expect(result).toEqual({ matched: false, reason: 'filtered' })
+        })
+
+        it('returns filtered when bytecode has error', async () => {
+            const event = createAiGenerationEvent(teamId)
+            const evaluation = createEvaluation({
+                enabled: true,
+                conditions: [createEvaluationCondition({ rollout_percentage: 100, bytecode_error: 'Failed' })],
+            })
+
+            const result = await matcher.shouldTriggerEvaluation(event, evaluation)
+
+            expect(result).toEqual({ matched: false, reason: 'filtered' })
+        })
+
+        it('returns matched when condition matches and user in rollout', async () => {
+            mockExecHog.mockResolvedValue({
+                execResult: { result: true },
+            })
+
+            const event = createAiGenerationEvent(teamId, { distinct_id: 'user-1' })
+            const evaluation = createEvaluation({
+                enabled: true,
                 conditions: [
-                    createEvaluationCondition({
-                        bytecode_error: 'Compilation failed',
-                    }),
+                    createEvaluationCondition({ id: 'cond-1', rollout_percentage: 100, bytecode: ['_H', 1, 32, true] }),
                 ],
             })
 
-            expect(evaluation.conditions[0].bytecode_error).toBe('Compilation failed')
-        })
-    })
+            const result = await matcher.shouldTriggerEvaluation(event, evaluation)
 
-    describe('rollout percentage sampling', () => {
-        it('includes event when rollout is 100%', () => {
-            const condition = createEvaluationCondition({
-                rollout_percentage: 100,
-            })
-
-            expect(condition.rollout_percentage).toBe(100)
+            expect(result).toEqual({ matched: true, conditionId: 'cond-1' })
         })
 
-        it('excludes some events when rollout is less than 100%', () => {
-            const condition = createEvaluationCondition({
-                rollout_percentage: 50,
-            })
+        it('tries multiple conditions until one matches', async () => {
+            mockExecHog
+                .mockResolvedValueOnce({ execResult: { result: false } })
+                .mockResolvedValueOnce({ execResult: { result: true } })
 
-            expect(condition.rollout_percentage).toBe(50)
-            expect(condition.rollout_percentage).toBeLessThan(100)
-        })
-
-        it('deterministically samples based on distinct_id', () => {
-            // The actual implementation uses MD5 hash for deterministic sampling
-            // This is consistent with feature flag rollout behavior
-            const event1 = createAiGenerationEvent(teamId, { distinct_id: 'user-1' })
-            const event2 = createAiGenerationEvent(teamId, { distinct_id: 'user-1' })
-
-            expect(event1.distinct_id).toBe(event2.distinct_id)
-        })
-    })
-
-    describe('workflow triggering', () => {
-        it('triggers Temporal workflow when evaluation matches', async () => {
-            const evaluation: Evaluation = createEvaluation({
-                id: 'eval-123',
-                team_id: teamId,
+            const event = createAiGenerationEvent(teamId)
+            const evaluation = createEvaluation({
                 enabled: true,
                 conditions: [
                     createEvaluationCondition({
+                        id: 'cond-1',
                         rollout_percentage: 100,
-                        properties: [],
-                        bytecode: ['_H', 1, 32, true],
+                        bytecode: ['_H', 1, 32, false],
                     }),
+                    createEvaluationCondition({ id: 'cond-2', rollout_percentage: 100, bytecode: ['_H', 1, 32, true] }),
                 ],
             })
 
-            mockEvaluationManager.getEvaluationsForTeams.mockResolvedValue({
-                [teamId]: [evaluation],
-            })
+            const result = await matcher.shouldTriggerEvaluation(event, evaluation)
 
-            await mockTemporalService.startEvaluationWorkflow('eval-123', 'event-uuid-123')
-
-            expect(mockTemporalService.startEvaluationWorkflow).toHaveBeenCalledWith('eval-123', 'event-uuid-123')
+            expect(result).toEqual({ matched: true, conditionId: 'cond-2' })
         })
 
-        it('does not trigger workflow when evaluation disabled', () => {
+        it('respects rollout percentage', async () => {
+            mockExecHog.mockResolvedValue({
+                execResult: { result: true },
+            })
+
+            // Test with 0% rollout - should never match due to sampling
+            const event = createAiGenerationEvent(teamId, { distinct_id: 'user-test' })
             const evaluation = createEvaluation({
-                enabled: false,
-            })
-
-            expect(evaluation.enabled).toBe(false)
-        })
-
-        it('continues processing on workflow start error', async () => {
-            mockTemporalService.startEvaluationWorkflow.mockRejectedValue(new Error('Temporal unavailable'))
-
-            // The implementation catches errors and continues processing
-            await expect(mockTemporalService.startEvaluationWorkflow('eval-123', 'event-456')).rejects.toThrow(
-                'Temporal unavailable'
-            )
-        })
-
-        it('triggers workflow only once per event (first match wins)', () => {
-            const evaluation = createEvaluation({
-                conditions: [
-                    createEvaluationCondition({ id: 'cond-1', rollout_percentage: 100 }),
-                    createEvaluationCondition({ id: 'cond-2', rollout_percentage: 100 }),
-                ],
-            })
-
-            expect(evaluation.conditions).toHaveLength(2)
-            // In practice, the scheduler stops after the first matching condition
-        })
-    })
-
-    describe('batch processing', () => {
-        it('groups events by team for efficient evaluation loading', () => {
-            const event1 = createAiGenerationEvent(1)
-            const event2 = createAiGenerationEvent(1)
-            const event3 = createAiGenerationEvent(2)
-
-            const eventsByTeam: Record<number, RawKafkaEvent[]> = {}
-            for (const event of [event1, event2, event3]) {
-                eventsByTeam[event.team_id] = eventsByTeam[event.team_id] || []
-                eventsByTeam[event.team_id].push(event)
-            }
-
-            expect(eventsByTeam[1]).toHaveLength(2)
-            expect(eventsByTeam[2]).toHaveLength(1)
-        })
-
-        it('handles mix of matching and non-matching events', () => {
-            const matchingEval = createEvaluation({
-                id: 'eval-match',
                 enabled: true,
-                conditions: [createEvaluationCondition({ rollout_percentage: 100 })],
+                conditions: [createEvaluationCondition({ rollout_percentage: 0, bytecode: ['_H', 1, 32, true] })],
             })
 
-            const disabledEval = createEvaluation({
-                id: 'eval-disabled',
-                enabled: false,
-            })
+            const result = await matcher.shouldTriggerEvaluation(event, evaluation)
 
-            mockEvaluationManager.getEvaluationsForTeams.mockResolvedValue({
-                [teamId]: [matchingEval, disabledEval],
-            })
-
-            expect(matchingEval.enabled).toBe(true)
-            expect(disabledEval.enabled).toBe(false)
-        })
-
-        it('handles empty evaluation list for team', async () => {
-            mockEvaluationManager.getEvaluationsForTeams.mockResolvedValue({
-                [teamId]: [],
-            })
-
-            const result = await mockEvaluationManager.getEvaluationsForTeams([teamId])
-            expect(result[teamId]).toEqual([])
-        })
-    })
-
-    describe('evaluation manager integration', () => {
-        it('fetches evaluations for all teams in batch', async () => {
-            const _team1Events = [createAiGenerationEvent(1), createAiGenerationEvent(1)]
-            const _team2Events = [createAiGenerationEvent(2)]
-
-            mockEvaluationManager.getEvaluationsForTeams.mockResolvedValue({
-                1: [createEvaluation({ team_id: 1 })],
-                2: [createEvaluation({ team_id: 2 })],
-            })
-
-            await mockEvaluationManager.getEvaluationsForTeams([1, 2])
-
-            expect(mockEvaluationManager.getEvaluationsForTeams).toHaveBeenCalledWith([1, 2])
+            expect(result).toEqual({ matched: false, reason: 'filtered' })
         })
     })
 })
