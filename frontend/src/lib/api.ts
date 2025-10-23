@@ -1712,6 +1712,25 @@ const api = {
         ): Promise<FeatureFlagStatusResponse> {
             return await new ApiRequest().featureFlagStatus(teamId, featureFlagId).get()
         },
+        async fetchExternalFlags(data: {
+            provider: string
+            api_key: string
+            environment?: string
+            project_key?: string
+        }): Promise<any> {
+            return await new ApiRequest().featureFlags().withAction('fetch_external_flags').create({ data })
+        },
+        async extractFieldMappings(data: { provider: string; selected_flags: any[] }): Promise<any> {
+            return await new ApiRequest().featureFlags().withAction('extract_field_mappings').create({ data })
+        },
+        async importExternalFlags(data: {
+            provider: string
+            selected_flags: any[]
+            environment?: string
+            field_mappings?: Record<string, any>
+        }): Promise<any> {
+            return await new ApiRequest().featureFlags().withAction('import_external_flags').create({ data })
+        },
     },
 
     fileSystem: {
