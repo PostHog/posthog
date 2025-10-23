@@ -88,7 +88,7 @@ function Category({
                 </div>
                 <div
                     className={cn('flex flex-col gap-2', {
-                        '@xl/main-content:grow min-w-0 empty:hidden': newTabSceneData,
+                        '@xl/main-content:grow min-w-0 empty:hidden gap-1': newTabSceneData,
                     })}
                 >
                     {typedItems.length === 0 ? (
@@ -96,7 +96,7 @@ function Category({
                         category === 'recents' && isSearching ? (
                             <div className="flex flex-col gap-2 text-tertiary text-balance">
                                 <WrappingLoadingSkeleton>
-                                    <ButtonPrimitive>Loading items...</ButtonPrimitive>
+                                    <ButtonPrimitive size="sm">Loading items...</ButtonPrimitive>
                                 </WrappingLoadingSkeleton>
                             </div>
                         ) : null
@@ -121,7 +121,7 @@ function Category({
                                                     to={item.href || '#'}
                                                     className="w-full"
                                                     buttonProps={{
-                                                        size: 'base',
+                                                        size: 'sm',
                                                         hasSideActionRight: true,
                                                         className:
                                                             'data-[focused=true]:outline-2 data-[focused=true]:outline-accent',
@@ -191,11 +191,11 @@ function Category({
                                     hasMore && (
                                         <ListBox.Item asChild>
                                             <ButtonPrimitive
-                                                size="base"
+                                                size="sm"
                                                 onClick={() => showMoreInSection(category)}
                                                 className="w-full text-tertiary data-[focused=true]:outline-2 data-[focused=true]:outline-accent data-[focused=true]:text-primary"
                                             >
-                                                <IconArrowRight className="size-4 rotate-90" /> Show all (
+                                                <IconArrowRight className="rotate-90" /> Show all (
                                                 {fullCount - currentLimit} more)
                                             </ButtonPrimitive>
                                         </ListBox.Item>
@@ -207,11 +207,12 @@ function Category({
                                     <Link
                                         to={urls.persons()}
                                         buttonProps={{
+                                            size: 'sm',
                                             className:
                                                 'w-full text-tertiary data-[focused=true]:outline-2 data-[focused=true]:outline-accent data-[focused=true]:text-primary',
                                         }}
                                     >
-                                        <IconArrowRight className="size-4" /> See all persons
+                                        <IconArrowRight /> See all persons
                                     </Link>
                                 </ListBox.Item>
                             )}
@@ -220,11 +221,12 @@ function Category({
                                     <Link
                                         to={urls.eventDefinitions()}
                                         buttonProps={{
+                                            size: 'sm',
                                             className:
                                                 'w-full text-tertiary data-[focused=true]:outline-2 data-[focused=true]:outline-accent data-[focused=true]:text-primary',
                                         }}
                                     >
-                                        <IconArrowRight className="size-4" /> See all events
+                                        <IconArrowRight /> See all events
                                     </Link>
                                 </ListBox.Item>
                             )}
@@ -233,11 +235,12 @@ function Category({
                                     <Link
                                         to={urls.propertyDefinitions()}
                                         buttonProps={{
+                                            size: 'sm',
                                             className:
                                                 'w-full text-tertiary data-[focused=true]:outline-2 data-[focused=true]:outline-accent data-[focused=true]:text-primary',
                                         }}
                                     >
-                                        <IconArrowRight className="size-4" /> See all properties
+                                        <IconArrowRight /> See all properties
                                     </Link>
                                 </ListBox.Item>
                             )}
@@ -337,7 +340,7 @@ export function Results({
                                                     to={item.href || '#'}
                                                     className="w-full"
                                                     buttonProps={{
-                                                        size: 'base',
+                                                        size: 'sm',
                                                         hasSideActionRight: true,
                                                         truncate: true,
                                                     }}
@@ -445,7 +448,7 @@ export function Results({
                                     variant="panel"
                                     className="data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
                                 >
-                                    <IconSparkles className="size-4" />
+                                    <IconSparkles />
                                     Ask Posthog AI
                                 </ButtonPrimitive>
                             </ListBox.Item>

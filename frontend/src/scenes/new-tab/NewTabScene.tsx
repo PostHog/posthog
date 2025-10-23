@@ -389,7 +389,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                 className={cn({
                                     'grid grid-cols-1 @md/main-content:grid-cols-2 @xl/main-content:grid-cols-3 @2xl/main-content:grid-cols-4 gap-4':
                                         !newTabSceneData,
-                                    'flex flex-col gap-4 mb-32': newTabSceneData,
+                                    'flex flex-col gap-2 mb-32': newTabSceneData,
                                 })}
                             >
                                 {/* TODO: Remove this once we're done testing */}
