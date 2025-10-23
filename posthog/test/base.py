@@ -29,6 +29,14 @@ import sqlparse
 from rest_framework.test import APITestCase as DRFTestCase
 from syrupy.extensions.amber import AmberSnapshotExtension
 
+from posthog.hogql import (
+    ast,
+    query as hogql_query_module,
+)
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.visitor import clone_expr
+
 from posthog import rate_limit, redis
 from posthog.clickhouse.adhoc_events_deletion import (
     ADHOC_EVENTS_DELETION_TABLE_SQL,
@@ -54,6 +62,7 @@ from posthog.clickhouse.query_log_archive import (
     QUERY_LOG_ARCHIVE_NEW_TABLE_SQL,
 )
 from posthog.cloud_utils import TEST_clear_instance_license_cache
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
 from posthog.models.behavioral_cohorts.sql import (
     BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL,
@@ -1434,10 +1443,6 @@ def snapshot_hogql_queries(fn_or_class):
             runner = WebOverviewQueryRunner(team=self.team, query=query)
             runner.calculate()
     """
-    from posthog.hogql import ast
-    from posthog.hogql.context import HogQLContext
-    from posthog.hogql.printer import print_ast  # type: ignore[attr-defined]
-
     # check if fn_or_class is a class
     if inspect.isclass(fn_or_class):
         # wrap every class method that starts with test_ with this decorator
@@ -1448,11 +1453,6 @@ def snapshot_hogql_queries(fn_or_class):
 
     @wraps(fn_or_class)
     def wrapped(self, *args, **kwargs):
-        from posthog.hogql import query as hogql_query_module
-        from posthog.hogql.visitor import clone_expr
-
-        from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-
         captured_queries = []
 
         # Patch the execute_hogql_query method on the paginator to capture queries before resolution
@@ -1521,9 +1521,9 @@ def snapshot_hogql_queries(fn_or_class):
 
         # Convert each captured query to HogQL and snapshot it
         for query_ast in captured_queries:
-            # Use print_ast with hogql dialect to get the simple logical view
+            # Use prepare_and_print_ast with hogql dialect to get the simple logical view
             context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
-            hogql = print_ast(query_ast, context=context, dialect="hogql")
+            hogql, _ = prepare_and_print_ast(query_ast, context=context, dialect="hogql")
 
             # Format the HogQL query for better readability
             formatted_hogql = hogql.strip()
