@@ -491,6 +491,10 @@ export class ApiRequest {
         return this.fileSystem(teamId).addPathComponent(id)
     }
 
+    public fileSystemLogView(teamId?: TeamType['id']): ApiRequest {
+        return this.fileSystem(teamId).addPathComponent('log_view')
+    }
+
     public fileSystemMove(id: NonNullable<FileSystemEntry['id']>, teamId?: TeamType['id']): ApiRequest {
         return this.fileSystem(teamId).addPathComponent(id).addPathComponent('move')
     }
@@ -1054,6 +1058,12 @@ export class ApiRequest {
 
     public errorTrackingSymbolSet(id: ErrorTrackingSymbolSet['id']): ApiRequest {
         return this.errorTrackingSymbolSets().addPathComponent(id)
+    }
+
+    public gitProviderFileLinks(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId)
+            .addPathComponent('error_tracking')
+            .addPathComponent('git-provider-file-links')
     }
 
     public errorTrackingStackFrames(): ApiRequest {
@@ -1803,6 +1813,12 @@ const api = {
         },
         async count(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemCount> {
             return await new ApiRequest().fileSystemCount(id).create()
+        },
+    },
+
+    fileSystemLogView: {
+        async create(data: { ref?: string; type?: string }): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystemLogView().create({ data })
         },
     },
 
@@ -3053,6 +3069,21 @@ const api = {
         },
     },
 
+    gitProviderFileLinks: {
+        async resolveGithub(
+            owner: string,
+            repository: string,
+            codeSample: string,
+            fileName: string
+        ): Promise<{ found: boolean; url?: string }> {
+            return await new ApiRequest()
+                .gitProviderFileLinks()
+                .withAction('resolve_github')
+                .withQueryString({ owner, repository, code_sample: codeSample, file_name: fileName })
+                .get()
+        },
+    },
+
     recordings: {
         async list(params: RecordingsQuery): Promise<RecordingsQueryResponse> {
             return await new ApiRequest().recordings().withQueryString(toParams(params)).get()
@@ -3562,6 +3593,18 @@ const api = {
                 queryParams['date_to'] = dateTo
             }
             return await apiRequest.get()
+        },
+        async duplicateToProjects(
+            surveyId: Survey['id'],
+            targetTeamIds: TeamType['id'][]
+        ): Promise<{
+            created_surveys: Array<{ team_id: number; survey_id: string; name: string }>
+            count: number
+        }> {
+            return await new ApiRequest()
+                .survey(surveyId)
+                .withAction('duplicate_to_projects')
+                .create({ data: { target_team_ids: targetTeamIds } })
         },
     },
 
