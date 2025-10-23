@@ -6,7 +6,7 @@ use tracing::{info, warn};
 use crate::{
     api::symbol_sets::{self, SymbolSetUpload},
     invocation_context::context,
-    sourcemaps::{source_pairs::read_pairs, web::inject::is_javascript_file},
+    sourcemaps::{plain::inject::is_javascript_file, source_pairs::read_pairs},
     utils::files::delete_files,
 };
 

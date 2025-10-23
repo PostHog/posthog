@@ -5,7 +5,7 @@ use crate::{
     error::CapturedError,
     experimental::{query::command::QueryCommand, tasks::TaskCommand},
     invocation_context::{context, init_context},
-    sourcemaps::{hermes::HermesSubcommand, web::SourcemapCommand},
+    sourcemaps::{hermes::HermesSubcommand, plain::SourcemapCommand},
 };
 
 #[derive(Parser)]
@@ -104,15 +104,15 @@ impl Cli {
             }
             Commands::Sourcemap { cmd } => match cmd {
                 SourcemapCommand::Inject(input_args) => {
-                    crate::sourcemaps::web::inject::inject(&input_args)?;
+                    crate::sourcemaps::plain::inject::inject(&input_args)?;
                 }
                 SourcemapCommand::Upload(upload_args) => {
-                    crate::sourcemaps::web::upload::upload(&upload_args)?;
+                    crate::sourcemaps::plain::upload::upload(&upload_args)?;
                 }
                 SourcemapCommand::Process(args) => {
                     let (inject, upload) = args.into();
-                    crate::sourcemaps::web::inject::inject(&inject)?;
-                    crate::sourcemaps::web::upload::upload(&upload)?;
+                    crate::sourcemaps::plain::inject::inject(&inject)?;
+                    crate::sourcemaps::plain::upload::upload(&upload)?;
                 }
             },
             Commands::Exp { cmd } => match cmd {
