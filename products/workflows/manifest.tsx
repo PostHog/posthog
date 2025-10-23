@@ -12,6 +12,7 @@ export const manifest: ProductManifest = {
             name: 'Workflows',
             iconType: 'workflows',
             projectBased: true,
+            description: 'Create and manage your workflows',
         },
         Workflow: {
             import: () => import('./frontend/Workflows/WorkflowScene'),
@@ -68,6 +69,7 @@ export const manifest: ProductManifest = {
             flag: FEATURE_FLAGS.WORKFLOWS,
             iconType: 'workflows',
             iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
+            sceneKey: 'Workflows',
         },
     ],
 }

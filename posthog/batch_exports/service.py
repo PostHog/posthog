@@ -241,8 +241,18 @@ class RedshiftBatchExportInputs(BaseBatchExportInputs):
     copy_inputs: RedshiftCopyInputs | None = None
 
     def __post_init__(self):
-        if self.copy_inputs is not None and isinstance(self.copy_inputs, str | bytes | bytearray):
-            raw_inputs = json.loads(self.copy_inputs)
+        if (
+            self.mode == "COPY"
+            and self.copy_inputs is not None
+            and not isinstance(self.copy_inputs, RedshiftCopyInputs)
+        ):
+            if isinstance(self.copy_inputs, str | bytes | bytearray):  # type: ignore
+                raw_inputs = json.loads(self.copy_inputs)
+            elif isinstance(self.copy_inputs, dict):
+                raw_inputs = self.copy_inputs
+            else:
+                raise TypeError(f"Invalid type for copy inputs: '{type(self.copy_inputs)}'")
+
             bucket_credentials = AWSCredentials(
                 aws_access_key_id=raw_inputs["bucket_credentials"]["aws_access_key_id"],
                 aws_secret_access_key=raw_inputs["bucket_credentials"]["aws_secret_access_key"],
@@ -258,7 +268,7 @@ class RedshiftBatchExportInputs(BaseBatchExportInputs):
 
             self.copy_inputs = RedshiftCopyInputs(
                 s3_bucket=raw_inputs["s3_bucket"],
-                s3_key_prefix=raw_inputs["s3_key_prefix"],
+                s3_key_prefix=raw_inputs.get("s3_key_prefix", "/"),
                 region_name=raw_inputs["region_name"],
                 authorization=authorization,
                 bucket_credentials=bucket_credentials,
@@ -299,7 +309,6 @@ class DatabricksBatchExportInputs(BaseBatchExportInputs):
     table_name: str
     use_variant_type: bool = True
     use_automatic_schema_evolution: bool = True
-    table_partition_field: str | None = None
 
 
 @dataclass(kw_only=True)

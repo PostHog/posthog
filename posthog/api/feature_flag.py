@@ -12,6 +12,7 @@ from django.db import transaction
 from django.db.models import Prefetch, Q, QuerySet, deletion
 from django.dispatch import receiver
 
+import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from prometheus_client import Counter
@@ -30,7 +31,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin, tagify
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TemporaryTokenAuthentication
-from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, FlagRequestType
+from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature, FlagRequestType
 from posthog.date_util import thirty_days_ago
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
@@ -152,6 +153,11 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
         if not hasattr(self, "initial_data"):
             return attrs
 
+        # If user doesn't have access to TAGGING feature or FLAG_EVALUATION_TAGS is disabled, skip validation
+        # Evaluation tags are preserved in DB but hidden from user (like regular tags)
+        if not self._is_licensed_for_tagging() or not self._is_evaluation_tags_feature_enabled():
+            return attrs
+
         # Get evaluation_tags from the request
         evaluation_tags = self.initial_data.get("evaluation_tags")
 
@@ -181,14 +187,53 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
 
         return attrs
 
+    def _is_licensed_for_tagging(self):
+        """Check if user has access to TAGGING feature."""
+        return (
+            "request" in self.context
+            and not self.context["request"].user.is_anonymous
+            and self.context["request"].user.organization.is_feature_available(AvailableFeature.TAGGING)
+        )
+
+    def _is_evaluation_tags_feature_enabled(self):
+        """Check if FLAG_EVALUATION_TAGS feature flag is enabled."""
+        if "request" not in self.context:
+            return False
+
+        request = self.context["request"]
+        if not hasattr(request, "user") or request.user.is_anonymous:
+            return False
+
+        # Check if FLAG_EVALUATION_TAGS feature flag is enabled for the user
+        try:
+            return posthoganalytics.feature_enabled(
+                "flag-evaluation-tags",
+                request.user.distinct_id,
+                groups={"organization": str(request.user.organization.id)},
+                group_properties={"organization": {"id": str(request.user.organization.id)}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        except Exception:
+            # If feature flag check fails, default to False (conservative approach)
+            return False
+
     def _attempt_set_evaluation_tags(self, evaluation_tags, obj):
         """Update evaluation tags for a feature flag using efficient diff logic.
+
+        If user doesn't have TAGGING access or FLAG_EVALUATION_TAGS is disabled,
+        preserve existing evaluation tags in database (don't update them).
 
         Instead of deleting all tags and recreating them (which causes unnecessary
         DB operations and activity logs), we calculate the diff and only modify
         what has actually changed.
         """
-        if not obj or evaluation_tags is None:
+        if not obj:
+            return
+
+        # If user doesn't have TAGGING access or FLAG_EVALUATION_TAGS is disabled, silently skip evaluation tag updates
+        # This preserves existing evaluation tags in the database (like TaggedItemSerializerMixin does)
+        if not self._is_licensed_for_tagging() or not self._is_evaluation_tags_feature_enabled():
             return
 
         # Normalize and dedupe tags (same as TaggedItemSerializerMixin does)
@@ -235,7 +280,12 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
         ret = super().to_representation(obj)
 
         # Include evaluation tags in the serialized output
-        if hasattr(obj, "evaluation_tags"):
+        # Hide evaluation_tags if:
+        # 1. User doesn't have TAGGING access (like TaggedItemSerializerMixin does for tags)
+        # 2. FLAG_EVALUATION_TAGS feature flag is disabled
+        if not self._is_licensed_for_tagging() or not self._is_evaluation_tags_feature_enabled():
+            ret["evaluation_tags"] = []
+        elif hasattr(obj, "evaluation_tags"):
             # Django's prefetch_related creates a cache in _prefetched_objects_cache.
             # If the viewset used prefetch_related (which it should for performance),
             # we can access the tags without hitting the database again.
@@ -1024,6 +1074,7 @@ class FeatureFlagViewSet(
                     # Get flags that are at least 30 days old and active
                     # This is an approximation - the serializer will compute the exact status
                     queryset = queryset.filter(active=True, created_at__lt=thirty_days_ago()).extra(
+                        # This needs to be in sync with the implementation in `FeatureFlagStatusChecker`, flag_status.py
                         where=[
                             """
                             (
@@ -1047,6 +1098,18 @@ class FeatureFlagViewSet(
                                         AND (elem->'properties')::text = '[]'::text
                                     )
                                 )
+                                OR
+                                -- Multivariate that has a condition that overrides with a specific variant and the rollout_percentage is 100
+                                (
+                                    EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS elem
+                                        WHERE elem->>'rollout_percentage' = '100'
+                                        AND (elem->'properties')::text = '[]'::text
+                                        AND elem->'variant' IS NOT NULL
+                                    )
+                                    AND (filters->'multivariate' IS NOT NULL AND jsonb_array_length(filters->'multivariate'->'variants') > 0)
+                                )
+                                OR (filters IS NULL OR filters = '{}'::jsonb)
                             )
                             """
                         ]

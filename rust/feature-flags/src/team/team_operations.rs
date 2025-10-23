@@ -4,7 +4,116 @@ use crate::{
 };
 use common_database::PostgresReader;
 use common_redis::Client as RedisClient;
-use std::sync::Arc;
+use std::{future::Future, sync::Arc};
+use tracing::{debug, warn};
+
+/// Fetches a team from Redis cache with PostgreSQL fallback
+///
+/// This helper consolidates the common pattern of:
+/// 1. Try Redis cache first
+/// 2. On cache miss, fetch from PostgreSQL using the provided lookup function
+/// 3. Update Redis cache on successful database fetch
+/// 4. Return the team
+///
+/// # Arguments
+/// * `redis_reader` - Redis client for cache reads
+/// * `redis_writer` - Redis client for cache writes
+/// * `token` - Token to use for cache key lookup
+/// * `db_lookup` - Async function to fetch team from PostgreSQL on cache miss
+pub async fn fetch_team_from_redis_with_fallback<F, Fut>(
+    redis_reader: Arc<dyn RedisClient + Send + Sync>,
+    redis_writer: Arc<dyn RedisClient + Send + Sync>,
+    token: &str,
+    db_lookup: F,
+) -> Result<Team, FlagError>
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = Result<Team, FlagError>>,
+{
+    // Try to get team from cache first
+    match Team::from_redis(redis_reader.clone(), token).await {
+        Ok(team) if team.organization_id.is_some() => {
+            debug!(team_id = team.id, "Found complete team in Redis cache");
+            Ok(team)
+        }
+        Ok(team) => {
+            debug!(
+                team_id = team.id,
+                "Team in cache missing organization_id, treating as cache miss"
+            );
+            // Treat as cache miss - fetch complete team from database
+            match db_lookup().await {
+                Ok(team) => {
+                    debug!(team_id = team.id, "Found team in PostgreSQL");
+                    // Update Redis cache with complete team
+                    if let Err(e) = Team::update_redis_cache(redis_writer, &team).await {
+                        warn!(team_id = team.id, error = %e, "Failed to update Redis cache");
+                    }
+                    Ok(team)
+                }
+                Err(e) => {
+                    warn!(error = %e, "Team not found in PostgreSQL");
+                    Err(e)
+                }
+            }
+        }
+        Err(e) => {
+            debug!(error = %e, "Team not found in Redis cache");
+            // Fallback to database using provided lookup function
+            match db_lookup().await {
+                Ok(team) => {
+                    debug!(team_id = team.id, "Found team in PostgreSQL");
+                    // Update Redis cache for next time
+                    if let Err(e) = Team::update_redis_cache(redis_writer, &team).await {
+                        warn!(team_id = team.id, error = %e, "Failed to update Redis cache");
+                    }
+                    Ok(team)
+                }
+                Err(e) => {
+                    warn!(error = %e, "Team not found in PostgreSQL");
+                    Err(e)
+                }
+            }
+        }
+    }
+}
+
+/// SQL fragment for selecting all Team columns
+const TEAM_COLUMNS: &str = "
+    id,
+    uuid,
+    name,
+    api_token,
+    project_id,
+    organization_id,
+    cookieless_server_hash_mode,
+    timezone,
+    autocapture_opt_out,
+    autocapture_exceptions_opt_in,
+    autocapture_web_vitals_opt_in,
+    capture_performance_opt_in,
+    capture_console_log_opt_in,
+    session_recording_opt_in,
+    inject_web_apps,
+    surveys_opt_in,
+    heatmaps_opt_in,
+    capture_dead_clicks,
+    flags_persistence_default,
+    session_recording_sample_rate,
+    session_recording_minimum_duration_milliseconds,
+    autocapture_web_vitals_allowed_metrics,
+    autocapture_exceptions_errors_to_ignore,
+    session_recording_linked_flag,
+    session_recording_network_payload_capture_config,
+    session_recording_masking_config,
+    session_replay_config,
+    survey_config,
+    session_recording_url_trigger_config,
+    session_recording_url_blocklist_config,
+    session_recording_event_trigger_config,
+    session_recording_trigger_match_type_config,
+    recording_domains
+";
 
 impl Team {
     /// Validates a token, and returns a team if it exists.
@@ -84,42 +193,25 @@ impl Team {
     pub async fn from_pg(client: PostgresReader, token: &str) -> Result<Team, FlagError> {
         let mut conn = client.get_connection().await?;
 
-        let query = "SELECT 
-            id, 
-            uuid,
-            name, 
-            api_token, 
-            project_id, 
-            cookieless_server_hash_mode, 
-            timezone,
-            autocapture_opt_out,
-            autocapture_exceptions_opt_in,
-            autocapture_web_vitals_opt_in,
-            capture_performance_opt_in,
-            capture_console_log_opt_in,
-            session_recording_opt_in,
-            inject_web_apps,
-            surveys_opt_in,
-            heatmaps_opt_in,
-            capture_dead_clicks,
-            flags_persistence_default,
-            session_recording_sample_rate,
-            session_recording_minimum_duration_milliseconds,
-            autocapture_web_vitals_allowed_metrics,
-            autocapture_exceptions_errors_to_ignore,
-            session_recording_linked_flag,
-            session_recording_network_payload_capture_config,
-            session_recording_masking_config,
-            session_replay_config,
-            survey_config,
-            session_recording_url_trigger_config,
-            session_recording_url_blocklist_config,
-            session_recording_event_trigger_config,
-            session_recording_trigger_match_type_config,
-            recording_domains
-        FROM posthog_team 
-        WHERE api_token = $1";
-        let row = sqlx::query_as::<_, Team>(query)
+        let query = format!("SELECT {TEAM_COLUMNS} FROM posthog_team WHERE api_token = $1");
+        let row = sqlx::query_as::<_, Team>(&query)
+            .bind(token)
+            .fetch_one(&mut *conn)
+            .await?;
+
+        Ok(row)
+    }
+
+    pub async fn from_pg_by_secret_token(
+        client: PostgresReader,
+        token: &str,
+    ) -> Result<Team, FlagError> {
+        let mut conn = client.get_connection().await?;
+
+        let query = format!(
+            "SELECT {TEAM_COLUMNS} FROM posthog_team WHERE secret_api_token = $1 OR secret_api_token_backup = $1"
+        );
+        let row = sqlx::query_as::<_, Team>(&query)
             .bind(token)
             .fetch_one(&mut *conn)
             .await?;

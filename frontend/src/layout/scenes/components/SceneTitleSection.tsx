@@ -101,7 +101,9 @@ type SceneMainTitleProps = {
     renameDebounceMs?: number
     /**
      * If true, saves only on blur (when leaving the field)
-     * If false, saves on every change (debounced) - original behavior
+     * If false, saves on every change (debounced) - original behavior.
+     *
+     * Note: It's probably a good idea to set renameDebounceMs to 0 if this is true
      * @default false
      */
     saveOnBlur?: boolean

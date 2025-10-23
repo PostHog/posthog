@@ -1,6 +1,8 @@
 use common_cookieless::CookielessConfig;
+use common_types::TeamId;
 use envconfig::Envconfig;
 use once_cell::sync::Lazy;
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::num::ParseIntError;
 use std::ops::Deref;
@@ -105,6 +107,41 @@ impl FromStr for TeamIdCollection {
     }
 }
 
+/// Flag definitions rate limits configuration
+/// Parses JSON from FLAG_DEFINITIONS_RATE_LIMITS environment variable
+/// Format: {"team_id": "rate_string", ...}
+/// Example: {"123": "1200/minute", "456": "2400/hour"}
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct FlagDefinitionsRateLimits(pub HashMap<TeamId, String>);
+
+impl FromStr for FlagDefinitionsRateLimits {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+
+        // Empty string means no custom rate limits
+        if s.is_empty() {
+            return Ok(FlagDefinitionsRateLimits::default());
+        }
+
+        // Parse JSON into HashMap<String, String>
+        let parsed: HashMap<String, String> = serde_json::from_str(s)
+            .map_err(|e| format!("Failed to parse FLAG_DEFINITIONS_RATE_LIMITS as JSON: {e}"))?;
+
+        // Convert string keys to TeamId
+        let mut rate_limits = HashMap::new();
+        for (team_id_str, rate_string) in parsed {
+            let team_id = team_id_str
+                .parse::<TeamId>()
+                .map_err(|e| format!("Invalid team ID '{team_id_str}': {e}"))?;
+            rate_limits.insert(team_id, rate_string);
+        }
+
+        Ok(FlagDefinitionsRateLimits(rate_limits))
+    }
+}
+
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
     #[envconfig(default = "127.0.0.1:3001")]
@@ -138,6 +175,16 @@ pub struct Config {
     #[envconfig(default = "")]
     pub redis_reader_url: String,
 
+    // S3 configuration for HyperCache fallback
+    #[envconfig(default = "posthog")]
+    pub object_storage_bucket: String,
+
+    #[envconfig(default = "us-east-1")]
+    pub object_storage_region: String,
+
+    #[envconfig(default = "")]
+    pub object_storage_endpoint: String,
+
     #[envconfig(default = "")]
     pub redis_writer_url: String,
 
@@ -160,6 +207,12 @@ pub struct Config {
     // - Increase for stable environments to reduce overhead (e.g., 3600-7200)
     #[envconfig(default = "1800")]
     pub max_lifetime_secs: u64,
+
+    // Additional maximum jitter to max_lifetime to avoid thundering herd.
+    // - Adds random amount of seconds [0, max_lifetime_jitter_secs) to max_lifetime_secs
+    // - Set to 0 to disable (uses fixed max_lifetime).
+    #[envconfig(default = "1800")]
+    pub max_lifetime_jitter_secs: u64,
 
     // Test connection health before returning from pool
     // - Set to true for production to catch stale connections
@@ -252,6 +305,18 @@ pub struct Config {
     #[envconfig(from = "FLAGS_SESSION_REPLAY_QUOTA_CHECK", default = "false")]
     pub flags_session_replay_quota_check: bool,
 
+    // Flag definitions rate limiting
+    // Default rate limit for all teams (requests per minute)
+    // Can be overridden per-team using FLAG_DEFINITIONS_RATE_LIMITS
+    #[envconfig(from = "FLAG_DEFINITIONS_DEFAULT_RATE_PER_MINUTE", default = "600")]
+    pub flag_definitions_default_rate_per_minute: u32,
+
+    // Per-team rate limit overrides for flag definitions endpoint
+    // JSON format: {"team_id": "rate_string", ...}
+    // Example: {"123": "1200/minute", "456": "2400/hour"}
+    #[envconfig(from = "FLAG_DEFINITIONS_RATE_LIMITS", default = "")]
+    pub flag_definitions_rate_limits: FlagDefinitionsRateLimits,
+
     // OpenTelemetry configuration
     #[envconfig(from = "OTEL_EXPORTER_OTLP_ENDPOINT")]
     pub otel_url: Option<String>,
@@ -285,6 +350,7 @@ impl Config {
             acquire_timeout_secs: 3,
             idle_timeout_secs: 300,
             max_lifetime_secs: 1800,
+            max_lifetime_jitter_secs: 1800,
             test_before_acquire: FlexBool(true),
             db_monitor_interval_secs: 30,
             db_pool_warn_utilization: 0.8,
@@ -309,10 +375,15 @@ impl Config {
             session_replay_rrweb_script: "".to_string(),
             session_replay_rrweb_script_allowed_teams: TeamIdCollection::None,
             flags_session_replay_quota_check: false,
+            flag_definitions_default_rate_per_minute: 600,
+            flag_definitions_rate_limits: FlagDefinitionsRateLimits::default(),
             otel_url: None,
             otel_sampling_rate: 1.0,
             otel_service_name: "posthog-feature-flags".to_string(),
             otel_log_level: Level::ERROR,
+            object_storage_bucket: "posthog".to_string(),
+            object_storage_region: "us-east-1".to_string(),
+            object_storage_endpoint: "".to_string(),
         }
     }
 
@@ -534,5 +605,63 @@ mod tests {
     fn test_invalid_number() {
         let result: Result<TeamIdCollection, _> = "abc".parse();
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_flag_definitions_rate_limits_empty() {
+        let limits: FlagDefinitionsRateLimits = "".parse().unwrap();
+        assert_eq!(limits.0.len(), 0);
+    }
+
+    #[test]
+    fn test_flag_definitions_rate_limits_valid_json() {
+        let json = r#"{"123": "1200/minute", "456": "2400/hour"}"#;
+        let limits: FlagDefinitionsRateLimits = json.parse().unwrap();
+        assert_eq!(limits.0.len(), 2);
+        assert_eq!(limits.0.get(&123), Some(&"1200/minute".to_string()));
+        assert_eq!(limits.0.get(&456), Some(&"2400/hour".to_string()));
+    }
+
+    #[test]
+    fn test_flag_definitions_rate_limits_single_team() {
+        let json = r#"{"789": "100/second"}"#;
+        let limits: FlagDefinitionsRateLimits = json.parse().unwrap();
+        assert_eq!(limits.0.len(), 1);
+        assert_eq!(limits.0.get(&789), Some(&"100/second".to_string()));
+    }
+
+    #[test]
+    fn test_flag_definitions_rate_limits_invalid_json() {
+        let result: Result<FlagDefinitionsRateLimits, _> = "not json".parse();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("Failed to parse FLAG_DEFINITIONS_RATE_LIMITS"));
+    }
+
+    #[test]
+    fn test_flag_definitions_rate_limits_invalid_team_id() {
+        let json = r#"{"abc": "600/minute"}"#;
+        let result: Result<FlagDefinitionsRateLimits, _> = json.parse();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid team ID"));
+    }
+
+    #[test]
+    fn test_flag_definitions_rate_limits_negative_team_id() {
+        let json = r#"{"-123": "600/minute"}"#;
+        let result: Result<FlagDefinitionsRateLimits, _> = json.parse();
+        // Negative numbers are technically valid i32, so this should succeed
+        assert!(result.is_ok());
+        let limits = result.unwrap();
+        assert_eq!(limits.0.get(&-123), Some(&"600/minute".to_string()));
+    }
+
+    #[test]
+    fn test_flag_definitions_rate_limits_whitespace() {
+        let json = r#"  {"123": "600/minute"}  "#;
+        let limits: FlagDefinitionsRateLimits = json.parse().unwrap();
+        assert_eq!(limits.0.len(), 1);
+        assert_eq!(limits.0.get(&123), Some(&"600/minute".to_string()));
     }
 }
