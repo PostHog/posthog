@@ -26,8 +26,7 @@ function UrlSearchHeader(): JSX.Element {
                         <div className="mt-2">
                             <LemonLabel>Heatmap data URL</LemonLabel>
                             <div className="text-xs text-muted mb-1">
-                                Same as display URL by default - add * for wildcards to aggregate data from multiple
-                                pages
+                                Add * for wildcards to aggregate data from multiple pages
                             </div>
                             <LemonInput
                                 value={replayIframeData?.url}

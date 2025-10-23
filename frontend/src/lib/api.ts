@@ -106,6 +106,8 @@ import {
     GroupListParams,
     HeatmapScreenshotContentResponse,
     HeatmapScreenshotType,
+    HeatmapStatus,
+    HeatmapType,
     HogFunctionIconResponse,
     HogFunctionStatus,
     HogFunctionTemplateType,
@@ -4525,8 +4527,8 @@ const api = {
     heatmapSaved: {
         async list(
             params: {
-                type?: 'screenshot' | 'iframe' | 'recording'
-                status?: 'processing' | 'completed' | 'failed'
+                type?: HeatmapType
+                status?: HeatmapStatus
                 search?: string
                 limit?: number
                 offset?: number
@@ -4540,7 +4542,7 @@ const api = {
             url: string
             data_url?: string | null
             width?: number
-            type?: 'screenshot' | 'iframe' | 'recording'
+            type?: HeatmapType
         }): Promise<HeatmapScreenshotType> {
             return await new ApiRequest().heatmapScreenshotsSaved().create({ data })
         },
@@ -4555,7 +4557,7 @@ const api = {
                 url: string
                 data_url: string | null
                 width: number
-                type: 'screenshot' | 'iframe' | 'recording'
+                type: HeatmapType
             }>
         ): Promise<HeatmapScreenshotType> {
             return await new ApiRequest().heatmapScreenshotSaved(id).update({ data })
@@ -4563,10 +4565,6 @@ const api = {
 
         async delete(id: number | string): Promise<void> {
             return await new ApiRequest().heatmapScreenshotSaved(id).delete()
-        },
-
-        async regenerate(id: number | string): Promise<HeatmapScreenshotType> {
-            return await new ApiRequest().heatmapScreenshotSaved(id).withAction('regenerate').create()
         },
     },
 
