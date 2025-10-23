@@ -81,6 +81,9 @@ SettingsEnvironmentRevenueAnalytics.args = { sectionId: 'environment-revenue-ana
 
 export const SettingsEnvironmentMarketingAnalytics: Story = Template.bind({})
 SettingsEnvironmentMarketingAnalytics.args = { sectionId: 'environment-marketing-analytics' }
+SettingsEnvironmentMarketingAnalytics.parameters = {
+    featureFlags: [...Object.values(FEATURE_FLAGS), 'advance-marketing-analytics-settings'],
+}
 
 export const SettingsEnvironmentWebAnalytics: Story = Template.bind({})
 SettingsEnvironmentWebAnalytics.args = { sectionId: 'environment-web-analytics' }

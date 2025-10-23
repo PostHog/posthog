@@ -60,3 +60,14 @@ pub const FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER: &str =
 // Flag definitions rate limiting
 pub const FLAG_DEFINITIONS_RATE_LIMITED_COUNTER: &str = "flags_flag_definitions_rate_limited_total";
 pub const FLAG_DEFINITIONS_REQUESTS_COUNTER: &str = "flags_flag_definitions_requests_total";
+
+// Timeout tracking and classification
+pub const FLAG_CLIENT_TIMEOUT_COUNTER: &str = "flags_client_timeout_total";
+pub const FLAG_ACQUIRE_TIMEOUT_COUNTER: &str = "flags_acquire_timeout_total";
+
+// Multi-connection operation tracking
+pub const FLAG_MULTI_CONNECTION_OPERATION_COUNTER: &str = "flags_multi_connection_operation_total";
+pub const FLAG_CONNECTION_OVERLAP_TIME_MS: &str = "flags_connection_overlap_time_ms";
+
+// Error classification
+pub const FLAG_DATABASE_ERROR_COUNTER: &str = "flags_database_error_total";
