@@ -8,7 +8,6 @@ import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
 import type { Experiment, FeatureFlagType } from '~/types'
 
-import { featureFlagEligibleForExperiment } from '../utils'
 import { createExperimentLogic } from './createExperimentLogic'
 import type { variantsPanelLogicType } from './variantsPanelLogicType'
 
@@ -31,13 +30,9 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
         actions: [createExperimentLogic, ['setExperimentValue', 'setFeatureFlagConfig']],
     },
     actions: {
-        validateFeatureFlagKey: (key: string) => ({ key }),
-        setFeatureFlagKeyError: (error: string | null) => ({ error }),
-        searchFeatureFlags: (search: string) => ({ search }),
-        resetFeatureFlagsSearch: true,
-        loadAllEligibleFeatureFlags: true,
-        generateFeatureFlagKey: (name: string) => ({ name }),
         setMode: (mode: 'create' | 'link') => ({ mode }),
+        validateFeatureFlagKey: (key: string) => ({ key }),
+
         setFeatureFlagKeyDirty: true,
         setLinkedFeatureFlag: (flag: FeatureFlagType | null) => ({ flag }),
     },
@@ -101,79 +96,6 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
                 },
             },
         ],
-        availableFeatureFlags: [
-            [] as FeatureFlagType[],
-            {
-                loadAllEligibleFeatureFlags: async () => {
-                    // Load all feature flags without search filter
-                    const response = await api.get(
-                        `api/projects/@current/feature_flags/?${toParams({
-                            limit: 100,
-                            deleted: false,
-                        })}`
-                    )
-
-                    // Filter for eligible feature flags
-                    const eligibleFlags = response.results.filter((flag: FeatureFlagType) => {
-                        try {
-                            return featureFlagEligibleForExperiment(flag)
-                        } catch {
-                            return false
-                        }
-                    })
-
-                    return eligibleFlags
-                },
-                searchFeatureFlags: async ({ search }) => {
-                    const response = await api.get(
-                        `api/projects/@current/feature_flags/?${toParams({
-                            search: search || undefined,
-                            limit: 100,
-                            deleted: false,
-                        })}`
-                    )
-
-                    // Filter for eligible feature flags
-                    const eligibleFlags = response.results.filter((flag: FeatureFlagType) => {
-                        try {
-                            return featureFlagEligibleForExperiment(flag)
-                        } catch {
-                            return false
-                        }
-                    })
-
-                    return eligibleFlags
-                },
-                resetFeatureFlagsSearch: () => [],
-            },
-        ],
-        generatedKey: [
-            null as string | null,
-            {
-                generateFeatureFlagKey: async ({ name }) => {
-                    if (!name) {
-                        return null
-                    }
-
-                    const baseKey = name
-                        .toLowerCase()
-                        .replace(/[^a-z0-9-_]+/g, '-')
-                        .replace(/-+$/, '')
-                        .replace(/^-+/, '')
-
-                    let key = baseKey
-                    let counter = 1
-
-                    // Check against unavailable keys
-                    while (values.unavailableFeatureFlagKeys.has(key)) {
-                        key = `${baseKey}-${counter}`
-                        counter++
-                    }
-
-                    return key
-                },
-            },
-        ],
     }),
     selectors: {
         // TRICKY: we do not load all feature flags here, just the latest ones.
@@ -186,18 +108,11 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
                 ])
             },
         ],
-        featureFlagKey: [(s) => [s.experiment], (experiment: Experiment): string => experiment.feature_flag_key || ''],
     },
     listeners: ({ values, actions }) => ({
         [createExperimentLogic.actionTypes.setExperimentValue]: ({ name, value }) => {
             if (name === 'name' && values.mode === 'create' && !values.featureFlagKeyDirty) {
                 actions.generateFeatureFlagKey(value)
-            }
-        },
-        generateFeatureFlagKeySuccess: ({ generatedKey }) => {
-            if (generatedKey) {
-                actions.setFeatureFlagConfig({ feature_flag_key: generatedKey })
-                actions.validateFeatureFlagKey(generatedKey)
             }
         },
         setMode: ({ mode }) => {
