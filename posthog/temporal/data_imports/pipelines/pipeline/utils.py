@@ -431,11 +431,14 @@ def append_partition_key_to_table(
                 key = normalized_partition_keys[0]
                 date = row[key]
 
+                if partition_format is None:
+                    partition_format = "month"
+
                 if partition_format == "day":
                     date_format = "%Y-%m-%d"
                 elif partition_format == "week":
-                    date_format = "%G-W%V"  # W + iso8601 week number (e.g. W01, W02, ..., W52)
-                else:
+                    date_format = "%G-w%V"
+                elif partition_format == "month":
                     date_format = "%Y-%m"
 
                 if isinstance(date, int):

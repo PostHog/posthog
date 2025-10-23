@@ -1761,6 +1761,7 @@ async def test_partition_folders_with_uuid_id_and_created_at(team, postgres_conf
     assert schema.partitioning_enabled is True
     assert schema.partitioning_keys == ["created_at"]
     assert schema.partition_mode == "datetime"
+    assert schema.partition_format == "month"
     assert schema.partition_count is not None
 
 
@@ -1848,9 +1849,9 @@ async def test_partition_folders_with_uuid_id_and_created_at_with_day_format(
 
     # using datetime partition mode with created_at - formatted to day, week, or month
     for expected_partition in expected_partitions:
-        assert any(f"{PARTITION_KEY}={expected_partition}" in obj["Key"] for obj in s3_objects["Contents"]), (
-            f"Expected partition {expected_partition} not found in S3 objects"
-        )
+        assert any(
+            f"{PARTITION_KEY}={expected_partition}" in obj["Key"] for obj in s3_objects["Contents"]
+        ), f"Expected partition {expected_partition} not found in S3 objects"
 
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
     assert schema.partitioning_enabled is True

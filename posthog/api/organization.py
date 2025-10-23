@@ -171,7 +171,9 @@ class OrganizationSerializer(
             else instance.teams.none()
         )
         # Support old access control system
-        visible_teams = visible_teams.filter(id__in=self.user_permissions.team_ids_visible_for_user)
+        visible_teams = visible_teams.filter(id__in=self.user_permissions.team_ids_visible_for_user).select_related(
+            "project"
+        )
         return TeamBasicSerializer(visible_teams, context=self.context, many=True).data  # type: ignore
 
     def get_projects(self, instance: Organization) -> list[dict[str, Any]]:
