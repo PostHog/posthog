@@ -53,6 +53,7 @@ Created data is used by the user on the PostHog's website to perform business ac
 - Cohorts – groups of persons or groups of persons that the user creates to segment the collected data.
 - Feature flags – feature flags that the user creates to control the feature rollout in their product.
 - Notebooks – notebooks that the user creates to perform business analysis.
+- Error tracking issues – issues that the user creates to track errors in their product.
 
 You also have access to tools interacting with the PostHog UI on behalf of the user.
 

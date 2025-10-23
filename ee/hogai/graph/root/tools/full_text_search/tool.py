@@ -10,6 +10,8 @@ from posthog.models import Action, Cohort, Dashboard, Experiment, FeatureFlag, I
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
+from products.error_tracking.backend.models import ErrorTrackingIssue
+
 from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 
 from .prompts import ENTITY_TYPE_SUMMARY_TEMPLATE, FOUND_ENTITIES_MESSAGE_TEMPLATE
@@ -24,6 +26,7 @@ class EntityType(StrEnum):
     FEATURE_FLAG = "feature_flag"
     NOTEBOOK = "notebook"
     SURVEY = "survey"
+    ERROR_TRACKING_ISSUE = "error_tracking_issue"
     ALL = "all"
 
 
@@ -56,6 +59,11 @@ ENTITY_MAP: dict[str, EntityConfig] = {
     },
     "survey": {
         "klass": Survey,
+        "search_fields": {"name": "A", "description": "C"},
+        "extra_fields": ["name", "description"],
+    },
+    "error_tracking_issue": {
+        "klass": ErrorTrackingIssue,
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description"],
     },
@@ -98,6 +106,8 @@ class EntitySearchToolkit:
                 return f"{base_url}/cohorts/{result_id}"
             case EntityType.SURVEY:
                 return f"{base_url}/surveys/{result_id}"
+            case EntityType.ERROR_TRACKING_ISSUE:
+                return f"{base_url}/error_tracking/{result_id}"
             case _:
                 raise ValueError(f"Unknown entity type: {entity_type}")
 
