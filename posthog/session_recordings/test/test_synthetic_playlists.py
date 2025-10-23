@@ -73,6 +73,29 @@ class TestSyntheticPlaylists(APIBaseTest):
 
         assert playlist["recordings_counts"]["collection"]["count"] == 2
 
+    def test_synthetic_playlist_pagination(self) -> None:
+        from posthog.session_recordings.synthetic_playlists import WatchedPlaylistSource
+
+        for i in range(5):
+            SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id=f"watched-session-{i}")
+
+        source = WatchedPlaylistSource()
+
+        page1 = source.get_session_ids(self.team, self.user, limit=2, offset=0)
+        page2 = source.get_session_ids(self.team, self.user, limit=2, offset=2)
+        page3 = source.get_session_ids(self.team, self.user, limit=2, offset=4)
+
+        assert len(page1) == 2
+        assert len(page2) == 2
+        assert len(page3) == 1
+
+        assert set(page1).isdisjoint(set(page2))
+        assert set(page1).isdisjoint(set(page3))
+        assert set(page2).isdisjoint(set(page3))
+
+        all_pages = page1 + page2 + page3
+        assert len(set(all_pages)) == 5
+
     def test_synthetic_playlist_commented_content(self) -> None:
         Comment.objects.create(
             team=self.team,
