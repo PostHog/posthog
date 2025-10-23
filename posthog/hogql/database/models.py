@@ -86,7 +86,7 @@ class StringJSONDatabaseField(DatabaseField):
         return StringJSONType(nullable=self.is_nullable())
 
     def default_value(self) -> Any:
-        return {}
+        return ""
 
 
 class StringArrayDatabaseField(DatabaseField):
@@ -96,7 +96,7 @@ class StringArrayDatabaseField(DatabaseField):
         return StringArrayType(nullable=self.is_nullable())
 
     def default_value(self) -> Any:
-        return []
+        return ""
 
 
 class FloatArrayDatabaseField(DatabaseField):
@@ -106,7 +106,7 @@ class FloatArrayDatabaseField(DatabaseField):
         return FloatType(nullable=self.is_nullable())
 
     def default_value(self) -> Any:
-        return []
+        return ""
 
 
 class DateDatabaseField(DatabaseField):
