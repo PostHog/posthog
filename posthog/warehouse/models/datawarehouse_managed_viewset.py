@@ -21,6 +21,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery, get_s3_tables
+from posthog.warehouse.models.modeling import DataWarehouseModelPath
 
 logger = structlog.get_logger(__name__)
 
@@ -68,7 +69,9 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         else:
             raise ValueError(f"Unsupported viewset kind: {self.kind}")
 
-        expected_view_names = {view.name for view in expected_views}
+        # NOTE: Views that depend on other views MUST be placed AFTER the views they depend on
+        # or else we'll fail to build the paths properly.
+        expected_view_names = [view.name for view in expected_views]
 
         views_created = 0
         views_updated = 0
@@ -98,6 +101,21 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                     saved_query.columns = columns
                     saved_query.external_tables = external_tables
                     saved_query.save(update_fields=["query", "columns", "external_tables"])
+
+                # Make sure paths properly exist both on creation and update
+                # This is required for Temporal to properly build the DAG
+                #
+                # NOTE: Always attempting to create paths if there's no paths for the saved query
+                # to fix wrongfully-created saved queries without any paths.
+                if (
+                    created
+                    or not DataWarehouseModelPath.objects.filter(
+                        team=saved_query.team, saved_query=saved_query
+                    ).exists()
+                ):
+                    DataWarehouseModelPath.objects.create_from_saved_query(saved_query)
+                else:
+                    DataWarehouseModelPath.objects.update_from_saved_query(saved_query)
 
                 if created:
                     views_created += 1
