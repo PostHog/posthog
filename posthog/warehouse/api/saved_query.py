@@ -53,7 +53,6 @@ from posthog.warehouse.models import (
     DataWarehouseSavedQuery,
     clean_type,
 )
-from posthog.warehouse.models.datawarehouse_saved_query import get_s3_tables
 from posthog.warehouse.models.external_data_schema import (
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
@@ -178,7 +177,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                     }
                     view.columns = columns
 
-                view.external_tables = get_s3_tables(view.team, view.query["query"])
+                view.external_tables = view.s3_tables
             except Exception:
                 raise serializers.ValidationError("Failed to retrieve types for view")
 
@@ -282,7 +281,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                         }
                         view.columns = columns
 
-                    view.external_tables = get_s3_tables(view.team, view.query["query"])
+                    view.external_tables = view.s3_tables
                 except RecursionError:
                     raise serializers.ValidationError("Model contains a cycle")
                 except Exception:

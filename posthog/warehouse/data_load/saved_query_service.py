@@ -30,7 +30,7 @@ from posthog.temporal.common.schedule import (
 )
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
 from posthog.warehouse.models import DataWarehouseModelPath
-from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery, get_s3_tables
+from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 if TYPE_CHECKING:
     from posthog.warehouse.models import DataWarehouseSavedQuery
@@ -135,7 +135,7 @@ def recreate_model_paths(saved_query: DataWarehouseSavedQuery) -> None:
                 team=saved_query.team, path__contains=[saved_query.id.hex]
             ).exists():
                 DataWarehouseModelPath.objects.update_or_create(team=saved_query.team, path=[saved_query.id.hex])
-                for table_name in get_s3_tables(saved_query.team, saved_query.query["query"]):
+                for table_name in saved_query.s3_tables:
                     DataWarehouseModelPath.objects.update_or_create(
                         team=saved_query.team, path=[table_name, saved_query.id.hex]
                     )
