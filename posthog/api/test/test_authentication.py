@@ -1156,7 +1156,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
         self.access_token = OAuthAccessToken.objects.create(
             user=self.user,
             application=self.oauth_app,
-            token="test_access_token_123",
+            token="pha_test_access_token_123",
             expires=timezone.now() + timedelta(hours=1),
             scope="openid profile",
         )
@@ -1195,7 +1195,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
         expired_token = OAuthAccessToken.objects.create(
             user=self.user,
             application=self.oauth_app,
-            token="expired_token_123",
+            token="pha_expired_token_123",
             expires=timezone.now() - timedelta(hours=1),
             scope="openid profile",
         )
@@ -1289,7 +1289,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
         invalid_token = OAuthAccessToken.objects.create(
             user=self.user,
             application=None,  # This will cause a validation error
-            token="invalid_app_token_123",
+            token="pha_invalid_app_token_123",
             expires=timezone.now() + timedelta(hours=1),
             scope="openid profile",
         )
@@ -1314,7 +1314,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
         token_without_user = OAuthAccessToken.objects.create(
             user=None,
             application=self.oauth_app,
-            token="no_user_token_123",
+            token="pha_no_user_token_123",
             expires=timezone.now() + timedelta(hours=1),
             scope="openid profile",
         )
@@ -1366,6 +1366,20 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
                 team_id=self.user.current_team_id,
                 access_method="oauth",
             )
+
+    def test_authenticate_without_pha_prefix_returns_none(self):
+        """Test that tokens without the pha_ prefix are skipped by OAuth authentication,
+        allowing PersonalAPIKeyAuthentication to handle them."""
+        wsgi_request = self.factory.get(
+            "/",
+            headers={"AUTHORIZATION": "Bearer random_token_without_prefix"},
+        )
+        request = Request(wsgi_request)
+
+        authenticator = OAuthAccessTokenAuthentication()
+        result = authenticator.authenticate(request)
+
+        self.assertIsNone(result)
 
 
 class TestOAuthLoginNotification(APIBaseTest):
