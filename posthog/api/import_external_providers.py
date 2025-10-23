@@ -1503,7 +1503,11 @@ class LaunchDarklyImporter(BaseImporter):
 
                 fallthrough_variant = self._get_variation_key(flag, variation_index)
 
-            fallthrough_condition: ConditionDict = {"properties": [], "rollout_percentage": rollout_percentage, "rule_id": "fallthrough"}
+            fallthrough_condition: ConditionDict = {
+                "properties": [],
+                "rollout_percentage": rollout_percentage,
+                "rule_id": "fallthrough",
+            }
 
             # Add variant if determined
             if fallthrough_variant:
