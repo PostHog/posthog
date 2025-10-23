@@ -139,12 +139,12 @@ class TwoFactorRequired(APIException):
 
 
 class EmailMFARequired(APIException):
-    status_code = 400
+    status_code = 401
     default_detail = "Email MFA is required."
     default_code = "email_mfa_required"
 
     def __init__(self, email: str | None = None):
-        detail = {"email": email} if email else self.default_detail
+        detail = email if email else self.default_detail
         super().__init__(detail=detail, code=self.default_code)
 
 
@@ -249,7 +249,7 @@ class LoginSerializer(serializers.Serializer):
                 # Email MFA flow
                 email_mfa_sent = email_mfa_verifier.create_token_and_send_email_mfa_verification(request, user)
                 if email_mfa_sent:
-                    raise serializers.ValidationError({"email": user.email}, code="email_mfa_required")
+                    raise EmailMFARequired(user.email)
                 else:
                     # if we failed to send the email, we should fall through to allow login without MFA
                     pass

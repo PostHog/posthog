@@ -20,7 +20,7 @@ class TestEmailMFAAPI(APIBaseTest):
         self, mock_is_email_available, mock_send_email, mock_feature_enabled
     ):
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         response_data = response.json()
         self.assertEqual(response_data["code"], "email_mfa_required")
         self.assertEqual(response_data["detail"], self.user.email)
