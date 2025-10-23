@@ -220,6 +220,30 @@ pub struct Config {
     #[envconfig(default = "true")]
     pub test_before_acquire: FlexBool,
 
+    // PostgreSQL statement_timeout for non-persons reader queries (milliseconds)
+    // - Set to 0 to use database default (typically unlimited)
+    // - Non-persons readers may run longer analytical queries
+    // - Default: 5000ms (5 seconds)
+    // - This timeout is enforced server-side and properly kills queries
+    #[envconfig(default = "5000")]
+    pub non_persons_reader_statement_timeout_ms: u64,
+
+    // PostgreSQL statement_timeout for persons reader queries (milliseconds)
+    // - Set to 0 to use database default (typically unlimited)
+    // - Persons readers may run longer analytical queries
+    // - Default: 5000ms (5 seconds)
+    // - This timeout is enforced server-side and properly kills queries
+    #[envconfig(default = "5000")]
+    pub persons_reader_statement_timeout_ms: u64,
+
+    // PostgreSQL statement_timeout for writer database queries (milliseconds)
+    // - Set to 0 to use database default (typically unlimited)
+    // - Writers should be fast transactional operations
+    // - Default: 10000ms (10 seconds)
+    // - This timeout is enforced server-side and properly kills queries
+    #[envconfig(default = "10000")]
+    pub writer_statement_timeout_ms: u64,
+
     // How often to report database pool metrics (seconds)
     // - Decrease for more granular monitoring (e.g., 10-15)
     // - Increase to reduce metric volume (e.g., 60-120)
@@ -352,6 +376,9 @@ impl Config {
             max_lifetime_secs: 1800,
             max_lifetime_jitter_secs: 1800,
             test_before_acquire: FlexBool(true),
+            non_persons_reader_statement_timeout_ms: 5000,
+            persons_reader_statement_timeout_ms: 5000,
+            writer_statement_timeout_ms: 5000,
             db_monitor_interval_secs: 30,
             db_pool_warn_utilization: 0.8,
             billing_limiter_cache_ttl_secs: 5,
