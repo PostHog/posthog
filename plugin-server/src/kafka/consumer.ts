@@ -723,8 +723,7 @@ export class KafkaConsumer {
 
                         // CRITICAL: If task not found, this indicates some bigger problem
                         if (index < 0) {
-                            const error = new Error('Background task not found in array during cleanup')
-                            captureException(error)
+                            captureException(new Error('Background task not found in array during cleanup'))
                             counterBackgroundTaskNotFound
                                 .labels({ pod: this.podName, groupId: this.config.groupId })
                                 .inc()
