@@ -10,7 +10,13 @@ const _commonActionFields = {
     created_at: z.number(),
     updated_at: z.number(),
     filters: z.any(), // TODO: Correct to the right type
-    output_variable: z.string().optional().nullable(), // The Hogflow-level variable to store the output of this action into
+    output_variable: z // The Hogflow-level variable to store the output of this action into
+        .object({
+            key: z.string(),
+            result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'result.response.user.id'
+        })
+        .optional()
+        .nullable(),
 }
 
 const HogFlowTriggerSchema = z.discriminatedUnion('type', [

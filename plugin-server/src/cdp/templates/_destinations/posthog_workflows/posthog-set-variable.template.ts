@@ -20,7 +20,8 @@ return inputs.variable_value
             label: 'Value',
             secret: false,
             required: true,
-            description: 'The value to set for the variable.',
+            description:
+                'The value to set for the variable. Configure which variable to set in the Output variable section below.',
         },
     ],
 }

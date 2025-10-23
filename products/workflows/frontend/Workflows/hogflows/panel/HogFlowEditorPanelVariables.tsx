@@ -114,7 +114,7 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
                 </div>
             ))}
             <LemonButton icon={<IconPlus />} type="secondary" size="small" onClick={addNewVariable}>
-                Add variable
+                New variable
             </LemonButton>
         </div>
     )

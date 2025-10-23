@@ -1,3 +1,4 @@
+import { get } from 'lodash'
 import { DateTime } from 'luxon'
 
 import { HogFlow, HogFlowAction } from '../../../schema/hogflow'
@@ -492,8 +493,19 @@ export class HogFlowExecutorService {
         action: HogFlowAction,
         output: object | Error
     ): void {
-        if (action.output_variable) {
-            result.invocation.state.variables[action.output_variable] = output
+        if (!output) {
+            this.log(
+                result,
+                'warn',
+                `An output variable was specified for [Action:${action.id}], but no output was returned.`
+            )
+            return
+        }
+
+        if (action.output_variable?.key) {
+            result.invocation.state.variables[action.output_variable.key] = action.output_variable?.result_path
+                ? get(output, action.output_variable.result_path)
+                : output
 
             // Check that result to be stored is below 1kb
             const resultSize = Buffer.byteLength(JSON.stringify(result.invocation.state.variables), 'utf8')
@@ -501,16 +513,16 @@ export class HogFlowExecutorService {
                 this.log(
                     result,
                     'warn',
-                    `Total variable size after updating '${action.output_variable}' is larger than 1KB, this result will not be stored and won't be available in subsequent actions.`
+                    `Total variable size after updating '${action.output_variable.key}' is larger than 1KB, this result will not be stored and won't be available in subsequent actions.`
                 )
-                delete result.invocation.state.variables[action.output_variable]
+                delete result.invocation.state.variables[action.output_variable.key]
                 return
             }
 
             this.log(
                 result,
                 'debug',
-                `Stored action result in variable '${action.output_variable}': ${JSON.stringify({
+                `Stored action result in variable '${action.output_variable.key}': ${JSON.stringify({
                     result: output,
                 })}`
             )

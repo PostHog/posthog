@@ -28,7 +28,13 @@ const _commonActionFields = {
     created_at: z.number(),
     updated_at: z.number(),
     filters: ActionFiltersSchema.optional().nullable(),
-    output_variable: z.string().optional().nullable(), // The Hogflow-level variable to store the output of this action into
+    output_variable: z // The Hogflow-level variable to store the output of this action into
+        .object({
+            key: z.string(),
+            result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'result.response.user.id'
+        })
+        .optional()
+        .nullable(),
 }
 
 const CyclotronInputSchema = z.object({
