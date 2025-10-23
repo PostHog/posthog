@@ -1,5 +1,5 @@
 use posthog_cli::sourcemaps::{
-    content::SourceMapContent, plain::inject::is_javascript_file, inject::inject_pairs,
+    content::SourceMapContent, inject::inject_pairs, plain::inject::is_javascript_file,
     source_pairs::SourcePair,
 };
 
