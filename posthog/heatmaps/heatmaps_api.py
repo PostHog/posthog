@@ -17,6 +17,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import TemporaryTokenAuthentication
 from posthog.models.heatmap_screenshot import HeatmapScreenshot
@@ -312,6 +313,7 @@ class HeatmapScreenshotRequestSerializer(serializers.Serializer):
 
 
 class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
     snapshots = serializers.SerializerMethodField()
 
     class Meta:
@@ -328,6 +330,7 @@ class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
             "has_content",
             "snapshots",
             "deleted",
+            "created_by",
             "created_at",
             "updated_at",
             "exception",
@@ -337,6 +340,7 @@ class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
             "short_id",
             "status",
             "has_content",
+            "created_by",
             "created_at",
             "updated_at",
             "exception",
@@ -456,7 +460,12 @@ class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return queryset.filter(team=self.team)
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        qs = self.safely_get_queryset(self.get_queryset()).filter(deleted=False).order_by("-updated_at")
+        qs = (
+            self.safely_get_queryset(self.get_queryset())
+            .filter(deleted=False)
+            .select_related("created_by")
+            .order_by("-updated_at")
+        )
 
         type_param = request.query_params.get("type")
         status_param = request.query_params.get("status")
