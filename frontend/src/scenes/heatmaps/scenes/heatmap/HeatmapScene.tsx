@@ -1,6 +1,4 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useState } from 'react'
-import { useDebouncedCallback } from 'use-debounce'
 
 import { IconBrowser } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
@@ -21,14 +19,9 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
     const logicProps = { id: id }
     const logic = heatmapLogic(logicProps)
 
-    const { name, loading, type, displayUrl, widthOverride, screenshotUrl, generatingScreenshot } = useValues(logic)
-    const { setName, updateHeatmap, onIframeLoad } = useActions(logic)
-
-    const [showHeatmap, setShowHeatmap] = useState(false)
-
-    const debouncedOnNameChange = useDebouncedCallback((name: string) => {
-        setName(name)
-    }, 500)
+    const { name, loading, type, displayUrl, widthOverride, screenshotUrl, generatingScreenshot, screenshotLoaded } =
+        useValues(logic)
+    const { setName, updateHeatmap, onIframeLoad, setScreenshotLoaded } = useActions(logic)
 
     if (loading) {
         return (
@@ -48,7 +41,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                     }}
                     description={null}
                     canEdit
-                    onNameChange={debouncedOnNameChange}
+                    onNameChange={setName}
                     forceBackTo={{
                         name: 'Heatmaps',
                         path: urls.heatmaps(),
@@ -84,7 +77,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                 </div>
                             ) : screenshotUrl ? (
                                 <>
-                                    {showHeatmap && (
+                                    {screenshotLoaded && (
                                         <HeatmapCanvas
                                             key={widthOverride ?? 'auto'}
                                             positioning="absolute"
@@ -101,7 +94,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                             display: 'block',
                                         }}
                                         onLoad={() => {
-                                            setShowHeatmap(true)
+                                            setScreenshotLoaded(true)
                                         }}
                                         className="rounded-b-lg"
                                         onError={() => {

@@ -5,6 +5,7 @@ import posthoganalytics
 from celery import shared_task
 
 from posthog.exceptions_capture import capture_exception
+from posthog.heatmaps.heatmaps_api import DEFAULT_TARGET_WIDTHS
 from posthog.models.heatmap_saved import HeatmapSaved, HeatmapSnapshot
 from posthog.tasks.exports.image_exporter import HEIGHT_OFFSET
 from posthog.tasks.utils import CeleryQueue
@@ -154,7 +155,7 @@ def _generate_screenshots(screenshot: HeatmapSaved) -> None:
     """Generate screenshots for multiple widths using Playwright in one browser session."""
 
     # Determine target widths
-    target_widths = screenshot.target_widths or [320, 375, 425, 768, 1024, 1440, 1920]
+    target_widths = screenshot.target_widths or DEFAULT_TARGET_WIDTHS
     # Deduplicate and keep order
     seen = set()
     widths: list[int] = []

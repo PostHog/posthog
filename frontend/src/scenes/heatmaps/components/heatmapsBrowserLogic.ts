@@ -42,9 +42,6 @@ export interface ReplayIframeData {
     url: string | undefined
 }
 
-// team id is always available on window
-const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
-
 // Helper function to detect if a URL contains regex pattern characters
 const isUrlPattern = (url: string): boolean => {
     return /[*+?^${}()|[\]\\]/.test(url)
@@ -58,7 +55,7 @@ const normalizeUrlPath = (urlObj: URL): string => {
 }
 
 export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
-    path(['scenes', 'heatmaps', 'heatmapsBrowserLogic']),
+    path(['scenes', 'heatmaps', 'components', 'heatmapsBrowserLogic']),
     props({} as HeatmapsBrowserLogicProps),
 
     connect(() => ({
@@ -215,7 +212,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         ],
         dataUrl: [
             null as string | null,
-            { persist: true, prefix: `${teamId}__` },
             {
                 setDataUrl: (_, { url }) => url,
             },
@@ -244,7 +240,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         ],
         displayUrl: [
             null as string | null,
-            { persist: true, prefix: `${teamId}__` },
             {
                 setDisplayUrl: (_, { url }) => url,
             },

@@ -38,6 +38,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         setGeneratingScreenshot: (generating: boolean) => ({ generating }),
         pollScreenshotStatus: (id: number, width?: number) => ({ id, width }),
         setHeatmapId: (id: number | null) => ({ id }),
+        setScreenshotLoaded: (screenshotLoaded: boolean) => ({ screenshotLoaded }),
     }),
     reducers({
         type: ['screenshot' as HeatmapType, { setType: (_, { type }) => type }],
@@ -51,6 +52,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         // expose a screenshotLoading alias for UI compatibility
         screenshotLoading: [false as boolean, { setScreenshotUrl: () => false }],
         heatmapId: [null as number | null, { setHeatmapId: (_, { id }) => id }],
+        screenshotLoaded: [false, { setScreenshotLoaded: (_, { screenshotLoaded }) => screenshotLoaded }],
     }),
     listeners(({ actions, values, props }) => ({
         load: async () => {

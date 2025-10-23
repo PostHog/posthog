@@ -243,6 +243,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'New heatmap',
         iconType: 'heatmap',
     },
+    [Scene.HeatmapRecording]: {
+        projectBased: true,
+        name: 'Heatmap recording',
+        iconType: 'heatmap',
+    },
     [Scene.HogFunction]: { projectBased: true, name: 'Hog function', activityScope: ActivityScope.HOG_FUNCTION },
     [Scene.Insight]: {
         projectBased: true,
