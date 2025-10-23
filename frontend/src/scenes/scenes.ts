@@ -168,7 +168,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Event definitions',
         activityScope: ActivityScope.EVENT_DEFINITION,
         defaultDocsPath: '/docs/data/events',
-        description: 'Event definitions are a way to define events that can be used in your app or website.',
         iconType: 'event_definition',
     },
     [Scene.Experiment]: {
