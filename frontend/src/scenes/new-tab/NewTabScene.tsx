@@ -18,9 +18,7 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
 import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { Dayjs, dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/TabsPrimitive/TabsPrimitive'
@@ -29,7 +27,6 @@ import {
     NEW_TAB_CATEGORY_ITEMS,
     NEW_TAB_COMMANDS,
     NEW_TAB_COMMANDS_ITEMS,
-    NewTabTreeDataItem,
     newTabSceneLogic,
 } from 'scenes/new-tab/newTabSceneLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -44,78 +41,6 @@ import { SearchInput, SearchInputCommand, SearchInputHandle } from './components
 export const scene: SceneExport = {
     component: NewTabScene,
     logic: newTabSceneLogic,
-}
-
-export const getCategoryDisplayName = (category: string): string => {
-    const displayNames: Record<string, string> = {
-        'create-new': 'Create new',
-        apps: 'Apps',
-        'data-management': 'Data management',
-        recents: 'Recents',
-        persons: 'Persons',
-        eventDefinitions: 'Events',
-        propertyDefinitions: 'Properties',
-        askAI: 'Posthog AI',
-    }
-    return displayNames[category] || category
-}
-export const formatRelativeTimeShort = (date: string | number | Date | Dayjs | null | undefined): string => {
-    if (!date) {
-        return ''
-    }
-
-    const parsedDate = dayjs(date)
-
-    if (!parsedDate.isValid()) {
-        return ''
-    }
-
-    const now = dayjs()
-    const seconds = Math.max(0, now.diff(parsedDate, 'second'))
-
-    if (seconds < 60) {
-        return 'just now'
-    }
-
-    const minutes = now.diff(parsedDate, 'minute')
-
-    if (minutes < 60) {
-        return `${minutes} min ago`
-    }
-
-    const hours = now.diff(parsedDate, 'hour')
-
-    if (hours < 24) {
-        return `${hours} hr${hours === 1 ? '' : 's'} ago`
-    }
-
-    const days = now.diff(parsedDate, 'day')
-
-    if (days < 30) {
-        return `${days} day${days === 1 ? '' : 's'} ago`
-    }
-
-    const months = now.diff(parsedDate, 'month') || 1
-
-    if (months < 12) {
-        return `${months} mo${months === 1 ? '' : 's'} ago`
-    }
-
-    const years = now.diff(parsedDate, 'year') || 1
-
-    return `${years} yr${years === 1 ? '' : 's'} ago`
-}
-
-// Helper function to convert NewTabTreeDataItem to TreeDataItem for menu usage
-export function convertToTreeDataItem(item: NewTabTreeDataItem): TreeDataItem {
-    return {
-        ...item,
-        record: {
-            ...item.record,
-            href: item.href,
-            path: item.name, // Use name as path for menu compatibility
-        },
-    }
 }
 
 export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homepage' } = {}): JSX.Element {
