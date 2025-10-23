@@ -67,6 +67,7 @@ export interface NewTabTreeDataItem extends TreeDataItem {
     category: NEW_TAB_CATEGORY_ITEMS
     href?: string
     flag?: string
+    lastViewedAt?: string | null
 }
 
 export interface NewTabCategoryItem {
@@ -414,6 +415,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         name: name || item.path,
                         category: 'recents',
                         href: item.href || '#',
+                        lastViewedAt: item.last_viewed_at ?? null,
                         icon: getIconForFileSystemItem({
                             type: item.type,
                             iconType: item.type as any,

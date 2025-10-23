@@ -26,7 +26,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
 import { SidePanelTab } from '~/types'
 
-import { convertToTreeDataItem, getCategoryDisplayName } from '../NewTabScene'
+import { convertToTreeDataItem, formatRelativeTimeShort, getCategoryDisplayName } from '../NewTabScene'
 import { NoResultsFound } from './NoResultsFound'
 
 function Category({
@@ -180,6 +180,11 @@ function Category({
                                 (newTabSceneData && isFirstCategoryWithResults && index === 0) ||
                                 (filteredItemsGrid.length > 0 && isFirstCategory && index === 0)
 
+                            const lastViewedAt =
+                                item.lastViewedAt ??
+                                (item.record as { last_viewed_at?: string | null } | undefined)?.last_viewed_at ??
+                                null
+
                             if (focusFirst) {
                             }
 
@@ -205,15 +210,22 @@ function Category({
                                                     }}
                                                 >
                                                     <span className="text-sm">{item.icon ?? item.name[0]}</span>
-                                                    <span className="text-sm truncate text-primary">
-                                                        {search ? (
-                                                            <SearchHighlightMultiple
-                                                                string={item.name}
-                                                                substring={search}
-                                                            />
-                                                        ) : (
-                                                            item.displayName || item.name
-                                                        )}
+                                                    <span className="flex min-w-0 items-center gap-2">
+                                                        <span className="text-sm truncate text-primary">
+                                                            {search ? (
+                                                                <SearchHighlightMultiple
+                                                                    string={item.name}
+                                                                    substring={search}
+                                                                />
+                                                            ) : (
+                                                                item.displayName || item.name
+                                                            )}
+                                                        </span>
+                                                        {lastViewedAt ? (
+                                                            <span className="text-xs text-muted whitespace-nowrap">
+                                                                {formatRelativeTimeShort(lastViewedAt)}
+                                                            </span>
+                                                        ) : null}
                                                     </span>
                                                 </Link>
                                             </ListBox.Item>

@@ -19,6 +19,7 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
 import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -59,49 +60,52 @@ export const getCategoryDisplayName = (category: string): string => {
     }
     return displayNames[category] || category
 }
-//
-// const formatRelativeTimeShort = (date: string | number | Date | Dayjs): string => {
-//     const parsedDate = dayjs(date)
-//
-//     if (!parsedDate.isValid()) {
-//         return ''
-//     }
-//
-//     const now = dayjs()
-//     const seconds = Math.max(0, now.diff(parsedDate, 'second'))
-//
-//     if (seconds < 60) {
-//         return 'just now'
-//     }
-//
-//     const minutes = now.diff(parsedDate, 'minute')
-//
-//     if (minutes < 60) {
-//         return `${minutes} min ago`
-//     }
-//
-//     const hours = now.diff(parsedDate, 'hour')
-//
-//     if (hours < 24) {
-//         return `${hours} hr${hours === 1 ? '' : 's'} ago`
-//     }
-//
-//     const days = now.diff(parsedDate, 'day')
-//
-//     if (days < 30) {
-//         return `${days} day${days === 1 ? '' : 's'} ago`
-//     }
-//
-//     const months = now.diff(parsedDate, 'month') || 1
-//
-//     if (months < 12) {
-//         return `${months} mo${months === 1 ? '' : 's'} ago`
-//     }
-//
-//     const years = now.diff(parsedDate, 'year') || 1
-//
-//     return `${years} yr${years === 1 ? '' : 's'} ago`
-// }
+export const formatRelativeTimeShort = (date: string | number | Date | Dayjs | null | undefined): string => {
+    if (!date) {
+        return ''
+    }
+
+    const parsedDate = dayjs(date)
+
+    if (!parsedDate.isValid()) {
+        return ''
+    }
+
+    const now = dayjs()
+    const seconds = Math.max(0, now.diff(parsedDate, 'second'))
+
+    if (seconds < 60) {
+        return 'just now'
+    }
+
+    const minutes = now.diff(parsedDate, 'minute')
+
+    if (minutes < 60) {
+        return `${minutes} min ago`
+    }
+
+    const hours = now.diff(parsedDate, 'hour')
+
+    if (hours < 24) {
+        return `${hours} hr${hours === 1 ? '' : 's'} ago`
+    }
+
+    const days = now.diff(parsedDate, 'day')
+
+    if (days < 30) {
+        return `${days} day${days === 1 ? '' : 's'} ago`
+    }
+
+    const months = now.diff(parsedDate, 'month') || 1
+
+    if (months < 12) {
+        return `${months} mo${months === 1 ? '' : 's'} ago`
+    }
+
+    const years = now.diff(parsedDate, 'year') || 1
+
+    return `${years} yr${years === 1 ? '' : 's'} ago`
+}
 
 // Helper function to convert NewTabTreeDataItem to TreeDataItem for menu usage
 export function convertToTreeDataItem(item: NewTabTreeDataItem): TreeDataItem {
