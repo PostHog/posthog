@@ -1,6 +1,7 @@
 from datetime import date, datetime
 from typing import Any, List, Literal  # noqa: UP035
 
+from django.db.models import Q
 from django.http import HttpResponse
 
 from rest_framework import request, response, serializers, status, viewsets
@@ -470,13 +471,39 @@ class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         type_param = request.query_params.get("type")
         status_param = request.query_params.get("status")
         search = request.query_params.get("search")
+        created_by_param = request.query_params.get("created_by")
+        date_from = request.query_params.get("date_from")
+        date_to = request.query_params.get("date_to")
+        order = request.query_params.get("order")
 
         if type_param:
             qs = qs.filter(type=type_param)
         if status_param:
             qs = qs.filter(status=status_param)
         if search:
-            qs = qs.filter(url__icontains=search)
+            qs = qs.filter(Q(url__icontains=search) | Q(name__icontains=search))
+        if created_by_param:
+            try:
+                qs = qs.filter(created_by_id=int(created_by_param))
+            except Exception:
+                pass
+        if date_from:
+            try:
+                dt_from, _, _ = relative_date_parse_with_delta_mapping(date_from, self.team.timezone_info)
+                qs = qs.filter(created_at__gte=dt_from)
+            except Exception:
+                pass
+        if date_to:
+            try:
+                dt_to, _, _ = relative_date_parse_with_delta_mapping(date_to, self.team.timezone_info)
+                qs = qs.filter(created_at__lte=dt_to)
+            except Exception:
+                pass
+        if order:
+            try:
+                qs = qs.order_by(order)
+            except Exception:
+                pass
 
         limit = int(request.query_params.get("limit", 100))
         offset = int(request.query_params.get("offset", 0))

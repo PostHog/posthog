@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumn, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTable, LemonTableColumn, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -26,8 +27,8 @@ export const scene: SceneExport = {
 }
 
 export function HeatmapsScene(): JSX.Element {
-    const { savedHeatmaps, savedHeatmapsLoading } = useValues(heatmapsSceneLogic)
-    const { deleteHeatmap } = useActions(heatmapsSceneLogic)
+    const { savedHeatmaps, savedHeatmapsLoading, filters } = useValues(heatmapsSceneLogic)
+    const { deleteHeatmap, setHeatmapsFilters } = useActions(heatmapsSceneLogic)
 
     const columns: LemonTableColumns<HeatmapScreenshotType> = [
         {
@@ -132,7 +133,22 @@ export function HeatmapsScene(): JSX.Element {
                     directly to us!
                 </p>
             </LemonBanner>
+            <div className="flex justify-between gap-2 items-center flex-wrap">
+                <LemonInput
+                    type="search"
+                    placeholder="Search for heatmaps"
+                    onChange={(value) => setHeatmapsFilters({ search: value || undefined })}
+                    value={filters.search || ''}
+                />
 
+                <div className="flex items-center gap-2">
+                    <span>Created by:</span>
+                    <MemberSelect
+                        value={filters.createdBy === 'All users' ? null : filters.createdBy}
+                        onChange={(user) => setHeatmapsFilters({ createdBy: user?.id || 'All users' })}
+                    />
+                </div>
+            </div>
             <div className="mb-4">
                 <LemonTable dataSource={savedHeatmaps} loading={savedHeatmapsLoading} columns={columns} rowKey="id" />
             </div>

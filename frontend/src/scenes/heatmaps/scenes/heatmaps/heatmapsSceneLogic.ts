@@ -1,14 +1,21 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
+import { objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, HeatmapScreenshotType } from '~/types'
+import { Breadcrumb, HeatmapFilters, HeatmapScreenshotType } from '~/types'
 
 import type { heatmapsSceneLogicType } from './heatmapsSceneLogicType'
+
+export const DEFAULT_HEATMAP_FILTERS = {
+    createdBy: 'All users',
+    search: '',
+    page: 1,
+}
 
 export const heatmapsSceneLogic = kea<heatmapsSceneLogicType>([
     path(['scenes', 'heatmaps', 'heatmapsSceneLogic']),
@@ -17,6 +24,7 @@ export const heatmapsSceneLogic = kea<heatmapsSceneLogicType>([
         setSavedHeatmaps: (items: HeatmapScreenshotType[]) => ({ items }),
         setLoading: (loading: boolean) => ({ loading }),
         deleteHeatmap: (short_id: string) => ({ short_id }),
+        setHeatmapsFilters: (filters: HeatmapFilters) => ({ filters }),
     }),
     reducers({
         savedHeatmaps: [
@@ -29,6 +37,13 @@ export const heatmapsSceneLogic = kea<heatmapsSceneLogicType>([
             false,
             {
                 setLoading: (_, { loading }) => loading,
+            },
+        ],
+        filters: [
+            DEFAULT_HEATMAP_FILTERS,
+            { persist: true },
+            {
+                setHeatmapsFilters: (_, { filters }) => filters,
             },
         ],
     }),
@@ -48,10 +63,21 @@ export const heatmapsSceneLogic = kea<heatmapsSceneLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
-        loadSavedHeatmaps: async () => {
+        loadSavedHeatmaps: async (_, breakpoint) => {
+            if (!objectsEqual(values.filters, DEFAULT_HEATMAP_FILTERS)) {
+                await breakpoint(300)
+            }
             actions.setLoading(true)
             try {
-                const response = await api.heatmapSaved.list({ limit: 100 })
+                const f = values.filters || {}
+                const createdBy = f.createdBy === 'All users' ? undefined : f.createdBy
+                const params: Record<string, any> = {
+                    limit: 100,
+                    search: f.search || undefined,
+                    created_by: createdBy || undefined,
+                    order: f.order || '-created_at',
+                }
+                const response = await api.heatmapSaved.list(params)
                 actions.setSavedHeatmaps(response.results || [])
             } finally {
                 actions.setLoading(false)
@@ -67,6 +93,9 @@ export const heatmapsSceneLogic = kea<heatmapsSceneLogicType>([
                 endpoint: 'environments/@current/saved',
                 callback: () => actions.loadSavedHeatmaps(),
             })
+        },
+        setHeatmapsFilters: () => {
+            actions.loadSavedHeatmaps()
         },
     })),
     afterMount(({ actions }) => {

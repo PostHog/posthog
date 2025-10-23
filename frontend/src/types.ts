@@ -5870,6 +5870,13 @@ export type HeatmapScreenshotContentResponse =
     | { success: true; data: Response } // 200: PNG image data
     | { success: false; data: HeatmapScreenshotType } // 202/404/501: JSON with screenshot metadata
 
+export interface HeatmapFilters {
+    order: string
+    search: string
+    createdBy: number | 'All users'
+    page: number
+}
+
 export interface DataWarehouseDashboardDataSource {
     id: string
     name: string
