@@ -5,7 +5,7 @@ import posthoganalytics
 from celery import shared_task
 
 from posthog.exceptions_capture import capture_exception
-from posthog.heatmaps.heatmaps_api import DEFAULT_TARGET_WIDTHS
+from posthog.heatmaps.constants import DEFAULT_TARGET_WIDTHS
 from posthog.models.heatmap_saved import HeatmapSaved, HeatmapSnapshot
 from posthog.tasks.exports.image_exporter import HEIGHT_OFFSET
 from posthog.tasks.utils import CeleryQueue

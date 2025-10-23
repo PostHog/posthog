@@ -21,6 +21,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import TemporaryTokenAuthentication
+from posthog.heatmaps.constants import DEFAULT_TARGET_WIDTHS
 from posthog.models import User
 from posthog.models.heatmap_saved import HeatmapSaved
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -293,7 +294,6 @@ class LegacyHeatmapViewSet(HeatmapViewSet):
 
 
 # Heatmap Screenshot functionality
-DEFAULT_TARGET_WIDTHS = [320, 375, 425, 768, 1024, 1440, 1920]
 
 
 class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
