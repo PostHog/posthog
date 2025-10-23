@@ -66,8 +66,8 @@ export function VariantsPanel({ experiment, updateFeatureFlag, onPrevious, onNex
                 ))
                 .exhaustive()}
 
-            <LemonDivider />
-            <div className="flex justify-end pt-2 gap-2">
+            <LemonDivider className="mt-4" />
+            <div className="flex justify-end pt-4 gap-2">
                 <LemonButton type="secondary" size="small" onClick={onPrevious}>
                     Previous
                 </LemonButton>

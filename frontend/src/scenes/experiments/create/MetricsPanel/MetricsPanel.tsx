@@ -89,8 +89,8 @@ export const MetricsPanel = ({
                 <EmptyMetricsPanel className="mt-6" metricContext={METRIC_CONTEXTS.secondary} />
             )}
 
-            <LemonDivider />
-            <div className="flex justify-end pt-2 gap-2">
+            <LemonDivider className="mt-4" />
+            <div className="flex justify-end pt-4">
                 <LemonButton type="primary" size="small" onClick={onPrevious}>
                     Previous
                 </LemonButton>
