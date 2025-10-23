@@ -457,12 +457,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         id: `event-definition-${eventDef.id}`,
                         name: eventDef.name,
                         category: 'eventDefinitions' as NEW_TAB_CATEGORY_ITEMS,
-                        href: `events://${eventDef.name}`,
+                        href: urls.eventDefinition(eventDef.id),
                         icon: <IconToggle />,
                         record: {
                             type: 'event-definition',
                             path: `Event: ${eventDef.name}`,
-                            href: `events://${eventDef.name}`,
+                            href: urls.eventDefinition(eventDef.id),
                         },
                     }
                     return item
