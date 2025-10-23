@@ -306,6 +306,76 @@ function coerceToEventWithTime(d: unknown, sessionRecordingId: string): eventWit
     return postHogEEModule?.mobileReplay?.transformEventToWeb(currentEvent) ?? (currentEvent as eventWithTime)
 }
 
+function isLengthPrefixedSnappy(uint8Data: Uint8Array): boolean {
+    if (uint8Data.byteLength < 4) {
+        return false
+    }
+
+    const firstLength = ((uint8Data[0] << 24) | (uint8Data[1] << 16) | (uint8Data[2] << 8) | uint8Data[3]) >>> 0
+
+    if (firstLength === 0 || firstLength > uint8Data.byteLength) {
+        return false
+    }
+
+    if (4 + firstLength > uint8Data.byteLength) {
+        return false
+    }
+
+    return true
+}
+
+const lengthPrefixedSnappyDecompress = async (uint8Data: Uint8Array): Promise<string> => {
+    const workerManager = getDecompressionWorkerManager()
+    const decompressedParts: string[] = []
+    let offset = 0
+
+    // Parse length-prefixed blocks: [4 bytes length][compressed block][4 bytes length][compressed block]...
+    while (offset < uint8Data.byteLength) {
+        // Read 4-byte length prefix (big-endian unsigned int)
+        if (offset + 4 > uint8Data.byteLength) {
+            console.error('Incomplete length prefix at offset', offset)
+            break
+        }
+
+        const length =
+            ((uint8Data[offset] << 24) |
+                (uint8Data[offset + 1] << 16) |
+                (uint8Data[offset + 2] << 8) |
+                uint8Data[offset + 3]) >>>
+            0
+        offset += 4
+
+        // Read compressed block
+        if (offset + length > uint8Data.byteLength) {
+            console.error(
+                `Incomplete block at offset ${offset}, expected ${length} bytes, available ${uint8Data.byteLength - offset}`
+            )
+            break
+        }
+
+        const compressedBlock = uint8Data.slice(offset, offset + length)
+        offset += length
+
+        const decompressedData = await workerManager.decompress(compressedBlock)
+
+        // Convert bytes to string
+        const textDecoder = new TextDecoder('utf-8')
+        const decompressedText = textDecoder.decode(decompressedData)
+        decompressedParts.push(decompressedText)
+    }
+
+    return decompressedParts.join('\n')
+}
+
+const rawSnappyDecompress = async (uint8Data: Uint8Array): Promise<string> => {
+    const workerManager = getDecompressionWorkerManager()
+
+    const decompressedData = await workerManager.decompress(uint8Data)
+
+    const textDecoder = new TextDecoder('utf-8')
+    return textDecoder.decode(decompressedData)
+}
+
 export const parseEncodedSnapshots = async (
     items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[] | ArrayBuffer | Uint8Array,
     sessionId: string
@@ -314,64 +384,49 @@ export const parseEncodedSnapshots = async (
         postHogEEModule = await posthogEE()
     }
 
-    // Check if we received compressed binary data (ArrayBuffer or Uint8Array)
+    // Check if we received binary data (ArrayBuffer or Uint8Array)
     if (items instanceof ArrayBuffer || items instanceof Uint8Array) {
-        try {
-            const uint8Data = items instanceof Uint8Array ? items : new Uint8Array(items)
-            const workerManager = getDecompressionWorkerManager()
-            const decompressedParts: string[] = []
-            let offset = 0
+        const uint8Data = items instanceof Uint8Array ? items : new Uint8Array(items)
 
-            // Parse length-prefixed blocks: [4 bytes length][compressed block][4 bytes length][compressed block]...
-            while (offset < uint8Data.byteLength) {
-                // Read 4-byte length prefix (big-endian unsigned int)
-                if (offset + 4 > uint8Data.byteLength) {
-                    console.error('Incomplete length prefix at offset', offset)
-                    break
-                }
+        if (isLengthPrefixedSnappy(uint8Data)) {
+            try {
+                const combinedText = await lengthPrefixedSnappyDecompress(uint8Data)
 
-                const length =
-                    ((uint8Data[offset] << 24) |
-                        (uint8Data[offset + 1] << 16) |
-                        (uint8Data[offset + 2] << 8) |
-                        uint8Data[offset + 3]) >>>
-                    0
-                offset += 4
-
-                // Read compressed block
-                if (offset + length > uint8Data.byteLength) {
-                    console.error(
-                        `Incomplete block at offset ${offset}, expected ${length} bytes, available ${uint8Data.byteLength - offset}`
-                    )
-                    break
-                }
-
-                const compressedBlock = uint8Data.slice(offset, offset + length)
-                offset += length
-
-                // Decompress this block
-                const decompressedData = await workerManager.decompress(compressedBlock)
-
-                // Convert bytes to string
-                const textDecoder = new TextDecoder('utf-8')
-                const decompressedText = textDecoder.decode(decompressedData)
-                decompressedParts.push(decompressedText)
+                const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
+                return parseEncodedSnapshots(lines, sessionId)
+            } catch (error) {
+                console.error('Length-prefixed Snappy decompression failed:', error)
+                posthog.captureException(new Error('Failed to decompress length-prefixed snapshot data'), {
+                    sessionId,
+                    error: error instanceof Error ? error.message : 'Unknown error',
+                    feature: 'session-recording-client-side-decompression',
+                })
+                return []
             }
+        }
 
-            // Join all decompressed blocks with newlines
-            const combinedText = decompressedParts.join('\n')
+        try {
+            const combinedText = await rawSnappyDecompress(uint8Data)
 
-            // Split into lines and parse as JSON
             const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
             return parseEncodedSnapshots(lines, sessionId)
         } catch (error) {
-            console.error('Decompression failed:', error)
-            posthog.captureException(new Error('Failed to decompress snapshot data'), {
-                sessionId,
-                error: error instanceof Error ? error.message : 'Unknown error',
-                feature: 'session-recording-client-side-decompression',
-            })
-            return []
+            try {
+                const textDecoder = new TextDecoder('utf-8')
+                const combinedText = textDecoder.decode(uint8Data)
+
+                const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
+                return parseEncodedSnapshots(lines, sessionId)
+            } catch (decodeError) {
+                console.error('Failed to decompress or decode binary data:', error, decodeError)
+                posthog.captureException(new Error('Failed to process snapshot data'), {
+                    sessionId,
+                    decompressionError: error instanceof Error ? error.message : 'Unknown error',
+                    decodeError: decodeError instanceof Error ? decodeError.message : 'Unknown error',
+                    feature: 'session-recording-client-side-decompression',
+                })
+                return []
+            }
         }
     }
 
