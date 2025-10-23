@@ -141,7 +141,7 @@ class SearchTool(MaxTool):
     name: Literal["search"] = "search"
     thinking_message: str = "Searching for information"
     description: str = ""
-    context_prompt_template: str = "Searches documentation, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, and surveys in PostHog"
+    context_prompt_template: str = "Searches documentation, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, error tracking issues, and surveys in PostHog"
     args_schema: type[BaseModel] = SearchToolArgs
     show_tool_call_message: bool = False
 
