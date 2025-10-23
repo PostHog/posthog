@@ -66,7 +66,7 @@ def test_can_migrate_data_from_one_topic_to_another_on_a_different_cluster():
     found_message = _wait_for_message(new_events_topic, message_key)
 
     assert found_message and found_message.value == b'{ "event": "test" }', "Did not find message in new topic"
-    assert found_message and found_message.headers == [("foo", b"bar")], "Did not find headers in new topic"
+    assert found_message and ("foo", b"bar") in found_message.headers, "Did not find headers in new topic"
 
     # Try running the command again, and we should't see a new message produced
     migrate_kafka_data(

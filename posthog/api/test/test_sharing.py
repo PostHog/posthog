@@ -1029,6 +1029,8 @@ class TestSharePasswordLogging(APIBaseTest):
         # Mock request with IP
         mock_request = Mock()
         mock_request.META = {"REMOTE_ADDR": "192.168.1.100"}
+        mock_request.headers = Mock()
+        mock_request.headers.get = Mock(return_value=None)
 
         # Clear any existing activity logs
         ActivityLog.objects.filter(scope="Dashboard").delete()
@@ -1074,6 +1076,8 @@ class TestSharePasswordLogging(APIBaseTest):
         # Mock request with different IP
         mock_request = Mock()
         mock_request.META = {"REMOTE_ADDR": "10.0.0.5"}
+        mock_request.headers = Mock()
+        mock_request.headers.get = Mock(return_value=None)
 
         # Clear any existing activity logs
         ActivityLog.objects.filter(scope="Dashboard").delete()

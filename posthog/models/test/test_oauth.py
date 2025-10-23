@@ -3,14 +3,40 @@ from datetime import timedelta
 
 from freezegun import freeze_time
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 from django.utils import timezone
+
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 from posthog.models import Organization, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 
 
+def generate_rsa_key() -> str:
+    # Generate a new RSA private key
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=4096,
+    )
+    # Serialize the private key to PEM format
+    pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+
+    return pem.decode("utf-8")
+
+
+@override_settings(
+    OAUTH2_PROVIDER={
+        **settings.OAUTH2_PROVIDER,
+        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+    }
+)
 class TestOAuthModels(TestCase):
     def setUp(self):
         self.organization = Organization.objects.create(name="Test Org")
@@ -251,8 +277,9 @@ class TestOAuthModels(TestCase):
             code_challenge_method="S256",
             expires=timezone.now() + timedelta(minutes=5),
         )
+        app_id = app.id
         app.delete()
-        self.assertFalse(OAuthGrant.objects.filter(application=app).exists())
+        self.assertFalse(OAuthGrant.objects.filter(application_id=app_id).exists())
 
     def test_user_and_organization_association(self):
         app = OAuthApplication.objects.create(

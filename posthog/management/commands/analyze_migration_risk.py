@@ -78,7 +78,9 @@ class Command(BaseCommand):
         try:
             executor = MigrationExecutor(connection)
             plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
-        except Exception:
+        except Exception as e:
+            # Log error details for debugging (shows in stderr during CI)
+            print(f"## ⚠️ Error analyzing migrations: {e}", file=sys.stderr)
             # Return empty list if can't connect to DB or load migrations
             return []
 
@@ -98,15 +100,21 @@ class Command(BaseCommand):
         try:
             executor = MigrationExecutor(connection)
             loader = executor.loader
-        except Exception:
+        except Exception as e:
+            print(f"## ⚠️ Error getting migration loader: {e}", file=sys.stderr)
             loader = None
 
         for label, migration in migrations:
-            if loader:
-                risk = analyzer.analyze_migration_with_context(migration, label, loader)
-            else:
-                risk = analyzer.analyze_migration(migration, label)
-            results.append(risk)
+            try:
+                if loader:
+                    risk = analyzer.analyze_migration_with_context(migration, label, loader)
+                else:
+                    risk = analyzer.analyze_migration(migration, label)
+                results.append(risk)
+            except Exception as e:
+                print(f"## ⚠️ Error analyzing migration {label}: {e}", file=sys.stderr)
+                # Skip this migration and continue
+                continue
 
         return results
 

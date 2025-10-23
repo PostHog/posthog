@@ -1064,7 +1064,7 @@ class TestSignupAPI(APIBaseTest):
                     "password": VALID_TEST_PASSWORD,
                     "organization_name": f"Org{i}",
                 },
-                HTTP_X_FORWARDED_FOR="192.168.1.100",
+                headers={"x-forwarded-for": "192.168.1.100"},
             )
 
             if i < 5:
@@ -1098,7 +1098,7 @@ class TestSignupAPI(APIBaseTest):
                         "password": VALID_TEST_PASSWORD,
                         "organization_name": f"Org{ip_suffix}_{i}",
                     },
-                    HTTP_X_FORWARDED_FOR=ip,
+                    headers={"x-forwarded-for": ip},
                 )
                 self.assertEqual(response.status_code, status.HTTP_201_CREATED, f"Request from IP {ip} should succeed")
                 # Clean up the created org and user to allow next signup

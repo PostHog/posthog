@@ -618,9 +618,13 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         ]
 
     def get_config(self, plugin_config: PluginConfig):
-        attachments = PluginAttachment.objects.filter(plugin_config=plugin_config).only(
-            "id", "file_size", "file_name", "content_type"
-        )
+        # Only query for attachments if the plugin_config has been saved (Django 5.0 requirement)
+        if plugin_config.pk:
+            attachments = PluginAttachment.objects.filter(plugin_config=plugin_config).only(
+                "id", "file_size", "file_name", "content_type"
+            )
+        else:
+            attachments = PluginAttachment.objects.none()
 
         new_plugin_config = plugin_config.config.copy()
 

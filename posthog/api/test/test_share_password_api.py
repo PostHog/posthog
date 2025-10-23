@@ -207,15 +207,13 @@ class TestSharePasswordAPI(APIBaseTest):
         # Verify both JWT tokens work initially
         response = self.client.get(
             f"/shared/{self.sharing_config.access_token}",
-            HTTP_AUTHORIZATION=f"Bearer {jwt_token1}",
-            HTTP_ACCEPT="application/json",
+            headers={"authorization": f"Bearer {jwt_token1}", "accept": "application/json"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response = self.client.get(
             f"/shared/{self.sharing_config.access_token}",
-            HTTP_AUTHORIZATION=f"Bearer {jwt_token2}",
-            HTTP_ACCEPT="application/json",
+            headers={"authorization": f"Bearer {jwt_token2}", "accept": "application/json"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -228,8 +226,7 @@ class TestSharePasswordAPI(APIBaseTest):
         # jwt_token1 should still be valid since it was created with password1
         response = self.client.get(
             f"/shared/{self.sharing_config.access_token}",
-            HTTP_AUTHORIZATION=f"Bearer {jwt_token1}",
-            HTTP_ACCEPT="application/json",
+            headers={"authorization": f"Bearer {jwt_token1}", "accept": "application/json"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         # Should contain dashboard data, not unlock page
@@ -238,8 +235,7 @@ class TestSharePasswordAPI(APIBaseTest):
         # jwt_token2 should now be invalid since password2 was deleted
         response = self.client.get(
             f"/shared/{self.sharing_config.access_token}",
-            HTTP_AUTHORIZATION=f"Bearer {jwt_token2}",
-            HTTP_ACCEPT="application/json",
+            headers={"authorization": f"Bearer {jwt_token2}", "accept": "application/json"},
         )
         # Should not be authenticated anymore, so should show unlock page
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -256,8 +252,7 @@ class TestSharePasswordAPI(APIBaseTest):
         # jwt_token1 should now also be invalid
         response = self.client.get(
             f"/shared/{self.sharing_config.access_token}",
-            HTTP_AUTHORIZATION=f"Bearer {jwt_token1}",
-            HTTP_ACCEPT="application/json",
+            headers={"authorization": f"Bearer {jwt_token1}", "accept": "application/json"},
         )
         # Should not be authenticated anymore, so should show unlock page
         self.assertEqual(response.status_code, status.HTTP_200_OK)
