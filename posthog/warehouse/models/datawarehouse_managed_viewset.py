@@ -20,7 +20,7 @@ from posthog.hogql.database.models import (
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
-from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery, get_s3_tables
 
 logger = structlog.get_logger(__name__)
 
@@ -75,13 +75,18 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
 
         with transaction.atomic():
             for view in expected_views:
+                query = view.query
+                columns = view.columns
+                external_tables = get_s3_tables(self.team, query["query"])
+
                 saved_query, created = DataWarehouseSavedQuery.objects.update_or_create(
                     name=view.name,
                     team=self.team,
                     managed_viewset=self,
                     defaults={
-                        "query": view.query,
-                        "columns": view.columns,
+                        "query": query,
+                        "columns": columns,
+                        "external_tables": external_tables,
                         "is_materialized": True,
                         "sync_frequency_interval": timedelta(hours=6),
                     },
@@ -89,9 +94,10 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
 
                 # Always update query and columns, even for existing objects
                 if not created:
-                    saved_query.query = view.query
-                    saved_query.columns = view.columns
-                    saved_query.save(update_fields=["query", "columns"])
+                    saved_query.query = query
+                    saved_query.columns = columns
+                    saved_query.external_tables = external_tables
+                    saved_query.save(update_fields=["query", "columns", "external_tables"])
 
                 if created:
                     views_created += 1

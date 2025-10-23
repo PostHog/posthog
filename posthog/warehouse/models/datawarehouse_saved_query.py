@@ -47,6 +47,30 @@ def validate_saved_query_name(value):
         )
 
 
+def get_s3_tables(team: Team, query: str) -> list[str]:
+    from posthog.hogql.context import HogQLContext
+    from posthog.hogql.database.database import create_hogql_database
+    from posthog.hogql.parser import parse_select
+    from posthog.hogql.query import create_default_modifiers_for_team
+    from posthog.hogql.resolver import resolve_types
+
+    from posthog.models.property.util import S3TableVisitor
+
+    context = HogQLContext(
+        team_id=team.pk,
+        enable_select_queries=True,
+        modifiers=create_default_modifiers_for_team(team),
+    )
+    node = parse_select(query)
+    context.database = create_hogql_database(context.team_id)
+
+    node = resolve_types(node, context, dialect="clickhouse")
+    table_collector = S3TableVisitor()
+    table_collector.visit(node)
+
+    return list(table_collector.tables)
+
+
 class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     class Status(models.TextChoices):
         """Possible states of this SavedQuery."""
