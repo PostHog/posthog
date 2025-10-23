@@ -26,7 +26,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration, objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -143,11 +143,15 @@ function LLMAnalyticsGenerations(): JSX.Element {
         setDates,
         setShouldFilterTestAccounts,
         setPropertyFilters,
-        setGenerationsQuery,
         setGenerationsColumns,
         toggleGenerationExpanded,
     } = useActions(llmAnalyticsLogic)
-    const { generationsQuery, expandedGenerationIds, loadedTraces } = useValues(llmAnalyticsLogic)
+    const {
+        generationsQuery,
+        propertyFilters: currentPropertyFilters,
+        expandedGenerationIds,
+        loadedTraces,
+    } = useValues(llmAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     return (
@@ -165,13 +169,15 @@ function LLMAnalyticsGenerations(): JSX.Element {
                 }
                 setDates(query.source.after || null, query.source.before || null)
                 setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
-                setPropertyFilters(query.source.properties || [])
+
+                const newPropertyFilters = query.source.properties || []
+                if (!objectsEqual(newPropertyFilters, currentPropertyFilters)) {
+                    setPropertyFilters(newPropertyFilters)
+                }
 
                 if (query.source.select) {
                     setGenerationsColumns(query.source.select)
                 }
-
-                setGenerationsQuery(query)
             }}
             context={{
                 emptyStateHeading: 'There were no generations in this period',
