@@ -3,7 +3,6 @@
 import django.utils.timezone
 import django.db.models.deletion
 from django.conf import settings
-from django.contrib.postgres.operations import AddConstraintNotValid, ValidateConstraint
 from django.db import migrations, models
 
 import posthog.models.utils
@@ -43,14 +42,10 @@ class Migration(migrations.Migration):
                 ],
             },
         ),
-        AddConstraintNotValid(
+        migrations.AddConstraint(
             model_name="filesystemviewlog",
             constraint=models.UniqueConstraint(
                 fields=("team", "user", "type", "ref"), name="posthog_fsvl_unique_user_item"
             ),
-        ),
-        ValidateConstraint(
-            model_name="filesystemviewlog",
-            name="posthog_fsvl_unique_user_item",
         ),
     ]
