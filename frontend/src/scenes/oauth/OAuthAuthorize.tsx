@@ -68,6 +68,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                             organizations={allOrganizations}
                             teams={allTeams ?? undefined}
                             requiredAccessLevel={requiredAccessLevel}
+                            autoSelectFirst={true}
                         />
                         <div>
                             <div className="text-sm font-semibold uppercase text-muted mb-2">Requested Permissions</div>
@@ -78,10 +79,6 @@ export const OAuthAuthorize = (): JSX.Element => {
                                         <span className="font-medium">{scopeDescription}</span>
                                     </li>
                                 ))}
-                                <li className="flex items-center space-x-2 text-large">
-                                    <IconX color="var(--danger)" />
-                                    <span className="font-medium">Replace your dashboards with hedgehog memes</span>
-                                </li>
                             </ul>
                         </div>
 
