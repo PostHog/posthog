@@ -92,17 +92,9 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
         hasValidReplayIframeData,
         browserSearchTerm,
         displayUrl,
-        screenshotLoading,
-        screenshotError,
     } = useValues(heatmapsBrowserLogic)
-    const {
-        setBrowserSearch,
-        setDataUrl,
-        setReplayIframeData,
-        setReplayIframeDataURL,
-        setDisplayUrl,
-        generateScreenshot,
-    } = useActions(heatmapsBrowserLogic)
+    const { setBrowserSearch, setDataUrl, setReplayIframeData, setReplayIframeDataURL, setDisplayUrl } =
+        useActions(heatmapsBrowserLogic)
 
     const placeholderUrl = browserUrlSearchOptions?.[0] ?? 'https://your-website.com/pricing'
 
@@ -154,18 +146,6 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                                             }}
                                             className="truncate flex-1"
                                         />
-                                        <LemonButton
-                                            type="secondary"
-                                            size="small"
-                                            data-attr="heatmaps-load-screenshot"
-                                            loading={screenshotLoading}
-                                            disabled={!displayUrl || !isBrowserUrlValid}
-                                            onClick={() => {
-                                                generateScreenshot()
-                                            }}
-                                        >
-                                            Load screenshot
-                                        </LemonButton>
                                         <LemonButton
                                             type="secondary"
                                             icon={<IconOpenInNew />}
@@ -233,13 +213,6 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                                         <ExportButton iframeRef={iframeRef} />
                                     </div>
                                 </div>
-
-                                {/* Screenshot display section */}
-                                {screenshotError && (
-                                    <div className="mt-2">
-                                        <LemonBanner type="error">{screenshotError}</LemonBanner>
-                                    </div>
-                                )}
                             </>
                         )}
                     </div>
@@ -321,33 +294,33 @@ function HeatmapsBrowserIntro(): JSX.Element {
     )
 }
 
-export function ForbiddenURL(): JSX.Element {
+function ForbiddenURL(): JSX.Element {
     const logic = heatmapsBrowserLogic()
 
     const { dataUrl } = useValues(logic)
 
     return (
-        <div className="flex-1 py-4 gap-y-4 mb-2">
+        <div className="flex-1 p-4 gap-y-4 mb-2">
             <LemonBanner type="error">
                 {dataUrl} is not an authorized URL. Please add it to the list of authorized URLs to view heatmaps on
                 this page.
             </LemonBanner>
 
-            <h4>Authorized Toolbar URLs</h4>
+            <h2>Authorized Toolbar URLs</h2>
             <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} />
         </div>
     )
 }
 
-export function InvalidURL(): JSX.Element {
+function InvalidURL(): JSX.Element {
     return (
-        <div className="flex-1 py-4 gap-y-4 mb-2">
+        <div className="flex-1 p-4 gap-y-4 mb-2">
             <LemonBanner type="error">Not a valid URL. Can't load a heatmap for that 😰</LemonBanner>
         </div>
     )
 }
 
-export function Warnings(): JSX.Element | null {
+function Warnings(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const heatmapsEnabled = currentTeam?.heatmaps_opt_in
 
@@ -382,12 +355,12 @@ export function HeatmapsBrowser(): JSX.Element {
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
             <SceneContent>
                 <Warnings />
-                <div className="overflow-hidden w-full min-h-screen">
+                <div className="overflow-hidden w-full h-screen">
                     <UrlSearchHeader iframeRef={iframeRef} />
                     <LemonDivider className="my-4" />
                     <FilterPanel />
                     <LemonDivider className="my-4" />
-                    <div className="relative flex flex-1 overflow-hidden min-h-screen">
+                    <div className="relative flex flex-1 overflow-hidden border min-h-screen">
                         {hasValidReplayIframeData ? (
                             <FixedReplayHeatmapBrowser iframeRef={iframeRef} />
                         ) : displayUrl ? (
@@ -396,8 +369,9 @@ export function HeatmapsBrowser(): JSX.Element {
                                     <ForbiddenURL />
                                 ) : !isBrowserUrlValid ? (
                                     <InvalidURL />
-                                ) : null}
-                                <IframeHeatmapBrowser iframeRef={iframeRef} />
+                                ) : (
+                                    <IframeHeatmapBrowser iframeRef={iframeRef} />
+                                )}
                             </>
                         ) : (
                             <HeatmapsBrowserIntro />
