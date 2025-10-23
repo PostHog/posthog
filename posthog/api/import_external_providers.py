@@ -1429,7 +1429,7 @@ class LaunchDarklyImporter(BaseImporter):
 
         # Process custom targeting rules (this now supports attributes mapping)
         for rule_idx, rule in enumerate(targeting.get("rules", [])):
-            condition: ConditionDict = {
+            rule_condition: ConditionDict = {
                 "properties": [],
                 "rollout_percentage": 100,
                 "rule_id": rule.get("_id", f"rule_{rule_idx}"),
@@ -1439,22 +1439,24 @@ class LaunchDarklyImporter(BaseImporter):
             for clause in rule.get("clauses", []):
                 prop = self._transform_clause(clause, api_key, project_key, environment, team)
                 if prop:
-                    condition["properties"].append(prop)
+                    rule_condition["properties"].append(prop)
 
             # Handle rollout/variation distribution
             if rule.get("rollout"):
                 # For multivariate rules with rollout, the release condition should be 100%
                 # The variant distribution is handled separately in the multivariate configuration
-                condition["rollout_percentage"] = 100
+                rule_condition["rollout_percentage"] = 100
             elif rule.get("variation") is not None:
                 # Direct variation assignment - rule serves a specific variant to 100% of matching users
-                condition["rollout_percentage"] = 100
-                condition["variant"] = self._get_variation_key(flag, rule.get("variation"))
+                rule_condition["rollout_percentage"] = 100
+                rule_condition["variant"] = self._get_variation_key(flag, rule.get("variation"))
 
             # Only add conditions that have properties (custom targeting) or specific variants
             # Also filter out conditions with 0% rollout as they serve no purpose
-            if (condition["properties"] or condition.get("variant")) and condition.get("rollout_percentage", 0) > 0:
-                conditions.append(condition)
+            if (rule_condition["properties"] or rule_condition.get("variant")) and rule_condition.get(
+                "rollout_percentage", 0
+            ) > 0:
+                conditions.append(rule_condition)
 
         # Always add fallthrough rule if it exists - it handles users who don't match custom rules
         if targeting.get("fallthrough"):
@@ -2129,21 +2131,23 @@ class LaunchDarklyImporter(BaseImporter):
                 detailed_rules.append(rule_info)
 
             # Process fallthrough
-            fallthrough_info = None
+            fallthrough_info: RolloutInfoDict | DirectVariationInfoDict | None = None
             if fallthrough:
                 if fallthrough.get("rollout"):
                     rollout = fallthrough["rollout"]
                     variations = rollout.get("variations", [])
                     total_weight = sum(v.get("weight", 0) for v in variations)
 
-                    fallthrough_info: RolloutInfoDict | DirectVariationInfoDict = {"type": "rollout", "variations": []}
+                    rollout_info_data: RolloutInfoDict = {"type": "rollout", "variations": []}
 
                     for variation in variations:
                         weight = variation.get("weight", 0)
                         percentage = int((weight / total_weight) * 100) if total_weight > 0 else 0
-                        fallthrough_info["variations"].append(  # type: ignore[typeddict-item]
+                        rollout_info_data["variations"].append(
                             {"variation": variation.get("variation"), "weight": weight, "percentage": percentage}
                         )
+
+                    fallthrough_info = rollout_info_data
                 elif fallthrough.get("variation") is not None:
                     fallthrough_info = {"type": "direct", "variation": fallthrough.get("variation")}
 

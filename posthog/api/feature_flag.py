@@ -1809,7 +1809,7 @@ class FeatureFlagViewSet(
             environment=environment,
             field_mappings=field_mappings,
             team=self.team,
-            user=request.user,  # type: ignore[arg-type]
+            user=request.user,
         )
         return Response(result)
 
