@@ -111,6 +111,8 @@ pub async fn get_pool_with_config(url: &str, config: PoolConfig) -> Result<PgPoo
     if let Some(timeout_ms) = config.statement_timeout_ms {
         options = options.after_connect(move |conn, _meta| {
             Box::pin(async move {
+                // Note: SET statement_timeout does not support parameterized queries ($1),
+                // so we use format!(). This is safe because timeout_ms is typed as u64.
                 sqlx::query(&format!("SET statement_timeout = {timeout_ms}"))
                     .execute(&mut *conn)
                     .await?;
