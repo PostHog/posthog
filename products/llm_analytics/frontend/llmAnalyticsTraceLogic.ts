@@ -1,13 +1,15 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
+import { ProductIntentContext } from 'lib/utils/product-intents'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { AnyResponseType, DataTableNode, NodeKind, TraceQuery } from '~/queries/schema/schema-general'
-import { Breadcrumb, InsightLogicProps } from '~/types'
+import { Breadcrumb, InsightLogicProps, ProductKey } from '~/types'
 
 import type { llmAnalyticsTraceLogicType } from './llmAnalyticsTraceLogicType'
 
@@ -48,6 +50,9 @@ export function getDataNodeLogicProps({
 
 export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsTraceLogic']),
+    connect(() => ({
+        actions: [teamLogic, ['addProductIntent']],
+    })),
 
     actions({
         setTraceId: (traceId: string) => ({ traceId }),
@@ -282,6 +287,28 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
             }
             // Set search from URL param if provided, otherwise clear it
             actions.setSearchQuery(search || '')
+
+            // Track product intent based on whether user is viewing a specific event or the whole trace
+            if (event) {
+                // User clicked on a generation to view it within the trace
+                actions.addProductIntent({
+                    product_type: ProductKey.LLM_ANALYTICS,
+                    intent_context: ProductIntentContext.LLM_ANALYTICS_GENERATION_VIEWED,
+                    metadata: {
+                        event_id: event,
+                        trace_id: id,
+                    },
+                })
+            } else {
+                // User is viewing the trace itself
+                actions.addProductIntent({
+                    product_type: ProductKey.LLM_ANALYTICS,
+                    intent_context: ProductIntentContext.LLM_ANALYTICS_TRACE_VIEWED,
+                    metadata: {
+                        trace_id: id,
+                    },
+                })
+            }
         },
     })),
 ])
