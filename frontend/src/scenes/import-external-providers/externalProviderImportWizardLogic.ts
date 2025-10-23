@@ -20,7 +20,7 @@ export interface ExternalProviderImportWizardLogicProps {
     onComplete?: () => void
 }
 
-interface FieldMapping {
+export interface FieldMapping {
     external_key: string
     external_type: string
     display_name: string
