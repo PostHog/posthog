@@ -1,3 +1,5 @@
+import clsx from 'clsx'
+
 import { IconCheckCircle, IconWarning } from '@posthog/icons'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -55,7 +57,7 @@ export const VariantsPanelHeader = ({ experiment }: { experiment: Experiment }):
                 )}
                 <span className="font-semibold shrink-0">Feature flag & variants</span>
                 <span className="text-muted shrink-0">•</span>
-                <span className="text-sm text-muted truncate">{summaryText}</span>
+                <span className={clsx('text-sm truncate', !isValid ? 'text-danger' : 'text-muted')}>{summaryText}</span>
             </div>
         </Tooltip>
     )
