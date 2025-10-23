@@ -170,8 +170,6 @@ function LLMAnalyticsGenerations(): JSX.Element {
                 setDates(query.source.after || null, query.source.before || null)
                 setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
 
-                // Only update property filters if they've actually changed
-                // This prevents circular updates when filters are set via URL navigation
                 const newPropertyFilters = query.source.properties || []
                 if (!objectsEqual(newPropertyFilters, currentPropertyFilters)) {
                     setPropertyFilters(newPropertyFilters)
@@ -180,9 +178,6 @@ function LLMAnalyticsGenerations(): JSX.Element {
                 if (query.source.select) {
                     setGenerationsColumns(query.source.select)
                 }
-
-                // Don't set generationsQuery override - let it be computed from state
-                // This prevents the override from blocking state-derived updates
             }}
             context={{
                 emptyStateHeading: 'There were no generations in this period',
