@@ -25,8 +25,8 @@ pytest posthog/hogql_queries/web_analytics/test/test_sample_web_analytics_querie
 ```
 
 The snapshots are stored in:
-`posthog/hogql_queries/web_analytics/test/__snapshots__/test_sample_web_analytics_queries.ambr`
-
+The snapshots are stored in:
+`posthog/hogql_queries/web_analytics/test/__snapshots__/test_sample_web_analytics_queries.hogql.ambr`
 ## Testing Queries with the API
 
 You can test web analytics queries directly using PostHog's `/query` API endpoint.
