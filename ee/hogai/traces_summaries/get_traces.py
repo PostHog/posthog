@@ -6,7 +6,7 @@ from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 from posthog.models.team.team import Team
 
 
-class TracesAnalyzerCollector:
+class TracesSummarizerCollector:
     def __init__(self, team: Team):
         self._team = team
         # Should be large enough to go fast, and small enough to avoid any memory issues
@@ -50,5 +50,5 @@ class TracesAnalyzerCollector:
         runner = TraceQueryRunner(query=query, team=self._team)
         response = runner.run()
         if not isinstance(response, CachedTraceQueryResponse):
-            raise ValueError(f"Failed to get result for the previous day when analyzing LLM traces: {response}")
+            raise ValueError(f"Failed to get result for the previous day when summarizing LLM traces: {response}")
         return response
