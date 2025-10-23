@@ -137,7 +137,7 @@ export function HeatmapsScene(): JSX.Element {
                 <LemonInput
                     type="search"
                     placeholder="Search for heatmaps"
-                    onChange={(value) => setHeatmapsFilters({ search: value || '' })}
+                    onChange={(value) => setHeatmapsFilters({ ...filters, search: value || '' })}
                     value={filters.search || ''}
                 />
 
