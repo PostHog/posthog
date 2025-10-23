@@ -16,13 +16,11 @@ from rest_framework.test import APIRequestFactory
 from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.models import Action
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.dashboard import Dashboard
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
-from posthog.models.insight import Insight
 from posthog.models.link import Link
 from posthog.models.surveys.survey import Survey
 from posthog.models.web_experiment import WebExperiment
@@ -70,23 +68,6 @@ def _create_survey_case(testcase: "TestFileSystemViewSetLogging"):
     )
     url = f"/api/projects/{testcase.project.id}/surveys/{survey.id}/"
     return survey, url
-
-
-def _create_insight_case(testcase: "TestFileSystemViewSetLogging"):
-    insight = Insight.objects.create(
-        team=testcase.team,
-        name="File system insight",
-        created_by=testcase.user,
-        saved=True,
-    )
-    url = f"/api/environments/{testcase.team.id}/insights/{insight.id}/"
-    return insight, url
-
-
-def _create_dashboard_case(testcase: "TestFileSystemViewSetLogging"):
-    dashboard = Dashboard.objects.create(team=testcase.team, name="File system dashboard", created_by=testcase.user)
-    url = f"/api/environments/{testcase.team.id}/dashboards/{dashboard.id}/"
-    return dashboard, url
 
 
 def _create_web_experiment_case(testcase: "TestFileSystemViewSetLogging"):
@@ -288,8 +269,6 @@ class TestFileSystemViewSetLogging(APIBaseTest):
             ("action", _create_action_case),
             ("cohort", _create_cohort_case),
             ("survey", _create_survey_case),
-            ("insight", _create_insight_case),
-            ("dashboard", _create_dashboard_case),
             ("web_experiment", _create_web_experiment_case),
             ("hog_function", _create_hog_function_case),
             ("session_recording_playlist", _create_session_recording_playlist_case),

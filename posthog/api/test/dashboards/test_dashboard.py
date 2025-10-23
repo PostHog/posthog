@@ -18,7 +18,6 @@ from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
-from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import Organization
 from posthog.models.project import Project
@@ -301,49 +300,20 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
             baseline = 10
 
-            with self.assertNumQueries(baseline + 12):
+            with self.assertNumQueries(baseline + 10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 12):
+            with self.assertNumQueries(baseline + 11 + 10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 12):
+            with self.assertNumQueries(baseline + 11 + 10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
         self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-        with self.assertNumQueries(baseline + 11 + 12):
+        with self.assertNumQueries(baseline + 11 + 10):
             self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
-
-    def test_dashboard_view_logs_once_for_dashboard_only(self):
-        with mute_selected_signals():
-            dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "view log dashboard"})
-            filter_dict = {
-                "events": [{"id": "$pageview"}],
-                "properties": [{"key": "$browser", "value": "Mac OS X"}],
-                "insight": "TRENDS",
-            }
-
-            for _ in range(2):
-                self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-
-        assert FileSystemViewLog.objects.count() == 0
-
-        self.dashboard_api.get_dashboard(dashboard_id)
-
-        logs = FileSystemViewLog.objects.filter(team=self.team)
-        assert logs.count() == 1
-
-        log = logs.get()
-        assert log.type == "dashboard"
-        assert log.ref == str(dashboard_id)
-        assert FileSystemViewLog.objects.filter(type="insight").count() == 0
-
-        # Repeat load shouldn't create additional view logs
-        self.dashboard_api.get_dashboard(dashboard_id)
-
-        assert FileSystemViewLog.objects.filter(team=self.team).count() == 1
 
     @snapshot_postgres_queries
     def test_listing_dashboards_is_not_nplus1(self) -> None:
