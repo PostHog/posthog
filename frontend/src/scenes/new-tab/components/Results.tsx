@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { useEffect } from 'react'
 
 import { IconArrowRight, IconEllipsis, IconInfo, IconSparkles } from '@posthog/icons'
 import { LemonTag, Spinner } from '@posthog/lemon-ui'
@@ -49,9 +49,6 @@ function Category({
         filteredItemsGrid,
         search,
         isSearching,
-        personSearchResults,
-        eventDefinitionSearchResults,
-        propertyDefinitionSearchResults,
         newTabSceneDataGroupedItemsFullData,
         getSectionItemLimit,
         newTabSceneDataInclude,
@@ -68,86 +65,15 @@ function Category({
             >
                 <div className={cn('mb-4', { 'mb-2 @xl/main-content:min-w-[200px]': newTabSceneData })}>
                     <div className={cn('flex items-baseline gap-2', { 'gap-0': newTabSceneData })}>
-                        <>
-                            {newTabSceneData ? (
-                                <Label intent="menu" className="px-2">
-                                    {getCategoryDisplayName(category)}
-                                </Label>
-                            ) : (
-                                <h3 className="mb-0 text-lg font-medium text-secondary">
-                                    {getCategoryDisplayName(category)}
-                                </h3>
-                            )}
-                            {newTabSceneData && category === 'persons' && (
-                                <div className="flex items-center gap-1">
-                                    {isSearching ? (
-                                        <WrappingLoadingSkeleton className="h-[18px]">
-                                            <LemonTag className="text-xs text-tertiary" size="small">
-                                                Showing {personSearchResults.length} results
-                                            </LemonTag>
-                                        </WrappingLoadingSkeleton>
-                                    ) : (
-                                        <>
-                                            {personSearchResults.length > 0 ? (
-                                                <LemonTag className="text-xs text-tertiary" size="small">
-                                                    Showing {personSearchResults.length} results
-                                                </LemonTag>
-                                            ) : (
-                                                <LemonTag className="text-xs text-tertiary" size="small">
-                                                    No results found
-                                                </LemonTag>
-                                            )}
-                                        </>
-                                    )}
-                                </div>
-                            )}
-                            {newTabSceneData && category === 'eventDefinitions' && (
-                                <div className="flex items-center gap-1">
-                                    {isSearching ? (
-                                        <WrappingLoadingSkeleton className="h-[18px]">
-                                            <LemonTag className="text-xs text-tertiary" size="small">
-                                                Showing {eventDefinitionSearchResults.length} results
-                                            </LemonTag>
-                                        </WrappingLoadingSkeleton>
-                                    ) : (
-                                        <>
-                                            {eventDefinitionSearchResults.length > 0 ? (
-                                                <LemonTag className="text-xs text-tertiary" size="small">
-                                                    Showing {eventDefinitionSearchResults.length} results
-                                                </LemonTag>
-                                            ) : (
-                                                <LemonTag className="text-xs text-tertiary" size="small">
-                                                    No results found
-                                                </LemonTag>
-                                            )}
-                                        </>
-                                    )}
-                                </div>
-                            )}
-                            {newTabSceneData && category === 'propertyDefinitions' && (
-                                <div className="flex items-center gap-1">
-                                    {isSearching ? (
-                                        <WrappingLoadingSkeleton className="h-[18px]">
-                                            <LemonTag className="text-xs text-tertiary" size="small">
-                                                Showing {propertyDefinitionSearchResults.length} results
-                                            </LemonTag>
-                                        </WrappingLoadingSkeleton>
-                                    ) : (
-                                        <>
-                                            {propertyDefinitionSearchResults.length > 0 ? (
-                                                <LemonTag className="text-xs text-tertiary" size="small">
-                                                    Showing {propertyDefinitionSearchResults.length} results
-                                                </LemonTag>
-                                            ) : (
-                                                <LemonTag className="text-xs text-tertiary" size="small">
-                                                    No results found
-                                                </LemonTag>
-                                            )}
-                                        </>
-                                    )}
-                                </div>
-                            )}
-                        </>
+                        {newTabSceneData ? (
+                            <Label intent="menu" className="px-2">
+                                {getCategoryDisplayName(category)}
+                            </Label>
+                        ) : (
+                            <h3 className="mb-0 text-lg font-medium text-secondary">
+                                {getCategoryDisplayName(category)}
+                            </h3>
+                        )}
                         {category === 'recents' && isSearching && <Spinner size="small" />}
                         {/* Show "No results found" tag for other categories when empty and include is NOT 'all' */}
                         {newTabSceneData &&
@@ -162,7 +88,7 @@ function Category({
                 </div>
                 <div
                     className={cn('flex flex-col gap-2', {
-                        '@xl/main-content:grow min-w-0 empty:hidden': newTabSceneData,
+                        '@xl/main-content:grow min-w-0 empty:hidden gap-1': newTabSceneData,
                     })}
                 >
                     {typedItems.length === 0 ? (
@@ -170,7 +96,7 @@ function Category({
                         category === 'recents' && isSearching ? (
                             <div className="flex flex-col gap-2 text-tertiary text-balance">
                                 <WrappingLoadingSkeleton>
-                                    <ButtonPrimitive>Loading items...</ButtonPrimitive>
+                                    <ButtonPrimitive size="sm">Loading items...</ButtonPrimitive>
                                 </WrappingLoadingSkeleton>
                             </div>
                         ) : null
@@ -179,9 +105,6 @@ function Category({
                             const focusFirst =
                                 (newTabSceneData && isFirstCategoryWithResults && index === 0) ||
                                 (filteredItemsGrid.length > 0 && isFirstCategory && index === 0)
-
-                            if (focusFirst) {
-                            }
 
                             return (
                                 // If we have filtered results set virtual focus to first item
@@ -198,7 +121,7 @@ function Category({
                                                     to={item.href || '#'}
                                                     className="w-full"
                                                     buttonProps={{
-                                                        size: 'base',
+                                                        size: 'sm',
                                                         hasSideActionRight: true,
                                                         className:
                                                             'data-[focused=true]:outline-2 data-[focused=true]:outline-accent',
@@ -268,11 +191,11 @@ function Category({
                                     hasMore && (
                                         <ListBox.Item asChild>
                                             <ButtonPrimitive
-                                                size="base"
+                                                size="sm"
                                                 onClick={() => showMoreInSection(category)}
                                                 className="w-full text-tertiary data-[focused=true]:outline-2 data-[focused=true]:outline-accent data-[focused=true]:text-primary"
                                             >
-                                                <IconArrowRight className="size-4 rotate-90" /> Show all (
+                                                <IconArrowRight className="rotate-90" /> Show all (
                                                 {fullCount - currentLimit} more)
                                             </ButtonPrimitive>
                                         </ListBox.Item>
@@ -284,11 +207,12 @@ function Category({
                                     <Link
                                         to={urls.persons()}
                                         buttonProps={{
+                                            size: 'sm',
                                             className:
                                                 'w-full text-tertiary data-[focused=true]:outline-2 data-[focused=true]:outline-accent data-[focused=true]:text-primary',
                                         }}
                                     >
-                                        <IconArrowRight className="size-4" /> See all persons
+                                        <IconArrowRight /> See all persons
                                     </Link>
                                 </ListBox.Item>
                             )}
@@ -297,11 +221,12 @@ function Category({
                                     <Link
                                         to={urls.eventDefinitions()}
                                         buttonProps={{
+                                            size: 'sm',
                                             className:
                                                 'w-full text-tertiary data-[focused=true]:outline-2 data-[focused=true]:outline-accent data-[focused=true]:text-primary',
                                         }}
                                     >
-                                        <IconArrowRight className="size-4" /> See all events
+                                        <IconArrowRight /> See all events
                                     </Link>
                                 </ListBox.Item>
                             )}
@@ -310,11 +235,12 @@ function Category({
                                     <Link
                                         to={urls.propertyDefinitions()}
                                         buttonProps={{
+                                            size: 'sm',
                                             className:
                                                 'w-full text-tertiary data-[focused=true]:outline-2 data-[focused=true]:outline-accent data-[focused=true]:text-primary',
                                         }}
                                     >
-                                        <IconArrowRight className="size-4" /> See all properties
+                                        <IconArrowRight /> See all properties
                                     </Link>
                                 </ListBox.Item>
                             )}
@@ -341,72 +267,18 @@ export function Results({
     const {
         filteredItemsGrid,
         groupedFilteredItems,
-        newTabSceneDataGroupedItems,
         search,
         selectedCategory,
         isSearching,
         newTabSceneDataInclude,
+        allCategories,
+        firstCategoryWithResults,
     } = useValues(newTabSceneLogic({ tabId }))
     const { setSearch } = useActions(newTabSceneLogic({ tabId }))
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
-    const isAIAvailable = useFeatureFlag('ARTIFICIAL_HOG')
     const items = groupedFilteredItems[selectedCategory] || []
     const typedItems = items as NewTabTreeDataItem[]
-
-    // For newTabSceneData, use the new grouped items with section ordering
-    const allCategories = useMemo(() => {
-        if (!newTabSceneData) {
-            return Object.entries(groupedFilteredItems)
-        }
-
-        const orderedSections: string[] = []
-        const showAll = newTabSceneDataInclude.includes('all')
-
-        // Add sections in a useful order
-        const mainSections = ['create-new', 'apps', 'data-management', 'recents']
-        mainSections.forEach((section) => {
-            if (showAll || newTabSceneDataInclude.includes(section as any)) {
-                orderedSections.push(section)
-            }
-        })
-        if (showAll || newTabSceneDataInclude.includes('persons')) {
-            orderedSections.push('persons')
-        }
-        if (showAll || newTabSceneDataInclude.includes('eventDefinitions')) {
-            orderedSections.push('eventDefinitions')
-        }
-        if (showAll || newTabSceneDataInclude.includes('propertyDefinitions')) {
-            orderedSections.push('propertyDefinitions')
-        }
-        if (isAIAvailable && (showAll || newTabSceneDataInclude.includes('askAI'))) {
-            orderedSections.push('askAI')
-        }
-
-        return orderedSections
-            .map((section) => [section, newTabSceneDataGroupedItems[section] || []] as [string, any[]])
-            .filter(([, items]) => {
-                // If include is NOT 'all', keep all enabled sections visible (even when empty)
-                if (!showAll) {
-                    return true
-                }
-
-                // If include is 'all', hide empty sections
-                return items.length > 0
-            })
-    }, [newTabSceneData, groupedFilteredItems, newTabSceneDataGroupedItems, newTabSceneDataInclude, isAIAvailable])
-
-    // Memoized helper to determine which category should get first focus
-    const firstCategoryWithResults = useMemo((): string | null => {
-        for (const [category, items] of allCategories) {
-            // Check if any category has items
-            if (items.length > 0) {
-                return category
-            }
-        }
-
-        return null
-    }, [allCategories])
 
     // Track whether we have any results
     const hasResults = allCategories.some(([, items]) => items.length > 0)
@@ -457,7 +329,7 @@ export function Results({
                                                     to={item.href || '#'}
                                                     className="w-full"
                                                     buttonProps={{
-                                                        size: 'base',
+                                                        size: 'sm',
                                                         hasSideActionRight: true,
                                                         truncate: true,
                                                     }}
@@ -522,7 +394,7 @@ export function Results({
 
     return (
         <>
-            {allCategories.map(([category, items], columnIndex) => (
+            {allCategories.map(([category, items]: [string, NewTabTreeDataItem[]], columnIndex: number) => (
                 <Category
                     tabId={tabId}
                     items={items}
@@ -565,7 +437,7 @@ export function Results({
                                     variant="panel"
                                     className="data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
                                 >
-                                    <IconSparkles className="size-4" />
+                                    <IconSparkles />
                                     Ask Posthog AI
                                 </ButtonPrimitive>
                             </ListBox.Item>

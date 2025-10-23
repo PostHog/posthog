@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-// import { SearchHints } from './components/SearchHints'
 import { router } from 'kea-router'
 import { useRef, useState } from 'react'
 
@@ -107,9 +106,6 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
 
     const handleAskAi = (question?: string): void => {
         const nextQuestion = (question ?? search).trim()
-        // openSidePanel(SidePanelTab.Max)
-        // setQuestion(nextQuestion)
-        // focusMaxInput()
         router.actions.push(urls.max(undefined, nextQuestion))
     }
 
@@ -393,7 +389,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                 className={cn({
                                     'grid grid-cols-1 @md/main-content:grid-cols-2 @xl/main-content:grid-cols-3 @2xl/main-content:grid-cols-4 gap-4':
                                         !newTabSceneData,
-                                    'flex flex-col gap-4 mb-32': newTabSceneData,
+                                    'flex flex-col gap-2 mb-32': newTabSceneData,
                                 })}
                             >
                                 {/* TODO: Remove this once we're done testing */}

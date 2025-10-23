@@ -1,6 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { match } from 'ts-pattern'
 
+import { LemonDivider } from '@posthog/lemon-ui'
+
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+
 import { SelectableCard } from '~/scenes/experiments/components/SelectableCard'
 import type { Experiment, FeatureFlagType, MultivariateFlagVariant } from '~/types'
 
@@ -12,6 +16,8 @@ import { variantsPanelLogic } from './variantsPanelLogic'
 
 interface VariantsPanelProps {
     experiment: Experiment
+    onPrevious: () => void
+    onNext: () => void
     updateFeatureFlag: (featureFlag: {
         feature_flag_key?: string
         parameters?: {
@@ -21,7 +27,7 @@ interface VariantsPanelProps {
     }) => void
 }
 
-export function VariantsPanel({ experiment, updateFeatureFlag }: VariantsPanelProps): JSX.Element {
+export function VariantsPanel({ experiment, updateFeatureFlag, onPrevious, onNext }: VariantsPanelProps): JSX.Element {
     const { mode, linkedFeatureFlag } = useValues(variantsPanelLogic)
     const { setMode, setLinkedFeatureFlag } = useActions(variantsPanelLogic)
 
@@ -59,6 +65,16 @@ export function VariantsPanel({ experiment, updateFeatureFlag }: VariantsPanelPr
                     />
                 ))
                 .exhaustive()}
+
+            <LemonDivider className="mt-4" />
+            <div className="flex justify-end pt-4 gap-2">
+                <LemonButton type="secondary" size="small" onClick={onPrevious}>
+                    Previous
+                </LemonButton>
+                <LemonButton type="primary" size="small" onClick={onNext}>
+                    Next
+                </LemonButton>
+            </div>
 
             {/* Feature Flag Selection Modal */}
             <SelectExistingFeatureFlagModal
