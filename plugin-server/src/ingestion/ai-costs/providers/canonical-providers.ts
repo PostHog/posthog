@@ -1,7 +1,8 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated on: 2025-10-22
+// Generated on: 2025-10-23
 
 export type CanonicalProvider =
+    | 'default'
     | 'ai21-fp8'
     | 'aion-labs'
     | 'aion-labs-bf16'
@@ -34,7 +35,6 @@ export type CanonicalProvider =
     | 'deepinfra-fp8'
     | 'deepinfra-turbo'
     | 'deepseek'
-    | 'default'
     | 'featherless'
     | 'fireworks'
     | 'fireworks-fp16'
