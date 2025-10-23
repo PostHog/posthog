@@ -218,7 +218,7 @@ describe('consumer', () => {
             expect(mockRdKafkaConsumer.consume).toHaveBeenCalledTimes(3) // NOT 4
 
             // At this point we have 3 background work items so we must be waiting for one of them
-            expect(consumer['backgroundTask']).toEqual([p1.promise, p2.promise, p3.promise])
+            expect(consumer['backgroundTask'].map((t) => t.promise)).toEqual([p1.promise, p2.promise, p3.promise])
 
             expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalled()
 
@@ -233,7 +233,7 @@ describe('consumer', () => {
             // Check the other background work releases has no effect on the consume call count
             expect(mockRdKafkaConsumer.consume).toHaveBeenCalledTimes(4)
 
-            expect(consumer['backgroundTask']).toEqual([])
+            expect(consumer['backgroundTask'].map((t) => t.promise)).toEqual([])
             expect(mockRdKafkaConsumer.offsetsStore.mock.calls).toMatchObject([
                 [[{ offset: 2, partition: 0, topic: 'test-topic' }]],
                 [[{ offset: 3, partition: 0, topic: 'test-topic' }]],
@@ -255,19 +255,19 @@ describe('consumer', () => {
 
             // At this point we have 3 background work items so we must be waiting for one of them
 
-            expect(consumer['backgroundTask']).toEqual([p1.promise, p2.promise, p3.promise])
+            expect(consumer['backgroundTask'].map((t) => t.promise)).toEqual([p1.promise, p2.promise, p3.promise])
             expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalled()
 
             p1.resolve()
             await delay(1) // Let the promises callbacks trigger
-            expect(consumer['backgroundTask']).toEqual([p2.promise, p3.promise])
+            expect(consumer['backgroundTask'].map((t) => t.promise)).toEqual([p2.promise, p3.promise])
             p3.resolve()
             await delay(1) // Let the promises callbacks trigger
-            expect(consumer['backgroundTask']).toEqual([p2.promise])
+            expect(consumer['backgroundTask'].map((t) => t.promise)).toEqual([p2.promise])
             p2.resolve()
             await delay(1) // Let the promises callbacks trigger
 
-            expect(consumer['backgroundTask']).toEqual([])
+            expect(consumer['backgroundTask'].map((t) => t.promise)).toEqual([])
             expect(mockRdKafkaConsumer.offsetsStore.mock.calls).toMatchObject([
                 [[{ offset: 2, partition: 0, topic: 'test-topic' }]],
                 [[{ offset: 3, partition: 0, topic: 'test-topic' }]],
@@ -315,8 +315,11 @@ describe('consumer', () => {
             const task1 = triggerablePromise()
             const task2 = triggerablePromise()
 
-            // Explicitly assign promise array (handled in afterEach cleanup)
-            void (consumer['backgroundTask'] = [task1.promise, task2.promise])
+            // Explicitly assign promise array with metadata (handled in afterEach cleanup)
+            void (consumer['backgroundTask'] = [
+                { promise: task1.promise, createdAt: Date.now() },
+                { promise: task2.promise, createdAt: Date.now() },
+            ])
 
             consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
                 { topic: 'test-topic', partition: 1 },
@@ -353,9 +356,9 @@ describe('consumer', () => {
 
             const mockConsumerDisabled = jest.mocked(consumerDisabled['rdKafkaConsumer'])
 
-            // Add background tasks
+            // Add background tasks with metadata
             // Explicitly assign promise array (handled in cleanup)
-            void (consumerDisabled['backgroundTask'] = [Promise.resolve()])
+            void (consumerDisabled['backgroundTask'] = [{ promise: Promise.resolve(), createdAt: Date.now() }])
 
             consumerDisabled.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
                 { topic: 'test-topic', partition: 1 },
