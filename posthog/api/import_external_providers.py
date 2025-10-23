@@ -65,8 +65,8 @@ class FlagMetadataDict(TypedDict, total=False):
     project_key: str | None
     # Statsig-specific
     statsig_type: str
-    creator: str
-    last_modifier: str
+    creator: str | None
+    last_modifier: str | None
     original_rules: list[dict[str, Any]]
     # LaunchDarkly-specific
     environments: dict[str, Any]
@@ -554,7 +554,7 @@ class ExternalProvidersImporter:
             if not valid_properties:
                 continue
 
-            group = {
+            group: GroupDict = {
                 "properties": valid_properties,
                 "rollout_percentage": condition.get("rollout_percentage", 100),
             }
@@ -592,7 +592,8 @@ class ExternalProvidersImporter:
         if variants:
             multivariate_filters = provider_importer.build_multivariate_filters(external_flag, variants, environment)
             if multivariate_filters:
-                filters.update(multivariate_filters)
+                filters["multivariate"] = multivariate_filters.get("multivariate")
+                filters["payloads"] = multivariate_filters.get("payloads", {})
                 has_variants = True
 
         conditions = provider_importer.extract_conditions(external_flag, environment, team)
@@ -1161,19 +1162,19 @@ class StatsigImporter(BaseImporter):
         if len(rules) <= 1:
             return None
 
-        variant_sets_by_rule = []
+        variant_sets_by_rule: list[tuple[int, list[VariantDict]]] = []
 
         for rule_idx, rule in enumerate(rules):
             rule_variants = rule.get("variants", [])
             if rule_variants:
-                rule_variant_set = []
+                rule_variant_set: list[VariantDict] = []
                 for variant in rule_variants:
-                    rule_variant_set.append(
-                        {
-                            "key": variant.get("name", variant.get("id", "")),
-                            "percentage": variant.get("passPercentage", 0),
-                        }
-                    )
+                    variant_data: VariantDict = {
+                        "key": variant.get("name", variant.get("id", "")),
+                        "name": variant.get("name", variant.get("id", "")),
+                        "rollout_percentage": variant.get("passPercentage", 0),
+                    }
+                    rule_variant_set.append(variant_data)
                 variant_sets_by_rule.append((rule_idx, rule_variant_set))
 
         if len(variant_sets_by_rule) <= 1:
@@ -1257,7 +1258,7 @@ class LaunchDarklyImporter(BaseImporter):
         super().__init__(*args, **kwargs)
         self.rate_limiter = LaunchDarklyRateLimiter()
 
-    def fetch_flags(self, api_key: str, project_key: str) -> list[dict[str, Any]] | ErrorResult:
+    def fetch_flags(self, api_key: str, project_key: str | None = None) -> list[dict[str, Any]] | ErrorResult:
         """Fetch flags from LaunchDarkly API"""
         headers = {"Authorization": api_key, "LD-API-Version": "20240415", "Content-Type": "application/json"}
 
@@ -1343,7 +1344,7 @@ class LaunchDarklyImporter(BaseImporter):
                 "original_id": str(raw_flag.get("_id", raw_flag.get("key", ""))),
                 "created_at": raw_flag.get("creationDate"),
                 "updated_at": raw_flag.get("_lastModified"),
-                "environments": [environment],
+                "environments": {environment: True},  # Store as dict with environment as key
                 "tags": raw_flag.get("tags", []),
                 "total_rules": len(conditions),
                 "has_prerequisites": bool(raw_flag.get("prerequisites")),
@@ -1399,7 +1400,7 @@ class LaunchDarklyImporter(BaseImporter):
         if targeting.get("targets"):
             for target in targeting["targets"]:
                 if target.get("values"):  # Has specific users
-                    condition = {
+                    condition: ConditionDict = {
                         "properties": [
                             {"key": "distinct_id", "operator": "exact", "value": target["values"], "type": "person"}
                         ],
@@ -1412,7 +1413,7 @@ class LaunchDarklyImporter(BaseImporter):
         if targeting.get("contextTargets"):
             for context_target in targeting["contextTargets"]:
                 if context_target.get("values"):
-                    condition = {
+                    context_condition: ConditionDict = {
                         "properties": [
                             {
                                 "key": context_target.get("contextKind", "user"),
@@ -1424,7 +1425,7 @@ class LaunchDarklyImporter(BaseImporter):
                         "rollout_percentage": 100,
                         "variant": self._get_variation_key(flag, context_target.get("variation")),
                     }
-                    conditions.append(condition)
+                    conditions.append(context_condition)
 
         # Process custom targeting rules (this now supports attributes mapping)
         for rule_idx, rule in enumerate(targeting.get("rules", [])):
@@ -1502,15 +1503,15 @@ class LaunchDarklyImporter(BaseImporter):
 
                 fallthrough_variant = self._get_variation_key(flag, variation_index)
 
-            condition = {"properties": [], "rollout_percentage": rollout_percentage, "rule_id": "fallthrough"}
+            fallthrough_condition: ConditionDict = {"properties": [], "rollout_percentage": rollout_percentage, "rule_id": "fallthrough"}
 
             # Add variant if determined
             if fallthrough_variant:
-                condition["variant"] = fallthrough_variant
+                fallthrough_condition["variant"] = fallthrough_variant
 
             # Only add fallthrough condition if it has rollout > 0%
             if rollout_percentage > 0:
-                conditions.append(condition)
+                conditions.append(fallthrough_condition)
 
         # Handle case where no conditions remain (all were 0% rollout)
         if not conditions:
@@ -2108,7 +2109,7 @@ class LaunchDarklyImporter(BaseImporter):
                     variations = rollout.get("variations", [])
                     total_weight = sum(v.get("weight", 0) for v in variations)
 
-                    rollout_info = {"type": "rollout", "variations": []}
+                    rollout_info: RolloutInfoDict = {"type": "rollout", "variations": []}
 
                     for variation in variations:
                         weight = variation.get("weight", 0)
@@ -2131,12 +2132,12 @@ class LaunchDarklyImporter(BaseImporter):
                     variations = rollout.get("variations", [])
                     total_weight = sum(v.get("weight", 0) for v in variations)
 
-                    fallthrough_info = {"type": "rollout", "variations": []}
+                    fallthrough_info: RolloutInfoDict | DirectVariationInfoDict = {"type": "rollout", "variations": []}
 
                     for variation in variations:
                         weight = variation.get("weight", 0)
                         percentage = int((weight / total_weight) * 100) if total_weight > 0 else 0
-                        fallthrough_info["variations"].append(
+                        fallthrough_info["variations"].append(  # type: ignore[typeddict-item]
                             {"variation": variation.get("variation"), "weight": weight, "percentage": percentage}
                         )
                 elif fallthrough.get("variation") is not None:

@@ -966,29 +966,6 @@ class FeatureFlagSerializer(
         representation["filters"] = filters
         return representation
 
-        # Use prefetched cohorts if available
-        if hasattr(instance.team, "available_cohorts"):
-            cohorts = {
-                str(cohort.id): cohort.name for cohort in instance.team.available_cohorts if cohort.id in cohort_ids
-            }
-        else:
-            # Fallback to database query if cohorts weren't prefetched
-            # Only query if we have valid integer IDs
-            if cohort_ids:
-                cohorts = {
-                    str(cohort.id): cohort.name
-                    for cohort in Cohort.objects.filter(id__in=cohort_ids, team__project_id=self.context["project_id"])
-                }
-            else:
-                cohorts = {}
-
-        # Add cohort names to the response
-        for cohort_prop in self._get_cohort_properties_from_filters(filters):
-            cohort_prop["cohort_name"] = cohorts.get(str(cohort_prop.get("value")))
-
-        representation["filters"] = filters
-        return representation
-
     def get_experiment_set(self, obj):
         # Use the prefetched active experiments
         if hasattr(obj, "_active_experiments"):
