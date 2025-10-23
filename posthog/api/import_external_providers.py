@@ -339,7 +339,7 @@ class ExternalProvidersImporter:
 
         except Exception as e:
             logger.exception(f"Failed to fetch flags from {provider}: {str(e)}")
-            return {"error": f"Failed to fetch flags from {provider}: {str(e)}", "status": 500}
+            return {"error": f"Failed to fetch flags from {provider} due to an internal error.", "status": 500}
 
     def extract_unique_fields_from_flags(
         self, selected_flags: list[dict[str, Any]], provider: str
@@ -482,7 +482,9 @@ class ExternalProvidersImporter:
 
             except Exception as e:
                 logger.exception(f"Failed to import flag: {str(e)}")
-                failed_imports.append({"flag": flag_data, "error": "Failed to import flag: an internal error occurred."})
+                failed_imports.append(
+                    {"flag": flag_data, "error": "Failed to import flag: an internal error occurred."}
+                )
 
         return {
             "imported_flags": imported_flags,
