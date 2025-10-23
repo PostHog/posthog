@@ -240,7 +240,7 @@ class TableNode(
 
         first, *rest_of_path = path
         if first not in self.children:
-            raise ResolutionError(f"Unknown children `{first}` at `{self.name}`.")
+            raise ResolutionError(f"Unknown child `{first}` at `{self.name}`.")
 
         return self.children[first].get_child(rest_of_path)
 
