@@ -34,15 +34,10 @@ export function LLMAnalyticsTraces(): JSX.Element {
                 setDates(query.source.dateRange?.date_from || null, query.source.dateRange?.date_to || null)
                 setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
 
-                // Only update property filters if they've actually changed
-                // This prevents circular updates when filters are set via URL navigation
                 const newPropertyFilters = query.source.properties || []
                 if (!objectsEqual(newPropertyFilters, currentPropertyFilters)) {
                     setPropertyFilters(newPropertyFilters)
                 }
-
-                // Don't set tracesQuery override - let it be computed from state
-                // This prevents the override from blocking state-derived updates
             }}
             context={useTracesQueryContext()}
             uniqueKey="llm-analytics-traces"
