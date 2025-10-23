@@ -1753,7 +1753,7 @@ class FeatureFlagViewSet(
 
         except Exception as e:
             logger.exception(f"Error extracting field mappings for {provider}: {e}")
-            return Response({"error": f"Failed to extract field mappings: {str(e)}"}, status=500)
+            return Response({"error": "Failed to extract field mappings."}, status=500)
 
     @action(methods=["POST"], detail=False, required_scopes=["feature_flag:write"])
     def import_external_flags(self, request: request.Request, **kwargs):
