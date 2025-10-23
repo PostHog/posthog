@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail, Result};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::info;
 use walkdir::DirEntry;
 
@@ -98,7 +98,7 @@ pub fn inject_pairs(
 }
 
 pub fn get_release_for_pairs<'a>(
-    directory: &PathBuf,
+    directory: &Path,
     project: &Option<String>,
     version: &Option<String>,
     pairs: impl IntoIterator<Item = &'a SourcePair>,
@@ -110,7 +110,7 @@ pub fn get_release_for_pairs<'a>(
 
     let mut created_release = None;
     if needs_release {
-        let mut builder = get_git_info(Some(directory.clone()))?
+        let mut builder = get_git_info(Some(directory.to_path_buf()))?
             .map(ReleaseBuilder::init_from_git)
             .unwrap_or_default();
 
