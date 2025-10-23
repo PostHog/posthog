@@ -22,7 +22,6 @@ from rest_framework.serializers import BaseSerializer
 from rest_framework.utils.serializer_helpers import ReturnDict
 
 from posthog.api.dashboards.dashboard_template_json_schema_parser import DashboardTemplateCreationJSONSchemaParser
-from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import InsightSerializer, InsightViewSet
 from posthog.api.monitoring import Feature, monitor
@@ -687,7 +686,6 @@ class DashboardsViewSet(
         dashboard.save(update_fields=["last_accessed_at"])
         serializer = DashboardSerializer(dashboard, context=self.get_serializer_context())
         response = Response(serializer.data)
-        log_api_file_system_view(request, dashboard)
         return response
 
     # ******************************************
@@ -701,7 +699,6 @@ class DashboardsViewSet(
         # Do all database operations and data loading synchronously first
         dashboard.last_accessed_at = now()
         dashboard.save(update_fields=["last_accessed_at"])
-        log_api_file_system_view(request, dashboard)
 
         # Prepare metadata with initial tiles
         metadata_serializer = DashboardMetadataSerializer(dashboard, context=self.get_serializer_context())

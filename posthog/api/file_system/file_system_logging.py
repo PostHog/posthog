@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from django.conf import settings
 from django.http import HttpRequest
@@ -10,6 +10,7 @@ from rest_framework.request import Request
 
 from posthog.models.file_system.file_system_view_log import log_file_system_view, resolve_representation
 
+CacheKey = tuple[int, str, str]
 RequestLike = Request | HttpRequest
 
 
@@ -44,12 +45,12 @@ def log_api_file_system_view(
 
     resolved_team_id, representation = resolved
 
-    logged_views = getattr(request, "_file_system_logged_views", None)
+    logged_views = cast(Optional[set[CacheKey]], getattr(request, "_file_system_logged_views", None))
     if logged_views is None:
-        logged_views = set()
+        logged_views = cast(set[CacheKey], set())
         request._file_system_logged_views = logged_views
 
-    cache_key = (resolved_team_id, representation.type, str(representation.ref))
+    cache_key: CacheKey = (resolved_team_id, representation.type, str(representation.ref))
     if cache_key in logged_views:
         return
 

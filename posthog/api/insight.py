@@ -34,7 +34,6 @@ from posthog.hogql.timings import HogQLTimings
 
 from posthog import schema
 from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
-from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.api.mixins import FileSystemViewSetMixin
@@ -430,7 +429,6 @@ class InsightSerializer(InsightBasicSerializer):
         )
 
         InsightViewed.objects.create(team_id=team_id, user=request.user, insight=insight, last_viewed_at=now())
-        log_api_file_system_view(request, insight)
 
         if dashboards is not None:
             for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():
@@ -1122,9 +1120,6 @@ When set, the specified dashboard's filters and date range override will be appl
 
         response = Response(serialized_data)
 
-        if dashboard_tile is None:
-            log_api_file_system_view(request, instance)
-
         return response
 
     @extend_schema(exclude=True)
@@ -1313,7 +1308,6 @@ When set, the specified dashboard's filters and date range override will be appl
                 insight=insight,
                 defaults={"last_viewed_at": viewed_at},
             )
-            log_api_file_system_view(request, insight, viewed_at=viewed_at)
 
         return Response(status=status.HTTP_201_CREATED)
 
