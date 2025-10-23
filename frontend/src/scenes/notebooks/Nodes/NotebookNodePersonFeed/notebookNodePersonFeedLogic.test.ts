@@ -125,8 +125,21 @@ const mockMixedSessions = [
     { sessionId: 'session-4', recording_duration_s: null },
 ]
 
+const mockFailingSessions = [
+    { sessionId: 'session-4', recording_duration_s: 120 },
+    { sessionId: 'session-5', recording_duration_s: 120 },
+]
+
+const failingSessionIds = ['session-4', 'session-5']
+
 describe('notebookNodePersonFeedLogic', () => {
     let logic: ReturnType<typeof notebookNodePersonFeedLogic.build>
+
+    const mountLogic = async (): Promise<void> => {
+        logic = notebookNodePersonFeedLogic({ personId: 'test-person-123' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSessionsTimelineSuccess'])
+    }
 
     beforeEach(() => {
         initKeaTests()
@@ -140,6 +153,9 @@ describe('notebookNodePersonFeedLogic', () => {
                 ) => {
                     const { session_ids } = await req.json()
                     const sessionId = session_ids[0]
+                    if (failingSessionIds.includes(sessionId)) {
+                        return [500, { detail: 'Server error' }]
+                    }
                     return [200, { [sessionId]: mockIndividualSummariesResponse[sessionId] }]
                 },
             },
@@ -391,6 +407,101 @@ describe('notebookNodePersonFeedLogic', () => {
 
             logic.actions.setSummarizingState('idle')
             expect(logic.values.summarizingState).toBe('idle')
+        })
+    })
+
+    describe('error handling', () => {
+        it('tracks failed summarizations in summaryErrors', async () => {
+            await mountLogic()
+            logic.actions.summarizeSession('session-4')
+
+            await expectLogic(logic).toDispatchActions(['summarizeSession', 'summarizeSessionFailure'])
+
+            expect(logic.values.summaryErrors).toHaveLength(1)
+            expect(logic.values.numFailedSummaries).toBe(1)
+        })
+
+        it('sets state to completed when all sessions fail', async () => {
+            useMocks({
+                post: {
+                    [`/api/environments/${MOCK_TEAM_ID}/query/`]: {
+                        results: mockFailingSessions,
+                    },
+                },
+            })
+            await mountLogic()
+            logic.actions.summarizeSessions()
+
+            await expectLogic(logic).toDispatchActions(['summarizeSessions'])
+
+            expect(logic.values.summarizingState).toBe('loading')
+
+            await expectLogic(logic)
+                .toDispatchActions(['summarizeSessionFailure', 'summarizeSessionFailure'])
+                .toFinishAllListeners()
+
+            expect(logic.values.summarizingState).toBe('completed')
+            expect(logic.values.numFailedSummaries).toBe(2)
+            expect(logic.values.numSummaries).toBe(0)
+        })
+
+        it('sets state to completed when mix of successes and failures', async () => {
+            useMocks({
+                post: {
+                    [`/api/environments/${MOCK_TEAM_ID}/query/`]: {
+                        results: [...mockFailingSessions, ...mockSessionsWithRecording],
+                    },
+                },
+            })
+            await mountLogic()
+
+            logic.actions.summarizeSessions()
+
+            await expectLogic(logic).toDispatchActions(['summarizeSessions'])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.numSummaries).toBe(3)
+            expect(logic.values.numFailedSummaries).toBe(2)
+            expect(logic.values.numProcessedSessions).toBe(5)
+            expect(logic.values.summarizingState).toBe('completed')
+        })
+
+        it('includes failed sessions in numProcessedSessions', async () => {
+            useMocks({
+                post: {
+                    [`/api/environments/${MOCK_TEAM_ID}/query/`]: {
+                        results: mockSessionsWithRecording,
+                    },
+                },
+            })
+            mountLogic()
+
+            logic.actions.summarizeSession('session-4')
+
+            await expectLogic(logic).toDispatchActions(['summarizeSessionFailure'])
+
+            expect(logic.values.numProcessedSessions).toBe(1)
+            expect(logic.values.numFailedSummaries).toBe(1)
+            expect(logic.values.numSummaries).toBe(0)
+        })
+
+        it('generates correct progress text with failures', async () => {
+            useMocks({
+                post: {
+                    [`/api/environments/${MOCK_TEAM_ID}/query/`]: {
+                        results: mockSessionsWithRecording,
+                    },
+                },
+            })
+            mountLogic()
+
+            logic.actions.summarizeSession('session-1')
+            await expectLogic(logic).toDispatchActions(['summarizeSessionSuccess'])
+
+            logic.actions.summarizeSession('session-4')
+            await expectLogic(logic).toDispatchActions(['summarizeSessionFailure'])
+
+            expect(logic.values.progressText).toEqual('2 out of 3 sessions analyzed.')
         })
     })
 })

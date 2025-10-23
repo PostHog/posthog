@@ -64,13 +64,18 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
             values.sessionIdsWithRecording.forEach((sessionId) => actions.summarizeSession(sessionId))
         },
         summarizeSessionSuccess: () => {
-            if (values.numSummaries === values.numSessionsWithRecording) {
+            if (values.numProcessedSessions === values.numSessionsWithRecording) {
+                actions.setSummarizingState('completed')
+            }
+        },
+        summarizeSessionFailure: () => {
+            if (values.numProcessedSessions === values.numSessionsWithRecording) {
                 actions.setSummarizingState('completed')
             }
         },
     })),
 
-    reducers({
+    reducers(() => ({
         summarizingState: [
             'idle' as 'idle' | 'loading' | 'completed',
             {
@@ -78,7 +83,13 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
                 summarizeSessions: () => 'loading',
             },
         ],
-    }),
+        summaryErrors: [
+            [] as string[],
+            {
+                summarizeSessionFailure: (state, { error }) => [...state, error],
+            },
+        ],
+    })),
 
     selectors({
         canSummarize: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY]],
@@ -87,10 +98,15 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
             (sessionIdsWithRecording) => sessionIdsWithRecording.length,
         ],
         numSummaries: [(s) => [s.summaries], (summaries) => Object.keys(summaries).length],
+        numFailedSummaries: [(s) => [s.summaryErrors], (summaryErrors) => summaryErrors.length],
+        numProcessedSessions: [
+            (s) => [s.numSummaries, s.numFailedSummaries],
+            (numSummaries, numFailedSummaries) => numSummaries + numFailedSummaries,
+        ],
         progressText: [
-            (s) => [s.numSummaries, s.numSessionsWithRecording],
-            (numSummaries, numSessionsWithRecording) =>
-                `${numSummaries} out of ${pluralize(numSessionsWithRecording, 'session')} analyzed.`,
+            (s) => [s.numProcessedSessions, s.numSessionsWithRecording],
+            (numProcessedSessions, numSessionsWithRecording) =>
+                `${numProcessedSessions} out of ${pluralize(numSessionsWithRecording, 'session')} analyzed.`,
         ],
         sessionIdsWithRecording: [
             (s) => [s.sessions],
@@ -98,7 +114,7 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
                 sessions
                     ?.filter((session) => !!session.recording_duration_s)
                     .map((session) => session.sessionId)
-                    .filter((id) => id !== undefined) as string[],
+                    .filter((id) => id !== undefined) || [],
         ],
     }),
 
