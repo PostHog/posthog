@@ -74,6 +74,7 @@ export const OBJECTS = {
         'IconRuler',
         'IconSignal',
         'IconTextWidthFixed',
+        'IconBrain',
     ],
     People: [
         'IconPeople',
