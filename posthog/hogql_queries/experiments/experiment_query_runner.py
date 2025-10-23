@@ -58,7 +58,7 @@ logger = structlog.get_logger(__name__)
 
 
 MAX_EXECUTION_TIME = 600
-MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 39727449488  # 37 GB
+MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 37 * 1024 * 1024 * 1024  # 37 GB
 
 
 class ExperimentQueryRunner(QueryRunner):
