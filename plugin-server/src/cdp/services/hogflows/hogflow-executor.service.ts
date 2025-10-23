@@ -43,7 +43,7 @@ export function createHogFlowInvocation(
             event: globals.event,
             actionStepCount: 0,
             variables: {
-                // Spread in any existing variables from hogflow
+                // Spread in any existing variables from hogflow so the default values are in place
                 ...hogFlow.variables?.reduce(
                     (acc, variable) => {
                         acc[variable.key] = variable.default_value || null
@@ -354,7 +354,6 @@ export class HogFlowExecutorService {
                 // Add logs and metric specifically for this action
                 this.logAction(result, currentAction, 'error', `Errored: ${String(err)}`) // TODO: Is this enough detail?
                 this.trackActionMetric(result, currentAction, 'failed')
-                this.trackActionOutput(result, currentAction, err)
 
                 throw err
             }
@@ -491,18 +490,18 @@ export class HogFlowExecutorService {
     private trackActionOutput(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
         action: HogFlowAction,
-        output: object | Error
+        output: object
     ): void {
-        if (!output) {
-            this.log(
-                result,
-                'warn',
-                `An output variable was specified for [Action:${action.id}], but no output was returned.`
-            )
-            return
-        }
-
         if (action.output_variable?.key) {
+            if (!output) {
+                this.log(
+                    result,
+                    'warn',
+                    `An output variable was specified for [Action:${action.id}], but no output was returned.`
+                )
+                return
+            }
+
             result.invocation.state.variables[action.output_variable.key] = action.output_variable?.result_path
                 ? get(output, action.output_variable.result_path)
                 : output
