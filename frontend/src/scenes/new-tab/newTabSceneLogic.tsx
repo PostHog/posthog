@@ -934,6 +934,19 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     })
             },
         ],
+        firstCategoryWithResults: [
+            (s) => [s.allCategories],
+            (allCategories: Array<[string, NewTabTreeDataItem[]]>): string | null => {
+                for (const [category, items] of allCategories) {
+                    // Check if any category has items
+                    if (items.length > 0) {
+                        return category
+                    }
+                }
+
+                return null
+            },
+        ],
         selectedIndex: [
             (s) => [s.rawSelectedIndex, s.filteredItemsGrid],
             (rawSelectedIndex, filteredItemsGrid): number | null => {

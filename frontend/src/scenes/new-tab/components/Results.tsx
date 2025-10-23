@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { useEffect } from 'react'
 
 import { IconArrowRight, IconEllipsis, IconInfo, IconSparkles } from '@posthog/icons'
 import { LemonTag, Spinner } from '@posthog/lemon-ui'
@@ -272,24 +272,13 @@ export function Results({
         isSearching,
         newTabSceneDataInclude,
         allCategories,
+        firstCategoryWithResults,
     } = useValues(newTabSceneLogic({ tabId }))
     const { setSearch } = useActions(newTabSceneLogic({ tabId }))
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
     const items = groupedFilteredItems[selectedCategory] || []
     const typedItems = items as NewTabTreeDataItem[]
-
-    // Memoized helper to determine which category should get first focus
-    const firstCategoryWithResults = useMemo((): string | null => {
-        for (const [category, items] of allCategories) {
-            // Check if any category has items
-            if (items.length > 0) {
-                return category
-            }
-        }
-
-        return null
-    }, [allCategories])
 
     // Track whether we have any results
     const hasResults = allCategories.some(([, items]) => items.length > 0)
