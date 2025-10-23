@@ -5,7 +5,7 @@ import json
 import time
 import logging
 from datetime import datetime
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 from django.conf import settings
 from django.db import transaction
@@ -75,8 +75,6 @@ from posthog.rate_limit import BurstRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS, REMOTE_CONFIG_RATE_LIMITS
-
-logger = logging.getLogger(__name__)
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
@@ -423,7 +421,7 @@ class FeatureFlagSerializer(
         return SurveyAPISerializer(feature_flag.surveys_linked_flag, many=True).data
         # ignoring type because mypy doesn't know about the surveys_linked_flag `related_name` relationship
 
-    def get_rollout_percentage(self, feature_flag: FeatureFlag) -> int | None:
+    def get_rollout_percentage(self, feature_flag: FeatureFlag) -> Optional[int]:
         if self.get_is_simple_flag(feature_flag):
             return feature_flag.conditions[0].get("rollout_percentage")
         else:
@@ -454,14 +452,6 @@ class FeatureFlagSerializer(
         if "groups" not in filters and self.context["request"].method == "PATCH":
             # mypy cannot tell that self.instance is a FeatureFlag
             return self.instance.filters
-
-        groups = filters.get("groups", [])
-        # Only enforce non-empty groups for new flags to maintain backward compatibility
-        # Existing flags may have empty groups from legacy configurations
-        if isinstance(groups, list) and len(groups) == 0 and not self.instance:
-            raise serializers.ValidationError(
-                "Feature flag filters must contain at least one condition set. Empty 'groups' array is not allowed."
-            )
 
         aggregation_group_type_index = filters.get("aggregation_group_type_index", None)
 
@@ -659,7 +649,7 @@ class FeatureFlagSerializer(
         # Check for cycles using DFS
         def has_cycle(flag_key, path):
             if flag_key in path:
-                cycle_path = [*path[path.index(flag_key) :], flag_key]
+                cycle_path = path[path.index(flag_key) :] + [flag_key]
                 cycle_display = " → ".join(cycle_path)
                 raise serializers.ValidationError(f"Circular dependency detected: {cycle_display}")
 
@@ -1109,19 +1099,19 @@ class FeatureFlagViewSet(
                                         AND (elem->'properties')::text = '[]'::text
                                     )
                                 )
-                            )
-                            OR
-                            -- Multivariate that has a condition that overrides with a specific variant and the rollout_percentage is 100
-                            (
-                                EXISTS (
-                                    SELECT 1 FROM jsonb_array_elements(filters->'groups') AS elem
-                                    WHERE elem->>'rollout_percentage' = '100'
-                                    AND (elem->'properties')::text = '[]'::text
-                                    AND elem->'variant' IS NOT NULL
+                                OR
+                                -- Multivariate that has a condition that overrides with a specific variant and the rollout_percentage is 100
+                                (
+                                    EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS elem
+                                        WHERE elem->>'rollout_percentage' = '100'
+                                        AND (elem->'properties')::text = '[]'::text
+                                        AND elem->'variant' IS NOT NULL
+                                    )
+                                    AND (filters->'multivariate' IS NOT NULL AND jsonb_array_length(filters->'multivariate'->'variants') > 0)
                                 )
-                                AND (filters->'multivariate' IS NOT NULL AND jsonb_array_length(filters->'multivariate'->'variants') > 0)
+                                OR (filters IS NULL OR filters = '{}'::jsonb)
                             )
-                            OR (filters IS NULL OR filters = '{}'::jsonb)
                             """
                         ]
                     )
@@ -1520,7 +1510,7 @@ class FeatureFlagViewSet(
                 status=500,
             )
 
-    def _handle_cached_response(self, cached_response: dict | None) -> Response | None:
+    def _handle_cached_response(self, cached_response: Optional[dict]) -> Optional[Response]:
         """Handle cached response including analytics tracking."""
         if cached_response is None:
             return None
@@ -1767,6 +1757,8 @@ class FeatureFlagViewSet(
         """
         Extract unique fields from selected flags' rules for mapping to PostHog fields.
         """
+        logger = logging.getLogger(__name__)
+
         importer = ExternalProvidersImporter()
         provider = request.data.get("provider")
         selected_flags = request.data.get("selected_flags", [])
