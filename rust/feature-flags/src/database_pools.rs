@@ -1,11 +1,11 @@
 use crate::api::errors::FlagError;
 use crate::config::Config;
 use common_database::{get_pool_with_config, PoolConfig};
+use rand::Rng;
 use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::info;
-use rand::Rng;
 
 /// Direct database pool access for different operation types
 #[derive(Clone)]

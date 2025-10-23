@@ -1346,6 +1346,7 @@ export interface PersonListParams {
     cohort?: number
     distinct_id?: string
     include_total?: boolean // PostHog 3000-only
+    limit?: number
 }
 
 export type SearchableEntity =
@@ -3463,6 +3464,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     _create_in_folder?: string | null
     evaluation_runtime: FeatureFlagEvaluationRuntime
     _should_create_usage_dashboard?: boolean
+    last_called_at?: string | null
 }
 
 export interface OrganizationFeatureFlag {
