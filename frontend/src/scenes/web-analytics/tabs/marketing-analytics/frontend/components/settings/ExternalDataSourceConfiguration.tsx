@@ -12,10 +12,15 @@ import { urls } from 'scenes/urls'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { FEATURE_FLAGS } from '~/lib/constants'
 import { MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
-import { ExternalDataSource, ManualLinkSourceType } from '~/types'
+import { ExternalDataSchemaStatus, ExternalDataSource, ManualLinkSourceType } from '~/types'
 
 import { useSortedPaginatedList } from '../../hooks/useSortedPaginatedList'
-import { ExternalTable, marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
+import {
+    ExternalTable,
+    MarketingSourceStatus,
+    SourceStatus,
+    marketingAnalyticsLogic,
+} from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import {
     MAX_ITEMS_TO_SHOW,
@@ -37,7 +42,7 @@ type UnifiedSource = {
     name: string
     sourceType: string
     sourceTypeLabel: 'Native' | 'Data warehouse' | 'Self-managed'
-    status: string
+    status: SourceStatus
     statusMessage: string
     sourceUrl?: string
     // For native sources
@@ -95,7 +100,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                     name: item.prefix || item.source_type,
                     sourceType: item.source_type,
                     sourceTypeLabel: 'Native' as const,
-                    status: item.status || 'error',
+                    status: item.status || MarketingSourceStatus.Error,
                     statusMessage: item.statusMessage || 'Unknown status',
                     sourceUrl: urls.dataWarehouseSource(`managed-${item.id}`),
                     isNative: true,
@@ -112,7 +117,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                     name: item.name,
                     sourceType: `${item.source_type} ${item.source_prefix}`,
                     sourceTypeLabel: 'Data warehouse' as const,
-                    status: item.status || 'error',
+                    status: item.status || MarketingSourceStatus.Error,
                     statusMessage: item.statusMessage || 'Unknown status',
                     sourceUrl: item.sourceUrl,
                     isTable: true,
@@ -127,7 +132,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                     name: item.name,
                     sourceType: `${item.source_type} ${item.source_prefix}`,
                     sourceTypeLabel: 'Self-managed' as const,
-                    status: item.status || 'error',
+                    status: item.status || MarketingSourceStatus.Error,
                     statusMessage: item.statusMessage || 'Unknown status',
                     sourceUrl: item.sourceUrl,
                     isTable: true,
@@ -141,7 +146,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
         .filter(Boolean) as UnifiedSource[]
 
     const isSourceFullyConfigured = (source: UnifiedSource): boolean => {
-        return source.status === 'Completed' || source.status === 'success'
+        return source.status === ExternalDataSchemaStatus.Completed || source.status === MarketingSourceStatus.Success
     }
 
     const {

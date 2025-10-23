@@ -578,7 +578,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         status: status.status,
                         statusMessage: status.message,
                         isNativeSource: true,
-                    } as ExternalTable & { status: string; statusMessage: string; isNativeSource?: boolean }
+                    } as ExternalTable & { status: SourceStatus; statusMessage: string; isNativeSource?: boolean }
                 })
 
                 const result = [...nativeSourcesAsExternalTables, ...externalTablesWithStatus]
