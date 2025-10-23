@@ -12,12 +12,6 @@ export interface GitLabSetupModalLogicProps {
     onComplete: (integrationId?: number) => void
 }
 
-export interface gitlabFormType {
-    hostname: string
-    clientId: string
-    clientSecret: string
-}
-
 export const gitlabSetupModalLogic = kea<gitlabSetupModalLogicType>([
     path(['integrations', 'gitlab', 'gitlabSetupModalLogic']),
     props({} as GitLabSetupModalLogicProps),

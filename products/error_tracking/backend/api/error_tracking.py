@@ -124,7 +124,7 @@ class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
 
         if integration.kind == "github":
             external_context = GitHubIntegration(integration).create_issue(config)
-        if integration.kind == "gitlab":
+        elif integration.kind == "gitlab":
             external_context = GitLabIntegration(integration).create_issue(config)
         elif integration.kind == "linear":
             external_context = LinearIntegration(integration).create_issue(team.pk, issue.id, config)

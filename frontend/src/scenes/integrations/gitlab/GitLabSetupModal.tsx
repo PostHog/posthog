@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
+import { IconGitLab } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { IconDatabricks } from 'lib/lemon-ui/icons'
 
 import { GitLabSetupModalLogicProps, gitlabSetupModalLogic } from './gitlabSetupModalLogic'
 
@@ -18,7 +18,7 @@ export const GitLabSetupModal = (props: GitLabSetupModalLogicProps): JSX.Element
             isOpen={props.isOpen}
             title={
                 <div className="flex items-center gap-2">
-                    <IconDatabricks />
+                    <IconGitLab />
                     <span>Configure GitLab integration</span>
                 </div>
             }

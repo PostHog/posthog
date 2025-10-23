@@ -22,7 +22,7 @@ let payload := {
     }
 }
 
-let res := fetch(f'{inputs.gitlab_project.hostname}/projects/{inputs.gitlab_project.project_id}/issues', payload)
+let res := fetch(f'{inputs.gitlab_project.hostname}/api/v4/projects/{inputs.gitlab_project.project_id}/issues', payload)
 if (res.status < 200 or res.status >= 300) {
     throw Error(f'Failed to create GitLab issue: {res.status}: {res.body}')
 }`,

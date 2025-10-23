@@ -15,12 +15,6 @@ export interface DatabricksSetupModalLogicProps {
     onComplete: (integrationId?: number) => void
 }
 
-export interface DatabricksFormType {
-    serverHostname: string
-    clientId: string
-    clientSecret: string
-}
-
 export const databricksSetupModalLogic = kea<databricksSetupModalLogicType>([
     path(['integrations', 'databricks', 'databricksSetupModalLogic']),
     props({} as DatabricksSetupModalLogicProps),
