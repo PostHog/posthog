@@ -2,8 +2,10 @@ import { DependencyList, useEffect } from 'react'
 
 import api from 'lib/api'
 
+type FileSystemLogViewType = 'experiment' | 'feature_flag' | 'insight' | 'dashboard'
+
 export interface UseFileSystemLogViewOptions {
-    type: 'experiment' | 'feature_flag'
+    type: FileSystemLogViewType
     ref: string | number | null | undefined
     enabled?: boolean
     deps: DependencyList
