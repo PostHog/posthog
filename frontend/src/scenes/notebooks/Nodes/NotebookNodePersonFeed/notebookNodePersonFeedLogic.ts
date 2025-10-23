@@ -111,10 +111,10 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
         sessionIdsWithRecording: [
             (s) => [s.sessions],
             (sessions) =>
-                sessions
+                (sessions
                     ?.filter((session) => !!session.recording_duration_s)
                     .map((session) => session.sessionId)
-                    .filter((id) => id !== undefined) || [],
+                    .filter((id) => id !== undefined) || []) as string[],
         ],
     }),
 
