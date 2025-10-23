@@ -45,7 +45,7 @@ from posthog.temporal.data_modeling.run_workflow import (
     run_dag_activity,
     start_run_activity,
 )
-from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
+from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse, truncate_table
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from posthog.warehouse.models.modeling import DataWarehouseModelPath
@@ -272,6 +272,8 @@ def mock_to_object_store_rs_credentials(class_self):
 
 @pytest_asyncio.fixture
 async def pageview_events(clickhouse_client, ateam):
+    # first truncate the table to ensure we have a clean slate
+    await truncate_table(clickhouse_client, "sharded_events")
     start_time, end_time = dt.datetime.now(dt.UTC) - dt.timedelta(days=1), dt.datetime.now(dt.UTC)
     events, _, events_from_other_team = await generate_test_events_in_clickhouse(
         clickhouse_client,
