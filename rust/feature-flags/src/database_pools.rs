@@ -50,7 +50,11 @@ impl DatabasePools {
 
         // Non-persons reader pool config (may allow longer queries for analytics)
         let non_persons_reader_pool_config = PoolConfig {
-            statement_timeout_ms: config.non_persons_reader_statement_timeout_ms,
+            statement_timeout_ms: if config.non_persons_reader_statement_timeout_ms > 0 {
+                Some(config.non_persons_reader_statement_timeout_ms)
+            } else {
+                None
+            },
             ..base_pool_config.clone()
         };
         info!(
@@ -61,7 +65,11 @@ impl DatabasePools {
 
         // Persons reader pool config (may allow longer queries for analytics)
         let persons_reader_pool_config = PoolConfig {
-            statement_timeout_ms: config.persons_reader_statement_timeout_ms,
+            statement_timeout_ms: if config.persons_reader_statement_timeout_ms > 0 {
+                Some(config.persons_reader_statement_timeout_ms)
+            } else {
+                None
+            },
             ..base_pool_config.clone()
         };
         info!(
@@ -72,7 +80,11 @@ impl DatabasePools {
 
         // Writer pool config (should be fast transactional operations)
         let writer_pool_config = PoolConfig {
-            statement_timeout_ms: config.writer_statement_timeout_ms,
+            statement_timeout_ms: if config.writer_statement_timeout_ms > 0 {
+                Some(config.writer_statement_timeout_ms)
+            } else {
+                None
+            },
             ..base_pool_config
         };
         info!(
