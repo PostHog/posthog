@@ -192,15 +192,7 @@ class SearchTool(MaxTool):
             if self._has_docs_search_feature_flag():
                 return await self._search_docs(query), None
 
-        fts_entities = SearchTool._get_fts_entities(
-            posthoganalytics.feature_enabled(
-                FTS_SEARCH_FEATURE_FLAG,
-                str(self._user.distinct_id),
-                groups={"organization": str(self._team.organization_id)},
-                group_properties={"organization": {"id": str(self._team.organization_id)}},
-                send_feature_flag_events=False,
-            )
-        )
+        fts_entities = SearchTool._get_fts_entities(self._has_fts_search_feature_flag())
 
         if kind in fts_entities:
             entity_search_toolkit = EntitySearchToolkit(self._team, self._user)
@@ -212,6 +204,15 @@ class SearchTool(MaxTool):
     def _has_docs_search_feature_flag(self) -> bool:
         return posthoganalytics.feature_enabled(
             "max-inkeep-rag-docs-search",
+            str(self._user.distinct_id),
+            groups={"organization": str(self._team.organization_id)},
+            group_properties={"organization": {"id": str(self._team.organization_id)}},
+            send_feature_flag_events=False,
+        )
+
+    def _has_fts_search_feature_flag(self) -> bool:
+        return posthoganalytics.feature_enabled(
+            FTS_SEARCH_FEATURE_FLAG,
             str(self._user.distinct_id),
             groups={"organization": str(self._team.organization_id)},
             group_properties={"organization": {"id": str(self._team.organization_id)}},
