@@ -1642,9 +1642,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         # In the ideal future, most queries will not need to create the DB.
         # In the present (your past), this test was added because we were creating it twice per query.
         query = "SELECT 1"
-        with patch("posthog.hogql.printer.create_hogql_database") as printer_create_hogql_database_mock:
+        with patch("posthog.hogql.database.database.Database.create_for") as create_for_mock:
             execute_hogql_query(query, team=self.team)
-            printer_create_hogql_database_mock.assert_called_once()
+            create_for_mock.assert_called_once()
 
     def test_sortable_semver(self):
         query = "SELECT arrayJoin(['0.0.0.0.1000', '0.9', '0.2354.2', '1.0.0', '1.1.0', '1.2.0', '1.9.233434.10', '1.10.0', '1.1000.0', '2.0.0', '2.2.0.betabac', '2.2.1']) AS semver ORDER BY sortableSemVer(semver) DESC"

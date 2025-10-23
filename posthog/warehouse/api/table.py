@@ -10,7 +10,7 @@ from rest_framework import filters, parsers, request, response, serializers, sta
 from posthog.schema import DatabaseSerializedFieldType
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import SerializedField, create_hogql_database, serialize_fields
+from posthog.hogql.database.database import Database, SerializedField, serialize_fields
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -65,7 +65,7 @@ class TableSerializer(serializers.ModelSerializer):
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
         database = self.context.get("database", None)
         if not database:
-            database = create_hogql_database(team_id=self.context["team_id"])
+            database = Database.create_for(team_id=self.context["team_id"])
 
         if database.has_table(table.name):
             fields = database.get_table(table.name).fields
@@ -142,7 +142,7 @@ class SimpleTableSerializer(serializers.ModelSerializer):
         team_id = self.context.get("team_id", None)
 
         if not database:
-            database = create_hogql_database(team_id=self.context["team_id"])
+            database = Database.create_for(team_id=self.context["team_id"])
 
         fields = serialize_fields(
             table.hogql_definition().fields,
@@ -178,7 +178,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["database"] = create_hogql_database(team_id=self.team_id)
+        context["database"] = Database.create_for(team_id=self.team_id)
         context["team_id"] = self.team_id
         return context
 

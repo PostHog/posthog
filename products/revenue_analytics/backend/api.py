@@ -8,7 +8,7 @@ from rest_framework.viewsets import GenericViewSet
 from posthog.schema import DatabaseSchemaManagedViewTableKind
 
 from posthog.hogql import ast
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -26,7 +26,7 @@ def find_values_for_revenue_analytics_property(key: str, team: Team) -> list[str
         chain = [scope]
         scope = "revenue_analytics_revenue_item"
 
-    database = create_hogql_database(team=team)
+    database = Database.create_for(team=team)
     view_class = KIND_TO_CLASS[DatabaseSchemaManagedViewTableKind(scope)]
 
     # Try and find the union view for this class
