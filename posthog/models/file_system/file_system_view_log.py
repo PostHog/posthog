@@ -4,7 +4,7 @@ from dataclasses import is_dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional, cast
 
-from django.db import models
+from django.db import IntegrityError, models
 from django.db.models import Max, Q, QuerySet
 from django.utils import timezone
 
@@ -51,13 +51,23 @@ def log_file_system_view(
 
     now = viewed_at or timezone.now()
 
-    FileSystemViewLog.objects.update_or_create(
-        team_id=resolved_team_id,
-        user_id=user.id,
-        type=representation.type,
-        ref=str(representation.ref),
-        defaults={"viewed_at": now},
-    )
+    update_kwargs = {
+        "team_id": resolved_team_id,
+        "user_id": user.id,
+        "type": representation.type,
+        "ref": str(representation.ref),
+    }
+
+    updated = FileSystemViewLog.objects.filter(**update_kwargs).update(viewed_at=now)
+
+    if updated:
+        return
+
+    try:
+        FileSystemViewLog.objects.create(viewed_at=now, **update_kwargs)
+    except IntegrityError:
+        # Another request may have created the row after our update attempt.
+        FileSystemViewLog.objects.filter(**update_kwargs).update(viewed_at=now)
 
 
 def annotate_file_system_with_view_logs(
