@@ -1428,7 +1428,11 @@ class LaunchDarklyImporter(BaseImporter):
 
         # Process custom targeting rules (this now supports attributes mapping)
         for rule_idx, rule in enumerate(targeting.get("rules", [])):
-            condition: ConditionDict = {"properties": [], "rollout_percentage": 100, "rule_id": rule.get("_id", f"rule_{rule_idx}")}
+            condition: ConditionDict = {
+                "properties": [],
+                "rollout_percentage": 100,
+                "rule_id": rule.get("_id", f"rule_{rule_idx}"),
+            }
 
             # Transform clauses to properties (maps LaunchDarkly attributes to PostHog)
             for clause in rule.get("clauses", []):
