@@ -25,6 +25,13 @@
     "observability": {
         "enabled": true,
     },
+    "rules": [
+        {
+            "type": "Text",
+            "globs": ["**/*.md"],
+            "fallthrough": true,
+        },
+    ],
     /**
      * Smart Placement
      * Docs: https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement

@@ -184,6 +184,9 @@ export const defaultMocks: Mocks = {
             status: 'None',
             eligible: false,
         },
+
+        '/api/billing/spend/': { results: [] },
+        '/api/billing/usage/': { results: [] },
         'https://status.posthog.com/api/v2/summary.json': statusPageAllOK,
         '/api/projects/:team_id/hog_function_templates': hogFunctionTemplatesMock,
         '/api/projects/:team_id/hog_function_templates/:id': hogFunctionTemplateRetrieveMock,
