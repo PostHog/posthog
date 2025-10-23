@@ -65,6 +65,7 @@ ActivityScope = Literal[
     "TaggedItem",
     "Subscription",
     "PersonalAPIKey",
+    "ProjectSecretAPIKey",
     "User",
     "Action",
     "AlertConfiguration",
@@ -265,6 +266,9 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     "PersonalAPIKey": [
         "last_used_at",
     ],
+    "ProjectSecretAPIKey": [
+        "last_used_at",
+    ],
 }
 
 # Activity visibility restrictions - controls which users can see certain activity logs
@@ -431,6 +435,11 @@ field_exclusions: dict[ActivityScope, list[str]] = {
     ],
     "PersonalAPIKey": [
         "value",
+        "secure_value",
+        "last_used_at",
+        "last_rolled_at",
+    ],
+    "ProjectSecretAPIKey": [
         "secure_value",
         "last_used_at",
         "last_rolled_at",

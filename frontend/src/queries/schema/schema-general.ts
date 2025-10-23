@@ -5096,3 +5096,13 @@ export enum ProductIntentContext {
     // Used by the backend but defined here for type safety
     VERCEL_INTEGRATION = 'vercel_integration',
 }
+
+export interface ProjectSecretAPIKeyRequest {
+    label?: string
+    scopes?: string[]
+}
+
+export enum ProjectSecretAPIKeyAllowedScope {
+    EndpointRead = 'endpoint:read',
+    _Internal = 'INTERNAL',
+}

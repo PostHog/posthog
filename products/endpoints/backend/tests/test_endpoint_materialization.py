@@ -67,7 +67,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR,
         }
 
-        response = self.client.patch(
+        response = self.client.put(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/", updated_data, format="json"
         )
 
@@ -105,7 +105,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Enable materialization with 24-hour frequency
-        self.client.patch(
+        self.client.put(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
             {
                 "is_materialized": True,
@@ -120,7 +120,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(saved_query.sync_frequency_interval, timedelta(hours=24))
 
         # Update to 12-hour frequency
-        response = self.client.patch(
+        response = self.client.put(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
             {
                 "is_materialized": True,
@@ -136,7 +136,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(saved_query.sync_frequency_interval, timedelta(hours=12))
 
         # Update to 1-hour frequency
-        response = self.client.patch(
+        response = self.client.put(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
             {
                 "is_materialized": True,
@@ -161,7 +161,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             created_by=self.user,
         )
 
-        self.client.patch(
+        self.client.put(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
             {
                 "is_materialized": True,
@@ -176,7 +176,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         saved_query_id = endpoint.saved_query.id
 
         # Disable materialization
-        response = self.client.patch(
+        response = self.client.put(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
             {"is_materialized": False},
             format="json",
@@ -207,7 +207,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             created_by=self.user,
         )
 
-        response = self.client.patch(
+        response = self.client.put(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
             {
                 "is_materialized": True,
@@ -240,7 +240,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             created_by=self.user,
         )
 
-        response = self.client.patch(
+        response = self.client.put(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
             {
                 "is_materialized": True,
@@ -395,7 +395,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(response_data["materialization"]["can_materialize"])
 
         # After materialization
-        self.client.patch(
+        self.client.put(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
             {
                 "is_materialized": True,

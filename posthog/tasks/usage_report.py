@@ -29,7 +29,7 @@ from posthog import version_requirement
 from posthog.batch_exports.models import BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.clickhouse.query_tagging import AccessMethod, Product, tags_context
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import FlagRequestType
 from posthog.exceptions_capture import capture_exception
@@ -1790,19 +1790,19 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start,
             period_end,
             metric="read_bytes",
-            access_method="personal_api_key",
+            access_method=AccessMethod.PERSONAL_API_KEY,
         ),
         "teams_with_query_api_rows_read": get_teams_with_query_metric(
             period_start,
             period_end,
             metric="read_rows",
-            access_method="personal_api_key",
+            access_method=AccessMethod.PERSONAL_API_KEY,
         ),
         "teams_with_query_api_duration_ms": get_teams_with_query_metric(
             period_start,
             period_end,
             metric="query_duration_ms",
-            access_method="personal_api_key",
+            access_method=AccessMethod.PERSONAL_API_KEY,
         ),
         "teams_with_api_queries_count": api_queries_usage["count"],
         "teams_with_api_queries_read_bytes": api_queries_usage["read_bytes"],
@@ -1832,21 +1832,21 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_end,
             metric="read_bytes",
             query_types=["EventsQuery"],
-            access_method="personal_api_key",
+            access_method=AccessMethod.PERSONAL_API_KEY,
         ),
         "teams_with_event_explorer_api_rows_read": get_teams_with_query_metric(
             period_start,
             period_end,
             metric="read_rows",
             query_types=["EventsQuery"],
-            access_method="personal_api_key",
+            access_method=AccessMethod.PERSONAL_API_KEY,
         ),
         "teams_with_event_explorer_api_duration_ms": get_teams_with_query_metric(
             period_start,
             period_end,
             metric="query_duration_ms",
             query_types=["EventsQuery"],
-            access_method="personal_api_key",
+            access_method=AccessMethod.PERSONAL_API_KEY,
         ),
         "teams_with_survey_responses_count_in_period": get_teams_with_survey_responses_count_in_period(
             period_start, period_end
