@@ -189,9 +189,15 @@ class TaxonomyAgentToolsNode(
                 continue
             else:
                 if tool_input.name == "final_answer":
+                    tool_msg = LangchainToolMessage(
+                        content=tool_input.arguments.answer,  # type: ignore
+                        tool_call_id=action.log,
+                    )
+                    old_msg = state.tool_progress_messages or []
                     return self._partial_state_class(
                         output=tool_input.arguments.answer,  # type: ignore
                         intermediate_steps=None,
+                        tool_progress_messages=[*old_msg, tool_msg],
                     )
 
                 if tool_input.name == "ask_user_for_help":
