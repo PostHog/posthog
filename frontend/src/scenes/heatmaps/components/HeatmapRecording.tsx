@@ -1,15 +1,13 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonDivider, LemonInput, LemonLabel } from '@posthog/lemon-ui'
 
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { FixedReplayHeatmapBrowser } from 'scenes/heatmaps/components/FixedReplayHeatmapBrowser'
-import { teamLogic } from 'scenes/teamLogic'
+import { HeatmapsWarnings } from 'scenes/heatmaps/components/HeatmapsWarnings'
 import { urls } from 'scenes/urls'
 
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { FilterPanel } from './FilterPanel'
@@ -45,28 +43,6 @@ function UrlSearchHeader(): JSX.Element {
     )
 }
 
-export function Warnings(): JSX.Element | null {
-    const { currentTeam } = useValues(teamLogic)
-    const heatmapsEnabled = currentTeam?.heatmaps_opt_in
-
-    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
-
-    return !heatmapsEnabled ? (
-        <LemonBanner
-            type="warning"
-            action={{
-                type: 'secondary',
-                icon: <IconGear />,
-                onClick: () => openSettingsPanel({ sectionId: 'environment-autocapture', settingId: 'heatmaps' }),
-                children: 'Configure',
-            }}
-            dismissKey="heatmaps-might-be-disabled-warning"
-        >
-            You aren't collecting heatmaps data. Enable heatmaps in your project.
-        </LemonBanner>
-    ) : null
-}
-
 export function HeatmapRecording(): JSX.Element {
     const iframeRef = useRef<HTMLIFrameElement | null>(null)
 
@@ -96,7 +72,7 @@ export function HeatmapRecording(): JSX.Element {
     return (
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
             <SceneContent>
-                <Warnings />
+                <HeatmapsWarnings />
                 <div className="overflow-hidden w-full min-h-screen">
                     <UrlSearchHeader />
                     <LemonDivider className="my-4" />
