@@ -48,7 +48,7 @@ def log_api_file_system_view(
     logged_views = cast(Optional[set[CacheKey]], getattr(request, "_file_system_logged_views", None))
     if logged_views is None:
         logged_views = cast(set[CacheKey], set())
-        request._file_system_logged_views = logged_views
+        request._file_system_logged_views = logged_views  # type: ignore
 
     cache_key: CacheKey = (resolved_team_id, representation.type, str(representation.ref))
     if cache_key in logged_views:
