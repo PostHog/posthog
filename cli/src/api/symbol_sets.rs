@@ -148,7 +148,7 @@ fn upload_to_s3(presigned_url: PresignedUrl, data: &[u8]) -> Result<()> {
                 }
             }
             Result::Err(e) => {
-                last_err = Some(anyhow!("Failed to upload chunk: {e}"));
+                last_err = Some(anyhow!("Failed to upload chunk: {e:?}"));
             }
         }
         if attempt < 3 {
