@@ -16,7 +16,7 @@ export const MAX_SLASH_COMMANDS: SlashCommand[] = [
     {
         name: '/remember',
         arg: '[information]',
-        description: "Add [information] to Max's project-level memory",
+        description: "Add [information] to PostHog AI's project-level memory",
         icon: <IconMemory />,
     },
 ]

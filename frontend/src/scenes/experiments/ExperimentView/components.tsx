@@ -582,7 +582,7 @@ export function PageHeaderCustom(): JSX.Element {
                                 menuItem
                                 onClick={openMax || undefined}
                                 disabledReasons={{
-                                    'Max AI not available': !openMax,
+                                    'PostHog AI not available': !openMax,
                                 }}
                             >
                                 <IconPlusSmall /> Create survey

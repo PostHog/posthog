@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 import { match } from 'ts-pattern'
 
 import { SelectableCard } from '~/scenes/experiments/components/SelectableCard'
@@ -23,10 +22,8 @@ interface VariantsPanelProps {
 }
 
 export function VariantsPanel({ experiment, updateFeatureFlag }: VariantsPanelProps): JSX.Element {
-    const { mode } = useValues(variantsPanelLogic)
-    const { setMode } = useActions(variantsPanelLogic)
-
-    const [linkedFeatureFlag, setLinkedFeatureFlag] = useState<FeatureFlagType | null>(null)
+    const { mode, linkedFeatureFlag } = useValues(variantsPanelLogic)
+    const { setMode, setLinkedFeatureFlag } = useActions(variantsPanelLogic)
 
     const { openSelectExistingFeatureFlagModal, closeSelectExistingFeatureFlagModal } = useActions(
         selectExistingFeatureFlagModalLogic
@@ -68,6 +65,13 @@ export function VariantsPanel({ experiment, updateFeatureFlag }: VariantsPanelPr
                 onClose={() => closeSelectExistingFeatureFlagModal()}
                 onSelect={(flag: FeatureFlagType) => {
                     setLinkedFeatureFlag(flag)
+                    // Update experiment with linked flag's key and variants
+                    updateFeatureFlag({
+                        feature_flag_key: flag.key,
+                        parameters: {
+                            feature_flag_variants: flag.filters?.multivariate?.variants || [],
+                        },
+                    })
                     closeSelectExistingFeatureFlagModal()
                 }}
             />

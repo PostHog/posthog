@@ -1190,9 +1190,9 @@ impl TestContext {
         Ok((team, secret_token, backup_secret_token))
     }
 
-    /// Populates the HyperCache with flag definitions for local_evaluation endpoint
+    /// Populates the HyperCache with flag definitions for flag_definitions endpoint
     /// Uses the same cache key format that Django's cache warming uses
-    pub async fn populate_local_evaluation_cache(
+    pub async fn populate_flag_definitions_cache(
         &self,
         redis: Arc<dyn RedisClientTrait + Send + Sync>,
         team_id: i32,
@@ -1233,7 +1233,7 @@ impl TestContext {
     /// Handles Redis client setup internally
     pub async fn populate_cache_for_team(&self, team_id: i32) -> Result<(), Error> {
         let redis_client = setup_redis_client(Some(self.config.redis_url.clone())).await;
-        self.populate_local_evaluation_cache(redis_client, team_id)
+        self.populate_flag_definitions_cache(redis_client, team_id)
             .await
     }
 

@@ -89,16 +89,16 @@ export const MetricCard = ({ metric, metricContext, onDelete, filterTestAccounts
 
                 <div className="border-t border-border" />
 
-                <div className="space-y-1">
-                    <MetricGoal metric={metric} />
-                    <MetricConversionWindow metric={metric} />
-                    <MetricStepOrder metric={metric} />
-                    <MetricOutlierHandling metric={metric} />
+                <div className="flex items-center justify-between">
+                    <div className="space-y-1">
+                        <MetricGoal metric={metric} />
+                        <MetricConversionWindow metric={metric} />
+                        <MetricStepOrder metric={metric} />
+                        <MetricOutlierHandling metric={metric} />
+                    </div>
+
+                    <MetricRecentActivity metric={metric} filterTestAccounts={filterTestAccounts} />
                 </div>
-
-                <div className="border-t border-border" />
-
-                <MetricRecentActivity metric={metric} filterTestAccounts={filterTestAccounts} />
             </div>
         </div>
     )

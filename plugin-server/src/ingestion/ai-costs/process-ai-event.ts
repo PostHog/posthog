@@ -1,12 +1,26 @@
 import bigDecimal from 'js-big-decimal'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 
 import { logger } from '../../utils/logger'
-import { CostModelSource, findCostFromModel, getNewModelName, requireSpecialCost } from './cost-model-matching'
+import {
+    CostModelResult,
+    CostModelSource,
+    findCostFromModel,
+    getNewModelName,
+    requireSpecialCost,
+} from './cost-model-matching'
 import { calculateInputCost } from './input-costs'
 import { calculateOutputCost } from './output-costs'
-import { ModelRow } from './providers/types'
+import { ResolvedModelCost } from './providers/types'
+
+interface EventWithProperties extends PluginEvent {
+    properties: Properties
+}
+
+const isEventWithProperties = (event: PluginEvent): event is EventWithProperties => {
+    return event.properties !== undefined && event.properties !== null
+}
 
 export const AI_EVENT_TYPES = new Set([
     '$ai_generation',
@@ -17,11 +31,28 @@ export const AI_EVENT_TYPES = new Set([
     '$ai_feedback',
 ])
 
-export const normalizeTraceProperties = (event: PluginEvent): PluginEvent => {
-    if (!event.properties) {
+export const processAiEvent = (event: PluginEvent): PluginEvent | EventWithProperties => {
+    // If the event doesn't carry properties, there's nothing to do.
+    if (!isEventWithProperties(event)) {
         return event
     }
 
+    // Normalize trace properties for all AI events.
+    const normalized: EventWithProperties = AI_EVENT_TYPES.has(event.event) ? normalizeTraceProperties(event) : event
+
+    // Only generation/embedding events get cost processing and model param extraction.
+    const isCosted = normalized.event === '$ai_generation' || normalized.event === '$ai_embedding'
+
+    if (!isCosted) {
+        return normalized
+    }
+
+    const eventWithCosts = processCost(normalized)
+
+    return extractCoreModelParams(eventWithCosts)
+}
+
+export const normalizeTraceProperties = (event: EventWithProperties): EventWithProperties => {
     // List of properties that should always be strings
     const keys = ['$ai_trace_id', '$ai_parent_id', '$ai_span_id', '$ai_generation_id']
 
@@ -46,28 +77,7 @@ export const normalizeTraceProperties = (event: PluginEvent): PluginEvent => {
     return event
 }
 
-export const processAiEvent = (event: PluginEvent): PluginEvent => {
-    // First, normalize trace properties for ALL AI events
-    if (AI_EVENT_TYPES.has(event.event)) {
-        event = normalizeTraceProperties(event)
-    }
-
-    // Then continue with existing cost processing for generation/embedding
-    if ((event.event !== '$ai_generation' && event.event !== '$ai_embedding') || !event.properties) {
-        return event
-    }
-
-    event = processCost(event)
-    event = extractCoreModelParams(event)
-
-    return event
-}
-
-const setCostsOnEvent = (event: PluginEvent, cost: ModelRow): void => {
-    if (!event.properties) {
-        return
-    }
-
+const setCostsOnEvent = (event: EventWithProperties, cost: ResolvedModelCost): void => {
     event.properties['$ai_input_cost_usd'] = parseFloat(calculateInputCost(event, cost))
     event.properties['$ai_output_cost_usd'] = parseFloat(calculateOutputCost(event, cost))
 
@@ -76,11 +86,7 @@ const setCostsOnEvent = (event: PluginEvent, cost: ModelRow): void => {
     )
 }
 
-const processCost = (event: PluginEvent) => {
-    if (!event.properties) {
-        return event
-    }
-
+const processCost = (event: EventWithProperties): EventWithProperties => {
     // If we already have input and output costs, we can skip the rest of the logic
     if (event.properties['$ai_input_cost_usd'] && event.properties['$ai_output_cost_usd']) {
         if (!event.properties['$ai_total_cost_usd']) {
@@ -98,8 +104,9 @@ const processCost = (event: PluginEvent) => {
         event.properties['$ai_output_token_price'] !== undefined
 
     if (hasCustomPricing) {
-        const customCost: ModelRow = {
+        const customCost: ResolvedModelCost = {
             model: 'custom',
+            provider: 'custom',
             cost: {
                 prompt_token: event.properties['$ai_input_token_price'],
                 completion_token: event.properties['$ai_output_token_price'],
@@ -112,6 +119,7 @@ const processCost = (event: PluginEvent) => {
 
         event.properties['$ai_model_cost_used'] = 'custom'
         event.properties['$ai_cost_model_source'] = CostModelSource.Custom
+        event.properties['$ai_cost_model_provider'] = 'custom'
 
         return event
     }
@@ -120,13 +128,21 @@ const processCost = (event: PluginEvent) => {
         return event
     }
 
-    let model = event.properties['$ai_model']
+    const model: unknown = event.properties['$ai_model']
 
-    if (requireSpecialCost(model)) {
-        model = getNewModelName(event.properties)
+    let parsedModel: string
+
+    if (!isString(model)) {
+        return event
     }
 
-    const costResult = findCostFromModel(model, event.properties)
+    parsedModel = model
+
+    if (requireSpecialCost(parsedModel)) {
+        parsedModel = getNewModelName(parsedModel, event.properties['$ai_input_tokens'])
+    }
+
+    const costResult: CostModelResult | undefined = findCostFromModel(parsedModel, event.properties)
 
     if (!costResult) {
         return event
@@ -138,15 +154,12 @@ const processCost = (event: PluginEvent) => {
 
     event.properties['$ai_model_cost_used'] = cost.model
     event.properties['$ai_cost_model_source'] = source
+    event.properties['$ai_cost_model_provider'] = cost.provider
 
     return event
 }
 
-export const extractCoreModelParams = (event: PluginEvent): PluginEvent => {
-    if (!event.properties) {
-        return event
-    }
-
+export const extractCoreModelParams = (event: EventWithProperties): EventWithProperties => {
     const params = event.properties['$ai_model_parameters']
 
     if (!params) {
@@ -168,4 +181,8 @@ export const extractCoreModelParams = (event: PluginEvent): PluginEvent => {
     }
 
     return event
+}
+
+const isString = (property: unknown): property is string => {
+    return typeof property === 'string'
 }

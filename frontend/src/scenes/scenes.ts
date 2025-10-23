@@ -319,7 +319,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         organizationBased: true,
         defaultDocsPath: '/docs/data/organizations-and-projects',
     },
-    [Scene.ProjectHomepage]: { projectBased: true, name: 'Homepage' },
+    [Scene.ProjectHomepage]: { projectBased: true, name: 'Homepage', hideProjectNotice: true, layout: 'app-raw' },
     [Scene.PropertyDefinitionEdit]: {
         projectBased: true,
         name: 'Data management',
@@ -583,6 +583,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.propertyDefinitions()]: [Scene.DataManagement, 'propertyDefinitions'],
     [urls.propertyDefinition(':id')]: [Scene.PropertyDefinition, 'propertyDefinition'],
     [urls.propertyDefinitionEdit(':id')]: [Scene.PropertyDefinitionEdit, 'propertyDefinitionEdit'],
+    [urls.schemaManagement()]: [Scene.DataManagement, 'schemaManagement'],
     [urls.dataManagementHistory()]: [Scene.DataManagement, 'dataManagementHistory'],
     [urls.database()]: [Scene.DataManagement, 'database'],
     [urls.activity(ActivityTab.ExploreEvents)]: [Scene.ExploreEvents, 'exploreEvents'],
