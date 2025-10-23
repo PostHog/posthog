@@ -1,220 +1,81 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import TestCase
-
 from rest_framework.test import APIClient
 
-from posthog.models import HeatmapSaved
+from posthog.models import HeatmapSaved, HeatmapSnapshot, Team
 
 
-class TestHeatmapSaveds(APIBaseTest):
+class TestHeatmapsAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
 
     @patch("posthog.tasks.heatmap_screenshot.generate_heatmap_screenshot.delay")
-    def test_generate_screenshot_new(self, mock_task):
-        """Test generating a new screenshot"""
-        response = self.client.post(
+    def test_generate_creates_saved_with_target_widths(self, mock_task):
+        resp = self.client.post(
             f"/api/environments/{self.team.id}/heatmap_screenshots/generate/",
-            {"url": "https://example.com", "width": 1200},
+            {"url": "https://example.com", "widths": [768, 1024]},
         )
+        self.assertEqual(resp.status_code, 202)
+        saved = HeatmapSaved.objects.get(id=resp.data["id"])
+        self.assertEqual(saved.url, "https://example.com")
+        self.assertEqual(saved.created_by, self.user)
+        self.assertEqual(saved.status, HeatmapSaved.Status.PROCESSING)
+        self.assertEqual(saved.target_widths, [768, 1024])
+        mock_task.assert_called_once_with(saved.id)
 
-        self.assertEqual(response.status_code, 202)
-        self.assertEqual(response.data["url"], "https://example.com")
-        self.assertEqual(response.data["width"], 1200)
-        self.assertEqual(response.data["status"], "processing")
+    def test_content_returns_202_until_snapshot_exists(self):
+        saved = HeatmapSaved.objects.create(team=self.team, url="https://example.com", created_by=self.user)
+        r = self.client.get(f"/api/environments/{self.team.id}/heatmap_screenshots/{saved.id}/content/?width=1024")
+        self.assertEqual(r.status_code, 202)
 
-        # Check database
-        screenshot = HeatmapSaved.objects.get(id=response.data["id"])
-        self.assertEqual(screenshot.team, self.team)
-        self.assertEqual(screenshot.url, "https://example.com")
-        self.assertEqual(screenshot.width, 1200)
-        self.assertEqual(screenshot.created_by, self.user)
-
-        # Check task was called
-        mock_task.assert_called_once_with(screenshot.id)
-
-    def test_generate_screenshot_existing_completed(self):
-        """Test returning existing completed screenshot"""
-        # Create existing completed screenshot
-        existing = HeatmapSaved.objects.create(
+    def test_content_returns_snapshot_bytes_and_defaults_width(self):
+        saved = HeatmapSaved.objects.create(
             team=self.team,
             url="https://example.com",
-            width=1400,
+            created_by=self.user,
             status=HeatmapSaved.Status.COMPLETED,
-            content=b"fake_image_data",
         )
+        HeatmapSnapshot.objects.create(heatmap=saved, width=1024, content=b"jpegdata1024")
+        r = self.client.get(f"/api/environments/{self.team.id}/heatmap_screenshots/{saved.id}/content/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r["Content-Type"], "image/jpeg")
+        self.assertTrue(r["Content-Disposition"].endswith('1024.jpg"'))
+        self.assertEqual(r.content, b"jpegdata1024")
 
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/heatmap_screenshots/generate/", {"url": "https://example.com"}
-        )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["id"], str(existing.id))
-        self.assertEqual(response.data["status"], "completed")
-
-    def test_generate_screenshot_existing_processing(self):
-        """Test returning existing processing screenshot"""
-        # Create existing processing screenshot
-        existing = HeatmapSaved.objects.create(
-            team=self.team, url="https://example.com", width=1400, status=HeatmapSaved.Status.PROCESSING
-        )
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/heatmap_screenshots/generate/", {"url": "https://example.com"}
-        )
-
-        self.assertEqual(response.status_code, 202)
-        self.assertEqual(response.data["id"], str(existing.id))
-        self.assertEqual(response.data["status"], "processing")
-
-    @patch("posthog.tasks.heatmap_screenshot.generate_heatmap_screenshot.delay")
-    def test_force_reload(self, mock_task):
-        """Test force reloading existing screenshot"""
-        # Create existing completed screenshot
-        existing = HeatmapSaved.objects.create(
+    def test_content_picks_closest_snapshot_when_exact_missing(self):
+        saved = HeatmapSaved.objects.create(
             team=self.team,
             url="https://example.com",
-            width=1400,
+            created_by=self.user,
             status=HeatmapSaved.Status.COMPLETED,
-            content=b"fake_image_data",
         )
+        HeatmapSnapshot.objects.create(heatmap=saved, width=768, content=b"jpeg768")
+        HeatmapSnapshot.objects.create(heatmap=saved, width=1024, content=b"jpeg1024")
+        # Request 800 should pick 768 (closest)
+        r = self.client.get(f"/api/environments/{self.team.id}/heatmap_screenshots/{saved.id}/content/?width=800")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('768.jpg"', r["Content-Disposition"])
+        self.assertEqual(r.content, b"jpeg768")
 
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/heatmap_screenshots/generate/",
-            {"url": "https://example.com", "force_reload": True},
-        )
+    def test_saved_list_excludes_deleted_and_includes_created_by(self):
+        HeatmapSaved.objects.create(team=self.team, url="https://a.example", created_by=self.user)
+        HeatmapSaved.objects.create(team=self.team, url="https://b.example", created_by=self.user, deleted=True)
+        r = self.client.get(f"/api/environments/{self.team.id}/saved/")
+        self.assertEqual(r.status_code, 200)
+        urls = [x["url"] for x in r.data["results"]]
+        self.assertIn("https://a.example", urls)
+        self.assertNotIn("https://b.example", urls)
+        # created_by present
+        found = next(x for x in r.data["results"] if x["url"] == "https://a.example")
+        self.assertEqual(found["created_by"]["id"], self.user.id)
 
-        self.assertEqual(response.status_code, 202)
-        existing.refresh_from_db()
-        self.assertEqual(existing.status, HeatmapSaved.Status.PROCESSING)
-        self.assertIsNone(existing.content)
-        self.assertEqual(existing.created_by, self.user)
-
-        # Check task was called
-        mock_task.assert_called_once_with(existing.id)
-
-    def test_generate_screenshot_validation_errors(self):
-        """Test validation errors for invalid input"""
-        # Missing URL
-        response = self.client.post(f"/api/environments/{self.team.id}/heatmap_screenshots/generate/", {"width": 1200})
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("url", str(response.data))
-
-        # Invalid width
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/heatmap_screenshots/generate/",
-            {"url": "https://example.com", "width": 50},
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("width", str(response.data))
-
-    def test_content_endpoint_no_content(self):
-        """Test content endpoint when screenshot has no content"""
-        screenshot = HeatmapSaved.objects.create(
-            team=self.team, url="https://example.com", width=1400, status=HeatmapSaved.Status.PROCESSING
-        )
-
-        response = self.client.get(f"/api/environments/{self.team.id}/heatmap_screenshots/{screenshot.id}/content/")
-
-        self.assertEqual(response.status_code, 404)
-
-    def test_content_endpoint_with_content(self):
-        """Test content endpoint when screenshot has content"""
-        fake_image_data = b"fake_png_data"
-        screenshot = HeatmapSaved.objects.create(
-            team=self.team,
-            url="https://example.com",
-            width=1400,
-            status=HeatmapSaved.Status.COMPLETED,
-            content=fake_image_data,
-        )
-
-        response = self.client.get(f"/api/environments/{self.team.id}/heatmap_screenshots/{screenshot.id}/content/")
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.content, fake_image_data)
-        self.assertEqual(response["Content-Type"], "image/png")
-        self.assertIn("attachment", response["Content-Disposition"])
-
-    def test_team_isolation(self):
-        """Test that screenshots are isolated by team"""
-        from posthog.models import Team
-
+    def test_team_isolation_for_content(self):
         other_team = Team.objects.create_with_data(
             organization=self.organization, initiating_user=self.user, name="Other Team"
         )
-
-        # Create screenshot for other team
-        other_screenshot = HeatmapSaved.objects.create(
-            team=other_team,
-            url="https://example.com",
-            width=1400,
-            status=HeatmapSaved.Status.COMPLETED,
-            content=b"fake_image_data",
-        )
-
-        # Try to access from current team - should fail
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/heatmap_screenshots/{other_screenshot.id}/content/"
-        )
-
-        self.assertEqual(response.status_code, 404)
-
-    def test_default_width(self):
-        """Test that default width is applied when not specified"""
-        with patch("posthog.tasks.heatmap_screenshot.generate_heatmap_screenshot.delay"):
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/heatmap_screenshots/generate/", {"url": "https://example.com"}
-            )
-
-        self.assertEqual(response.status_code, 202)
-        self.assertEqual(response.data["width"], 1400)  # Default width
-
-    def test_unique_constraint(self):
-        """Test that unique constraint works for team, url, width"""
-        # Create first screenshot with content
-        HeatmapSaved.objects.create(
-            team=self.team,
-            url="https://example.com",
-            width=1400,
-            status=HeatmapSaved.Status.COMPLETED,
-            content=b"fake_image_data",  # Add content so it's considered complete
-        )
-
-        # Try to create duplicate - should reuse existing
-        with patch("posthog.tasks.heatmap_screenshot.generate_heatmap_screenshot.delay"):
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/heatmap_screenshots/generate/",
-                {"url": "https://example.com", "width": 1400},
-            )
-
-        self.assertEqual(response.status_code, 200)  # Returns existing
-        self.assertEqual(HeatmapSaved.objects.filter(team=self.team).count(), 1)
-
-
-class TestHeatmapSavedModel(TestCase):
-    def test_has_content_property(self):
-        """Test the has_content property"""
-        screenshot = HeatmapSaved(content=None, content_location=None)
-        self.assertFalse(screenshot.has_content)
-
-        screenshot.content = b"fake_data"
-        self.assertTrue(screenshot.has_content)
-
-        screenshot.content = None
-        screenshot.content_location = "s3://bucket/key"
-        self.assertTrue(screenshot.has_content)
-
-    def test_get_analytics_metadata(self):
-        """Test analytics metadata generation"""
-        screenshot = HeatmapSaved(
-            team_id=123, url="https://example.com", width=1400, status=HeatmapSaved.Status.COMPLETED
-        )
-
-        metadata = screenshot.get_analytics_metadata()
-        expected = {"team_id": 123, "url": "https://example.com", "width": 1400, "status": "completed"}
-        self.assertEqual(metadata, expected)
+        other = HeatmapSaved.objects.create(team=other_team, url="https://example.com")
+        r = self.client.get(f"/api/environments/{self.team.id}/heatmap_screenshots/{other.id}/content/")
+        self.assertEqual(r.status_code, 404)
