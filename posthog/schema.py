@@ -14637,6 +14637,7 @@ class EndpointRequest(BaseModel):
     query: Optional[
         Union[HogQLQuery, Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]]
     ] = None
+    cache_age_seconds: Optional[int] = None
 
 
 class FunnelCorrelationActorsQuery(BaseModel):
