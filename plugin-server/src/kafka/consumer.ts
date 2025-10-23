@@ -13,7 +13,7 @@ import {
     WatermarkOffsets,
 } from 'node-rdkafka'
 import { hostname } from 'os'
-import { Gauge, Histogram } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
 
 import {
     EventHeaders,
@@ -93,6 +93,12 @@ const gaugeOldestBackgroundTaskAge = new Gauge({
 const gaugeTimeSinceLastProgress = new Gauge({
     name: 'consumer_time_since_last_progress_ms',
     help: 'Time since any background task completed - shows if pod is making any progress',
+    labelNames: ['pod', 'groupId'],
+})
+
+const counterBackgroundTaskNotFound = new Counter({
+    name: 'consumer_background_task_not_found_total',
+    help: 'Background task attempted cleanup but was not found in array - indicates serious system integrity issue',
     labelNames: ['pod', 'groupId'],
 })
 
@@ -715,18 +721,23 @@ export class KafkaConsumer {
                         // First of all clear ourselves from the queue
                         const index = this.backgroundTask.findIndex((t) => t.promise === backgroundTask)
 
-                        // TRICKY: We need to wait for all promises ahead of us in the queue before we store the offsets
-                        // Important: capture the promises BEFORE removing the task, as the array changes after splice
-                        // Also handle the case where index is -1 (task not found)
-                        const promisesToWait =
-                            index >= 0 ? this.backgroundTask.slice(0, index).map((t) => t.promise) : []
-
-                        // Only remove the task if it was actually found
-                        if (index >= 0) {
-                            this.backgroundTask.splice(index, 1)
+                        // CRITICAL: If task not found, this indicates some bigger problem
+                        if (index < 0) {
+                            const error = new Error('Background task not found in array during cleanup')
+                            captureException(error)
+                            counterBackgroundTaskNotFound
+                                .labels({ pod: this.podName, groupId: this.config.groupId })
+                                .inc()
                         }
 
-                        await Promise.all(promisesToWait)
+                        // TRICKY: We need to wait for all promises ahead of us in the queue before we store the offsets
+                        // Important: capture the promises BEFORE removing the task, as the array changes after splice
+                        if (index >= 0) {
+                            // Task found - capture promises to wait for, then remove the task
+                            const promisesToWait = this.backgroundTask.slice(0, index).map((t) => t.promise)
+                            this.backgroundTask.splice(index, 1)
+                            await Promise.all(promisesToWait)
+                        }
 
                         if (this.config.autoCommit && this.config.autoOffsetStore) {
                             this.storeOffsetsForMessages(topicPartitionOffsetsToCommit)

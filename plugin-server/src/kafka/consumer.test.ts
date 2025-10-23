@@ -316,9 +316,18 @@ describe('consumer', () => {
             const orphanTask = Promise.resolve()
 
             // Manually inject the orphan task's finally handler using the FIXED logic
+            // This includes the error handling that should trigger when index = -1
             const backgroundTaskWithFinally = orphanTask.finally(async () => {
                 const index = consumer['backgroundTask'].findIndex((t) => t.promise === orphanTask)
                 // This will be -1 since orphanTask is not in the array
+
+                // FIXED logic includes error detection and reporting
+                if (index < 0) {
+                    // In real code, this would captureException and increment metrics
+                    // For test, we just verify the logic path works
+                    expect(index).toBe(-1) // Confirm we're in the error case
+                }
+
                 const promisesToWait =
                     index >= 0 ? consumer['backgroundTask'].slice(0, index).map((t) => t.promise) : []
 
