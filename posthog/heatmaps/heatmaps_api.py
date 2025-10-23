@@ -296,24 +296,6 @@ class LegacyHeatmapViewSet(HeatmapViewSet):
 DEFAULT_TARGET_WIDTHS = [320, 375, 425, 768, 1024, 1440, 1920]
 
 
-class HeatmapScreenshotRequestSerializer(serializers.Serializer):
-    url = serializers.URLField(required=True, max_length=2000)
-    widths = serializers.ListField(
-        child=serializers.IntegerField(min_value=100, max_value=3000), required=False, allow_empty=False
-    )
-    # Back-compat: allow a single width and coerce to widths
-    width = serializers.IntegerField(required=False, min_value=100, max_value=3000)
-
-    def validate(self, attrs: dict) -> dict:
-        widths = attrs.get("widths")
-        width = attrs.get("width")
-        if not widths and width:
-            attrs["widths"] = [width]
-        if not attrs.get("widths"):
-            attrs["widths"] = DEFAULT_TARGET_WIDTHS
-        return attrs
-
-
 class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     snapshots = serializers.SerializerMethodField()
@@ -370,27 +352,6 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(team=self.team)
-
-    @action(methods=["POST"], detail=False)
-    def generate(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        request_serializer = HeatmapScreenshotRequestSerializer(data=request.data)
-        request_serializer.is_valid(raise_exception=True)
-
-        url = request_serializer.validated_data["url"]
-        widths = request_serializer.validated_data.get("widths", DEFAULT_TARGET_WIDTHS)
-
-        screenshot = HeatmapSaved.objects.create(
-            team=self.team,
-            url=url,
-            target_widths=widths,
-            created_by=cast(User, request.user),
-            status=HeatmapSaved.Status.PROCESSING,
-        )
-
-        generate_heatmap_screenshot.delay(screenshot.id)
-
-        response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
-        return response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED)
 
     @action(methods=["GET"], detail=True)
     def content(self, request: request.Request, *args: Any, **kwargs: Any) -> HttpResponse:
@@ -557,19 +518,3 @@ class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         obj = self.get_object()
         obj.delete()
         return response.Response(status=status.HTTP_204_NO_CONTENT)
-
-    @action(methods=["POST"], detail=True)
-    def regenerate(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        obj = self.get_object()
-        if obj.type != HeatmapSaved.Type.SCREENSHOT:
-            return response.Response(
-                {"detail": "Regenerate only supported for screenshot type"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        obj.status = HeatmapSaved.Status.PROCESSING
-        obj.content = None
-        obj.content_location = None
-        obj.exception = None
-        obj.save()
-        generate_heatmap_screenshot.delay(obj.id)
-        return response.Response(HeatmapScreenshotResponseSerializer(obj).data, status=status.HTTP_202_ACCEPTED)

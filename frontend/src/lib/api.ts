@@ -4503,10 +4503,6 @@ const api = {
     },
 
     heatmapScreenshots: {
-        async generate(data: { url: string; width?: number; force_reload?: boolean }): Promise<HeatmapScreenshotType> {
-            return await new ApiRequest().heatmapScreenshots().withAction('generate').create({ data })
-        },
-
         async getContent(id: number): Promise<HeatmapScreenshotContentResponse> {
             const response = await new ApiRequest().heatmapScreenshot(id).withAction('content').getResponse()
 
@@ -4561,10 +4557,6 @@ const api = {
             }>
         ): Promise<HeatmapScreenshotType> {
             return await new ApiRequest().heatmapScreenshotSaved(id).update({ data })
-        },
-
-        async delete(id: number | string): Promise<void> {
-            return await new ApiRequest().heatmapScreenshotSaved(id).delete()
         },
     },
 

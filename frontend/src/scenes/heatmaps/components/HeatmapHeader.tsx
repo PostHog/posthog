@@ -5,13 +5,9 @@ import { LemonBanner, LemonInput, LemonLabel } from '@posthog/lemon-ui'
 import { HeatmapsForbiddenURL } from 'scenes/heatmaps/components/HeatmapsForbiddenURL'
 import { heatmapLogic } from 'scenes/heatmaps/scenes/heatmap/heatmapLogic'
 
-import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
-
 export function HeatmapHeader(): JSX.Element {
-    const { dataUrl, displayUrl, isBrowserUrlAuthorized } = useValues(heatmapLogic)
-
+    const { dataUrl, displayUrl, isBrowserUrlAuthorized, screenshotError } = useValues(heatmapLogic)
     const { setDataUrl } = useActions(heatmapLogic)
-    const { screenshotError } = useValues(heatmapsBrowserLogic)
 
     return (
         <>
