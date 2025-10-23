@@ -6,7 +6,7 @@
  * via Temporal when conditions are met.
  */
 import * as crypto from 'crypto'
-import { Consumer, EachBatchPayload } from 'kafkajs'
+import { Consumer, EachBatchPayload, KafkaMessage } from 'kafkajs'
 import { Counter } from 'prom-client'
 
 import { execHog } from '../../cdp/utils/hog-exec'
@@ -37,6 +37,123 @@ const evaluationMatchesCounter = new Counter({
     help: 'Number of evaluation matches by outcome',
     labelNames: ['outcome'], // matched, filtered, sampling_excluded, error
 })
+
+// Pure functions for testability
+
+export function filterAndParseMessages(messages: KafkaMessage[]): RawKafkaEvent[] {
+    return messages
+        .filter((message) => message.headers?.productTrack?.toString('utf8') === 'llma')
+        .map((message) => {
+            try {
+                return parseJSON(message.value!.toString()) as RawKafkaEvent
+            } catch (e) {
+                logger.error('Error parsing event', { error: e })
+                return null
+            }
+        })
+        .filter((event): event is RawKafkaEvent => event !== null)
+}
+
+export function groupEventsByTeam(events: RawKafkaEvent[]): Map<number, RawKafkaEvent[]> {
+    const grouped = new Map<number, RawKafkaEvent[]>()
+    for (const event of events) {
+        const teamEvents = grouped.get(event.team_id) || []
+        teamEvents.push(event)
+        grouped.set(event.team_id, teamEvents)
+    }
+    return grouped
+}
+
+export function checkRolloutPercentage(distinctId: string, rolloutPercentage: number): boolean {
+    if (rolloutPercentage >= 100) {
+        return true
+    }
+
+    // Use MD5 hash for deterministic sampling
+    const hash = crypto.createHash('md5').update(distinctId).digest('hex')
+    const hashValue = parseInt(hash.substring(0, 8), 16)
+    const percentage = (hashValue % 10000) / 100
+
+    return percentage < rolloutPercentage
+}
+
+export async function checkConditionMatch(event: RawKafkaEvent, condition: EvaluationConditionSet): Promise<boolean> {
+    if (!condition.bytecode) {
+        if (condition.bytecode_error) {
+            logger.warn('Condition has bytecode error, skipping', {
+                conditionId: condition.id,
+                error: condition.bytecode_error,
+            })
+        }
+        return false
+    }
+
+    // Build globals for HogVM execution
+    const filterGlobals = {
+        event: event.event,
+        elements_chain: event.elements_chain || '',
+        distinct_id: event.distinct_id,
+        person: {
+            properties: {},
+        },
+        properties: parseJSON(event.properties || '{}'),
+    }
+
+    try {
+        const execResult = await execHog(condition.bytecode, { globals: filterGlobals })
+
+        if (execResult.error || execResult.execResult?.error) {
+            logger.error('Error executing bytecode', {
+                conditionId: condition.id,
+                error: execResult.error ?? execResult.execResult?.error,
+            })
+            return false
+        }
+
+        return typeof execResult.execResult?.result === 'boolean' && execResult.execResult.result
+    } catch (error: unknown) {
+        logger.error('Exception executing bytecode', {
+            conditionId: condition.id,
+            error: error instanceof Error ? error.message : String(error),
+        })
+        return false
+    }
+}
+
+export type EvaluationMatchResult =
+    | { matched: true; conditionId: string }
+    | { matched: false; reason: 'no_conditions' | 'disabled' | 'filtered' | 'sampling_excluded' }
+
+export class EvaluationMatcher {
+    async shouldTriggerEvaluation(event: RawKafkaEvent, evaluation: Evaluation): Promise<EvaluationMatchResult> {
+        if (!evaluation.enabled) {
+            return { matched: false, reason: 'disabled' }
+        }
+
+        const conditions = evaluation.conditions as EvaluationConditionSet[]
+        if (conditions.length === 0) {
+            return { matched: false, reason: 'no_conditions' }
+        }
+
+        for (const condition of conditions) {
+            const conditionMatched = await checkConditionMatch(event, condition)
+
+            if (!conditionMatched) {
+                continue
+            }
+
+            const inSample = checkRolloutPercentage(event.distinct_id, condition.rollout_percentage)
+
+            if (!inSample) {
+                continue
+            }
+
+            return { matched: true, conditionId: condition.id }
+        }
+
+        return { matched: false, reason: 'filtered' }
+    }
+}
 
 export const startEvaluationScheduler = async (hub: Hub): Promise<PluginServerService> => {
     logger.info('🤖', 'Starting evaluation scheduler')
@@ -90,18 +207,7 @@ async function eachBatchEvaluationScheduler(
 
     logger.debug('Processing batch', { partition: batch.partition, messageCount: batch.messages.length })
 
-    // OPTIMIZATION: Filter by event header before deserializing the full message
-    const aiGenerationEvents = batch.messages
-        .filter((message) => message.headers?.event?.toString('utf8') === '$ai_generation')
-        .map((message) => {
-            try {
-                return parseJSON(message.value!.toString()) as RawKafkaEvent
-            } catch (e) {
-                logger.error('Error parsing event', { error: e })
-                return null
-            }
-        })
-        .filter((event) => event !== null)
+    const aiGenerationEvents = filterAndParseMessages(batch.messages)
 
     if (aiGenerationEvents.length === 0) {
         resolveOffset(batch.messages[batch.messages.length - 1].offset)
@@ -111,20 +217,14 @@ async function eachBatchEvaluationScheduler(
 
     logger.debug('Found $ai_generation events', { count: aiGenerationEvents.length })
 
-    const eventsByTeam = aiGenerationEvents.reduce<Record<number, RawKafkaEvent[]>>((acc, event) => {
-        acc[event.team_id] = acc[event.team_id] || []
-        acc[event.team_id].push(event)
-        return acc
-    }, {})
-
-    const teamIds = Object.keys(eventsByTeam).map((id) => parseInt(id))
+    const eventsByTeam = groupEventsByTeam(aiGenerationEvents)
+    const teamIds = Array.from(eventsByTeam.keys())
 
     const evaluationsByTeam = await evaluationManager.getEvaluationsForTeams(teamIds)
-
+    const matcher = new EvaluationMatcher()
     const tasks: Promise<void>[] = []
 
-    for (const [teamIdStr, events] of Object.entries(eventsByTeam)) {
-        const teamId = parseInt(teamIdStr)
+    for (const [teamId, events] of eventsByTeam.entries()) {
         const evaluations = evaluationsByTeam[teamId] || []
 
         if (evaluations.length === 0) {
@@ -133,18 +233,16 @@ async function eachBatchEvaluationScheduler(
 
         for (const event of events) {
             for (const evaluation of evaluations) {
-                if (!evaluation.enabled) {
-                    continue
-                }
-
-                const task = processEvaluationForEvent(event, evaluation, temporalService).catch((error: unknown) => {
-                    logger.error('Error processing evaluation', {
-                        evaluationId: evaluation.id,
-                        eventUuid: event.uuid,
-                        error: error instanceof Error ? error.message : String(error),
-                    })
-                    evaluationMatchesCounter.labels({ outcome: 'error' }).inc()
-                })
+                const task = processEventEvaluationMatch(event, evaluation, matcher, temporalService).catch(
+                    (error: unknown) => {
+                        logger.error('Error processing evaluation', {
+                            evaluationId: evaluation.id,
+                            eventUuid: event.uuid,
+                            error: error instanceof Error ? error.message : String(error),
+                        })
+                        evaluationMatchesCounter.labels({ outcome: 'error' }).inc()
+                    }
+                )
 
                 tasks.push(task)
             }
@@ -164,112 +262,36 @@ async function eachBatchEvaluationScheduler(
     await heartbeat()
 }
 
-async function processEvaluationForEvent(
+async function processEventEvaluationMatch(
     event: RawKafkaEvent,
     evaluation: Evaluation,
+    matcher: EvaluationMatcher,
     temporalService: TemporalService
 ): Promise<void> {
     evaluationSchedulerEventsProcessed.labels({ status: 'received' }).inc()
 
-    for (const condition of evaluation.conditions as EvaluationConditionSet[]) {
-        try {
-            const matched = await checkConditionMatch(event, condition)
+    const result = await matcher.shouldTriggerEvaluation(event, evaluation)
 
-            if (!matched) {
-                evaluationMatchesCounter.labels({ outcome: 'filtered' }).inc()
-                continue
-            }
-
-            const inSample = checkRolloutPercentage(event.distinct_id, condition.rollout_percentage)
-
-            if (!inSample) {
-                evaluationMatchesCounter.labels({ outcome: 'sampling_excluded' }).inc()
-                continue
-            }
-
-            logger.debug('Evaluation matched', {
-                evaluationId: evaluation.id,
-                eventUuid: event.uuid,
-                conditionId: condition.id,
-            })
-
-            evaluationMatchesCounter.labels({ outcome: 'matched' }).inc()
-
-            const handle = await temporalService.startEvaluationWorkflow(evaluation.id, event.uuid)
-
-            if (handle) {
-                evaluationSchedulerEventsProcessed.labels({ status: 'success' }).inc()
-            } else {
-                evaluationSchedulerEventsProcessed.labels({ status: 'error' }).inc()
-            }
-
-            return
-        } catch (error: unknown) {
-            logger.error('Error checking condition', {
-                evaluationId: evaluation.id,
-                conditionId: condition.id,
-                eventUuid: event.uuid,
-                error: error instanceof Error ? error.message : String(error),
-            })
-            evaluationMatchesCounter.labels({ outcome: 'error' }).inc()
-        }
-    }
-}
-
-async function checkConditionMatch(event: RawKafkaEvent, condition: EvaluationConditionSet): Promise<boolean> {
-    if (!condition.bytecode) {
-        if (condition.bytecode_error) {
-            logger.warn('Condition has bytecode error, skipping', {
-                conditionId: condition.id,
-                error: condition.bytecode_error,
-            })
-        }
-        return false
+    if (!result.matched) {
+        evaluationMatchesCounter.labels({ outcome: result.reason }).inc()
+        return
     }
 
-    // Build globals for HogVM execution
-    const filterGlobals = {
-        event: event.event,
-        elements_chain: event.elements_chain || '',
-        distinct_id: event.distinct_id,
-        person: {
-            properties: {},
-        },
-        properties: parseJSON(event.properties || '{}'),
+    logger.debug('Evaluation matched', {
+        evaluationId: evaluation.id,
+        eventUuid: event.uuid,
+        conditionId: result.conditionId,
+    })
+
+    evaluationMatchesCounter.labels({ outcome: 'matched' }).inc()
+
+    const handle = await temporalService.startEvaluationWorkflow(evaluation.id, event.uuid)
+
+    if (handle) {
+        evaluationSchedulerEventsProcessed.labels({ status: 'success' }).inc()
+    } else {
+        evaluationSchedulerEventsProcessed.labels({ status: 'error' }).inc()
     }
-
-    try {
-        const execResult = await execHog(condition.bytecode, { globals: filterGlobals })
-
-        if (execResult.error || execResult.execResult?.error) {
-            logger.error('Error executing bytecode', {
-                conditionId: condition.id,
-                error: execResult.error ?? execResult.execResult?.error,
-            })
-            return false
-        }
-
-        return typeof execResult.execResult?.result === 'boolean' && execResult.execResult.result
-    } catch (error: unknown) {
-        logger.error('Exception executing bytecode', {
-            conditionId: condition.id,
-            error: error instanceof Error ? error.message : String(error),
-        })
-        return false
-    }
-}
-
-function checkRolloutPercentage(distinctId: string, rolloutPercentage: number): boolean {
-    if (rolloutPercentage >= 100) {
-        return true
-    }
-
-    // Use MD5 hash for deterministic sampling
-    const hash = crypto.createHash('md5').update(distinctId).digest('hex')
-    const hashValue = parseInt(hash.substring(0, 8), 16)
-    const percentage = (hashValue % 10000) / 100
-
-    return percentage < rolloutPercentage
 }
 
 async function commitOffsetsIfNecessary(payload: EachBatchPayload): Promise<void> {
