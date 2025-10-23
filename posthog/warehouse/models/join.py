@@ -70,8 +70,8 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
             if not join_to_add.fields_accessed:
                 raise ResolutionError(f"No fields requested from {join_to_add.to_table}")
 
-            left = self.__parse_table_key_expression(_source_table_key, join_to_add.from_table)
-            right = self.__parse_table_key_expression(_joining_table_key, join_to_add.to_table)
+            left = self.parse_table_key_expression(_source_table_key, join_to_add.from_table)
+            right = self.parse_table_key_expression(_joining_table_key, join_to_add.to_table)
 
             join_expr = ast.JoinExpr(
                 table=ast.SelectQuery(
@@ -112,8 +112,8 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
             if not timestamp_key:
                 raise ResolutionError("experiments_timestamp_key is not set for this join")
 
-            left = self.__parse_table_key_expression(self.source_table_key, join_to_add.from_table)
-            right = self.__parse_table_key_expression(self.joining_table_key, join_to_add.to_table)
+            left = self.parse_table_key_expression(self.source_table_key, join_to_add.from_table)
+            right = self.parse_table_key_expression(self.joining_table_key, join_to_add.to_table)
 
             whereExpr: list[ast.Expr] = [
                 ast.CompareOperation(
@@ -202,7 +202,8 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
 
         return _join_function_for_experiments
 
-    def __parse_table_key_expression(self, table_key: str, table_name: str) -> ast.Expr:
+    @classmethod
+    def parse_table_key_expression(cls, table_key: str, table_name: str) -> ast.Expr:
         expr = parse_expr(table_key)
         if isinstance(expr, ast.Field):
             expr.chain = [table_name, *expr.chain]

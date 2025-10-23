@@ -98,11 +98,7 @@ impl MockUploader {
         let mut uploaded_keys = Vec::new();
 
         for (local_file_path, remote_file_path_str) in files_to_upload {
-            let remote_file_path = Path::new(&remote_file_path_str);
-
-            let remote_parent_path = remote_file_path.parent().unwrap();
-            tokio::fs::create_dir_all(remote_parent_path).await?;
-
+            let remote_file_path = self.upload_dir.join(&remote_file_path_str);
             // Copy the file to the upload directory
             tokio::fs::copy(&local_file_path, &remote_file_path).await?;
             uploaded_keys.push(remote_file_path_str);
@@ -127,19 +123,24 @@ impl CheckpointUploader for MockUploader {
             plan.info.get_remote_attempt_path(),
         );
 
+        let remote_parent_path = self.upload_dir.join(plan.info.get_remote_attempt_path());
+        tokio::fs::create_dir_all(remote_parent_path).await?;
+
         let mut files_to_upload = Vec::new();
-        for (filename, local_path) in &plan.files_to_upload {
-            let key = self.upload_dir.join(plan.info.get_file_key(filename));
+        for local_file in &plan.files_to_upload {
             files_to_upload.push((
-                Path::new(local_path).to_path_buf(),
-                key.to_string_lossy().to_string(),
+                local_file.local_path.clone(),
+                plan.info.get_file_key(&local_file.filename),
             ));
         }
 
         let mut uploaded_keys = self.upload_files(files_to_upload).await?;
 
         let metadata_key = self.upload_dir.join(plan.info.get_metadata_key());
-        let metadata_json = serde_json::to_string_pretty(&plan.info.metadata)
+        let metadata_json = &plan
+            .info
+            .metadata
+            .to_json()
             .with_context(|| format!("Failed to serialize checkpoint metadata: {plan:?}"))?;
         tokio::fs::write(&metadata_key, metadata_json).await?;
         uploaded_keys.push(metadata_key.to_string_lossy().to_string());
@@ -371,10 +372,10 @@ async fn test_checkpoint_from_plan_with_no_previous_metadata() {
         .any(|k| k.ends_with("CURRENT")));
     assert!(remote_checkpoint_files
         .keys()
-        .any(|k| k.contains("MANIFEST")));
+        .any(|k| k.contains("MANIFEST-")));
     assert!(remote_checkpoint_files
         .keys()
-        .any(|k| k.contains("OPTIONS")));
+        .any(|k| k.contains("OPTIONS-")));
     assert!(remote_checkpoint_files.keys().any(|k| k.ends_with(".sst")));
     assert!(remote_checkpoint_files.keys().any(|k| k.ends_with(".log")));
 }
@@ -461,10 +462,10 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
         .any(|k| k.ends_with("CURRENT")));
     assert!(orig_remote_checkpoint_files
         .keys()
-        .any(|k| k.contains("MANIFEST")));
+        .any(|k| k.contains("MANIFEST-")));
     assert!(orig_remote_checkpoint_files
         .keys()
-        .any(|k| k.contains("OPTIONS")));
+        .any(|k| k.contains("OPTIONS-")));
     assert!(orig_remote_checkpoint_files
         .keys()
         .any(|k| k.ends_with(".log")));
@@ -517,18 +518,19 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
         .all(|k| !k.ends_with(".sst")));
 
     // Verify exported files contain expected RocksDB non-SST files
-    // For now, we always upload the latest CURRENT, MANIFEST, OPTIONS,
-    // and .log (WAL) files. With checksums, we can disambiguate better
+    // For now, we always upload the latest CURRENT, but
+    // but this attempt, we don't upload new MANIFEST, OPTIONS,
+    // or .log (WAL) files because the checksums will not be different
     assert!(next_remote_checkpoint_files
         .keys()
         .any(|k| k.ends_with("CURRENT")));
     assert!(next_remote_checkpoint_files
         .keys()
-        .any(|k| k.contains("MANIFEST")));
+        .all(|k| !k.contains("MANIFEST-")));
     assert!(next_remote_checkpoint_files
         .keys()
-        .any(|k| k.contains("OPTIONS")));
+        .all(|k| !k.contains("OPTIONS-")));
     assert!(next_remote_checkpoint_files
         .keys()
-        .any(|k| k.ends_with(".log")));
+        .all(|k| !k.ends_with(".log")));
 }
