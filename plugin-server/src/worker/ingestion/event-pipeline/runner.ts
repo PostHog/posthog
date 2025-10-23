@@ -102,7 +102,7 @@ export class EventPipelineRunner {
         const prepareResult = await this.runStep<PreIngestionEvent, typeof prepareEventStep>(
             prepareEventStep,
             [this, normalizedEvent, processPerson, team],
-            normalizedEvent.team_id,
+            team.id,
             true,
             kafkaAcks,
             warnings
@@ -188,7 +188,7 @@ export class EventPipelineRunner {
         const dropOldResult = await this.runStep<PluginEvent | null, typeof dropOldEventsStep>(
             dropOldEventsStep,
             [this, event, team],
-            event.team_id,
+            team.id,
             true,
             kafkaAcks,
             warnings
@@ -207,7 +207,7 @@ export class EventPipelineRunner {
         const transformResult = await this.runStep<TransformationResult, typeof transformEventStep>(
             transformEventStep,
             [dropOldEventsResult, this.hogTransformer],
-            event.team_id,
+            team.id,
             true,
             kafkaAcks,
             warnings
@@ -226,7 +226,7 @@ export class EventPipelineRunner {
         const normalizeResult = await this.runStep<[PluginEvent, DateTime], typeof normalizeEventStep>(
             normalizeEventStep,
             [transformedEvent, processPerson, this.headers, this.hub.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE],
-            event.team_id,
+            team.id,
             true,
             kafkaAcks,
             warnings
@@ -251,7 +251,7 @@ export class EventPipelineRunner {
                 this.personsStoreForBatch,
                 forceDisablePersonProcessing,
             ],
-            event.team_id,
+            team.id,
             true,
             kafkaAcks,
             warnings
@@ -268,7 +268,7 @@ export class EventPipelineRunner {
         const prepareResult = await this.runStep<PreIngestionEvent, typeof prepareEventStep>(
             prepareEventStep,
             [this, postPersonEvent, processPerson, team],
-            event.team_id,
+            team.id,
             true,
             kafkaAcks,
             warnings
