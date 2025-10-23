@@ -1,4 +1,8 @@
-# PostHog Isolated Development Environments with Flox
+---
+title: Isolated Development with Flox
+showTitle: true
+noindex: true
+---
 
 This guide explains how to create isolated PostHog development environments using Flox and Git worktrees for seamless branch switching.
 
