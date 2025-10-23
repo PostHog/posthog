@@ -2,7 +2,6 @@ import enum
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
-from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -73,10 +72,7 @@ class OAuthApplication(AbstractApplication):
 
             is_loopback = is_loopback_host(parsed_uri.hostname)
 
-            if settings.DEBUG:
-                allowed_schemes = ["http", "https"]
-            else:
-                allowed_schemes = ["http", "https"] if is_loopback else ["https"]
+            allowed_schemes = ["http", "https"] if is_loopback else ["https"]
 
             if parsed_uri.scheme not in allowed_schemes:
                 raise ValidationError(
