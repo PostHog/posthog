@@ -141,7 +141,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     -- Breakdown values ranked by total count
                     SELECT
                         *,
-                        denseRank() OVER (ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                        row_number() OVER (
+                            PARTITION BY day_start
+                            ORDER BY total_count_for_breakdown DESC
+                        ) AS breakdown_rank
                     FROM {inner_query}
                 ) AS ranked_breakdown_values,
                 (

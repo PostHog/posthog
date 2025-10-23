@@ -238,8 +238,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -277,8 +277,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -308,7 +308,7 @@
                        ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
-  ORDER BY ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0) ASC, arraySum(vals) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -431,8 +431,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -470,8 +470,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -501,7 +501,7 @@
                        ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
-  ORDER BY ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0) ASC, arraySum(vals) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -541,8 +541,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -572,8 +572,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -595,7 +595,7 @@
                        ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
-  ORDER BY ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0) ASC, arraySum(vals) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -635,8 +635,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -666,8 +666,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -689,7 +689,7 @@
                        ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
-  ORDER BY ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0) ASC, arraySum(vals) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -729,8 +729,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -760,8 +760,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -783,8 +783,7 @@
                        ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
-  ORDER BY ifNull(equals(breakdown_value, ['$$_posthog_breakdown_other_$$']), isNull(breakdown_value)
-                  and isNull(['$$_posthog_breakdown_other_$$'])) ASC, arraySum(vals) DESC, breakdown_value ASC
+  ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -824,8 +823,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -855,8 +854,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -878,8 +877,7 @@
                        ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
-  ORDER BY ifNull(equals(breakdown_value, ['$$_posthog_breakdown_other_$$']), isNull(breakdown_value)
-                  and isNull(['$$_posthog_breakdown_other_$$'])) ASC, arraySum(vals) DESC, breakdown_value ASC
+  ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -1076,8 +1074,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -1143,8 +1141,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -1202,7 +1200,7 @@
                        ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
-  ORDER BY ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0) ASC, arraySum(vals) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -1242,8 +1240,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -1281,8 +1279,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -1312,7 +1310,7 @@
                        ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
-  ORDER BY ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0) ASC, arraySum(vals) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -1361,8 +1359,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -1407,8 +1405,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -1445,7 +1443,439 @@
                        ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
-  ORDER BY ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0) ASC, arraySum(vals) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(d -> arraySum(arrayMap((v, dd) -> if(ifNull(equals(dd, d), isNull(dd)
+                                                              and isNull(d)), v, 0), vals, days)), arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1)))) AS total,
+         breakdown_value AS breakdown_value
+  FROM
+    (SELECT groupArray(top_n_and_other_breakdown_values.day_start) AS days,
+            groupArray(top_n_and_other_breakdown_values.value) AS vals,
+            top_n_and_other_breakdown_values.breakdown_value AS breakdown_value
+     FROM
+       (SELECT day_start AS day_start,
+               value AS value,
+               breakdown_value AS breakdown_value
+        FROM
+          (SELECT top_n_breakdown_values.day_start AS day_start,
+                  top_n_breakdown_values.value AS value,
+                  top_n_breakdown_values.breakdown_value AS breakdown_value
+           FROM
+             (SELECT ranked_breakdown_values.day_start AS day_start,
+                     ranked_breakdown_values.count AS value,
+                     ranked_breakdown_values.breakdown_value AS breakdown_value
+              FROM
+                (SELECT count AS count,
+                                 day_start AS day_start,
+                                 breakdown_value AS breakdown_value,
+                                 total_count_for_breakdown AS total_count_for_breakdown,
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                 FROM
+                   (SELECT sum(total) AS count,
+                           day_start AS day_start,
+                           breakdown_value AS breakdown_value,
+                           sum(count) OVER (PARTITION BY breakdown_value) AS total_count_for_breakdown
+                    FROM
+                      (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
+                              toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+                              ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                       FROM events AS e SAMPLE 1.0
+                       LEFT OUTER JOIN
+                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                                 person_distinct_id_overrides.distinct_id AS distinct_id
+                          FROM person_distinct_id_overrides
+                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                          GROUP BY person_distinct_id_overrides.distinct_id
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                       WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
+                       GROUP BY day_start,
+                                breakdown_value)
+                    GROUP BY day_start,
+                             breakdown_value
+                    ORDER BY total_count_for_breakdown DESC)) AS ranked_breakdown_values
+              WHERE ifNull(lessOrEquals(ranked_breakdown_values.breakdown_rank, 25), 0)) AS top_n_breakdown_values
+           UNION ALL SELECT other_breakdown_values.day_start AS day_start,
+                            other_breakdown_values.value AS value,
+                            other_breakdown_values.breakdown_value AS breakdown_value
+           FROM
+             (SELECT ranked_breakdown_values.day_start AS day_start,
+                     sum(ranked_breakdown_values.count) AS value,
+                     '$$_posthog_breakdown_other_$$' AS breakdown_value
+              FROM
+                (SELECT count AS count,
+                                 day_start AS day_start,
+                                 breakdown_value AS breakdown_value,
+                                 total_count_for_breakdown AS total_count_for_breakdown,
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                 FROM
+                   (SELECT sum(total) AS count,
+                           day_start AS day_start,
+                           breakdown_value AS breakdown_value,
+                           sum(count) OVER (PARTITION BY breakdown_value) AS total_count_for_breakdown
+                    FROM
+                      (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
+                              toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+                              ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                       FROM events AS e SAMPLE 1.0
+                       LEFT OUTER JOIN
+                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                                 person_distinct_id_overrides.distinct_id AS distinct_id
+                          FROM person_distinct_id_overrides
+                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                          GROUP BY person_distinct_id_overrides.distinct_id
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                       WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
+                       GROUP BY day_start,
+                                breakdown_value)
+                    GROUP BY day_start,
+                             breakdown_value
+                    ORDER BY total_count_for_breakdown DESC)) AS ranked_breakdown_values
+              WHERE ifNull(greater(ranked_breakdown_values.breakdown_rank, 25), 0)
+              GROUP BY breakdown_value,
+                       ranked_breakdown_values.day_start) AS other_breakdown_values)
+        ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
+     GROUP BY top_n_and_other_breakdown_values.breakdown_value)
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.1
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(d -> arraySum(arrayMap((v, dd) -> if(ifNull(equals(dd, d), isNull(dd)
+                                                              and isNull(d)), v, 0), vals, days)), arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1)))) AS total,
+         breakdown_value AS breakdown_value
+  FROM
+    (SELECT groupArray(top_n_and_other_breakdown_values.day_start) AS days,
+            groupArray(top_n_and_other_breakdown_values.value) AS vals,
+            top_n_and_other_breakdown_values.breakdown_value AS breakdown_value
+     FROM
+       (SELECT day_start AS day_start,
+               value AS value,
+               breakdown_value AS breakdown_value
+        FROM
+          (SELECT top_n_breakdown_values.day_start AS day_start,
+                  top_n_breakdown_values.value AS value,
+                  top_n_breakdown_values.breakdown_value AS breakdown_value
+           FROM
+             (SELECT ranked_breakdown_values.day_start AS day_start,
+                     ranked_breakdown_values.count AS value,
+                     ranked_breakdown_values.breakdown_value AS breakdown_value
+              FROM
+                (SELECT count AS count,
+                                 day_start AS day_start,
+                                 breakdown_value AS breakdown_value,
+                                 total_count_for_breakdown AS total_count_for_breakdown,
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                 FROM
+                   (SELECT sum(total) AS count,
+                           day_start AS day_start,
+                           breakdown_value AS breakdown_value,
+                           sum(count) OVER (PARTITION BY breakdown_value) AS total_count_for_breakdown
+                    FROM
+                      (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
+                              toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+                              ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                       FROM events AS e SAMPLE 1.0
+                       LEFT OUTER JOIN
+                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                                 person_distinct_id_overrides.distinct_id AS distinct_id
+                          FROM person_distinct_id_overrides
+                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                          GROUP BY person_distinct_id_overrides.distinct_id
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                       WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
+                       GROUP BY day_start,
+                                breakdown_value)
+                    GROUP BY day_start,
+                             breakdown_value
+                    ORDER BY total_count_for_breakdown DESC)) AS ranked_breakdown_values
+              WHERE ifNull(lessOrEquals(ranked_breakdown_values.breakdown_rank, 25), 0)) AS top_n_breakdown_values
+           UNION ALL SELECT other_breakdown_values.day_start AS day_start,
+                            other_breakdown_values.value AS value,
+                            other_breakdown_values.breakdown_value AS breakdown_value
+           FROM
+             (SELECT ranked_breakdown_values.day_start AS day_start,
+                     sum(ranked_breakdown_values.count) AS value,
+                     '$$_posthog_breakdown_other_$$' AS breakdown_value
+              FROM
+                (SELECT count AS count,
+                                 day_start AS day_start,
+                                 breakdown_value AS breakdown_value,
+                                 total_count_for_breakdown AS total_count_for_breakdown,
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                 FROM
+                   (SELECT sum(total) AS count,
+                           day_start AS day_start,
+                           breakdown_value AS breakdown_value,
+                           sum(count) OVER (PARTITION BY breakdown_value) AS total_count_for_breakdown
+                    FROM
+                      (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
+                              toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+                              ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                       FROM events AS e SAMPLE 1.0
+                       LEFT OUTER JOIN
+                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                                 person_distinct_id_overrides.distinct_id AS distinct_id
+                          FROM person_distinct_id_overrides
+                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                          GROUP BY person_distinct_id_overrides.distinct_id
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                       WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
+                       GROUP BY day_start,
+                                breakdown_value)
+                    GROUP BY day_start,
+                             breakdown_value
+                    ORDER BY total_count_for_breakdown DESC)) AS ranked_breakdown_values
+              WHERE ifNull(greater(ranked_breakdown_values.breakdown_rank, 25), 0)
+              GROUP BY breakdown_value,
+                       ranked_breakdown_values.day_start) AS other_breakdown_values)
+        ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
+     GROUP BY top_n_and_other_breakdown_values.breakdown_value)
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.2
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(d -> arraySum(arrayMap((v, dd) -> if(ifNull(equals(dd, d), isNull(dd)
+                                                              and isNull(d)), v, 0), vals, days)), arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1)))) AS total,
+         breakdown_value AS breakdown_value
+  FROM
+    (SELECT groupArray(top_n_and_other_breakdown_values.day_start) AS days,
+            groupArray(top_n_and_other_breakdown_values.value) AS vals,
+            top_n_and_other_breakdown_values.breakdown_value AS breakdown_value
+     FROM
+       (SELECT day_start AS day_start,
+               value AS value,
+               breakdown_value AS breakdown_value
+        FROM
+          (SELECT top_n_breakdown_values.day_start AS day_start,
+                  top_n_breakdown_values.value AS value,
+                  top_n_breakdown_values.breakdown_value AS breakdown_value
+           FROM
+             (SELECT ranked_breakdown_values.day_start AS day_start,
+                     ranked_breakdown_values.count AS value,
+                     ranked_breakdown_values.breakdown_value AS breakdown_value
+              FROM
+                (SELECT count AS count,
+                                 day_start AS day_start,
+                                 breakdown_value AS breakdown_value,
+                                 total_count_for_breakdown AS total_count_for_breakdown,
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                 FROM
+                   (SELECT sum(total) AS count,
+                           day_start AS day_start,
+                           [ifNull(toString(breakdown_value_1), '$$_posthog_breakdown_null_$$')] AS breakdown_value,
+                           sum(count) OVER (PARTITION BY breakdown_value) AS total_count_for_breakdown
+                    FROM
+                      (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
+                              toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+                              ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+                       FROM events AS e SAMPLE 1.0
+                       LEFT OUTER JOIN
+                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                                 person_distinct_id_overrides.distinct_id AS distinct_id
+                          FROM person_distinct_id_overrides
+                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                          GROUP BY person_distinct_id_overrides.distinct_id
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                       WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
+                       GROUP BY day_start,
+                                breakdown_value_1)
+                    GROUP BY day_start,
+                             breakdown_value_1
+                    ORDER BY total_count_for_breakdown DESC)) AS ranked_breakdown_values
+              WHERE ifNull(lessOrEquals(ranked_breakdown_values.breakdown_rank, 25), 0)) AS top_n_breakdown_values
+           UNION ALL SELECT other_breakdown_values.day_start AS day_start,
+                            other_breakdown_values.value AS value,
+                            other_breakdown_values.breakdown_value AS breakdown_value
+           FROM
+             (SELECT ranked_breakdown_values.day_start AS day_start,
+                     sum(ranked_breakdown_values.count) AS value,
+                     ['$$_posthog_breakdown_other_$$'] AS breakdown_value
+              FROM
+                (SELECT count AS count,
+                                 day_start AS day_start,
+                                 breakdown_value AS breakdown_value,
+                                 total_count_for_breakdown AS total_count_for_breakdown,
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                 FROM
+                   (SELECT sum(total) AS count,
+                           day_start AS day_start,
+                           [ifNull(toString(breakdown_value_1), '$$_posthog_breakdown_null_$$')] AS breakdown_value,
+                           sum(count) OVER (PARTITION BY breakdown_value) AS total_count_for_breakdown
+                    FROM
+                      (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
+                              toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+                              ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+                       FROM events AS e SAMPLE 1.0
+                       LEFT OUTER JOIN
+                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                                 person_distinct_id_overrides.distinct_id AS distinct_id
+                          FROM person_distinct_id_overrides
+                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                          GROUP BY person_distinct_id_overrides.distinct_id
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                       WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
+                       GROUP BY day_start,
+                                breakdown_value_1)
+                    GROUP BY day_start,
+                             breakdown_value_1
+                    ORDER BY total_count_for_breakdown DESC)) AS ranked_breakdown_values
+              WHERE ifNull(greater(ranked_breakdown_values.breakdown_rank, 25), 0)
+              GROUP BY breakdown_value,
+                       ranked_breakdown_values.day_start) AS other_breakdown_values)
+        ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
+     GROUP BY top_n_and_other_breakdown_values.breakdown_value)
+  ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.3
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(d -> arraySum(arrayMap((v, dd) -> if(ifNull(equals(dd, d), isNull(dd)
+                                                              and isNull(d)), v, 0), vals, days)), arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1)))) AS total,
+         breakdown_value AS breakdown_value
+  FROM
+    (SELECT groupArray(top_n_and_other_breakdown_values.day_start) AS days,
+            groupArray(top_n_and_other_breakdown_values.value) AS vals,
+            top_n_and_other_breakdown_values.breakdown_value AS breakdown_value
+     FROM
+       (SELECT day_start AS day_start,
+               value AS value,
+               breakdown_value AS breakdown_value
+        FROM
+          (SELECT top_n_breakdown_values.day_start AS day_start,
+                  top_n_breakdown_values.value AS value,
+                  top_n_breakdown_values.breakdown_value AS breakdown_value
+           FROM
+             (SELECT ranked_breakdown_values.day_start AS day_start,
+                     ranked_breakdown_values.count AS value,
+                     ranked_breakdown_values.breakdown_value AS breakdown_value
+              FROM
+                (SELECT count AS count,
+                                 day_start AS day_start,
+                                 breakdown_value AS breakdown_value,
+                                 total_count_for_breakdown AS total_count_for_breakdown,
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                 FROM
+                   (SELECT sum(total) AS count,
+                           day_start AS day_start,
+                           [ifNull(toString(breakdown_value_1), '$$_posthog_breakdown_null_$$')] AS breakdown_value,
+                           sum(count) OVER (PARTITION BY breakdown_value) AS total_count_for_breakdown
+                    FROM
+                      (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
+                              toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+                              ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+                       FROM events AS e SAMPLE 1.0
+                       LEFT OUTER JOIN
+                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                                 person_distinct_id_overrides.distinct_id AS distinct_id
+                          FROM person_distinct_id_overrides
+                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                          GROUP BY person_distinct_id_overrides.distinct_id
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                       WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
+                       GROUP BY day_start,
+                                breakdown_value_1)
+                    GROUP BY day_start,
+                             breakdown_value_1
+                    ORDER BY total_count_for_breakdown DESC)) AS ranked_breakdown_values
+              WHERE ifNull(lessOrEquals(ranked_breakdown_values.breakdown_rank, 25), 0)) AS top_n_breakdown_values
+           UNION ALL SELECT other_breakdown_values.day_start AS day_start,
+                            other_breakdown_values.value AS value,
+                            other_breakdown_values.breakdown_value AS breakdown_value
+           FROM
+             (SELECT ranked_breakdown_values.day_start AS day_start,
+                     sum(ranked_breakdown_values.count) AS value,
+                     ['$$_posthog_breakdown_other_$$'] AS breakdown_value
+              FROM
+                (SELECT count AS count,
+                                 day_start AS day_start,
+                                 breakdown_value AS breakdown_value,
+                                 total_count_for_breakdown AS total_count_for_breakdown,
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                 FROM
+                   (SELECT sum(total) AS count,
+                           day_start AS day_start,
+                           [ifNull(toString(breakdown_value_1), '$$_posthog_breakdown_null_$$')] AS breakdown_value,
+                           sum(count) OVER (PARTITION BY breakdown_value) AS total_count_for_breakdown
+                    FROM
+                      (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
+                              toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+                              ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+                       FROM events AS e SAMPLE 1.0
+                       LEFT OUTER JOIN
+                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                                 person_distinct_id_overrides.distinct_id AS distinct_id
+                          FROM person_distinct_id_overrides
+                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                          GROUP BY person_distinct_id_overrides.distinct_id
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                       WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
+                       GROUP BY day_start,
+                                breakdown_value_1)
+                    GROUP BY day_start,
+                             breakdown_value_1
+                    ORDER BY total_count_for_breakdown DESC)) AS ranked_breakdown_values
+              WHERE ifNull(greater(ranked_breakdown_values.breakdown_rank, 25), 0)
+              GROUP BY breakdown_value,
+                       ranked_breakdown_values.day_start) AS other_breakdown_values)
+        ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
+     GROUP BY top_n_and_other_breakdown_values.breakdown_value)
+  ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -1862,8 +2292,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -1927,8 +2357,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -1984,7 +2414,7 @@
                        ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
-  ORDER BY ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0) ASC, arraySum(vals) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -2024,8 +2454,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -2089,8 +2519,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -2146,8 +2576,7 @@
                        ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
-  ORDER BY ifNull(equals(breakdown_value, ['$$_posthog_breakdown_other_$$']), isNull(breakdown_value)
-                  and isNull(['$$_posthog_breakdown_other_$$'])) ASC, arraySum(vals) DESC, breakdown_value ASC
+  ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -2187,8 +2616,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -2241,8 +2670,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -2287,7 +2716,7 @@
                        ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
-  ORDER BY ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0) ASC, arraySum(vals) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -2327,8 +2756,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -2381,8 +2810,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -2427,8 +2856,7 @@
                        ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
-  ORDER BY ifNull(equals(breakdown_value, ['$$_posthog_breakdown_other_$$']), isNull(breakdown_value)
-                  and isNull(['$$_posthog_breakdown_other_$$'])) ASC, arraySum(vals) DESC, breakdown_value ASC
+  ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -2471,6 +2899,9 @@
   '''
 # ---
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> a14eee937c (correct limiting of breakdown values with more than one result per day)
 # name: TestTrends.test_person_filtering_in_cohort_in_action
   '''
   /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
@@ -2479,14 +2910,23 @@
          read_rows,
          read_bytes,
          written_rows,
+<<<<<<< HEAD
          memory_usage,
   exception
+=======
+         memory_usage
+>>>>>>> a14eee937c (correct limiting of breakdown values with more than one result per day)
   FROM query_log_archive
   WHERE lc_cohort_id = 99999
     AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
+<<<<<<< HEAD
     AND type IN ('QueryFinish',
                  'ExceptionWhileProcessing')
+=======
+    AND type = 'QueryFinish'
+    AND query_kind = 'Insert'
+>>>>>>> a14eee937c (correct limiting of breakdown values with more than one result per day)
     AND event_date >= 'today'
     AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
@@ -2504,6 +2944,7 @@
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action.2
   '''
+<<<<<<< HEAD
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
@@ -2543,6 +2984,108 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+=======
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(d -> arraySum(arrayMap((v, dd) -> if(ifNull(equals(dd, d), isNull(dd)
+                                                              and isNull(d)), v, 0), vals, days)), arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1)))) AS total,
+         breakdown_value AS breakdown_value
+  FROM
+    (SELECT groupArray(top_n_and_other_breakdown_values.day_start) AS days,
+            groupArray(top_n_and_other_breakdown_values.value) AS vals,
+            top_n_and_other_breakdown_values.breakdown_value AS breakdown_value
+     FROM
+       (SELECT day_start AS day_start,
+               value AS value,
+               breakdown_value AS breakdown_value
+        FROM
+          (SELECT top_n_breakdown_values.day_start AS day_start,
+                  top_n_breakdown_values.value AS value,
+                  top_n_breakdown_values.breakdown_value AS breakdown_value
+           FROM
+             (SELECT ranked_breakdown_values.day_start AS day_start,
+                     ranked_breakdown_values.count AS value,
+                     ranked_breakdown_values.breakdown_value AS breakdown_value
+              FROM
+                (SELECT count AS count,
+                                 day_start AS day_start,
+                                 breakdown_value AS breakdown_value,
+                                 total_count_for_breakdown AS total_count_for_breakdown,
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                 FROM
+                   (SELECT sum(total) AS count,
+                           day_start AS day_start,
+                           breakdown_value AS breakdown_value,
+                           sum(count) OVER (PARTITION BY breakdown_value) AS total_count_for_breakdown
+                    FROM
+                      (SELECT count() AS total,
+                              toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+                              ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                       FROM events AS e SAMPLE 1
+                       LEFT OUTER JOIN
+                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                                 person_distinct_id_overrides.distinct_id AS distinct_id
+                          FROM person_distinct_id_overrides
+                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                          GROUP BY person_distinct_id_overrides.distinct_id
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                       WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), and(equals(e.event, 'sign up'), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
+                                                                                                                                                                                                                                                                                                                                                      (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                       FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                       WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))
+                       GROUP BY day_start,
+                                breakdown_value)
+                    GROUP BY day_start,
+                             breakdown_value
+                    ORDER BY total_count_for_breakdown DESC)) AS ranked_breakdown_values
+              WHERE ifNull(lessOrEquals(ranked_breakdown_values.breakdown_rank, 25), 0)) AS top_n_breakdown_values
+           UNION ALL SELECT other_breakdown_values.day_start AS day_start,
+                            other_breakdown_values.value AS value,
+                            other_breakdown_values.breakdown_value AS breakdown_value
+           FROM
+             (SELECT ranked_breakdown_values.day_start AS day_start,
+                     sum(ranked_breakdown_values.count) AS value,
+                     '$$_posthog_breakdown_other_$$' AS breakdown_value
+              FROM
+                (SELECT count AS count,
+                                 day_start AS day_start,
+                                 breakdown_value AS breakdown_value,
+                                 total_count_for_breakdown AS total_count_for_breakdown,
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                 FROM
+                   (SELECT sum(total) AS count,
+                           day_start AS day_start,
+                           breakdown_value AS breakdown_value,
+                           sum(count) OVER (PARTITION BY breakdown_value) AS total_count_for_breakdown
+                    FROM
+                      (SELECT count() AS total,
+                              toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+                              ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                       FROM events AS e SAMPLE 1
+                       LEFT OUTER JOIN
+                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                                 person_distinct_id_overrides.distinct_id AS distinct_id
+                          FROM person_distinct_id_overrides
+                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                          GROUP BY person_distinct_id_overrides.distinct_id
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                       WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), and(equals(e.event, 'sign up'), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
+                                                                                                                                                                                                                                                                                                                                                      (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                       FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                       WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))
+                       GROUP BY day_start,
+                                breakdown_value)
+                    GROUP BY day_start,
+                             breakdown_value
+                    ORDER BY total_count_for_breakdown DESC)) AS ranked_breakdown_values
+              WHERE ifNull(greater(ranked_breakdown_values.breakdown_rank, 25), 0)
+              GROUP BY breakdown_value,
+                       ranked_breakdown_values.day_start) AS other_breakdown_values)
+        ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
+     GROUP BY top_n_and_other_breakdown_values.breakdown_value)
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
+>>>>>>> a14eee937c (correct limiting of breakdown values with more than one result per day)
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -2563,14 +3106,23 @@
          read_rows,
          read_bytes,
          written_rows,
+<<<<<<< HEAD
          memory_usage,
   exception
+=======
+         memory_usage
+>>>>>>> a14eee937c (correct limiting of breakdown values with more than one result per day)
   FROM query_log_archive
   WHERE lc_cohort_id = 99999
     AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
+<<<<<<< HEAD
     AND type IN ('QueryFinish',
                  'ExceptionWhileProcessing')
+=======
+    AND type = 'QueryFinish'
+    AND query_kind = 'Insert'
+>>>>>>> a14eee937c (correct limiting of breakdown values with more than one result per day)
     AND event_date >= 'today'
     AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
@@ -2588,6 +3140,7 @@
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action_poe_v2.2
   '''
+<<<<<<< HEAD
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
@@ -2627,6 +3180,108 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+=======
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(d -> arraySum(arrayMap((v, dd) -> if(ifNull(equals(dd, d), isNull(dd)
+                                                              and isNull(d)), v, 0), vals, days)), arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1)))) AS total,
+         breakdown_value AS breakdown_value
+  FROM
+    (SELECT groupArray(top_n_and_other_breakdown_values.day_start) AS days,
+            groupArray(top_n_and_other_breakdown_values.value) AS vals,
+            top_n_and_other_breakdown_values.breakdown_value AS breakdown_value
+     FROM
+       (SELECT day_start AS day_start,
+               value AS value,
+               breakdown_value AS breakdown_value
+        FROM
+          (SELECT top_n_breakdown_values.day_start AS day_start,
+                  top_n_breakdown_values.value AS value,
+                  top_n_breakdown_values.breakdown_value AS breakdown_value
+           FROM
+             (SELECT ranked_breakdown_values.day_start AS day_start,
+                     ranked_breakdown_values.count AS value,
+                     ranked_breakdown_values.breakdown_value AS breakdown_value
+              FROM
+                (SELECT count AS count,
+                                 day_start AS day_start,
+                                 breakdown_value AS breakdown_value,
+                                 total_count_for_breakdown AS total_count_for_breakdown,
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                 FROM
+                   (SELECT sum(total) AS count,
+                           day_start AS day_start,
+                           breakdown_value AS breakdown_value,
+                           sum(count) OVER (PARTITION BY breakdown_value) AS total_count_for_breakdown
+                    FROM
+                      (SELECT count() AS total,
+                              toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+                              ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                       FROM events AS e SAMPLE 1
+                       LEFT OUTER JOIN
+                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                                 person_distinct_id_overrides.distinct_id AS distinct_id
+                          FROM person_distinct_id_overrides
+                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                          GROUP BY person_distinct_id_overrides.distinct_id
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                       WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), and(equals(e.event, 'sign up'), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
+                                                                                                                                                                                                                                                                                                                                                      (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                       FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                       WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))
+                       GROUP BY day_start,
+                                breakdown_value)
+                    GROUP BY day_start,
+                             breakdown_value
+                    ORDER BY total_count_for_breakdown DESC)) AS ranked_breakdown_values
+              WHERE ifNull(lessOrEquals(ranked_breakdown_values.breakdown_rank, 25), 0)) AS top_n_breakdown_values
+           UNION ALL SELECT other_breakdown_values.day_start AS day_start,
+                            other_breakdown_values.value AS value,
+                            other_breakdown_values.breakdown_value AS breakdown_value
+           FROM
+             (SELECT ranked_breakdown_values.day_start AS day_start,
+                     sum(ranked_breakdown_values.count) AS value,
+                     '$$_posthog_breakdown_other_$$' AS breakdown_value
+              FROM
+                (SELECT count AS count,
+                                 day_start AS day_start,
+                                 breakdown_value AS breakdown_value,
+                                 total_count_for_breakdown AS total_count_for_breakdown,
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                 FROM
+                   (SELECT sum(total) AS count,
+                           day_start AS day_start,
+                           breakdown_value AS breakdown_value,
+                           sum(count) OVER (PARTITION BY breakdown_value) AS total_count_for_breakdown
+                    FROM
+                      (SELECT count() AS total,
+                              toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+                              ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                       FROM events AS e SAMPLE 1
+                       LEFT OUTER JOIN
+                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                                 person_distinct_id_overrides.distinct_id AS distinct_id
+                          FROM person_distinct_id_overrides
+                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                          GROUP BY person_distinct_id_overrides.distinct_id
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                       WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), and(equals(e.event, 'sign up'), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
+                                                                                                                                                                                                                                                                                                                                                      (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                       FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                       WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))
+                       GROUP BY day_start,
+                                breakdown_value)
+                    GROUP BY day_start,
+                             breakdown_value
+                    ORDER BY total_count_for_breakdown DESC)) AS ranked_breakdown_values
+              WHERE ifNull(greater(ranked_breakdown_values.breakdown_rank, 25), 0)
+              GROUP BY breakdown_value,
+                       ranked_breakdown_values.day_start) AS other_breakdown_values)
+        ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
+     GROUP BY top_n_and_other_breakdown_values.breakdown_value)
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
+>>>>>>> a14eee937c (correct limiting of breakdown values with more than one result per day)
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -2639,8 +3294,11 @@
                        allow_experimental_join_condition=1
   '''
 # ---
+<<<<<<< HEAD
 =======
 >>>>>>> 519c29de2a (update snapshots)
+=======
+>>>>>>> a14eee937c (correct limiting of breakdown values with more than one result per day)
 # name: TestTrends.test_person_property_filtering
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
@@ -3262,8 +3920,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -3300,8 +3958,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -3330,7 +3988,7 @@
                        ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
-  ORDER BY ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0) ASC, arraySum(vals) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -3513,8 +4171,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -3551,8 +4209,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -3581,7 +4239,7 @@
                        ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
-  ORDER BY ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0) ASC, arraySum(vals) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -3764,8 +4422,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -3802,8 +4460,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -3832,7 +4490,7 @@
                        ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
-  ORDER BY ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0) ASC, arraySum(vals) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -4241,8 +4899,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -4291,8 +4949,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -4333,7 +4991,7 @@
                        ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
-  ORDER BY ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0) ASC, arraySum(vals) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -4373,8 +5031,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -4423,8 +5081,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -4465,7 +5123,7 @@
                        ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
-  ORDER BY ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0) ASC, arraySum(vals) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -4580,8 +5238,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -4628,8 +5286,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -4668,7 +5326,7 @@
                        ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
-  ORDER BY ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0) ASC, arraySum(vals) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -4708,8 +5366,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -4756,8 +5414,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -4796,8 +5454,7 @@
                        ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
-  ORDER BY ifNull(equals(breakdown_value, ['$$_posthog_breakdown_other_$$']), isNull(breakdown_value)
-                  and isNull(['$$_posthog_breakdown_other_$$'])) ASC, arraySum(vals) DESC, breakdown_value ASC
+  ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -4921,8 +5578,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -4952,8 +5609,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -4975,7 +5632,7 @@
                        ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
-  ORDER BY ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0) ASC, arraySum(vals) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -5993,8 +6650,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -6039,8 +6696,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -6077,7 +6734,7 @@
                        ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
-  ORDER BY ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0) ASC, arraySum(vals) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -6117,8 +6774,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -6163,8 +6820,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -6201,7 +6858,7 @@
                        ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
-  ORDER BY ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0) ASC, arraySum(vals) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -6241,8 +6898,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -6287,8 +6944,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -6325,8 +6982,7 @@
                        ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
-  ORDER BY ifNull(equals(breakdown_value, ['$$_posthog_breakdown_other_$$']), isNull(breakdown_value)
-                  and isNull(['$$_posthog_breakdown_other_$$'])) ASC, arraySum(vals) DESC, breakdown_value ASC
+  ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -6366,8 +7022,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -6412,8 +7068,8 @@
                                  day_start AS day_start,
                                  breakdown_value AS breakdown_value,
                                  total_count_for_breakdown AS total_count_for_breakdown,
-                                 denseRank() OVER (
-                                                   ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
+                                 row_number() OVER (PARTITION BY day_start
+                                                    ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                  FROM
                    (SELECT sum(total) AS count,
                            day_start AS day_start,
@@ -6450,8 +7106,7 @@
                        ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
-  ORDER BY ifNull(equals(breakdown_value, ['$$_posthog_breakdown_other_$$']), isNull(breakdown_value)
-                  and isNull(['$$_posthog_breakdown_other_$$'])) ASC, arraySum(vals) DESC, breakdown_value ASC
+  ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(vals) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
