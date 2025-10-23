@@ -213,10 +213,10 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             from_field=from_field,
             to_field=to_field,
             join_table=joining_table,
-            join_function=join.join_function(),
+            join_function=join.join_function(override_join_type="INNER JOIN"),
         )
         validation_query = parse_select(
-            "SELECT {to_field} FROM {source_table_name} WHERE {to_field} != '' LIMIT 10",
+            "SELECT {to_field} FROM {source_table_name} LIMIT 10",
             placeholders={
                 "to_field": ast.Field(chain=["validation", *to_field]),
                 "source_table_name": parse_expr(source_table_name),
