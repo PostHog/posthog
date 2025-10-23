@@ -351,6 +351,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             (featureFlags): NewTabCategoryItem[] => {
                 const categories: NewTabCategoryItem[] = [
                     { key: 'all', label: 'All' },
+                    { key: 'recents', label: 'Recents' },
                     {
                         key: 'create-new',
                         label: 'Create new',
@@ -360,7 +361,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         key: 'data-management',
                         label: 'Data management',
                     },
-                    { key: 'recents', label: 'Recents' },
                 ]
                 if (featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]) {
                     categories.push({
@@ -621,6 +621,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                 const allItems: NewTabTreeDataItem[] = [
                     ...(newTabSceneData ? aiSearchItems : []),
+                    ...projectTreeSearchItems,
                     {
                         id: 'new-sql-query',
                         name: 'New SQL query',
@@ -634,7 +635,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     ...products,
                     ...data,
                     ...newDataItems,
-                    ...projectTreeSearchItems,
                     {
                         id: 'new-hog-program',
                         name: 'New Hog program',
@@ -909,7 +909,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 const showAll = newTabSceneDataInclude.includes('all')
 
                 // Add sections in a useful order
-                const mainSections = ['create-new', 'apps', 'data-management', 'recents']
+                const mainSections = ['recents', 'create-new', 'apps', 'data-management']
                 mainSections.forEach((section) => {
                     if (showAll || newTabSceneDataInclude.includes(section as NEW_TAB_COMMANDS)) {
                         orderedSections.push(section)
