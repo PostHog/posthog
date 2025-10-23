@@ -5,10 +5,10 @@ from django.test import TestCase
 
 from rest_framework.test import APIClient
 
-from posthog.models.heatmap_screenshot import HeatmapScreenshot
+from posthog.models import HeatmapSaved
 
 
-class TestHeatmapScreenshots(APIBaseTest):
+class TestHeatmapSaveds(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.client = APIClient()
@@ -28,7 +28,7 @@ class TestHeatmapScreenshots(APIBaseTest):
         self.assertEqual(response.data["status"], "processing")
 
         # Check database
-        screenshot = HeatmapScreenshot.objects.get(id=response.data["id"])
+        screenshot = HeatmapSaved.objects.get(id=response.data["id"])
         self.assertEqual(screenshot.team, self.team)
         self.assertEqual(screenshot.url, "https://example.com")
         self.assertEqual(screenshot.width, 1200)
@@ -40,11 +40,11 @@ class TestHeatmapScreenshots(APIBaseTest):
     def test_generate_screenshot_existing_completed(self):
         """Test returning existing completed screenshot"""
         # Create existing completed screenshot
-        existing = HeatmapScreenshot.objects.create(
+        existing = HeatmapSaved.objects.create(
             team=self.team,
             url="https://example.com",
             width=1400,
-            status=HeatmapScreenshot.Status.COMPLETED,
+            status=HeatmapSaved.Status.COMPLETED,
             content=b"fake_image_data",
         )
 
@@ -59,8 +59,8 @@ class TestHeatmapScreenshots(APIBaseTest):
     def test_generate_screenshot_existing_processing(self):
         """Test returning existing processing screenshot"""
         # Create existing processing screenshot
-        existing = HeatmapScreenshot.objects.create(
-            team=self.team, url="https://example.com", width=1400, status=HeatmapScreenshot.Status.PROCESSING
+        existing = HeatmapSaved.objects.create(
+            team=self.team, url="https://example.com", width=1400, status=HeatmapSaved.Status.PROCESSING
         )
 
         response = self.client.post(
@@ -75,11 +75,11 @@ class TestHeatmapScreenshots(APIBaseTest):
     def test_force_reload(self, mock_task):
         """Test force reloading existing screenshot"""
         # Create existing completed screenshot
-        existing = HeatmapScreenshot.objects.create(
+        existing = HeatmapSaved.objects.create(
             team=self.team,
             url="https://example.com",
             width=1400,
-            status=HeatmapScreenshot.Status.COMPLETED,
+            status=HeatmapSaved.Status.COMPLETED,
             content=b"fake_image_data",
         )
 
@@ -90,7 +90,7 @@ class TestHeatmapScreenshots(APIBaseTest):
 
         self.assertEqual(response.status_code, 202)
         existing.refresh_from_db()
-        self.assertEqual(existing.status, HeatmapScreenshot.Status.PROCESSING)
+        self.assertEqual(existing.status, HeatmapSaved.Status.PROCESSING)
         self.assertIsNone(existing.content)
         self.assertEqual(existing.created_by, self.user)
 
@@ -114,8 +114,8 @@ class TestHeatmapScreenshots(APIBaseTest):
 
     def test_content_endpoint_no_content(self):
         """Test content endpoint when screenshot has no content"""
-        screenshot = HeatmapScreenshot.objects.create(
-            team=self.team, url="https://example.com", width=1400, status=HeatmapScreenshot.Status.PROCESSING
+        screenshot = HeatmapSaved.objects.create(
+            team=self.team, url="https://example.com", width=1400, status=HeatmapSaved.Status.PROCESSING
         )
 
         response = self.client.get(f"/api/environments/{self.team.id}/heatmap_screenshots/{screenshot.id}/content/")
@@ -125,11 +125,11 @@ class TestHeatmapScreenshots(APIBaseTest):
     def test_content_endpoint_with_content(self):
         """Test content endpoint when screenshot has content"""
         fake_image_data = b"fake_png_data"
-        screenshot = HeatmapScreenshot.objects.create(
+        screenshot = HeatmapSaved.objects.create(
             team=self.team,
             url="https://example.com",
             width=1400,
-            status=HeatmapScreenshot.Status.COMPLETED,
+            status=HeatmapSaved.Status.COMPLETED,
             content=fake_image_data,
         )
 
@@ -149,11 +149,11 @@ class TestHeatmapScreenshots(APIBaseTest):
         )
 
         # Create screenshot for other team
-        other_screenshot = HeatmapScreenshot.objects.create(
+        other_screenshot = HeatmapSaved.objects.create(
             team=other_team,
             url="https://example.com",
             width=1400,
-            status=HeatmapScreenshot.Status.COMPLETED,
+            status=HeatmapSaved.Status.COMPLETED,
             content=b"fake_image_data",
         )
 
@@ -177,11 +177,11 @@ class TestHeatmapScreenshots(APIBaseTest):
     def test_unique_constraint(self):
         """Test that unique constraint works for team, url, width"""
         # Create first screenshot with content
-        HeatmapScreenshot.objects.create(
+        HeatmapSaved.objects.create(
             team=self.team,
             url="https://example.com",
             width=1400,
-            status=HeatmapScreenshot.Status.COMPLETED,
+            status=HeatmapSaved.Status.COMPLETED,
             content=b"fake_image_data",  # Add content so it's considered complete
         )
 
@@ -193,13 +193,13 @@ class TestHeatmapScreenshots(APIBaseTest):
             )
 
         self.assertEqual(response.status_code, 200)  # Returns existing
-        self.assertEqual(HeatmapScreenshot.objects.filter(team=self.team).count(), 1)
+        self.assertEqual(HeatmapSaved.objects.filter(team=self.team).count(), 1)
 
 
-class TestHeatmapScreenshotModel(TestCase):
+class TestHeatmapSavedModel(TestCase):
     def test_has_content_property(self):
         """Test the has_content property"""
-        screenshot = HeatmapScreenshot(content=None, content_location=None)
+        screenshot = HeatmapSaved(content=None, content_location=None)
         self.assertFalse(screenshot.has_content)
 
         screenshot.content = b"fake_data"
@@ -211,8 +211,8 @@ class TestHeatmapScreenshotModel(TestCase):
 
     def test_get_analytics_metadata(self):
         """Test analytics metadata generation"""
-        screenshot = HeatmapScreenshot(
-            team_id=123, url="https://example.com", width=1400, status=HeatmapScreenshot.Status.COMPLETED
+        screenshot = HeatmapSaved(
+            team_id=123, url="https://example.com", width=1400, status=HeatmapSaved.Status.COMPLETED
         )
 
         metadata = screenshot.get_analytics_metadata()

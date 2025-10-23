@@ -28,7 +28,7 @@ Replace iframe with website screenshots overlaid with heatmap data, providing:
 
 ### 1. Database Changes
 
-#### New HeatmapScreenshot Model
+#### New HeatmapSaved Model
 
 **File**: `posthog/models/heatmap_screenshot.py`
 
@@ -38,7 +38,7 @@ from posthog.models.utils import UUIDTModel, RootTeamMixin
 from posthog.models.uploaded_media import save_content_to_object_storage
 import hashlib
 
-class HeatmapScreenshot(UUIDTModel, RootTeamMixin):
+class HeatmapSaved(UUIDTModel, RootTeamMixin):
     """
     Stores website screenshots for heatmap visualization.
     Unlike ExportedAsset, these are long-lived and manually managed.
@@ -120,7 +120,7 @@ class HeatmapScreenshot(UUIDTModel, RootTeamMixin):
     @classmethod
     def get_or_create_for_url(cls, team, url: str, viewport_width: int,
                              viewport_height: int | None = None,
-                             created_by=None) -> tuple['HeatmapScreenshot', bool]:
+                             created_by=None) -> tuple['HeatmapSaved', bool]:
         """Get existing screenshot or create new one"""
         viewport_config = {'width': viewport_width}
         if viewport_height is not None:
@@ -211,7 +211,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name='HeatmapScreenshot',
+            name='HeatmapSaved',
             fields=[
                 ('id', models.UUIDField(default=UUIDT, primary_key=True, serialize=False)),
                 ('url', models.URLField(max_length=2048)),
@@ -259,7 +259,7 @@ Add simple screenshot endpoints to existing heatmaps API:
 ```python
 # Add these serializers to the existing heatmaps_api.py file
 
-class HeatmapScreenshotRequestSerializer(serializers.Serializer):
+class HeatmapSavedRequestSerializer(serializers.Serializer):
     url = serializers.URLField(required=True, max_length=2048)
     viewport_width = serializers.IntegerField(required=False, default=1400, min_value=320, max_value=1920)
     viewport_height = serializers.IntegerField(required=False, min_value=200, max_value=4000)
@@ -289,12 +289,12 @@ class HeatmapScreenshotRequestSerializer(serializers.Serializer):
 
         return value
 
-class HeatmapScreenshotSerializer(serializers.ModelSerializer):
+class HeatmapSavedSerializer(serializers.ModelSerializer):
     dimensions = serializers.SerializerMethodField()
     content_url = serializers.SerializerMethodField()
 
     class Meta:
-        model = HeatmapScreenshot
+        model = HeatmapSaved
         fields = [
             'id', 'url', 'viewport_config', 'status', 'error_message',
             'dimensions', 'content_url', 'created_at', 'updated_at'
@@ -320,7 +320,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(methods=["POST"], detail=False, url_path="screenshots")
     def create_screenshot(self, request: request.Request) -> response.Response:
         """Request a new screenshot or return existing one"""
-        serializer = HeatmapScreenshotRequestSerializer(data=request.data)
+        serializer = HeatmapSavedRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         url = serializer.validated_data['url']
@@ -329,7 +329,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         force_refresh = serializer.validated_data['force_refresh']
 
         # Get or create screenshot
-        screenshot, created = HeatmapScreenshot.get_or_create_for_url(
+        screenshot, created = HeatmapSaved.get_or_create_for_url(
             team=self.team,
             url=url,
             viewport_width=viewport_width,
@@ -338,15 +338,15 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
 
         # If force refresh or screenshot failed, regenerate
-        if force_refresh or screenshot.status == HeatmapScreenshot.Status.FAILED:
-            screenshot.status = HeatmapScreenshot.Status.PENDING
+        if force_refresh or screenshot.status == HeatmapSaved.Status.FAILED:
+            screenshot.status = HeatmapSaved.Status.PENDING
             screenshot.error_message = None
             screenshot.save(update_fields=['status', 'error_message', 'updated_at'])
             created = True
 
         # Queue screenshot generation if needed
-        if created or screenshot.status == HeatmapScreenshot.Status.PENDING:
-            screenshot.status = HeatmapScreenshot.Status.PROCESSING
+        if created or screenshot.status == HeatmapSaved.Status.PENDING:
+            screenshot.status = HeatmapSaved.Status.PROCESSING
             screenshot.save(update_fields=['status', 'updated_at'])
 
             # Queue celery task
@@ -354,7 +354,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             generate_heatmap_screenshot.delay(screenshot.id)
 
         return response.Response(
-            HeatmapScreenshotSerializer(screenshot).data,
+            HeatmapSavedSerializer(screenshot).data,
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK
         )
 
@@ -362,7 +362,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def screenshot_content(self, request: request.Request, screenshot_id: str) -> HttpResponse:
         """Serve screenshot image content"""
         try:
-            screenshot = HeatmapScreenshot.objects.get(id=screenshot_id, team=self.team)
+            screenshot = HeatmapSaved.objects.get(id=screenshot_id, team=self.team)
 
             if not screenshot.has_content:
                 return HttpResponse(
@@ -389,7 +389,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
             return response
 
-        except HeatmapScreenshot.DoesNotExist:
+        except HeatmapSaved.DoesNotExist:
             return HttpResponse(
                 'Screenshot not found',
                 status=404,
@@ -451,7 +451,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.heatmap_screenshot import HeatmapScreenshot
+from posthog.models import HeatmapSaved
 from posthog.tasks.utils import CeleryQueue
 from PIL import Image
 import io
@@ -593,16 +593,16 @@ def _take_website_screenshot(
 )
 def generate_heatmap_screenshot(self, screenshot_id: str) -> None:
     """
-    Generate screenshot for HeatmapScreenshot model.
+    Generate screenshot for HeatmapSaved model.
 
     Args:
-        screenshot_id: UUID of HeatmapScreenshot instance
+        screenshot_id: UUID of HeatmapSaved instance
     """
     image_path = None
 
     try:
         # Get screenshot record
-        screenshot = HeatmapScreenshot.objects.get(id=screenshot_id)
+        screenshot = HeatmapSaved.objects.get(id=screenshot_id)
 
         logger.info("heatmap_screenshot.starting",
                    screenshot_id=screenshot_id,
@@ -643,7 +643,7 @@ def generate_heatmap_screenshot(self, screenshot_id: str) -> None:
                    actual_width=actual_width,
                    actual_height=actual_height)
 
-    except HeatmapScreenshot.DoesNotExist:
+    except HeatmapSaved.DoesNotExist:
         logger.error("heatmap_screenshot.not_found", screenshot_id=screenshot_id)
         # Don't retry for missing records
         return
@@ -660,9 +660,9 @@ def generate_heatmap_screenshot(self, screenshot_id: str) -> None:
 
         # Update screenshot with error
         try:
-            screenshot = HeatmapScreenshot.objects.get(id=screenshot_id)
+            screenshot = HeatmapSaved.objects.get(id=screenshot_id)
             screenshot.mark_as_failed(str(e))
-        except HeatmapScreenshot.DoesNotExist:
+        except HeatmapSaved.DoesNotExist:
             pass
 
         # Capture exception for monitoring
@@ -693,7 +693,7 @@ def generate_heatmap_screenshot(self, screenshot_id: str) -> None:
 def cleanup_old_heatmap_screenshots() -> None:
     """Clean up unused heatmap screenshots older than 30 days"""
     try:
-        deleted_count = HeatmapScreenshot.cleanup_unused_screenshots(days_unused=30)
+        deleted_count = HeatmapSaved.cleanup_unused_screenshots(days_unused=30)
         logger.info("heatmap_screenshot.cleanup_completed", deleted_count=deleted_count)
     except Exception as e:
         logger.error("heatmap_screenshot.cleanup_failed", error=str(e))
@@ -720,7 +720,7 @@ __all__ = [
 
 ### 4. Caching & Storage Strategy
 
-**Cache Key Generation** (built into `HeatmapScreenshot` model):
+**Cache Key Generation** (built into `HeatmapSaved` model):
 
 ```python
 @classmethod
@@ -812,7 +812,7 @@ def setup_heatmap_screenshot_cleanup(sender, **kwargs):
 
 **Error Storage**:
 
-- Store error message in `HeatmapScreenshot.error_message` field
+- Store error message in `HeatmapSaved.error_message` field
 - Update status to `FAILED`
 - Capture exceptions with PostHog analytics
 - Structured logging for debugging
@@ -855,17 +855,17 @@ export function ScreenshotHeatmapBrowser({
 
 #### Screenshot API Integration
 
-**File**: `frontend/src/lib/api/heatmapScreenshots.ts`
+**File**: `frontend/src/lib/api/HeatmapSaveds.ts`
 
 ```typescript
-export interface HeatmapScreenshotRequest {
+export interface HeatmapSavedRequest {
     url: string
     viewport_width: number
     viewport_height?: number
     force_refresh?: boolean
 }
 
-export interface HeatmapScreenshotResponse {
+export interface HeatmapSavedResponse {
     id: string
     url: string
     viewport_width: number
@@ -879,13 +879,13 @@ export interface HeatmapScreenshotResponse {
     last_used_at: string
 }
 
-export const heatmapScreenshotsApi = {
-    create: async (teamId: number, request: HeatmapScreenshotRequest): Promise<HeatmapScreenshotResponse> => {
+export const HeatmapSavedsApi = {
+    create: async (teamId: number, request: HeatmapSavedRequest): Promise<HeatmapSavedResponse> => {
         const response = await api.post(`/api/projects/${teamId}/heatmaps/screenshots/`, request)
         return response.data
     },
 
-    get: async (teamId: number, id: string): Promise<HeatmapScreenshotResponse> => {
+    get: async (teamId: number, id: string): Promise<HeatmapSavedResponse> => {
         const response = await api.get(`/api/projects/${teamId}/heatmaps/screenshots/${id}/`)
         return response.data
     },
@@ -911,7 +911,7 @@ Add screenshot state directly to existing logic:
 ```typescript
 // Add to existing reducers
 screenshotData: [
-    null as HeatmapScreenshotResponse | null,
+    null as HeatmapSavedResponse | null,
     {
         setScreenshotData: (_, { data }) => data,
         resetScreenshot: () => null,
@@ -935,7 +935,7 @@ screenshotError: [
 
 // Add to existing actions
 requestScreenshot: (url: string, viewport_width?: number) => ({ url, viewport_width }),
-setScreenshotData: (data: HeatmapScreenshotResponse | null) => ({ data }),
+setScreenshotData: (data: HeatmapSavedResponse | null) => ({ data }),
 setScreenshotError: (error: string | null) => ({ error }),
 resetScreenshot: true,
 ```
@@ -1078,7 +1078,7 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
 
 ### Phase 1: Backend
 
-1. Create `HeatmapScreenshot` model and migration
+1. Create `HeatmapSaved` model and migration
 2. Add screenshot API endpoints to `HeatmapViewSet`
 3. Create `generate_heatmap_screenshot` Celery task
 
