@@ -21,7 +21,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import TemporaryTokenAuthentication
-from posthog.models.heatmap_screenshot import HeatmapScreenshot
+from posthog.models.heatmap_saved import HeatmapSaved
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.tasks.heatmap_screenshot import generate_heatmap_screenshot
 from posthog.utils import relative_date_parse_with_delta_mapping
@@ -318,7 +318,7 @@ class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
     snapshots = serializers.SerializerMethodField()
 
     class Meta:
-        model = HeatmapScreenshot
+        model = HeatmapSaved
         fields = [
             "id",
             "short_id",
@@ -347,7 +347,7 @@ class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
             "exception",
         ]
 
-    def get_snapshots(self, obj: HeatmapScreenshot) -> list[dict]:
+    def get_snapshots(self, obj: HeatmapSaved) -> list[dict]:
         # Expose metadata of generated snapshots (width + readiness)
         snaps = []
         for snap in obj.snapshots.all():
@@ -365,7 +365,7 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapScreenshotResponseSerializer
     authentication_classes = [TemporaryTokenAuthentication]
-    queryset = HeatmapScreenshot.objects.all()
+    queryset = HeatmapSaved.objects.all()
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(team=self.team)
@@ -378,12 +378,12 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         url = request_serializer.validated_data["url"]
         widths = request_serializer.validated_data.get("widths", DEFAULT_TARGET_WIDTHS)
 
-        screenshot = HeatmapScreenshot.objects.create(
+        screenshot = HeatmapSaved.objects.create(
             team=self.team,
             url=url,
             target_widths=widths,
             created_by=request.user,
-            status=HeatmapScreenshot.Status.PROCESSING,
+            status=HeatmapSaved.Status.PROCESSING,
         )
 
         generate_heatmap_screenshot.delay(screenshot.id)
@@ -438,13 +438,13 @@ class HeatmapSavedRequestSerializer(serializers.ModelSerializer):
     )
 
     class Meta:
-        model = HeatmapScreenshot
+        model = HeatmapSaved
         fields = ["name", "url", "data_url", "widths", "type", "deleted"]
         extra_kwargs = {
             "name": {"required": False, "allow_null": True},
             "url": {"required": True},
             "data_url": {"required": False, "allow_null": True},
-            "type": {"required": False, "default": HeatmapScreenshot.Type.SCREENSHOT},
+            "type": {"required": False, "default": HeatmapSaved.Type.SCREENSHOT},
             "deleted": {"required": False},
         }
 
@@ -454,7 +454,7 @@ class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapScreenshotResponseSerializer
     authentication_classes = [TemporaryTokenAuthentication]
-    queryset = HeatmapScreenshot.objects.all()
+    queryset = HeatmapSaved.objects.all()
     lookup_field = "short_id"
 
     def safely_get_queryset(self, queryset):
@@ -521,9 +521,9 @@ class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         url = serializer.validated_data["url"]
         data_url = serializer.validated_data.get("data_url") or url
         widths = serializer.validated_data.get("widths", DEFAULT_TARGET_WIDTHS)
-        heatmap_type = serializer.validated_data.get("type", HeatmapScreenshot.Type.SCREENSHOT)
+        heatmap_type = serializer.validated_data.get("type", HeatmapSaved.Type.SCREENSHOT)
 
-        screenshot = HeatmapScreenshot.objects.create(
+        screenshot = HeatmapSaved.objects.create(
             team=self.team,
             name=name,
             url=url,
@@ -531,12 +531,12 @@ class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             target_widths=widths,
             type=heatmap_type,
             created_by=request.user,
-            status=HeatmapScreenshot.Status.PROCESSING
-            if heatmap_type == HeatmapScreenshot.Type.SCREENSHOT
-            else HeatmapScreenshot.Status.COMPLETED,
+            status=HeatmapSaved.Status.PROCESSING
+            if heatmap_type == HeatmapSaved.Type.SCREENSHOT
+            else HeatmapSaved.Status.COMPLETED,
         )
 
-        if heatmap_type == HeatmapScreenshot.Type.SCREENSHOT:
+        if heatmap_type == HeatmapSaved.Type.SCREENSHOT:
             generate_heatmap_screenshot.delay(screenshot.id)
 
         return response.Response(HeatmapScreenshotResponseSerializer(screenshot).data, status=status.HTTP_201_CREATED)
@@ -560,12 +560,12 @@ class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(methods=["POST"], detail=True)
     def regenerate(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         obj = self.get_object()
-        if obj.type != HeatmapScreenshot.Type.SCREENSHOT:
+        if obj.type != HeatmapSaved.Type.SCREENSHOT:
             return response.Response(
                 {"detail": "Regenerate only supported for screenshot type"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        obj.status = HeatmapScreenshot.Status.PROCESSING
+        obj.status = HeatmapSaved.Status.PROCESSING
         obj.content = None
         obj.content_location = None
         obj.exception = None

@@ -5,7 +5,7 @@ import posthoganalytics
 from celery import shared_task
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.heatmap_screenshot import HeatmapScreenshot, HeatmapSnapshot
+from posthog.models.heatmap_saved import HeatmapSaved, HeatmapSnapshot
 from posthog.tasks.exports.image_exporter import HEIGHT_OFFSET
 from posthog.tasks.utils import CeleryQueue
 
@@ -103,8 +103,8 @@ def generate_heatmap_screenshot(screenshot_id: str) -> None:
     Similar to image_exporter but for arbitrary URLs.
     """
     try:
-        screenshot = HeatmapScreenshot.objects.select_related("team", "created_by").get(id=screenshot_id)
-    except HeatmapScreenshot.DoesNotExist:
+        screenshot = HeatmapSaved.objects.select_related("team", "created_by").get(id=screenshot_id)
+    except HeatmapSaved.DoesNotExist:
         logger.exception("heatmap_screenshot.not_found", screenshot_id=screenshot_id)
         return
 
@@ -115,7 +115,7 @@ def generate_heatmap_screenshot(screenshot_id: str) -> None:
         try:
             _generate_screenshots(screenshot)
 
-            screenshot.status = HeatmapScreenshot.Status.COMPLETED
+            screenshot.status = HeatmapSaved.Status.COMPLETED
             screenshot.save()
 
             logger.info(
@@ -126,7 +126,7 @@ def generate_heatmap_screenshot(screenshot_id: str) -> None:
             )
 
         except Exception as e:
-            screenshot.status = HeatmapScreenshot.Status.FAILED
+            screenshot.status = HeatmapSaved.Status.FAILED
             screenshot.exception = str(e)
             screenshot.save()
 
@@ -150,7 +150,7 @@ def generate_heatmap_screenshot(screenshot_id: str) -> None:
             raise
 
 
-def _generate_screenshots(screenshot: HeatmapScreenshot) -> None:
+def _generate_screenshots(screenshot: HeatmapSaved) -> None:
     """Generate screenshots for multiple widths using Playwright in one browser session."""
 
     # Determine target widths

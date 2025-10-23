@@ -4,7 +4,7 @@ from posthog.models.utils import UUIDTModel
 from posthog.utils import generate_short_id
 
 
-class HeatmapScreenshot(UUIDTModel):
+class HeatmapSaved(UUIDTModel):
     class Status(models.TextChoices):
         PROCESSING = "processing", "Processing"
         COMPLETED = "completed", "Completed"
@@ -39,6 +39,7 @@ class HeatmapScreenshot(UUIDTModel):
     deleted = models.BooleanField(default=False)
 
     class Meta:
+        db_table = "posthog_heatmapsaved"
         indexes = [
             models.Index(fields=["team", "url"]),
             models.Index(fields=["status"]),
@@ -65,7 +66,7 @@ class HeatmapScreenshot(UUIDTModel):
 
 
 class HeatmapSnapshot(models.Model):
-    heatmap = models.ForeignKey(HeatmapScreenshot, on_delete=models.CASCADE, related_name="snapshots")
+    heatmap = models.ForeignKey(HeatmapSaved, on_delete=models.CASCADE, related_name="snapshots")
     width = models.IntegerField()
     # Content storage (similar to ExportedAsset)
     content = models.BinaryField(null=True)
