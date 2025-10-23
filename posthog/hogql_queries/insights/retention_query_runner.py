@@ -94,6 +94,20 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         return self.query.aggregation_group_type_index
 
     @cached_property
+    def is_custom_bracket_retention(self) -> bool:
+        return (
+            self.query.retentionFilter.retentionCustomBrackets is not None
+            and len(self.query.retentionFilter.retentionCustomBrackets) > 0
+        )
+
+    @cached_property
+    def lookahead_period_count(self) -> int:
+        if self.is_custom_bracket_retention:
+            # We add one, because the first period is the cohorting period
+            return len(self.query.retentionFilter.retentionCustomBrackets) + 1
+        return self.query_date_range.lookahead
+
+    @cached_property
     def is_24h_window_calculation(self) -> bool:
         return self.query.retentionFilter.timeWindowMode == "24_hour_windows"
 
@@ -209,7 +223,14 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
     @cached_property
     def query_date_range(self) -> QueryDateRangeWithIntervals:
-        intervals_to_look_ahead = self.query.retentionFilter.totalIntervals or DEFAULT_TOTAL_INTERVALS
+        if self.is_custom_bracket_retention:
+            # For custom brackets, lookahead is sum of brackets, but total intervals for date range is from query
+            intervals_to_look_ahead = sum(self.query.retentionFilter.retentionCustomBrackets)
+            total_intervals = self.query.retentionFilter.totalIntervals or DEFAULT_TOTAL_INTERVALS
+        else:
+            intervals_to_look_ahead = self.query.retentionFilter.totalIntervals or DEFAULT_TOTAL_INTERVALS
+            total_intervals = intervals_to_look_ahead
+
         interval = (
             IntervalType(self.query.retentionFilter.period.lower())
             if self.query.retentionFilter.period
@@ -218,10 +239,11 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
         return QueryDateRangeWithIntervals(
             date_range=self.query.dateRange,
-            total_intervals=intervals_to_look_ahead,
+            total_intervals=total_intervals,
             team=self.team,
             interval=interval,
             now=datetime.now(),
+            lookahead_days=intervals_to_look_ahead if self.is_custom_bracket_retention else None,
         )
 
     def get_events_for_entity(self, entity: RetentionEntity) -> list[str | None]:
@@ -590,6 +612,36 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         if cumulative:
             intervals_from_base_array_aggregator = "arrayMax"
 
+        intervals_from_base_expr: ast.Expr
+        if self.is_custom_bracket_retention:
+            bucket_logic = self._get_custom_bracket_intervals_from_base_expr()
+            intervals_from_base_expr = parse_expr(
+                f"""
+                {intervals_from_base_array_aggregator}(
+                    arrayDistinct(
+                        arrayConcat(
+                            if({{is_first_interval_after_start_event}}, [0], []),
+                            arrayFilter(
+                                x -> x >= 0,
+                                arrayMap(
+                                    _timestamp -> {{bucket_logic}},
+                                    return_event_timestamps
+                                )
+                            )
+                        )
+                    )
+                )
+                """,
+                {
+                    "is_first_interval_after_start_event": is_first_interval_after_start_event,
+                    "bucket_logic": bucket_logic,
+                },
+            )
+        else:
+            intervals_from_base_expr = self._get_default_intervals_from_base_expr(
+                is_first_interval_after_start_event, intervals_from_base_array_aggregator
+            )
+
         inner_query = ast.SelectQuery(
             select=[
                 ast.Alias(alias="actor_id", expr=ast.Field(chain=["events", self.target_field])),
@@ -645,37 +697,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 ),
                 ast.Alias(
                     alias="intervals_from_base",
-                    expr=parse_expr(
-                        f"""
-                    {intervals_from_base_array_aggregator}(
-                        arrayConcat(
-                            if(
-                                {{is_first_interval_after_start_event}},
-                                [0],
-                                []
-                            ),
-                            arrayFilter(  -- index (time lag starting from start event) of interval with matching return timestamp
-                                x -> x > 0, -- has to be at least one interval after start event (hence 0 and not -1 here)
-                                arrayMap(
-                                    _timestamp ->
-                                        indexOf(
-                                            arraySlice(  -- only look for matches for return events after start event and in the lookahead period
-                                                date_range,
-                                                start_interval_index + 1,  -- reset from 0 to 1 based index
-                                                {self.query_date_range.lookahead}
-                                            ),
-                                        _timestamp
-                                    ) - 1,
-                                    return_event_timestamps
-                                )
-                            )
-                        )
-                    )
-                    """,
-                        {
-                            "is_first_interval_after_start_event": is_first_interval_after_start_event,
-                        },
-                    ),
+                    expr=intervals_from_base_expr,
                 ),
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
@@ -706,6 +728,71 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         )
 
         return inner_query
+
+    def _get_default_intervals_from_base_expr(
+        self, is_first_interval_after_start_event: ast.Expr, intervals_from_base_array_aggregator: str
+    ) -> ast.Expr:
+        return parse_expr(
+            f"""
+            {intervals_from_base_array_aggregator}(
+                arrayConcat(
+                    if(
+                        {{is_first_interval_after_start_event}},
+                        [0],
+                        []
+                    ),
+                    arrayFilter(  -- index (time lag starting from start event) of interval with matching return timestamp
+                        x -> x > 0, -- has to be at least one interval after start event (hence 0 and not -1 here)
+                        arrayMap(
+                            _timestamp ->
+                                indexOf(
+                                    arraySlice(  -- only look for matches for return events after start event and in the lookahead period
+                                        date_range,
+                                        start_interval_index + 1,  -- reset from 0 to 1 based index
+                                        {self.query_date_range.lookahead}
+                                    ),
+                                _timestamp
+                            ) - 1,
+                            return_event_timestamps
+                        )
+                    )
+                )
+            )
+            """,
+            {
+                "is_first_interval_after_start_event": is_first_interval_after_start_event,
+            },
+        )
+
+    def _get_custom_bracket_intervals_from_base_expr(self) -> ast.Expr:
+        if not self.query.retentionFilter.retentionCustomBrackets:
+            raise ValueError("Custom brackets not defined")
+
+        period_name = self.query_date_range.interval_name
+        unit = period_name
+
+        date_diff_expr = parse_expr(
+            "dateDiff({unit}, start_event_timestamps[1], _timestamp)", {"unit": ast.Constant(value=unit)}
+        )
+
+        multi_if_args: list[ast.Expr] = [
+            ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=date_diff_expr, right=ast.Constant(value=0)),
+            ast.Constant(value=-1),
+        ]
+        cumulative_total = 0
+        for i, bracket_size in enumerate(self.query.retentionFilter.retentionCustomBrackets):
+            cumulative_total += int(bracket_size)
+            condition = ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=date_diff_expr,
+                right=ast.Constant(value=cumulative_total),
+            )
+            multi_if_args.append(condition)
+            multi_if_args.append(ast.Constant(value=i + 1))  # 1-indexed bracket
+
+        multi_if_args.append(ast.Constant(value=-1))  # Else, not in any bracket
+
+        return ast.Call(name="multiIf", args=multi_if_args)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         with self.timings.measure("retention_query"):
@@ -858,6 +945,26 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
         return date
 
+    def get_bracket_labels(self) -> list[str]:
+        labels = [f"{self.query_date_range.interval_name.title()} 0"]
+        if self.is_custom_bracket_retention and self.query.retentionFilter.retentionCustomBrackets:
+            unit = self.query_date_range.interval_name.title()
+            cumulative_total = 1  # Return periods start from day 1
+            for bracket_size in self.query.retentionFilter.retentionCustomBrackets:
+                bracket_size = int(bracket_size)
+                start = cumulative_total
+                end = cumulative_total + bracket_size - 1
+                if start == end:
+                    labels.append(f"{unit} {start}")
+                else:
+                    labels.append(f"{unit} {start}-{end}")
+                cumulative_total += bracket_size
+        else:
+            for i in range(1, self.lookahead_period_count):
+                labels.append(f"{self.query_date_range.interval_name.title()} {i}")
+
+        return labels
+
     def _calculate(self) -> RetentionQueryResponse:
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team)
@@ -918,6 +1025,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
             for breakdown_value in ordered_breakdown_keys:
                 intervals_data: dict[int, dict[int, float]] = aggregated_data.get(breakdown_value, {})
+                labels = self.get_bracket_labels()
 
                 breakdown_results = []
                 for start_interval in range(self.query_date_range.intervals_between):
@@ -925,9 +1033,9 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                     values = [
                         {
                             "count": result_dict.get(return_interval, 0.0),
-                            "label": f"{self.query_date_range.interval_name.title()} {return_interval}",
+                            "label": labels[return_interval],
                         }
-                        for return_interval in range(self.query_date_range.lookahead)
+                        for return_interval in range(self.lookahead_period_count)
                     ]
 
                     breakdown_results.append(
@@ -950,14 +1058,15 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 }
                 for (start_event_matching_interval, intervals_from_base, count) in response.results
             }
+            labels = self.get_bracket_labels()
             results = [
                 {
                     "values": [
                         {
                             **results_by_interval_pair.get((start_interval, return_interval), {"count": 0.0}),
-                            "label": f"{self.query_date_range.interval_name.title()} {return_interval}",
+                            "label": labels[return_interval],
                         }
-                        for return_interval in range(self.query_date_range.lookahead)
+                        for return_interval in range(self.lookahead_period_count)
                     ],
                     "label": f"{self.query_date_range.interval_name.title()} {start_interval}",
                     "date": self.get_date(start_interval),
