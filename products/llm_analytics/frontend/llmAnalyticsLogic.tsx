@@ -11,8 +11,10 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -27,6 +29,7 @@ import {
     EventDefinitionType,
     HogQLMathType,
     InsightShortId,
+    ProductKey,
     PropertyFilterType,
     PropertyMathType,
     PropertyOperator,
@@ -86,7 +89,10 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'llmAnalyticsLogic']),
     props({} as LLMAnalyticsLogicProps),
     key((props: LLMAnalyticsLogicProps) => props?.personId || 'llmAnalyticsScene'),
-    connect(() => ({ values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']] })),
+    connect(() => ({
+        values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']],
+        actions: [teamLogic, ['addProductIntent']],
+    })),
 
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
@@ -232,7 +238,32 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        setPropertyFilters: ({ propertyFilters }) => {
+            if (propertyFilters && propertyFilters.length > 0) {
+                actions.addProductIntent({
+                    product_type: ProductKey.LLM_ANALYTICS,
+                    intent_context: ProductIntentContext.LLM_ANALYTICS_FILTERS_APPLIED,
+                    metadata: {
+                        filter_count: propertyFilters.length,
+                        filter_types: propertyFilters.map((f) => f.type),
+                    },
+                })
+            }
+        },
+
         toggleGenerationExpanded: async ({ uuid, traceId }) => {
+            // Track product intent when user expands a generation
+            if (values.expandedGenerationIds.has(uuid)) {
+                actions.addProductIntent({
+                    product_type: ProductKey.LLM_ANALYTICS,
+                    intent_context: ProductIntentContext.LLM_ANALYTICS_GENERATION_VIEWED,
+                    metadata: {
+                        event_id: uuid,
+                        trace_id: traceId,
+                    },
+                })
+            }
+
             // Only load if expanding and not already loaded
             if (values.expandedGenerationIds.has(uuid) && !values.loadedTraces[traceId]) {
                 // Build TraceQuery with date range from current filters
@@ -884,8 +915,20 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
 
         return {
             [urls.llmAnalyticsDashboard()]: (_, searchParams) => applySearchParams(searchParams),
-            [urls.llmAnalyticsGenerations()]: (_, searchParams) => applySearchParams(searchParams),
-            [urls.llmAnalyticsTraces()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmAnalyticsGenerations()]: (_, searchParams) => {
+                applySearchParams(searchParams)
+                actions.addProductIntent({
+                    product_type: ProductKey.LLM_ANALYTICS,
+                    intent_context: ProductIntentContext.LLM_ANALYTICS_GENERATIONS_VIEWED,
+                })
+            },
+            [urls.llmAnalyticsTraces()]: (_, searchParams) => {
+                applySearchParams(searchParams)
+                actions.addProductIntent({
+                    product_type: ProductKey.LLM_ANALYTICS,
+                    intent_context: ProductIntentContext.LLM_ANALYTICS_TRACES_VIEWED,
+                })
+            },
             [urls.llmAnalyticsUsers()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsPlayground()]: (_, searchParams) => applySearchParams(searchParams),
         }
@@ -918,6 +961,12 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
 
     afterMount(({ actions }) => {
         actions.loadAIEventDefinition()
+
+        // Track product intent when user views LLM Analytics
+        actions.addProductIntent({
+            product_type: ProductKey.LLM_ANALYTICS,
+            intent_context: ProductIntentContext.LLM_ANALYTICS_VIEWED,
+        })
     }),
 
     listeners(({ actions, values }) => ({
