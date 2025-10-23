@@ -97,7 +97,8 @@ export function ConversionGoalDropdown({ value, onChange, typeKey }: ConversionG
 
                 // Remove the event field from ActionsNode to prevent validation errors
                 if (newFilter.kind === NodeKind.ActionsNode && 'event' in newFilter) {
-                    delete (newFilter as any).event
+                    const { event, ...rest } = newFilter as any
+                    Object.assign(newFilter, rest)
                 }
 
                 // Override the schema with the schema from the data warehouse

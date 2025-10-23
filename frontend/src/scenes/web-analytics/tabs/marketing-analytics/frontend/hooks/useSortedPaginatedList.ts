@@ -42,7 +42,7 @@ export function useSortedPaginatedList<T>({
             return 0
         })
         setOrderedItems(sortedItems.map((item) => getId(item)))
-    }, [items, orderedItems, getId, isItemConfigured])
+    }, [items, getId, isItemConfigured])
 
     // Apply the preserved order to current item data
     const sortedItems = useMemo(() => {
