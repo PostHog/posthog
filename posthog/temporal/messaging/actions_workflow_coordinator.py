@@ -52,7 +52,7 @@ async def get_action_ids_activity(inputs: ActionsCoordinatorWorkflowInputs) -> A
     # Only get actions that are not deleted and have bytecode
     queryset = Action.objects.filter(deleted=False, bytecode__isnull=False).values_list("id", flat=True)
 
-    action_ids = await database_sync_to_async(list)(queryset)
+    action_ids: list[int] = await database_sync_to_async(lambda: list(queryset))()
     return ActionsListResult(action_ids=action_ids)
 
 
