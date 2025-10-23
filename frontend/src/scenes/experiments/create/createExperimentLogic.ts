@@ -42,9 +42,8 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
         experiment: {
             options: { showErrorsOnTouch: true },
             defaults: (props.experiment ?? { ...NEW_EXPERIMENT }) as Experiment,
-            errors: ({ name, description }: Experiment) => ({
+            errors: ({ name }: Experiment) => ({
                 name: !name ? 'Name is required' : undefined,
-                description: !description ? 'Hypothesis is required' : undefined,
             }),
             submit: () => {
                 actions.createExperiment()
