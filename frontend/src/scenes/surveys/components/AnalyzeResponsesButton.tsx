@@ -2,6 +2,8 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useMemo } from 'react'
 
+import { IconAI } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
 import { useMaxTool } from 'scenes/max/useMaxTool'
@@ -67,7 +69,7 @@ export function AnalyzeResponsesButton(): JSX.Element | null {
     }
 
     return (
-        <LemonButton onClick={openMax} type="secondary">
+        <LemonButton onClick={openMax} type="secondary" icon={<IconAI />}>
             Analyze responses
         </LemonButton>
     )

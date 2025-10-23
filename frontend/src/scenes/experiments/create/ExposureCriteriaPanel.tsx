@@ -1,5 +1,4 @@
 import { useValues } from 'kea'
-import { useState } from 'react'
 
 import { LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
@@ -9,8 +8,8 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ExperimentEventExposureConfig, NodeKind } from '~/queries/schema/schema-general'
-import { Experiment, FilterType } from '~/types'
+import { ExperimentEventExposureConfig, ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-general'
+import type { Experiment, FilterType } from '~/types'
 
 import { commonActionFilterProps } from '../Metrics/Selectors'
 import { SelectableCard } from '../components/SelectableCard'
@@ -18,11 +17,12 @@ import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
 
 type ExposureCriteriaPanelProps = {
     experiment: Experiment
-    onChange: (exposureCriteria: Experiment['exposure_criteria']) => void
+    onChange: (exposureCriteria: ExperimentExposureCriteria) => void
 }
 
 export function ExposureCriteriaPanel({ experiment, onChange }: ExposureCriteriaPanelProps): JSX.Element {
-    const [selectedExposureType, setSelectedExposureType] = useState<'default' | 'custom'>('default')
+    // Derive exposure type from experiment state
+    const selectedExposureType = experiment.exposure_criteria?.exposure_config ? 'custom' : 'default'
 
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
@@ -45,7 +45,6 @@ export function ExposureCriteriaPanel({ experiment, onChange }: ExposureCriteria
                     }
                     selected={selectedExposureType === 'default'}
                     onClick={() => {
-                        setSelectedExposureType('default')
                         onChange({
                             exposure_config: undefined,
                         })
@@ -61,7 +60,6 @@ export function ExposureCriteriaPanel({ experiment, onChange }: ExposureCriteria
                     }
                     selected={selectedExposureType === 'custom'}
                     onClick={() => {
-                        setSelectedExposureType('custom')
                         onChange({
                             exposure_config: {
                                 kind: NodeKind.ExperimentEventExposureConfig,
@@ -86,8 +84,8 @@ export function ExposureCriteriaPanel({ experiment, onChange }: ExposureCriteria
                                     properties: [],
                                 } as ExperimentEventExposureConfig)
                         )}
-                        setFilters={({ events }: Partial<FilterType>): void => {
-                            const entity = events?.[0]
+                        setFilters={({ events, actions }: Partial<FilterType>): void => {
+                            const entity = events?.[0] || actions?.[0]
                             if (entity) {
                                 onChange({
                                     exposure_config: filterToExposureConfig(entity),
@@ -101,7 +99,7 @@ export function ExposureCriteriaPanel({ experiment, onChange }: ExposureCriteria
                         entitiesLimit={1}
                         mathAvailability={MathAvailability.None}
                         showNumericalPropsOnly={false}
-                        actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                        actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
                         propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
                     />
                 </div>

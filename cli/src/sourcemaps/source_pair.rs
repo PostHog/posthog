@@ -81,7 +81,11 @@ impl SourcePair {
     }
 }
 
-pub fn read_pairs(directory: &PathBuf, ignore_globs: &[String]) -> Result<Vec<SourcePair>> {
+pub fn read_pairs(
+    directory: &PathBuf,
+    ignore_globs: &[String],
+    strip_prefix: &Option<String>,
+) -> Result<Vec<SourcePair>> {
     // Make sure the directory exists
     if !directory.exists() {
         bail!("Directory does not exist");
@@ -113,7 +117,7 @@ pub fn read_pairs(directory: &PathBuf, ignore_globs: &[String]) -> Result<Vec<So
 
         info!("Processing file: {}", entry_path.display());
         let source = MinifiedSourceFile::load(&entry_path)?;
-        let sourcemap_path = source.get_sourcemap_path()?;
+        let sourcemap_path = source.get_sourcemap_path(strip_prefix)?;
 
         let Some(path) = sourcemap_path else {
             warn!(
@@ -263,36 +267,55 @@ impl MinifiedSourceFile {
         Ok(source_adjustment)
     }
 
-    pub fn get_sourcemap_path(&self) -> Result<Option<PathBuf>> {
-        match self.get_sourcemap_reference()? {
-            // If we've got a reference, use it
-            Some(filename) => {
-                let sourcemap_path = self
-                    .inner
+    pub fn get_sourcemap_path(&self, prefix: &Option<String>) -> Result<Option<PathBuf>> {
+        let mut possible_paths = Vec::new();
+        if let Some(filename) = self.get_sourcemap_reference()? {
+            possible_paths.push(
+                self.inner
                     .path
                     .parent()
                     .map(|p| p.join(&filename))
-                    .unwrap_or_else(|| PathBuf::from(&filename));
-                Ok(Some(sourcemap_path))
-            }
-            // If we don't, try guessing
-            None => {
-                let mut sourcemap_path = self.inner.path.to_path_buf();
-                match sourcemap_path.extension() {
-                    Some(ext) => {
-                        sourcemap_path.set_extension(format!("{}.map", ext.to_string_lossy()))
-                    }
-                    None => sourcemap_path.set_extension("map"),
-                };
-                if sourcemap_path.exists() {
-                    info!("Guessed sourcemap path: {}", sourcemap_path.display());
-                    Ok(Some(sourcemap_path))
-                } else {
-                    warn!("Could not find sourcemap for {}", self.inner.path.display());
-                    Ok(None)
+                    .unwrap_or_else(|| PathBuf::from(&filename)),
+            );
+
+            if let Some(prefix) = prefix {
+                if let Some(filename) = filename.strip_prefix(prefix) {
+                    possible_paths.push(
+                        self.inner
+                            .path
+                            .parent()
+                            .map(|p| p.join(&filename))
+                            .unwrap_or_else(|| PathBuf::from(&filename)),
+                    );
+                }
+
+                if let Some(filename) = filename.strip_prefix(&format!("{prefix}/")) {
+                    possible_paths.push(
+                        self.inner
+                            .path
+                            .parent()
+                            .map(|p| p.join(&filename))
+                            .unwrap_or_else(|| PathBuf::from(&filename)),
+                    );
                 }
             }
+        };
+
+        let mut guessed_path = self.inner.path.to_path_buf();
+        match guessed_path.extension() {
+            Some(ext) => guessed_path.set_extension(format!("{}.map", ext.to_string_lossy())),
+            None => guessed_path.set_extension("map"),
+        };
+        possible_paths.push(guessed_path);
+
+        for path in possible_paths.into_iter() {
+            if path.exists() {
+                info!("Found sourcemap at path: {}", path.display());
+                return Ok(Some(path));
+            }
         }
+
+        Ok(None)
     }
 
     pub fn get_sourcemap_reference(&self) -> Result<Option<String>> {
