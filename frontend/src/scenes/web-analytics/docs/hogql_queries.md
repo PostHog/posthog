@@ -25,8 +25,8 @@ pytest posthog/hogql_queries/web_analytics/test/test_sample_web_analytics_querie
 ```
 
 The snapshots are stored in:
-The snapshots are stored in:
 `posthog/hogql_queries/web_analytics/test/__snapshots__/test_sample_web_analytics_queries.hogql.ambr`
+
 ## Testing Queries with the API
 
 You can test web analytics queries directly using PostHog's `/query` API endpoint.
@@ -264,8 +264,8 @@ greaterOrEquals(timestamp, toDateTime('2025-10-01 00:00:00')),
 lessOrEquals(timestamp, toDateTime('2025-10-31 23:59:59'))
 
 -- With your desired dates:
-greaterOrEquals(timestamp, toDateTime('2024-10-01 00:00:00')),
-lessOrEquals(timestamp, toDateTime('2024-10-31 23:59:59'))
+greaterOrEquals(timestamp, toDateTime('2025-11-01 00:00:00')),
+lessOrEquals(timestamp, toDateTime('2025-11-30 23:59:59'))
 ```
 
 **Add filters:**
