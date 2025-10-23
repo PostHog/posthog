@@ -75,6 +75,7 @@ export function PlayerSidebarEditPinnedPropertiesPopover(
                     prefix={<IconSearch />}
                     size="small"
                     fullWidth
+                    autoFocus
                 />
             </div>
 

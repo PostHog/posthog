@@ -38,6 +38,9 @@ import { SessionSummaryContent } from './types'
 
 const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
 
+// Display labels that are hardcoded in the overview items, not actual property keys
+const HARDCODED_DISPLAY_LABELS = ['Start', 'Duration', 'TTL', 'Clicks', 'Errors', 'Key presses'] as const
+
 function getAllPersonProperties(sessionPlayerMetaData: SessionRecordingType | null): Record<string, any> {
     return sessionPlayerMetaData?.person?.properties ?? {}
 }
@@ -273,7 +276,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 if (sessionPlayerMetaData?.recording_duration) {
                     items.push({
                         label: 'Duration',
-                        icon: <IconHourglass />,
+                        icon: <IconClock />,
                         value: humanFriendlyDuration(sessionPlayerMetaData.recording_duration),
                         type: 'text',
                     })
@@ -321,11 +324,11 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
 
                 const allPropertyKeys = new Set(Object.keys(allProperties))
 
-                // This is necessary because there may be pinned properties
-                // that don't exist as keys on this specific user, we still
-                // want to show them, albeit with a value of '-'.
+                // There may be pinned properties that don't exist as keys on this specific user,
+                // we still want to show them, albeit with a value of '-'.
+                // However, we don't want to add duplicates for hardcoded processed properties like "Start", "Duration", "TTL"...
                 pinnedProperties.forEach((property: string) => {
-                    if (property.startsWith('$') && !allPropertyKeys.has(property)) {
+                    if (!allPropertyKeys.has(property) && !HARDCODED_DISPLAY_LABELS.includes(property as any)) {
                         allPropertyKeys.add(property)
                     }
                 })
@@ -333,6 +336,11 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 Array.from(allPropertyKeys).forEach((property) => {
                     if (property === '$geoip_subdivision_1_name' || property === '$geoip_city_name') {
                         // they're just shown in the title for Country
+                        return
+                    }
+
+                    // Skip recording property keys that we've already processed
+                    if (recordingPropertyKeys.includes(property as any)) {
                         return
                     }
 
@@ -352,9 +360,12 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                         icon: <PropertyFilterIcon type={propertyInfo.propertyFilterType} />,
                         label: propertyInfo.label,
                         value: safeValue,
-                        keyTooltip: propertyInfo.propertyFilterType
-                            ? `${capitalizeFirstLetter(propertyInfo.propertyFilterType)} property`
-                            : undefined,
+                        keyTooltip:
+                            propertyInfo.label !== propertyInfo.originalKey
+                                ? `Sent as: ${propertyInfo.originalKey}`
+                                : propertyInfo.propertyFilterType
+                                  ? `${capitalizeFirstLetter(propertyInfo.propertyFilterType)} property`
+                                  : undefined,
                         valueTooltip:
                             property === '$geoip_country_code' && safeValue in COUNTRY_CODE_TO_LONG_NAME
                                 ? countryTitleFrom(recordingProperties, personProperties)
