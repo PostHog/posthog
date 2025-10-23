@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, is_dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import TYPE_CHECKING, Optional, cast
 
-from django.db import IntegrityError, models
+from django.db import models
 from django.db.models import Max, Q, QuerySet
 from django.utils import timezone
 
@@ -57,44 +57,13 @@ def log_file_system_view(
 
     now = viewed_at or timezone.now()
 
-    recent_threshold = now - timedelta(seconds=5)
-
-    updated = FileSystemViewLog.objects.filter(
+    FileSystemViewLog.objects.update_or_create(
         team_id=resolved_team_id,
         user_id=user.id,
         type=representation.type,
         ref=str(representation.ref),
-        viewed_at__gte=recent_threshold,
-    ).exists()
-
-    if updated:
-        return
-
-    rows_updated = FileSystemViewLog.objects.filter(
-        team_id=resolved_team_id,
-        user_id=user.id,
-        type=representation.type,
-        ref=str(representation.ref),
-    ).update(viewed_at=now)
-
-    if rows_updated:
-        return
-
-    try:
-        FileSystemViewLog.objects.create(
-            team_id=resolved_team_id,
-            user_id=user.id,
-            type=representation.type,
-            ref=str(representation.ref),
-            viewed_at=now,
-        )
-    except IntegrityError:
-        FileSystemViewLog.objects.filter(
-            team_id=resolved_team_id,
-            user_id=user.id,
-            type=representation.type,
-            ref=str(representation.ref),
-        ).update(viewed_at=now)
+        defaults={"viewed_at": now},
+    )
 
 
 def annotate_file_system_with_view_logs(
