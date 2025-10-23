@@ -21,9 +21,9 @@ We release semi-regularly, as new features are added. If a release breaks your C
 
 ## Running a local build
 
-From the the `./cli` directory run `cargo install --path .` to build a new version
+From the `./cli` directory run `cargo install --path .` to build a new version
 
-If you want to replace an existing installation of the CLI you will need copy the generated target to override it:
+If you want to replace an existing installation of the CLI you will need to copy the generated target to override it:
 
 ```bash
 cp ./target/release/posthog-cli "$(which posthog-cli)"
