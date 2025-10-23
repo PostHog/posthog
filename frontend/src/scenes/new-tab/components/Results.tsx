@@ -4,7 +4,9 @@ import { useEffect } from 'react'
 import { IconArrowRight, IconEllipsis, IconInfo, IconSparkles } from '@posthog/icons'
 import { LemonTag, Spinner } from '@posthog/lemon-ui'
 
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger } from 'lib/ui/ContextMenu/ContextMenu'
@@ -26,8 +28,79 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
 import { SidePanelTab } from '~/types'
 
-import { convertToTreeDataItem, getCategoryDisplayName } from '../NewTabScene'
 import { NoResultsFound } from './NoResultsFound'
+
+export const getCategoryDisplayName = (category: string): string => {
+    const displayNames: Record<string, string> = {
+        'create-new': 'Create new',
+        apps: 'Apps',
+        'data-management': 'Data management',
+        recents: 'Recents',
+        persons: 'Persons',
+        eventDefinitions: 'Events',
+        propertyDefinitions: 'Properties',
+        askAI: 'Posthog AI',
+    }
+    return displayNames[category] || category
+}
+export const formatRelativeTimeShort = (date: string | number | Date | Dayjs | null | undefined): string => {
+    if (!date) {
+        return ''
+    }
+
+    const parsedDate = dayjs(date)
+
+    if (!parsedDate.isValid()) {
+        return ''
+    }
+
+    const now = dayjs()
+    const seconds = Math.max(0, now.diff(parsedDate, 'second'))
+
+    if (seconds < 60) {
+        return 'just now'
+    }
+
+    const minutes = now.diff(parsedDate, 'minute')
+
+    if (minutes < 60) {
+        return `${minutes} min ago`
+    }
+
+    const hours = now.diff(parsedDate, 'hour')
+
+    if (hours < 24) {
+        return `${hours} hr${hours === 1 ? '' : 's'} ago`
+    }
+
+    const days = now.diff(parsedDate, 'day')
+
+    if (days < 30) {
+        return `${days} day${days === 1 ? '' : 's'} ago`
+    }
+
+    const months = now.diff(parsedDate, 'month') || 1
+
+    if (months < 12) {
+        return `${months} mo${months === 1 ? '' : 's'} ago`
+    }
+
+    const years = now.diff(parsedDate, 'year') || 1
+
+    return `${years} yr${years === 1 ? '' : 's'} ago`
+}
+
+// Helper function to convert NewTabTreeDataItem to TreeDataItem for menu usage
+export function convertToTreeDataItem(item: NewTabTreeDataItem): TreeDataItem {
+    return {
+        ...item,
+        record: {
+            ...item.record,
+            href: item.href,
+            path: item.name, // Use name as path for menu compatibility
+        },
+    }
+}
 
 function Category({
     tabId,
@@ -106,6 +179,11 @@ function Category({
                                 (newTabSceneData && isFirstCategoryWithResults && index === 0) ||
                                 (filteredItemsGrid.length > 0 && isFirstCategory && index === 0)
 
+                            const lastViewedAt =
+                                item.lastViewedAt ??
+                                (item.record as { last_viewed_at?: string | null } | undefined)?.last_viewed_at ??
+                                null
+
                             return (
                                 // If we have filtered results set virtual focus to first item
                                 <ButtonGroupPrimitive key={item.id} className="group w-full border-0">
@@ -128,15 +206,22 @@ function Category({
                                                     }}
                                                 >
                                                     <span className="text-sm">{item.icon ?? item.name[0]}</span>
-                                                    <span className="text-sm truncate text-primary">
-                                                        {search ? (
-                                                            <SearchHighlightMultiple
-                                                                string={item.name}
-                                                                substring={search}
-                                                            />
-                                                        ) : (
-                                                            item.displayName || item.name
-                                                        )}
+                                                    <span className="flex min-w-0 items-center gap-2">
+                                                        <span className="text-sm truncate text-primary">
+                                                            {search ? (
+                                                                <SearchHighlightMultiple
+                                                                    string={item.name}
+                                                                    substring={search}
+                                                                />
+                                                            ) : (
+                                                                item.displayName || item.name
+                                                            )}
+                                                        </span>
+                                                        {lastViewedAt ? (
+                                                            <span className="text-xs text-muted whitespace-nowrap">
+                                                                {formatRelativeTimeShort(lastViewedAt)}
+                                                            </span>
+                                                        ) : null}
                                                     </span>
                                                 </Link>
                                             </ListBox.Item>

@@ -527,6 +527,7 @@ export const redirects: Record<
     '/pipeline/transformations/:id': ({ id }) => redirectPipeline('transformations', id),
     '/pipeline/sources/:id/:tab': ({ id }) => redirectPipeline('sources', id),
     '/pipeline/destinations/:id/:tab': ({ id }) => redirectPipeline('destinations', id),
+    '/pipeline/site-apps/:id/:tab': ({ id }) => redirectPipeline('site_apps', id),
     '/pipeline/transformations/:id/:tab': ({ id }) => redirectPipeline('transformations', id),
     '/pipeline/data-import': urls.dataPipelines('sources'),
     '/project/settings': urls.settings('project'),

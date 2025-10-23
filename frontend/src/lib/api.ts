@@ -490,6 +490,10 @@ export class ApiRequest {
         return this.fileSystem(teamId).addPathComponent(id)
     }
 
+    public fileSystemLogView(teamId?: TeamType['id']): ApiRequest {
+        return this.fileSystem(teamId).addPathComponent('log_view')
+    }
+
     public fileSystemMove(id: NonNullable<FileSystemEntry['id']>, teamId?: TeamType['id']): ApiRequest {
         return this.fileSystem(teamId).addPathComponent(id).addPathComponent('move')
     }
@@ -1808,6 +1812,12 @@ const api = {
         },
         async count(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemCount> {
             return await new ApiRequest().fileSystemCount(id).create()
+        },
+    },
+
+    fileSystemLogView: {
+        async create(data: { ref?: string; type?: string }): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystemLogView().create({ data })
         },
     },
 
