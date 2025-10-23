@@ -18,10 +18,7 @@ TMP_DIR = "/tmp"
 
 
 def _dismiss_cookie_banners(page: Page) -> None:
-    """Best-effort removal of cookie/consent banners before measuring height and capturing.
-    Handles common CMPs and explicitly supports Cookiebot (#CybotCookiebotDialog*).
-    """
-    # 1) Try clicking obvious accept/allow buttons (generic + Cookiebot)
+    # Try to click obvious accept/allow buttons (generic + Cookiebot)
     click_selectors = [
         # Generic
         'button:has-text("Accept")',
@@ -50,7 +47,7 @@ def _dismiss_cookie_banners(page: Page) -> None:
         except Exception:
             pass
 
-    # 2) CSS-hide common cookie/consent containers and overlays
+    # CSS-hide common cookie/consent containers and overlays
     css_hide = """
     [id*="cookie" i], [class*="cookie" i],
     [id*="consent" i], [class*="consent" i],
@@ -75,7 +72,7 @@ def _dismiss_cookie_banners(page: Page) -> None:
     except Exception:
         pass
 
-    # 3) Explicitly remove Cookiebot dialog + underlay if present
+    # Explicitly remove Cookiebot dialog + underlay if present (add here more specific selectors if needed)
     try:
         page.evaluate(
             """
