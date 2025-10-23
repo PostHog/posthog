@@ -4561,7 +4561,6 @@ dependencies = [
  "common-metrics",
  "envconfig",
  "health",
- "hex",
  "jsonwebtoken",
  "metrics",
  "opentelemetry-proto 0.29.0",
