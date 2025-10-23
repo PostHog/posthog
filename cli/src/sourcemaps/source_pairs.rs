@@ -61,6 +61,7 @@ pub fn read_pairs(
     directory: &PathBuf,
     ignore_globs: &[String],
     matcher: impl Fn(&DirEntry) -> bool,
+    prefix: &Option<String>,
 ) -> Result<Vec<SourcePair>> {
     // Make sure the directory exists
     if !directory.exists() {
@@ -93,7 +94,7 @@ pub fn read_pairs(
 
         info!("Processing file: {}", entry_path.display());
         let source = MinifiedSourceFile::load(&entry_path)?;
-        let sourcemap_path = source.get_sourcemap_path()?;
+        let sourcemap_path = source.get_sourcemap_path(prefix)?;
 
         let Some(path) = sourcemap_path else {
             warn!(

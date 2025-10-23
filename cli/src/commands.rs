@@ -93,12 +93,11 @@ impl Cli {
     }
 
     fn run_impl(self) -> Result<(), CapturedError> {
-        match self.command {
-        if !matches!(command.command, Commands::Login) {
-            init_context(command.host.clone(), command.skip_ssl_verification)?;
+        if !matches!(self.command, Commands::Login) {
+            init_context(self.host.clone(), self.skip_ssl_verification)?;
         }
 
-        match command.command {
+        match self.command {
             Commands::Login => {
                 // Notably login doesn't have a context set up going it - it sets one up
                 crate::login::login()?;

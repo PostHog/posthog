@@ -27,6 +27,12 @@ pub struct ProcessArgs {
     #[arg(short, long)]
     pub ignore: Vec<String>,
 
+    /// If your bundler adds a public path prefix to sourcemap URLs,
+    /// we need to ignore it while searching for them
+    /// For use alongside e.g. esbuilds "publicPath" config setting.
+    #[arg(short, long)]
+    pub public_path_prefix: Option<String>,
+
     /// The project name associated with the uploaded chunks. Required to have the uploaded chunks associated with
     /// a specific release. We will try to auto-derive this from git information if not provided. Strongly recommended
     /// to be set explicitly during release CD workflows.
@@ -55,9 +61,11 @@ impl From<ProcessArgs> for (InjectArgs, upload::Args) {
             ignore: args.ignore.clone(),
             project: args.project,
             version: args.version,
+            public_path_prefix: args.public_path_prefix.clone(),
         };
         let upload_args = upload::Args {
             directory: args.directory,
+            public_path_prefix: args.public_path_prefix,
             ignore: args.ignore,
             delete_after: args.delete_after,
             skip_ssl_verification: false,

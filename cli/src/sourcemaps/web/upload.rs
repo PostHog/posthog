@@ -5,6 +5,7 @@ use tracing::{info, warn};
 
 use crate::{
     api::symbol_sets::{self, SymbolSetUpload},
+    invocation_context::context,
     sourcemaps::{source_pairs::read_pairs, web::inject::is_javascript_file},
     utils::files::delete_files,
 };
@@ -46,31 +47,26 @@ pub struct Args {
     pub skip_ssl_verification: bool,
 }
 
-pub fn upload_cmd(args: UploadArgs) -> Result<()> {
-    let UploadArgs {
-        directory,
-        public_path_prefix,
-        ignore,
-        delete_after,
-        skip_ssl_verification: _,
-        batch_size,
-        project: p,
-        version: v,
-    } = args;
-
-    if p.is_some() || v.is_some() {
+pub fn upload_cmd(args: &Args) -> Result<()> {
+    if args.project.is_some() || args.version.is_some() {
         warn!("`--project` and `--version` are deprecated and do nothing. Set project and version during `inject` instead.");
     }
 
     context().capture_command_invoked("sourcemap_upload");
+    upload(args)
+}
 
-    let pairs = read_pairs(&directory, &ignore, &public_path_prefix)?;
 pub fn upload(args: &Args) -> Result<()> {
     if args.project.is_some() || args.version.is_some() {
         warn!("`--project` and `--version` are deprecated and do nothing. Set project and version during `inject` instead.");
     }
 
-    let pairs = read_pairs(&args.directory, &args.ignore, is_javascript_file)?;
+    let pairs = read_pairs(
+        &args.directory,
+        &args.ignore,
+        is_javascript_file,
+        &args.public_path_prefix,
+    )?;
     let sourcemap_paths = pairs
         .iter()
         .map(|pair| pair.sourcemap.inner.path.clone())

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sourcemap::SourceMap;
 use std::{collections::BTreeMap, path::PathBuf};
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::{
     api::symbol_sets::SymbolSetUpload,
@@ -100,82 +100,6 @@ impl SourcePair {
 
     pub(crate) fn get_release_id(&self) -> Option<String> {
         self.sourcemap.get_release_id()
-    }
-}
-
-pub fn read_pairs(
-    directory: &PathBuf,
-    ignore_globs: &[String],
-    strip_prefix: &Option<String>,
-) -> Result<Vec<SourcePair>> {
-    // Make sure the directory exists
-    if !directory.exists() {
-        bail!("Directory does not exist");
-    }
-
-    let mut builder = GlobSetBuilder::new();
-    for glob in ignore_globs {
-        builder.add(Glob::new(glob)?);
-    }
-    let set: globset::GlobSet = builder.build()?;
-
-    let mut pairs = Vec::new();
-
-    for entry_path in WalkDir::new(directory)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(is_javascript_file)
-        .map(|e| e.path().canonicalize())
-    {
-        let entry_path = entry_path?;
-
-        if set.is_match(&entry_path) {
-            info!(
-                "Skipping because it matches an ignored glob: {}",
-                entry_path.display()
-            );
-            continue;
-        }
-
-        info!("Processing file: {}", entry_path.display());
-        let source = MinifiedSourceFile::load(&entry_path)?;
-        let sourcemap_path = source.get_sourcemap_path(strip_prefix)?;
-
-        let Some(path) = sourcemap_path else {
-            warn!(
-                "No sourcemap file found for file {}, skipping",
-                entry_path.display()
-            );
-            continue;
-        };
-
-        let sourcemap = SourceMapFile::load(&path).context(format!("reading {path:?}"))?;
-        pairs.push(SourcePair { source, sourcemap });
-    }
-    Ok(pairs)
-}
-
-impl TryInto<SymbolSetUpload> for SourcePair {
-    type Error = anyhow::Error;
-
-    fn try_into(self) -> Result<SymbolSetUpload> {
-        let chunk_id = self
-            .get_chunk_id()
-            .ok_or_else(|| anyhow!("Chunk ID not found"))?;
-        let source_content = self.source.inner.content;
-        let sourcemap_content = serde_json::to_string(&self.sourcemap.inner.content)?;
-        let data = SourceAndMap {
-            minified_source: source_content,
-            sourcemap: sourcemap_content,
-        };
-
-        let data = write_symbol_data(data)?;
-
-        Ok(SymbolSetUpload {
-            chunk_id,
-            data,
-            release_id: self.sourcemap.get_release_id(),
-        })
     }
 }
 

@@ -37,7 +37,7 @@ pub fn clone(args: &CloneArgs) -> Result<()> {
     })?;
 
     info!("Processing directory: {}", directory.display());
-    let pairs = read_pairs(&directory, ignore, is_metro_bundle)?;
+    let pairs = read_pairs(&directory, ignore, is_metro_bundle, &None)?;
 
     if pairs.is_empty() {
         bail!("No source files found");
