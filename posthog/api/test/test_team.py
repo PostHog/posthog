@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 from freezegun import freeze_time
@@ -7,19 +7,24 @@ from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.http import HttpResponse
+from django.test import override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status, test
 from temporalio.service import RPCError
 
 from posthog.api.test.batch_exports.conftest import start_test_worker
+from posthog.api.test.test_oauth import generate_rsa_key
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.dashboard import Dashboard
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.product_intent import ProductIntent
@@ -1844,6 +1849,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
             scoped_teams=[other_team_in_project.id],
         )
 
@@ -1868,6 +1874,83 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         )
 
         response = self.client.get("/api/environments/", HTTP_AUTHORIZATION=f"Bearer {personal_api_key}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {team["id"] for team in response.json()["results"]},
+            {team_in_other_org.id},
+            "Only the team belonging to the scoped organization should be listed, the other one should be excluded",
+        )
+
+    @override_settings(
+        OAUTH2_PROVIDER={
+            **settings.OAUTH2_PROVIDER,
+            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+        }
+    )
+    def test_teams_outside_oauth_scoped_teams_not_listed(self):
+        other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
+        _, team_in_other_project = Project.objects.create_with_team(
+            organization=self.organization, initiating_user=self.user
+        )
+
+        oauth_app = OAuthApplication.objects.create(
+            name="Test OAuth App",
+            client_id="test_client_id",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+
+        access_token = OAuthAccessToken.objects.create(
+            application=oauth_app,
+            user=self.user,
+            token="test_oauth_token",
+            scope="*",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[other_team_in_project.id],
+        )
+
+        response = self.client.get("/api/environments/", HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {team["id"] for team in response.json()["results"]},
+            {other_team_in_project.id},
+            "Only the scoped team listed here, the other two should be excluded",
+        )
+
+    @override_settings(
+        OAUTH2_PROVIDER={
+            **settings.OAUTH2_PROVIDER,
+            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+        }
+    )
+    def test_teams_outside_oauth_scoped_organizations_not_listed(self):
+        other_org, __, team_in_other_org = Organization.objects.bootstrap(self.user)
+
+        oauth_app = OAuthApplication.objects.create(
+            name="Test OAuth App",
+            client_id="test_client_id",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+
+        access_token = OAuthAccessToken.objects.create(
+            application=oauth_app,
+            user=self.user,
+            token="test_oauth_token",
+            scope="*",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_organizations=[str(other_org.id)],
+        )
+
+        response = self.client.get("/api/environments/", HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
