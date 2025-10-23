@@ -1,7 +1,8 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated on: 2025-10-21
+// Generated on: 2025-10-23
 
 export type CanonicalProvider =
+    | 'default'
     | 'ai21-fp8'
     | 'aion-labs'
     | 'aion-labs-bf16'
@@ -34,7 +35,6 @@ export type CanonicalProvider =
     | 'deepinfra-fp8'
     | 'deepinfra-turbo'
     | 'deepseek'
-    | 'default'
     | 'featherless'
     | 'fireworks'
     | 'fireworks-fp16'
@@ -89,6 +89,7 @@ export type CanonicalProvider =
     | 'openai'
     | 'openai-default'
     | 'parasail-bf16'
+    | 'parasail-fp4'
     | 'parasail-fp8'
     | 'perplexity'
     | 'phala'
@@ -107,6 +108,7 @@ export type CanonicalProvider =
     | 'together-fp8'
     | 'together-int4'
     | 'together-turbo'
+    | 'venice-beta'
     | 'venice-fp16'
     | 'venice-fp8'
     | 'wandb-bf16'
