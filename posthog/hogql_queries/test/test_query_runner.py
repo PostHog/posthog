@@ -138,6 +138,7 @@ class TestQueryRunner(BaseTest):
                     "attribution_mode": "last_touch",
                     "attribution_window_days": 90,
                     "base_currency": "USD",
+                    "campaign_name_mappings": {},
                     "sources_map": {
                         "01977f7b-7f29-0000-a028-7275d1a767a4": {
                             "cost": "cost",
