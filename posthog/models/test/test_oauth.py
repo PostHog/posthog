@@ -2,6 +2,7 @@ import uuid
 from datetime import timedelta
 
 from freezegun import freeze_time
+from parameterized import parameterized
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -142,90 +143,52 @@ class TestOAuthModels(TestCase):
             algorithm="RS256",
         )
 
+    valid_loopback_uris = [
+        ("localhost", "http://localhost:3000/callback"),
+        ("127.0.0.1", "http://127.0.0.1:3000/callback"),
+        ("127.0.0.2", "http://127.0.0.2:8000/callback"),
+        ("127.0.1.1", "http://127.0.1.1:8000/callback"),
+        ("127.255.255.255", "http://127.255.255.255:8000/callback"),
+        ("localhost with https", "https://localhost:3000/callback"),
+    ]
+
+    @parameterized.expand(valid_loopback_uris)
     @override_settings(DEBUG=False)
-    def test_can_create_application_with_http_localhost_in_production(self):
+    def test_can_create_application_with_loopback_address_in_production(self, _name, redirect_uri):
         app = OAuthApplication.objects.create(
-            name="Localhost App",
-            client_id="localhost_client_id",
-            client_secret="localhost_client_secret",
+            name=f"Loopback App {_name}",
+            client_id=f"loopback_client_id_{_name}",
+            client_secret=f"loopback_client_secret_{_name}",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="http://localhost:3000/callback",
+            redirect_uris=redirect_uri,
             organization=self.organization,
             algorithm="RS256",
         )
-        self.assertEqual(app.redirect_uris, "http://localhost:3000/callback")
+        self.assertEqual(app.redirect_uris, redirect_uri)
 
-    @override_settings(DEBUG=False)
-    def test_can_create_application_with_http_127_0_0_1_in_production(self):
-        app = OAuthApplication.objects.create(
-            name="Loopback App",
-            client_id="loopback_client_id",
-            client_secret="loopback_client_secret",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="http://127.0.0.1:3000/callback",
-            organization=self.organization,
-            algorithm="RS256",
-        )
-        self.assertEqual(app.redirect_uris, "http://127.0.0.1:3000/callback")
+    malicious_localhost_domains = [
+        ("subdomain of evil.com", "http://localhost.evil.com/callback"),
+        ("127.0.0.1 subdomain of evil.com", "http://127.0.0.1.evil.com/callback"),
+        ("fake localhost domain", "http://fake-localhost.com/callback"),
+        ("127.0.0.1 subdomain of attacker.com", "http://127.0.0.1.attacker.com/callback"),
+        ("mylocalhost domain", "http://mylocalhost.com/callback"),
+    ]
 
+    @parameterized.expand(malicious_localhost_domains)
     @override_settings(DEBUG=False)
-    def test_can_create_application_with_various_127_addresses_in_production(self):
-        test_cases = [
-            "http://127.0.0.1:8000/callback",
-            "http://127.0.0.2:8000/callback",
-            "http://127.0.1.1:8000/callback",
-            "http://127.255.255.255:8000/callback",
-        ]
-        for i, redirect_uri in enumerate(test_cases):
-            app = OAuthApplication.objects.create(
-                name=f"Loopback App {i}",
-                client_id=f"loopback_client_id_{i}",
-                client_secret=f"loopback_client_secret_{i}",
+    def test_cannot_create_application_with_malicious_localhost_domain_in_production(self, _name, malicious_uri):
+        with self.assertRaises(ValidationError):
+            OAuthApplication.objects.create(
+                name="Malicious App",
+                client_id=f"malicious_client_id_{_name}",
+                client_secret="malicious_client_secret",
                 client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
                 authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-                redirect_uris=redirect_uri,
+                redirect_uris=malicious_uri,
                 organization=self.organization,
                 algorithm="RS256",
             )
-            self.assertEqual(app.redirect_uris, redirect_uri)
-
-    @override_settings(DEBUG=False)
-    def test_cannot_create_application_with_malicious_localhost_domain_in_production(self):
-        malicious_domains = [
-            "http://localhost.evil.com/callback",
-            "http://127.0.0.1.evil.com/callback",
-            "http://fake-localhost.com/callback",
-            "http://127.0.0.1.attacker.com/callback",
-            "http://mylocalhost.com/callback",
-        ]
-        for domain in malicious_domains:
-            with self.assertRaises(ValidationError, msg=f"Should reject {domain}"):
-                OAuthApplication.objects.create(
-                    name="Malicious App",
-                    client_id="malicious_client_id",
-                    client_secret="malicious_client_secret",
-                    client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-                    authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-                    redirect_uris=domain,
-                    organization=self.organization,
-                    algorithm="RS256",
-                )
-
-    @override_settings(DEBUG=False)
-    def test_localhost_with_https_works_in_production(self):
-        app = OAuthApplication.objects.create(
-            name="Secure Localhost App",
-            client_id="secure_localhost_client_id",
-            client_secret="secure_localhost_client_secret",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://localhost:3000/callback",
-            organization=self.organization,
-            algorithm="RS256",
-        )
-        self.assertEqual(app.redirect_uris, "https://localhost:3000/callback")
 
     @override_settings(DEBUG=False)
     def test_multiple_redirect_uris_with_mixed_localhost_and_production(self):
