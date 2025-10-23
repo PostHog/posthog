@@ -1,4 +1,6 @@
 // Inject-minified is identical to injecting web-facing bundles, just with slightly different search parameters
+// It's intended as an escape hatch for people rolling their own build pipeline - we expect most users to be
+// using the metro plugin for injecting, and then calling clone
 
 use anyhow::Result;
 use walkdir::DirEntry;
