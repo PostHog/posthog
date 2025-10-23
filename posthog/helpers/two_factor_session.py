@@ -218,14 +218,14 @@ class EmailMFAVerifier:
 
     @staticmethod
     def create_token_and_send_email_mfa_verification(request: HttpRequest, user: User) -> bool:
-        from posthog.tasks.email import send_email_mfa_link
+        from posthog.tasks import email
 
         if not EmailMFAVerifier.should_send_email_mfa_verification():
             return False
 
         try:
             token = email_mfa_token_generator.make_token(user)
-            send_email_mfa_link(user.pk, token)
+            email.send_email_mfa_link(user.pk, token)
             request.session["email_mfa_pending_user_id"] = user.pk
             request.session["email_mfa_token_created_at"] = int(time.time())
             return True
@@ -239,7 +239,8 @@ class EmailMFAVerifier:
 
     @staticmethod
     def get_pending_email_mfa_verification_user_id(request: HttpRequest) -> int | None:
-        return request.session.get("email_mfa_pending_user_id")
+        user_id: int | None = request.session.get("email_mfa_pending_user_id")
+        return user_id
 
     @staticmethod
     def get_pending_email_mfa_verification_token_created_at(request: HttpRequest) -> int:
