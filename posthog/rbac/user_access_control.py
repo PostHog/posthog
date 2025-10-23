@@ -51,6 +51,7 @@ ACCESS_CONTROL_LEVELS_RESOURCE: tuple[AccessControlLevelResource, ...] = get_arg
 
 ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "action",
+    "cdp_transformations",
     "feature_flag",
     "dashboard",
     "insight",
@@ -160,6 +161,11 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "session_recording"
     if name == "sessionrecordingplaylist":
         return "session_recording_playlist"
+    if name == "hogfunction":
+        # HogFunction with type='transformation' maps to cdp_transformations resource
+        if hasattr(model, "type") and model.type == "transformation":
+            return "cdp_transformations"
+        return "hog_function"
 
     if name not in API_SCOPE_OBJECTS:
         return None

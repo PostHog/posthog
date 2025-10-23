@@ -4535,6 +4535,7 @@ export type APIScopeObject =
     | 'activity_log'
     | 'annotation'
     | 'batch_export'
+    | 'cdp_transformations'
     | 'cohort'
     | 'dashboard'
     | 'dashboard_template'
@@ -5458,6 +5459,7 @@ export type HogFunctionType = {
     filters?: CyclotronJobFiltersType | null
     template?: HogFunctionTemplateType
     status?: HogFunctionStatus
+    user_access_level?: AccessControlLevel
 }
 
 export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated' | 'coming_soon' | 'hidden'
