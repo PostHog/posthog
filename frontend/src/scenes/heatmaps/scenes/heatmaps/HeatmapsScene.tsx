@@ -144,7 +144,7 @@ export function HeatmapsScene(): JSX.Element {
                 <div className="flex items-center gap-2">
                     <span>Created by:</span>
                     <MemberSelect
-                        value={filters.createdBy === 'All users' ? null : filters.createdBy}
+                        value={filters.createdBy === 'All users' ? null : (filters.createdBy as string | number | null)}
                         onChange={(user) => setHeatmapsFilters({ createdBy: user?.id || 'All users' })}
                     />
                 </div>

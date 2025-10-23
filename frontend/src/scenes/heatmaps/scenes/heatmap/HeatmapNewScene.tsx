@@ -20,7 +20,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { heatmapLogic } from './heatmapLogic'
 
 export function HeatmapNewScene(): JSX.Element {
-    const logic = new heatmapLogic({ id: 'new' })
+    const logic = heatmapLogic({ id: 'new' })
     const { loading, displayUrl, isDisplayUrlValid, type, name, dataUrl, isBrowserUrlAuthorized } = useValues(logic)
     const { setDisplayUrl, setType, setName, createHeatmap, setDataUrl } = useActions(logic)
 
