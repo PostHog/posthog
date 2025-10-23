@@ -118,9 +118,4 @@ class Migration(migrations.Migration):
             name="output_config",
             field=models.JSONField(default=dict),
         ),
-        # Step 4: Remove old prompt field
-        migrations.RemoveField(
-            model_name="evaluation",
-            name="prompt",
-        ),
     ]
