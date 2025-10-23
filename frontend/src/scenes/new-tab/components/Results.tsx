@@ -108,12 +108,14 @@ function Category({
     category,
     columnIndex,
     isFirstCategoryWithResults,
+    listboxRef,
 }: {
     tabId: string
     items: NewTabTreeDataItem[]
     category: string
     columnIndex: number
     isFirstCategoryWithResults: boolean
+    listboxRef: React.RefObject<ListBoxHandle>
 }): JSX.Element {
     const typedItems = items as NewTabTreeDataItem[]
     const isFirstCategory = columnIndex === 0
@@ -194,6 +196,7 @@ function Category({
                                                 focusFirst={focusFirst}
                                                 row={index}
                                                 column={columnIndex}
+                                                focusKey={item.id}
                                             >
                                                 <Link
                                                     to={item.href || '#'}
@@ -274,10 +277,18 @@ function Category({
 
                                 return (
                                     hasMore && (
-                                        <ListBox.Item asChild>
+                                        <ListBox.Item asChild focusKey={`show-all-${category}`}>
                                             <ButtonPrimitive
                                                 size="sm"
-                                                onClick={() => showMoreInSection(category)}
+                                                onClick={() => {
+                                                    showMoreInSection(category)
+
+                                                    // Restore focus to the previous item after state update
+                                                    setTimeout(() => {
+                                                        // Go back 1 step in focus history (the last focused item before this button)
+                                                        listboxRef.current?.focusPrevious(1)
+                                                    }, 0)
+                                                }}
                                                 className="w-full text-tertiary data-[focused=true]:outline-2 data-[focused=true]:outline-accent data-[focused=true]:text-primary"
                                             >
                                                 <IconArrowRight className="rotate-90" /> Show all (
@@ -409,6 +420,7 @@ export function Results({
                                                 focusFirst={filteredItemsGrid.length > 0 && index === 0}
                                                 row={index}
                                                 column={0}
+                                                focusKey={item.id}
                                             >
                                                 <Link
                                                     to={item.href || '#'}
@@ -486,6 +498,7 @@ export function Results({
                     category={category}
                     columnIndex={columnIndex}
                     isFirstCategoryWithResults={category === firstCategoryWithResults}
+                    listboxRef={listboxRef}
                     key={category}
                 />
             ))}

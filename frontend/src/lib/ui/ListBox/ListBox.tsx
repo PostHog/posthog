@@ -20,6 +20,9 @@ export interface ListBoxHandle {
     recalculateFocusableElements: () => void
     focusFirstItem: () => void
     getFocusableElementsCount: () => number
+    focusItemByKey: (key: string) => boolean
+    focusPrevious: (stepsBack?: number) => boolean
+    getFocusHistory: () => string[]
 }
 
 /** Context to expose container ref to child Items */
@@ -60,7 +63,29 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
     const columnHeights = useRef<number[]>([])
     const stickyRowRef = useRef<number | null>(null)
     const maxColumnIndexRef = useRef<number>(-1)
-    const [virtualFocusedElement, setVirtualFocusedElement] = useState<HTMLElement | null>(null)
+    const [virtualFocusedElementState, setVirtualFocusedElementState] = useState<HTMLElement | null>(null)
+    const focusHistory = useRef<string[]>([])
+    const MAX_FOCUS_HISTORY = 10 // Keep last 10 focus keys
+    const suppressAutoFocus = useRef<boolean>(false) // Flag to temporarily suppress autoSelectFirst
+
+    // Wrapper to track focus history for virtual focus changes
+    const setVirtualFocusedElement = useCallback((element: HTMLElement | null) => {
+        // Manually dispatch focus event for virtual focus changes to maintain focus history
+        if (element && containerRef.current) {
+            const focusKey = element.getAttribute('data-focus-key')
+            if (focusKey) {
+                const isContent = !focusKey.startsWith('show-all-')
+                containerRef.current.dispatchEvent(
+                    new CustomEvent('listbox:setFocusKey', {
+                        detail: { focusKey, isContent },
+                        bubbles: true,
+                    })
+                )
+            }
+        }
+
+        setVirtualFocusedElementState(element)
+    }, [])
 
     const recalculateFocusableElements = useCallback((): void => {
         focusableElements.current = Array.from(
@@ -94,23 +119,53 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
         }
     }, [])
 
+    const addToFocusHistory = useCallback(
+        (focusKey: string): void => {
+            // Don't add if it's the same as the last item
+            if (focusHistory.current[focusHistory.current.length - 1] === focusKey) {
+                return
+            }
+
+            // Add to history
+            focusHistory.current.push(focusKey)
+
+            // Trim to max length
+            if (focusHistory.current.length > MAX_FOCUS_HISTORY) {
+                focusHistory.current = focusHistory.current.slice(-MAX_FOCUS_HISTORY)
+            }
+        },
+        [MAX_FOCUS_HISTORY]
+    )
+
     useEffect(() => {
         const el = containerRef.current
         if (!el) {
             return
         }
-        const handler = (ev: Event): void => {
+        const stickyRowHandler = (ev: Event): void => {
             const row = (ev as CustomEvent).detail?.row
             if (typeof row === 'number' && row >= 0) {
                 stickyRowRef.current = row
             }
         }
-        el.addEventListener('listbox:setStickyRow', handler as EventListener)
-        return () => el.removeEventListener('listbox:setStickyRow', handler as EventListener)
-    }, [])
+        const focusHandler = (ev: Event): void => {
+            const detail = (ev as CustomEvent).detail
+            const focusKey = detail?.focusKey
+
+            if (typeof focusKey === 'string') {
+                addToFocusHistory(focusKey)
+            }
+        }
+        el.addEventListener('listbox:setStickyRow', stickyRowHandler as EventListener)
+        el.addEventListener('listbox:setFocusKey', focusHandler as EventListener)
+        return () => {
+            el.removeEventListener('listbox:setStickyRow', stickyRowHandler as EventListener)
+            el.removeEventListener('listbox:setFocusKey', focusHandler as EventListener)
+        }
+    }, [addToFocusHistory])
 
     const gridPosition = useMemo<{ row: number; column: number }>(() => {
-        const activeElement = virtualFocus ? virtualFocusedElement : (document.activeElement as HTMLElement)
+        const activeElement = virtualFocus ? virtualFocusedElementState : (document.activeElement as HTMLElement)
         for (const el of focusableElements.current) {
             if (el.hasAttribute('data-row') && el.hasAttribute('data-column')) {
                 const row = parseInt(el.getAttribute('data-row') || '0', 10)
@@ -121,7 +176,7 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
             }
         }
         return { row: -1, column: -1 }
-    }, [virtualFocus, virtualFocusedElement])
+    }, [virtualFocus, virtualFocusedElementState])
 
     const focusFirstItem = useCallback(() => {
         recalculateFocusableElements()
@@ -143,7 +198,7 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
         } else {
             firstFocusElement.focus()
         }
-    }, [virtualFocus, recalculateFocusableElements])
+    }, [virtualFocus, recalculateFocusableElements, setVirtualFocusedElement])
 
     const getFocusableElementsCount = useCallback(() => {
         recalculateFocusableElements()
@@ -154,14 +209,97 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
         return elements.length
     }, [recalculateFocusableElements])
 
+    const focusItemByKey = useCallback(
+        (key: string): boolean => {
+            recalculateFocusableElements()
+            const elements = focusableElements.current
+            const targetElement = elements.find((el) => el.getAttribute('data-focus-key') === key)
+
+            if (!targetElement) {
+                return false
+            }
+
+            elements.forEach((el) => el.removeAttribute('data-focused'))
+
+            if (virtualFocus) {
+                setVirtualFocusedElement(targetElement)
+                targetElement.setAttribute('data-focused', 'true')
+                const r = targetElement.getAttribute('data-row')
+                stickyRowRef.current = r ? parseInt(r, 10) : 0
+            } else {
+                targetElement.focus()
+            }
+
+            targetElement.scrollIntoView({ block: 'nearest' })
+            return true
+        },
+        [virtualFocus, recalculateFocusableElements, setVirtualFocusedElement]
+    )
+
+    const focusPrevious = useCallback(
+        (stepsBack = 1): boolean => {
+            // Set flag to suppress auto focus during the next render cycle
+            suppressAutoFocus.current = true
+
+            if (focusHistory.current.length === 0 || stepsBack <= 0) {
+                return false
+            }
+
+            // Find the Nth content item from the end (skipping "show-all" buttons)
+            let contentItemsFound = 0
+            for (let i = focusHistory.current.length - 1; i >= 0; i--) {
+                const focusKey = focusHistory.current[i]
+
+                // Skip "show-all" buttons
+                if (focusKey.startsWith('show-all-')) {
+                    continue
+                }
+
+                contentItemsFound++
+
+                if (contentItemsFound === stepsBack) {
+                    const result = focusItemByKey(focusKey)
+
+                    // Reset the suppress flag after a brief delay to allow normal auto-focus later
+                    setTimeout(() => {
+                        suppressAutoFocus.current = false
+                    }, 100)
+
+                    return result
+                }
+            }
+
+            // Reset the suppress flag even if we didn't find anything
+            setTimeout(() => {
+                suppressAutoFocus.current = false
+            }, 100)
+            return false
+        },
+        [focusItemByKey]
+    )
+
+    const getFocusHistory = useCallback((): string[] => {
+        return [...focusHistory.current]
+    }, [])
+
     useImperativeHandle(
         ref,
         () => ({
             recalculateFocusableElements,
             focusFirstItem,
             getFocusableElementsCount,
+            focusItemByKey,
+            focusPrevious,
+            getFocusHistory,
         }),
-        [recalculateFocusableElements, focusFirstItem, getFocusableElementsCount]
+        [
+            recalculateFocusableElements,
+            focusFirstItem,
+            getFocusableElementsCount,
+            focusItemByKey,
+            focusPrevious,
+            getFocusHistory,
+        ]
     )
 
     // helper to derive row/column from an element
@@ -186,7 +324,7 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
                 return
             }
 
-            const activeElement = virtualFocus ? virtualFocusedElement : (document.activeElement as HTMLElement)
+            const activeElement = virtualFocus ? virtualFocusedElementState : (document.activeElement as HTMLElement)
             const { row: curRow } = getRC(activeElement)
 
             // Always refresh sticky row to reflect *current* position.
@@ -339,11 +477,12 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
         },
         [
             virtualFocus,
-            virtualFocusedElement,
+            virtualFocusedElementState,
             onFinishedKeyDown,
             recalculateFocusableElements,
             gridPosition.row,
             gridPosition.column,
+            setVirtualFocusedElement,
         ]
     )
 
@@ -354,20 +493,20 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
         recalculateFocusableElements()
 
         // If we have a current focus, align sticky row to its latest data-row
-        const active = (virtualFocus ? virtualFocusedElement : (document.activeElement as HTMLElement)) || null
+        const active = (virtualFocus ? virtualFocusedElementState : (document.activeElement as HTMLElement)) || null
         if (active && containerRef.current?.contains(active)) {
             const rAttr = active.getAttribute('data-row')
             if (rAttr != null) {
                 stickyRowRef.current = parseInt(rAttr, 10)
             }
             // If using virtual focus, ensure highlight stays on the same element
-            if (virtualFocus && virtualFocusedElement) {
+            if (virtualFocus && virtualFocusedElementState) {
                 // If the element still exists, re-mark it as focused to avoid losing styling
-                virtualFocusedElement.setAttribute('data-focused', 'true')
+                virtualFocusedElementState.setAttribute('data-focused', 'true')
             }
         }
 
-        if (autoSelectFirst) {
+        if (autoSelectFirst && !suppressAutoFocus.current) {
             focusFirstItem()
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -412,10 +551,15 @@ export interface ListBoxItemProps extends React.LiHTMLAttributes<HTMLLIElement> 
     // Used for left/right navigation
     row?: number
     column?: number
+    // Unique key for focus persistence
+    focusKey?: string
 }
 
 const ListBoxItem = forwardRef<HTMLLIElement, ListBoxItemProps>(
-    ({ children, asChild, onClick, virtualFocusIgnore, focusFirst, row, column, ...props }, ref): JSX.Element => {
+    (
+        { children, asChild, onClick, virtualFocusIgnore, focusFirst, row, column, focusKey, ...props },
+        ref
+    ): JSX.Element => {
         const { containerRef } = useContext(ListBoxContext)
 
         const handleFocus = (e: React.FocusEvent): void => {
@@ -427,6 +571,20 @@ const ListBoxItem = forwardRef<HTMLLIElement, ListBoxItemProps>(
                 ;(e.currentTarget.closest('[role="listbox"]') as HTMLElement | null)?.dispatchEvent(
                     new CustomEvent('listbox:setStickyRow', {
                         detail: { row: parseInt(rowAttr, 10) },
+                        bubbles: true,
+                    })
+                )
+            }
+
+            // Track all focus keys for history
+            const currentFocusKey = (e.currentTarget as HTMLElement).getAttribute('data-focus-key')
+            if (currentFocusKey) {
+                ;(e.currentTarget.closest('[role="listbox"]') as HTMLElement | null)?.dispatchEvent(
+                    new CustomEvent('listbox:setFocusKey', {
+                        detail: {
+                            focusKey: currentFocusKey,
+                            isContent: !currentFocusKey.startsWith('show-all-'),
+                        },
                         bubbles: true,
                     })
                 )
@@ -463,6 +621,7 @@ const ListBoxItem = forwardRef<HTMLLIElement, ListBoxItemProps>(
                 'aria-selected': false,
                 ...(row !== undefined ? { 'data-row': row } : {}),
                 ...(column !== undefined ? { 'data-column': column } : {}),
+                ...(focusKey !== undefined ? { 'data-focus-key': focusKey } : {}),
                 tabIndex: -1,
                 role: 'option',
                 onClick: handleItemClick,
@@ -473,7 +632,18 @@ const ListBoxItem = forwardRef<HTMLLIElement, ListBoxItemProps>(
                 ...(focusFirst ? { 'data-focus-first': 'true' } : {}),
                 ...props,
             }),
-            [handleItemClick, handleFocus, handleBlur, ref, virtualFocusIgnore, focusFirst, props, row, column]
+            [
+                handleItemClick,
+                handleFocus,
+                handleBlur,
+                ref,
+                virtualFocusIgnore,
+                focusFirst,
+                props,
+                row,
+                column,
+                focusKey,
+            ]
         )
 
         if (asChild && isValidElement(children)) {

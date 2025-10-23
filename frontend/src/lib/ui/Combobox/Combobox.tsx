@@ -96,6 +96,9 @@ const InnerCombobox = forwardRef<ListBoxHandle, ComboboxProps>(
             recalculateFocusableElements: () => listboxRef.current?.recalculateFocusableElements(),
             focusFirstItem: () => listboxRef.current?.focusFirstItem(),
             getFocusableElementsCount: () => listboxRef.current?.getFocusableElementsCount() ?? 0,
+            focusItemByKey: (key: string) => listboxRef.current?.focusItemByKey(key) ?? false,
+            focusPrevious: (stepsBack?: number) => listboxRef.current?.focusPrevious(stepsBack) ?? false,
+            getFocusHistory: () => listboxRef.current?.getFocusHistory() ?? [],
         }))
 
         useEffect(() => {
