@@ -111,7 +111,13 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         if "HTTP_AUTHORIZATION" in request.META:
             authorization_match = re.match(rf"^{cls.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
             if authorization_match:
-                return authorization_match.group(1).strip(), "Authorization header"
+                token = authorization_match.group(1).strip()
+
+                if token.startswith(
+                    "pha_"
+                ):  # This is an OAuth access token, not a personal API key. We assume all other tokens are personal API keys, since legacy tokens may not have been prefixed.
+                    return None
+                return token, "Authorization header"
         data = request.data if request_data is None and isinstance(request, Request) else request_data
 
         if data and "personal_api_key" in data:
@@ -479,9 +485,9 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
             if authorization_match:
                 token = authorization_match.group(1).strip()
                 # Skip tokens that match personal api keys to avoid unnecessary DB queries
-                if token.startswith(("phx_", "phs_")):
-                    return None
-                return token
+                if token.startswith("pha_"):
+                    return token
+                return None
         return None
 
     def _validate_token(self, token: str):
