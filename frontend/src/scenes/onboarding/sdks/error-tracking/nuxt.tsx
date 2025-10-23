@@ -160,7 +160,7 @@ export default defineNuxtPlugin(nuxtApp => {
                 For server-side errors, create a server plugin <code>posthog.server.js</code> in your{' '}
                 <code>plugins</code> directory:
             </p>
-            <CodeSnippet language={Language.JavaScript}>{legacyServerErrorHandling(apiKey, host)}</CodeSnippet>
+            <CodeSnippet language={Language.JavaScript}>{legacyServerErrorHandling}</CodeSnippet>
             <JSManualCapture />
         </>
     )

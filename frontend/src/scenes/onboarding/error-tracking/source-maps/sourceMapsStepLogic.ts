@@ -6,7 +6,7 @@ import { ErrorTrackingSymbolSet } from 'lib/components/Errors/types'
 
 import type { sourceMapsStepLogicType } from './sourceMapsStepLogicType'
 
-type SourceMapOption = 'cli' | 'no-minification' | 'public-source-maps' | string
+export type SourceMapOption = 'cli' | 'no-minification' | 'public-source-maps' | string
 
 export const sourceMapsStepLogic = kea<sourceMapsStepLogicType>([
     path(['scenes', 'onboarding', 'error-tracking', 'source-maps', 'sourceMapsStepLogic']),
