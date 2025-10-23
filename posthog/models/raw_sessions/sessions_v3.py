@@ -349,7 +349,9 @@ AS
         target_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
         database=settings.CLICKHOUSE_DATABASE,
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(
-            where=where, source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_events"
+            where=where,
+            # use sharded_events, this means that the mv MUST be created on every data node
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_events",
         ),
     )
 
@@ -375,7 +377,9 @@ INSERT INTO {database}.{writable_table}
         database=settings.CLICKHOUSE_DATABASE,
         writable_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(
-            where=where, source_table=f"{settings.CLICKHOUSE_DATABASE}.events"
+            where=where,
+            # use sharded_events for the source table, this means that the backfill MUST run on every shard
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_events",
         ),
     )
 
