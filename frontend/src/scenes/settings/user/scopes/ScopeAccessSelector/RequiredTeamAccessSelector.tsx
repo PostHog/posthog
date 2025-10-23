@@ -1,8 +1,11 @@
 import { useEffect } from 'react'
+
 import { LemonLabel } from '@posthog/lemon-ui'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import type { OrganizationOption, TeamOption } from './types'
+
 import { TeamSelector } from './TeamSelector'
+import type { OrganizationOption, TeamOption } from './types'
 
 type RequiredTeamAccessSelectorProps = {
     teams: TeamOption[]

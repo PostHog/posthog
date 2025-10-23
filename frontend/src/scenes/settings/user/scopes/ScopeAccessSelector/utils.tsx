@@ -1,4 +1,5 @@
 import { LemonInputSelectOption, Tooltip } from '@posthog/lemon-ui'
+
 import type { OrganizationOption, TeamOption } from './types'
 
 export const createOrganizationOption = (org: OrganizationOption): LemonInputSelectOption<string> => ({

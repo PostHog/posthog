@@ -102,7 +102,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         setRequiredAccessLevel: ({ requiredAccessLevel }) => {
             if (requiredAccessLevel === 'organization') {
                 actions.setOauthAuthorizationValue('access_type', 'organizations')

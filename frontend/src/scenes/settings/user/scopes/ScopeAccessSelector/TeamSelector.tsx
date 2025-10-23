@@ -1,4 +1,5 @@
 import { LemonInputSelect } from '@posthog/lemon-ui'
+
 import type { TeamSelectorProps } from './types'
 import { createTeamOption } from './utils'
 

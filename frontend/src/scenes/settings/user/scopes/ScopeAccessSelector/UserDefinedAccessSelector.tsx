@@ -1,9 +1,11 @@
 import { LemonLabel } from '@posthog/lemon-ui'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
-import type { AccessType, OrganizationOption, TeamOption } from './types'
+
 import { OrganizationSelector } from './OrganizationSelector'
 import { TeamSelector } from './TeamSelector'
+import type { AccessType, OrganizationOption, TeamOption } from './types'
 
 type UserDefinedAccessSelectorProps = {
     accessType?: AccessType
