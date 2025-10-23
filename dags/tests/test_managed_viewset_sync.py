@@ -34,9 +34,9 @@ class TestSyncManagedViewsetsOp:
 
             # Check metadata
             metadata = context.get_output_metadata("result")
-            assert metadata["total_viewsets"].value == 2
-            assert metadata["synced_count"].value == 2
-            assert metadata["failed_count"].value == 0
+            assert metadata["total_viewsets"].value == 2  # type: ignore
+            assert metadata["synced_count"].value == 2  # type: ignore
+            assert metadata["failed_count"].value == 0  # type: ignore
 
     @pytest.mark.django_db
     def test_sync_filtered_by_kind(self):
@@ -62,9 +62,9 @@ class TestSyncManagedViewsetsOp:
 
             # Check metadata
             metadata = context.get_output_metadata("result")
-            assert metadata["total_viewsets"].value == 2
-            assert metadata["synced_count"].value == 2
-            assert metadata["failed_count"].value == 0
+            assert metadata["total_viewsets"].value == 2  # type: ignore
+            assert metadata["synced_count"].value == 2  # type: ignore
+            assert metadata["failed_count"].value == 0  # type: ignore
 
     @pytest.mark.django_db
     def test_sync_with_failures(self):
