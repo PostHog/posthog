@@ -247,7 +247,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
 
                     const configuration: Record<string, any> = {
                         ...subTemplate,
-                        ...(subTemplate ? {} : configurationOverrides),
+                        ...configurationOverrides,
                     }
 
                     return combineUrl(
