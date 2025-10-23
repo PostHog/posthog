@@ -139,16 +139,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         await breakpoint(250)
                     }
                     const searchTerm = values.search.trim()
-                    const sanitizedSearchTerm = searchTerm.replace(/"/g, '\\"')
-                    const searchQuery =
-                        searchTerm === ''
-                            ? undefined
-                            : searchTerm.includes('/')
-                              ? `"${sanitizedSearchTerm}"`
-                              : `"name:${sanitizedSearchTerm}"`
-
                     const response = await api.fileSystem.list({
-                        search: searchQuery,
+                        search: searchTerm,
                         limit: PAGINATION_LIMIT + 1,
                         orderBy: '-last_viewed_at',
                         notType: 'folder',
