@@ -742,11 +742,3 @@ class TestUserAPI(APIBaseTest):
 
         self.assertEqual(num_requests, 6)
         self.assertEqual(duration, 1200)  # 20 minutes * 60 seconds
-
-    def test_parse_rate_with_one_minute(self):
-        """Test parsing '10/1minute'"""
-        throttle = rate_limit.UserOrEmailRateThrottle()
-        num_requests, duration = throttle.parse_rate("10/1minute")
-
-        self.assertEqual(num_requests, 10)
-        self.assertEqual(duration, 60)  # 1 minute

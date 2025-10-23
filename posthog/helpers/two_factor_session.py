@@ -220,6 +220,9 @@ class EmailMFAVerifier:
             import posthoganalytics
 
             organization = user.organization
+            if not organization:
+                return False
+
             return posthoganalytics.feature_enabled(
                 "email-mfa",
                 str(user.distinct_id),
