@@ -134,4 +134,8 @@ This document is in `PostHog/posthog` - when merged to master, it will appear on
 
 **Questions?** Ask in #team-website
 
-# Test trigger
+## Update: Path Fix Verification
+
+Testing after removing POSTHOG_REPO_PATH and fixing path duplication bug. The clone script now correctly creates `.posthog-monorepo-cache/docs/published/` structure, and gatsby-config always joins `source.path + github.path`.
+
+This update verifies the fix works end-to-end!
