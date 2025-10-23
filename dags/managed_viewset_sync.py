@@ -36,7 +36,8 @@ def sync_managed_viewsets_op(
         context.log.info("Syncing all ManagedViewsets")
 
     # Get all viewsets
-    context.log.info(f"Found {queryset.count()} ManagedViewsets to sync")
+    count = queryset.count()
+    context.log.info(f"Found {count} ManagedViewsets to sync")
 
     synced_count = 0
     failed_count = 0
@@ -65,7 +66,7 @@ def sync_managed_viewsets_op(
     # Add output metadata
     context.add_output_metadata(
         {
-            "total_viewsets": dagster.MetadataValue.int(queryset.count()),
+            "total_viewsets": dagster.MetadataValue.int(count),
             "synced_count": dagster.MetadataValue.int(synced_count),
             "failed_count": dagster.MetadataValue.int(failed_count),
             "kind_filter": dagster.MetadataValue.text(kind or "all"),
@@ -76,7 +77,7 @@ def sync_managed_viewsets_op(
     )
 
     if failed_count > 0:
-        raise dagster.Failure(f"Failed to sync {failed_count} out of {queryset.count()} viewsets")
+        raise dagster.Failure(f"Failed to sync {failed_count} out of {count} viewsets")
 
 
 @dagster.job(
