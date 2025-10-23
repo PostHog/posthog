@@ -381,26 +381,50 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             },
         ],
         filteredPropertiesWithInfo: [
-            (s) => [s.sessionPlayerMetaData, s.recordingPropertiesById, s.propertySearchQuery],
-            (sessionPlayerMetaData, recordingPropertiesById, propertySearchQuery) => {
-                const recordingProperties = sessionPlayerMetaData?.id
-                    ? recordingPropertiesById[sessionPlayerMetaData?.id] || {}
-                    : {}
-
-                const personProperties = getAllPersonProperties(sessionPlayerMetaData)
-                const personPropertyKeys = personProperties ? Object.keys(personProperties).sort() : []
-
-                // Get recording property keys from allOverviewItems
-                const recordingPropertyKeys = sessionPlayerMetaData?.id
-                    ? Object.keys(recordingPropertiesById[sessionPlayerMetaData?.id] || {})
-                    : []
-
-                const allPropertyKeys = Array.from(new Set([...recordingPropertyKeys, ...personPropertyKeys])).sort()
+            (s) => [s.allOverviewItems, s.propertySearchQuery],
+            (allOverviewItems: OverviewItem[], propertySearchQuery: string) => {
+                // Extract all property keys from allOverviewItems
+                const allPropertyKeys = allOverviewItems
+                    .map((item) => (item.type === 'property' ? item.property : item.label))
+                    .filter((key): key is string => key !== undefined)
+                    .sort()
 
                 return allPropertyKeys
                     .map((propertyKey) => {
-                        const propertyInfo = getPropertyDisplayInfo(propertyKey, recordingProperties)
-                        return { propertyKey, propertyInfo }
+                        // Find the corresponding overview item to get the label
+                        // so we can check both the key and human-readable label for search
+                        const overviewItem = allOverviewItems.find(
+                            (item) => (item.type === 'property' ? item.property : item.label) === propertyKey
+                        )
+
+                        if (overviewItem) {
+                            return {
+                                propertyKey,
+                                propertyInfo: {
+                                    label: overviewItem.label,
+                                    originalKey: propertyKey,
+                                    type:
+                                        overviewItem.type === 'property'
+                                            ? TaxonomicFilterGroupType.EventProperties
+                                            : TaxonomicFilterGroupType.Replay,
+                                    propertyFilterType:
+                                        overviewItem.type === 'property'
+                                            ? PropertyFilterType.Event
+                                            : PropertyFilterType.Recording,
+                                },
+                            }
+                        }
+
+                        // Fallback for any missing items
+                        return {
+                            propertyKey,
+                            propertyInfo: {
+                                label: propertyKey,
+                                originalKey: propertyKey,
+                                type: TaxonomicFilterGroupType.Replay,
+                                propertyFilterType: PropertyFilterType.Recording,
+                            },
+                        }
                     })
                     .filter(({ propertyInfo }) => {
                         if (!propertySearchQuery.trim()) {
