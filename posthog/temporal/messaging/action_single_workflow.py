@@ -87,16 +87,9 @@ def process_action_activity(inputs: ProcessActionInputs) -> None:
                 CASE
                     WHEN
                         cmc.person_id IS NULL -- Does not exist in cohort_membership_changed
-                        THEN 'entered' -- so, new member
+                        THEN 'entered' -- so, new member (or re-entered, as we filter members who left)
                     WHEN
-                        cmc.person_id IS NOT NULL -- Exists in cohort_membership_changed
-                        AND cmc.status = 'left' -- it left the cohort at some point
-                        AND bcm.person_id IS NOT NULL -- but now there is a match in behavioral_cohorts_matches
-                        THEN 'entered' -- so, it re-entered the cohort
-                    WHEN
-                        cmc.person_id IS NOT NULL -- Exists in cohort_membership_changed
-                        AND cmc.status = 'entered' -- it is a member at some point
-                        AND bcm.person_id IS NULL -- but there is no match in behavioral_cohorts_matches
+                        bcm.person_id IS NULL -- There is no match in behavioral_cohorts_matches
                         THEN 'left' -- so, it left the cohort
                     ELSE
                         'unchanged' -- for all other cases, the membership did not change
@@ -120,6 +113,7 @@ def process_action_activity(inputs: ProcessActionInputs) -> None:
                     team_id = %(team_id)s
                     AND cohort_id = %(action_id)s
                 GROUP BY team_id, person_id
+                HAVING status = 'entered'
             ) cmc ON bcm.team_id = cmc.team_id AND bcm.person_id = cmc.person_id
             WHERE status != 'unchanged'
             SETTINGS join_use_nulls = 1;
