@@ -1,6 +1,6 @@
 from django.db import models
 
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import UUIDModel, UUIDTModel
 from posthog.utils import generate_short_id
 
 
@@ -65,7 +65,7 @@ class HeatmapSaved(UUIDTModel):
         }
 
 
-class HeatmapSnapshot(models.Model):
+class HeatmapSnapshot(UUIDModel):
     heatmap = models.ForeignKey(HeatmapSaved, on_delete=models.CASCADE, related_name="snapshots")
     width = models.IntegerField()
     # Content storage (similar to ExportedAsset)
