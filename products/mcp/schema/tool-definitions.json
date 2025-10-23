@@ -125,6 +125,20 @@
             "readOnlyHint": true
         }
     },
+    "update-issue": {
+        "description": "Update an error tracking issue's status or name. Allows you to mark errors as resolved, suppressed, or change their status. You can also rename issues for better organization.",
+        "category": "Error tracking",
+        "feature": "error-tracking",
+        "summary": "Update an error tracking issue's status or name.",
+        "title": "Update error issue",
+        "required_scopes": ["error_tracking:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "create-feature-flag": {
         "description": "Creates a new feature flag in the project. Once you have created a feature flag, you should: Ask the user if they want to add it to their codebase, Use the \"search-docs\" tool to find documentation on how to add feature flags to the codebase (search for the right language / framework), Clarify where it should be added and then add it.",
         "category": "Feature flags",
