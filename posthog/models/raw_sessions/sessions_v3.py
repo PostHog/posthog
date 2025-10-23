@@ -265,9 +265,9 @@ SELECT
     team_id,
     `$session_id_uuid` AS session_id_v7,
 
-    initializeAggregation('argMaxState', sharded_events.distinct_id, timestamp) as distinct_id,
+    initializeAggregation('argMaxState', source_table.distinct_id, timestamp) as distinct_id,
     initializeAggregation('argMaxState', person_id, timestamp) as person_id,
-    initializeAggregation('groupUniqArrayState', sharded_events.distinct_id) as distinct_ids,
+    initializeAggregation('groupUniqArrayState', source_table.distinct_id) as distinct_ids,
 
     timestamp AS min_timestamp,
     timestamp AS max_timestamp,
@@ -328,7 +328,7 @@ SELECT
 
     --flags
     initializeAggregation('groupUniqArrayMapState', properties_group_feature_flags) as flag_values
-FROM {source_table}
+FROM {source_table} AS source_table
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
 AND {where}
     """.format(
