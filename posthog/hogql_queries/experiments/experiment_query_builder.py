@@ -1,3 +1,5 @@
+from typing import cast
+
 from posthog.schema import (
     ActionsNode,
     ExperimentDataWarehouseNode,
@@ -59,7 +61,7 @@ class ExperimentQueryBuilder:
         self,
         team: Team,
         feature_flag_key: str,
-        metric: ExperimentMeanMetric | ExperimentFunnelMetric,
+        metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric,
         exposure_config: ExperimentEventExposureConfig | ActionsNode,
         filter_test_accounts: bool,
         multiple_variant_handling: MultipleVariantHandling,
@@ -213,9 +215,15 @@ class ExperimentQueryBuilder:
         assert isinstance(self.metric, ExperimentMeanMetric)
         is_dw = isinstance(self.metric.source, ExperimentDataWarehouseNode)
 
-        table = self.metric.source.table_name if is_dw else "events"
-        timestamp_field = f"{table}.{self.metric.source.timestamp_field}" if is_dw else "timestamp"
-        join_condition = "{join_condition}" if is_dw else "exposures.entity_id = metric_events.entity_id"
+        if is_dw:
+            assert isinstance(self.metric.source, ExperimentDataWarehouseNode)
+            table = self.metric.source.table_name
+            timestamp_field = f"{table}.{self.metric.source.timestamp_field}"
+            join_condition = "{join_condition}"
+        else:
+            table = "events"
+            timestamp_field = "timestamp"
+            join_condition = "exposures.entity_id = metric_events.entity_id"
 
         return f"""
             exposures AS (
@@ -254,19 +262,26 @@ class ExperimentQueryBuilder:
         # Build exposure query with exposure_identifier for data warehouse
         exposure_query = self._build_exposure_select_query()
         if is_dw:
+            assert isinstance(self.metric.source, ExperimentDataWarehouseNode)
+            events_join_key_parts = cast(list[str | int], self.metric.source.events_join_key.split("."))
             exposure_query.select.append(
                 ast.Alias(
                     alias="exposure_identifier",
-                    expr=ast.Field(chain=self.metric.source.events_join_key.split(".")),
+                    expr=ast.Field(chain=events_join_key_parts),
                 )
             )
             if exposure_query.group_by:
-                exposure_query.group_by.append(ast.Field(chain=self.metric.source.events_join_key.split(".")))
+                exposure_query.group_by.append(ast.Field(chain=events_join_key_parts))
 
-        table = self.metric.source.table_name if is_dw else "events"
-        entity_field = self.metric.source.data_warehouse_join_key if is_dw else self.entity_key
+        if is_dw:
+            assert isinstance(self.metric.source, ExperimentDataWarehouseNode)
+            table = self.metric.source.table_name
+            entity_field = self.metric.source.data_warehouse_join_key
+        else:
+            table = "events"
+            entity_field = self.entity_key
 
-        placeholders = {
+        placeholders: dict = {
             "exposure_select_query": exposure_query,
             "entity_key": parse_expr(entity_field),
             "metric_predicate": self._build_metric_predicate(table_alias=table),
@@ -277,7 +292,7 @@ class ExperimentQueryBuilder:
 
         # Add join condition for data warehouse
         if is_dw:
-            placeholders["join_condition"] = (
+            placeholders["join_condition"] = parse_expr(
                 "toString(exposures.exposure_identifier) = toString(metric_events.entity_id)"
             )
 
@@ -410,32 +425,42 @@ class ExperimentQueryBuilder:
         denom_is_dw = isinstance(self.metric.denominator, ExperimentDataWarehouseNode)
 
         # Build numerator events CTE
-        num_table = self.metric.numerator.table_name if num_is_dw else "events"
-        num_entity_field = f"{self.metric.numerator.data_warehouse_join_key}" if num_is_dw else self.entity_key
-        num_timestamp_field = (
-            f"{num_table}.{self.metric.numerator.timestamp_field}" if num_is_dw else f"{num_table}.timestamp"
-        )
+        if num_is_dw:
+            assert isinstance(self.metric.numerator, ExperimentDataWarehouseNode)
+            num_table = self.metric.numerator.table_name
+            num_entity_field = f"{self.metric.numerator.data_warehouse_join_key}"
+            num_timestamp_field = f"{num_table}.{self.metric.numerator.timestamp_field}"
+        else:
+            num_table = "events"
+            num_entity_field = self.entity_key
+            num_timestamp_field = f"{num_table}.timestamp"
 
         # Build denominator events CTE
-        denom_table = self.metric.denominator.table_name if denom_is_dw else "events"
-        denom_entity_field = f"{self.metric.denominator.data_warehouse_join_key}" if denom_is_dw else self.entity_key
-        denom_timestamp_field = (
-            f"{denom_table}.{self.metric.denominator.timestamp_field}" if denom_is_dw else f"{denom_table}.timestamp"
-        )
+        if denom_is_dw:
+            assert isinstance(self.metric.denominator, ExperimentDataWarehouseNode)
+            denom_table = self.metric.denominator.table_name
+            denom_entity_field = f"{self.metric.denominator.data_warehouse_join_key}"
+            denom_timestamp_field = f"{denom_table}.{self.metric.denominator.timestamp_field}"
+        else:
+            denom_table = "events"
+            denom_entity_field = self.entity_key
+            denom_timestamp_field = f"{denom_table}.timestamp"
 
         # Build exposure query with conditional exposure_identifier
         exposure_query = self._build_exposure_select_query()
         if num_is_dw or denom_is_dw:
             # Add exposure_identifier for data warehouse joins
             dw_source = self.metric.numerator if num_is_dw else self.metric.denominator
+            assert isinstance(dw_source, ExperimentDataWarehouseNode)
+            events_join_key_parts = cast(list[str | int], dw_source.events_join_key.split("."))
             exposure_query.select.append(
                 ast.Alias(
                     alias="exposure_identifier",
-                    expr=ast.Field(chain=dw_source.events_join_key.split(".")),
+                    expr=ast.Field(chain=events_join_key_parts),
                 )
             )
             if exposure_query.group_by:
-                exposure_query.group_by.append(ast.Field(chain=dw_source.events_join_key.split(".")))
+                exposure_query.group_by.append(ast.Field(chain=events_join_key_parts))
 
         # Build join conditions
         num_join_cond = (
@@ -589,6 +614,7 @@ class ExperimentQueryBuilder:
             source = self.metric.source
 
         # Data warehouse sources use different table and predicate logic
+        timestamp_field_chain: list[str | int]
         if isinstance(source, ExperimentDataWarehouseNode):
             timestamp_field_chain = [table_alias, source.timestamp_field]
             metric_event_filter = data_warehouse_node_to_filter(self.team, source)
