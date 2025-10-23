@@ -8,7 +8,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { Warnings } from 'scenes/heatmaps/components/HeatmapsBrowser'
+import { HeatmapsWarnings } from 'scenes/heatmaps/components/HeatmapsWarnings'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
@@ -102,7 +102,7 @@ export function HeatmapsScene(): JSX.Element {
 
     return (
         <SceneContent>
-            <Warnings />
+            <HeatmapsWarnings />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Heatmaps].name}
                 description={sceneConfigurations[Scene.Heatmaps].description}

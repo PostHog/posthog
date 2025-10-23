@@ -6,7 +6,9 @@ import { Spinner } from '@posthog/lemon-ui'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
-import { InvalidURL } from 'scenes/heatmaps/components/HeatmapsBrowser'
+import { HeatmapsForbiddenURL } from 'scenes/heatmaps/components/HeatmapsForbiddenURL'
+import { HeatmapsUrlsList } from 'scenes/heatmaps/components/HeatmapsInfo'
+import { HeatmapsInvalidURL } from 'scenes/heatmaps/components/HeatmapsInvalidURL'
 import { urls } from 'scenes/urls'
 
 import { ScenePanelDivider } from '~/layout/scenes/SceneLayout'
@@ -19,7 +21,7 @@ import { heatmapLogic } from './heatmapLogic'
 
 export function HeatmapNewScene(): JSX.Element {
     const logic = new heatmapLogic({ id: 'new' })
-    const { loading, displayUrl, isDisplayUrlValid, type, name, dataUrl } = useValues(logic)
+    const { loading, displayUrl, isDisplayUrlValid, type, name, dataUrl, isBrowserUrlAuthorized } = useValues(logic)
     const { setDisplayUrl, setType, setName, createHeatmap, setDataUrl } = useActions(logic)
 
     const debouncedOnNameChange = useDebouncedCallback((name: string) => {
@@ -54,7 +56,8 @@ export function HeatmapNewScene(): JSX.Element {
             <ScenePanelDivider />
             <SceneSection title="Page URL" description="URL to your website">
                 <LemonInput value={displayUrl || ''} onChange={setDisplayUrl} placeholder="https://www.example.com" />
-                {!isDisplayUrlValid ? <InvalidURL /> : null}
+                {!isDisplayUrlValid ? <HeatmapsInvalidURL /> : null}
+                {displayUrl === '' ? <HeatmapsUrlsList /> : null}
             </SceneSection>
             <SceneDivider />
             <SceneSection
@@ -71,6 +74,7 @@ export function HeatmapNewScene(): JSX.Element {
                     fullWidth={true}
                 />
                 <div className="text-xs text-muted mt-1">Add * for wildcards to aggregate data from multiple pages</div>
+                {dataUrl && !isBrowserUrlAuthorized ? <HeatmapsForbiddenURL /> : null}
             </SceneSection>
             <SceneDivider />
             <SceneSection title="Capture method" description="Select the method to represent the source of the heatmap">

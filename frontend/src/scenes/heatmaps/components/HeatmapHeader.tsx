@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonInput, LemonLabel } from '@posthog/lemon-ui'
 
-import { ForbiddenURL } from 'scenes/heatmaps/components/HeatmapsBrowser'
+import { HeatmapsForbiddenURL } from 'scenes/heatmaps/components/HeatmapsForbiddenURL'
 import { heatmapLogic } from 'scenes/heatmaps/scenes/heatmap/heatmapLogic'
 
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
@@ -35,7 +35,7 @@ export function HeatmapHeader(): JSX.Element {
                                 Add * for wildcards to aggregate data from multiple pages
                             </div>
                         </div>
-                        {!isBrowserUrlAuthorized ? <ForbiddenURL /> : null}
+                        {!isBrowserUrlAuthorized ? <HeatmapsForbiddenURL /> : null}
                         {/* Screenshot display section */}
                         {screenshotError && (
                             <div className="mt-2">
