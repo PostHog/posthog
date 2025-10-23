@@ -916,22 +916,22 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprBetween(self, ctx: HogQLParser.ColumnExprBetweenContext):
         # x [NOT] BETWEEN y AND z  =>
         #   (x >= y AND x <= z) or, when NOT present: (x < y OR x > z)
-        value = self.visit(ctx.columnExpr(0))
+        x = self.visit(ctx.columnExpr(0))
         low = self.visit(ctx.columnExpr(1))
         high = self.visit(ctx.columnExpr(2))
 
         if ctx.NOT():
             return ast.Or(
                 exprs=[
-                    ast.CompareOperation(left=value, right=low, op=ast.CompareOperationOp.Lt),
-                    ast.CompareOperation(left=value, right=high, op=ast.CompareOperationOp.Gt),
+                    ast.CompareOperation(left=x, right=low, op=ast.CompareOperationOp.Lt),
+                    ast.CompareOperation(left=x, right=high, op=ast.CompareOperationOp.Gt),
                 ]
             )
 
         return ast.And(
             exprs=[
-                ast.CompareOperation(left=value, right=low, op=ast.CompareOperationOp.GtEq),
-                ast.CompareOperation(left=value, right=high, op=ast.CompareOperationOp.LtEq),
+                ast.CompareOperation(left=x, right=low, op=ast.CompareOperationOp.GtEq),
+                ast.CompareOperation(left=x, right=high, op=ast.CompareOperationOp.LtEq),
             ]
         )
 
