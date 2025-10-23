@@ -10,6 +10,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
+from posthog.permissions import TimeSensitiveActionPermission
 
 from ee.models.rbac.role import Role, RoleMembership
 
@@ -80,7 +81,7 @@ class RoleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
     serializer_class = RoleSerializer
     queryset = Role.objects.all()
-    permission_classes = [RolePermissions]
+    permission_classes = [RolePermissions, TimeSensitiveActionPermission]
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(**self.request.GET.dict())
@@ -106,7 +107,7 @@ class RoleMembershipSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Role does not exist.")
 
         if role.organization_id != self.context["organization_id"]:
-            raise serializers.ValidationError("Role does not belong to the specified organization.")
+            raise serializers.ValidationError("Role does not exist.")
 
         try:
             validated_data["organization_member"] = OrganizationMembership.objects.select_related("user").get(
@@ -131,7 +132,7 @@ class RoleMembershipViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "organization"
-    permission_classes = [RolePermissions]
+    permission_classes = [RolePermissions, TimeSensitiveActionPermission]
     serializer_class = RoleMembershipSerializer
     queryset = RoleMembership.objects.select_related("role")
     filter_rewrite_rules = {"organization_id": "role__organization_id"}
