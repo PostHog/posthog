@@ -11,11 +11,11 @@ export const template: HogFunctionTemplate = {
     category: ['Custom', 'Analytics'],
     code_language: 'hog',
     code: `
-return inputs.value
+return inputs.variable_value
 `,
     inputs_schema: [
         {
-            key: 'value',
+            key: 'variable_value',
             type: 'string',
             label: 'Value',
             secret: false,
