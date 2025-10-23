@@ -339,8 +339,12 @@ class CHQueries:
     def _get_param(self, request: HttpRequest, name: str):
         if name in request.GET:
             return request.GET[name]
-        if name in request.POST:
-            return request.POST[name]
+        try:
+            if name in request.POST:
+                return request.POST[name]
+        except (ValueError, RuntimeError):
+            # Django 5 ASGI: request stream may be closed when accessing POST
+            pass
         return None
 
 
