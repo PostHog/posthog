@@ -43,7 +43,7 @@ def log_file_system_view(
     if user is None or not getattr(user, "is_authenticated", False):
         return
 
-    resolved = _resolve_representation(obj, team_id=team_id)
+    resolved = resolve_representation(obj, team_id=team_id)
     if resolved is None:
         return
 
@@ -93,7 +93,7 @@ def get_recent_file_system_items(*, team_id: int, user_id: int, limit: Optional[
     return queryset
 
 
-def _resolve_representation(
+def resolve_representation(
     obj: FileSystemRepresentation | object,
     *,
     team_id: Optional[int] = None,
