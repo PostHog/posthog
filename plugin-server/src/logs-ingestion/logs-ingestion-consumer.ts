@@ -82,7 +82,6 @@ export class LogsIngestionConsumer {
                     headers: {
                         token: message.token,
                         team_id: message.teamId.toString(),
-                        distinct_id: message.distinctId,
                     },
                 })
             })
