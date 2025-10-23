@@ -115,7 +115,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
 
                 if token.startswith(
                     "pha_"
-                ):  # This is an OAuth access token, not a personal API key. We assume all other tokens are personal API keys, since legacy personal api keys may not have been prefixed with phx_.
+                ):  # TRICKY: This returns None to allow the next authentication method to have a go. This should be `if not token.startswith("phx_")`, but we need to support legacy personal api keys that may not have been prefixed with phx_.
                     return None
                 return token, "Authorization header"
         data = request.data if request_data is None and isinstance(request, Request) else request_data
