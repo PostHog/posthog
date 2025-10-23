@@ -43,9 +43,9 @@ from posthog.event_usage import report_user_logged_in, report_user_password_rese
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.two_factor_session import (
-    EmailMFAVerifier,
     clear_two_factor_session_flags,
     email_mfa_token_generator,
+    email_mfa_verifier,
     set_two_factor_verified_in_session,
 )
 from posthog.models import OrganizationDomain, User
@@ -247,7 +247,7 @@ class LoginSerializer(serializers.Serializer):
                 raise TwoFactorRequired()
             else:
                 # Email MFA flow
-                email_mfa_sent = EmailMFAVerifier.create_token_and_send_email_mfa_verification(request, user)
+                email_mfa_sent = email_mfa_verifier.create_token_and_send_email_mfa_verification(request, user)
                 if email_mfa_sent:
                     raise serializers.ValidationError({"email": user.email}, code="email_mfa_required")
                 else:
@@ -446,17 +446,17 @@ class EmailMFAViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     @action(detail=False, methods=["post"], throttle_classes=[EmailMFAResendThrottle])
     def resend(self, request: Request) -> Response:
         """Resend email MFA link"""
-        if not EmailMFAVerifier.has_pending_email_mfa_verification(request):
+        if not email_mfa_verifier.has_pending_email_mfa_verification(request):
             raise serializers.ValidationError(
                 {"detail": "No pending email MFA verification found."}, code="no_pending_verification"
             )
 
         try:
-            user = User.objects.get(pk=EmailMFAVerifier.get_pending_email_mfa_verification_user_id(request))
+            user = User.objects.get(pk=email_mfa_verifier.get_pending_email_mfa_verification_user_id(request))
         except User.DoesNotExist:
             raise serializers.ValidationError({"detail": "User not found."}, code="user_not_found")
 
-        email_mfa_sent = EmailMFAVerifier.create_token_and_send_email_mfa_verification(request, user)
+        email_mfa_sent = email_mfa_verifier.create_token_and_send_email_mfa_verification(request, user)
         if not email_mfa_sent:
             raise serializers.ValidationError(
                 {"detail": "Could not send email MFA verification email."}, code="email_mfa_verification_email_failed"

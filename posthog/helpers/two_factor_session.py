@@ -212,15 +212,26 @@ email_mfa_token_generator = EmailMFATokenGenerator()
 
 
 class EmailMFAVerifier:
-    @staticmethod
-    def should_send_email_mfa_verification() -> bool:
-        return is_email_available(with_absolute_urls=True)
+    def should_send_email_mfa_verification(self, user: User) -> bool:
+        if not is_email_available(with_absolute_urls=True):
+            return False
 
-    @staticmethod
-    def create_token_and_send_email_mfa_verification(request: HttpRequest, user: User) -> bool:
+        try:
+            import posthoganalytics
+
+            organization = user.organization
+            return posthoganalytics.feature_enabled(
+                "email-mfa",
+                str(user.distinct_id),
+                groups={"organization": str(organization.id)},
+            )
+        except Exception:
+            return False
+
+    def create_token_and_send_email_mfa_verification(self, request: HttpRequest, user: User) -> bool:
         from posthog.tasks import email
 
-        if not EmailMFAVerifier.should_send_email_mfa_verification():
+        if not self.should_send_email_mfa_verification(user):
             return False
 
         try:
@@ -233,19 +244,18 @@ class EmailMFAVerifier:
             capture_exception(Exception(f"Email MFA verification email failed: {e}"))
             return False
 
-    @staticmethod
-    def has_pending_email_mfa_verification(request: HttpRequest) -> bool:
+    def has_pending_email_mfa_verification(self, request: HttpRequest) -> bool:
         return request.session.get("email_mfa_pending_user_id") is not None
 
-    @staticmethod
-    def get_pending_email_mfa_verification_user_id(request: HttpRequest) -> int | None:
+    def get_pending_email_mfa_verification_user_id(self, request: HttpRequest) -> int | None:
         user_id: int | None = request.session.get("email_mfa_pending_user_id")
         return user_id
 
-    @staticmethod
-    def get_pending_email_mfa_verification_token_created_at(request: HttpRequest) -> int:
+    def get_pending_email_mfa_verification_token_created_at(self, request: HttpRequest) -> int:
         return request.session.get("email_mfa_token_created_at", int(time.time()))
 
-    @staticmethod
-    def check_token(user: User, token: str) -> bool:
+    def check_token(self, user: User, token: str) -> bool:
         return email_mfa_token_generator.check_token(user, token)
+
+
+email_mfa_verifier = EmailMFAVerifier()
