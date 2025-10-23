@@ -918,7 +918,7 @@ async def test_run_workflow_revert_materialization(
     workflow_id = str(uuid.uuid4())
     inputs = RunWorkflowInputs(team_id=ateam.pk)
 
-    async def mock_hogql_table(_query, _team, _logger):
+    def mock_hogql_table(_query, _team, _logger):
         raise Exception("Unknown table")
 
     with (
