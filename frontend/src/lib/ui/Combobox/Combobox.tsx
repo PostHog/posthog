@@ -245,11 +245,13 @@ export type ComboboxType = React.ForwardRefExoticComponent<ComboboxProps & React
     Empty: typeof Empty
     Content: typeof Content
     Item: typeof ListBox.Item
+    ListGroup: typeof ListBox.Group
 }
 ;(InnerCombobox as ComboboxType).Search = Search
 ;(InnerCombobox as ComboboxType).Group = Group
 ;(InnerCombobox as ComboboxType).Empty = Empty
 ;(InnerCombobox as ComboboxType).Content = Content
 ;(InnerCombobox as ComboboxType).Item = ListBox.Item
+;(InnerCombobox as ComboboxType).ListGroup = ListBox.Group
 
 export const Combobox = InnerCombobox as ComboboxType

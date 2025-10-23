@@ -25,12 +25,30 @@ export interface ListBoxHandle {
     getFocusHistory: () => string[]
 }
 
+/** Imperative API handle for ListBox.Group */
+export interface ListBoxGroupHandle {
+    resumeFocus: (index: number) => boolean
+    getFocusedIndex: () => number | null
+}
+
 /** Context to expose container ref to child Items */
 interface ListBoxContextType {
     containerRef: React.RefObject<HTMLDivElement> | null
+    registerGroupItem?: (groupId: string, index: number, element: HTMLElement) => void
+    unregisterGroupItem?: (groupId: string, index: number) => void
+    focusGroupItem?: (groupId: string, index: number) => boolean
 }
 
 const ListBoxContext = createContext<ListBoxContextType>({ containerRef: null })
+
+/** Context for ListBox.Group to track its own items */
+interface ListBoxGroupContextType {
+    groupId: string
+    registerItem: (index: number, element: HTMLElement) => void
+    unregisterItem: (index: number) => void
+}
+
+const ListBoxGroupContext = createContext<ListBoxGroupContextType | null>(null)
 
 /** Props for ListBox */
 interface ListBoxProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -67,6 +85,9 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
     const focusHistory = useRef<string[]>([])
     const MAX_FOCUS_HISTORY = 10 // Keep last 10 focus keys
     const suppressAutoFocus = useRef<boolean>(false) // Flag to temporarily suppress autoSelectFirst
+
+    // Group management
+    const groups = useRef<Map<string, Map<number, HTMLElement>>>(new Map())
 
     // Wrapper to track focus history for virtual focus changes
     const setVirtualFocusedElement = useCallback((element: HTMLElement | null) => {
@@ -282,6 +303,53 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
         return [...focusHistory.current]
     }, [])
 
+    // Group management functions
+    const registerGroupItem = useCallback((groupId: string, index: number, element: HTMLElement) => {
+        if (!groups.current.has(groupId)) {
+            groups.current.set(groupId, new Map())
+        }
+        groups.current.get(groupId)!.set(index, element)
+    }, [])
+
+    const unregisterGroupItem = useCallback((groupId: string, index: number) => {
+        groups.current.get(groupId)?.delete(index)
+        if (groups.current.get(groupId)?.size === 0) {
+            groups.current.delete(groupId)
+        }
+    }, [])
+
+    const focusGroupItem = useCallback(
+        (groupId: string, index: number): boolean => {
+            const group = groups.current.get(groupId)
+            const element = group?.get(index)
+
+            if (!element) {
+                return false
+            }
+
+            // Use existing focusItemByKey if the element has a focus key, otherwise focus directly
+            const focusKey = element.getAttribute('data-focus-key')
+            if (focusKey) {
+                return focusItemByKey(focusKey)
+            }
+            // Focus directly
+            focusableElements.current.forEach((el) => el.removeAttribute('data-focused'))
+
+            if (virtualFocus) {
+                setVirtualFocusedElement(element)
+                element.setAttribute('data-focused', 'true')
+                const r = element.getAttribute('data-row')
+                stickyRowRef.current = r ? parseInt(r, 10) : 0
+            } else {
+                element.focus()
+            }
+
+            element.scrollIntoView({ block: 'nearest' })
+            return true
+        },
+        [focusItemByKey, virtualFocus, setVirtualFocusedElement]
+    )
+
     useImperativeHandle(
         ref,
         () => ({
@@ -486,7 +554,15 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
         ]
     )
 
-    const contextValue = useMemo(() => ({ containerRef }), [])
+    const contextValue = useMemo(
+        () => ({
+            containerRef,
+            registerGroupItem,
+            unregisterGroupItem,
+            focusGroupItem,
+        }),
+        [registerGroupItem, unregisterGroupItem, focusGroupItem]
+    )
 
     // Keep internal maps in sync and refresh sticky row when children change.
     useEffect(() => {
@@ -553,14 +629,17 @@ export interface ListBoxItemProps extends React.LiHTMLAttributes<HTMLLIElement> 
     column?: number
     // Unique key for focus persistence
     focusKey?: string
+    // Index within a group (when inside ListBox.Group)
+    index?: number
 }
 
 const ListBoxItem = forwardRef<HTMLLIElement, ListBoxItemProps>(
     (
-        { children, asChild, onClick, virtualFocusIgnore, focusFirst, row, column, focusKey, ...props },
+        { children, asChild, onClick, virtualFocusIgnore, focusFirst, row, column, focusKey, index, ...props },
         ref
     ): JSX.Element => {
         const { containerRef } = useContext(ListBoxContext)
+        const groupContext = useContext(ListBoxGroupContext)
 
         const handleFocus = (e: React.FocusEvent): void => {
             e.currentTarget.setAttribute('data-focused', 'true')
@@ -613,6 +692,35 @@ const ListBoxItem = forwardRef<HTMLLIElement, ListBoxItemProps>(
             }
         }
 
+        // Register with group if inside a group and index is provided
+        const elementRef = useRef<HTMLElement>(null)
+
+        useEffect(() => {
+            if (groupContext && index !== undefined && elementRef.current) {
+                groupContext.registerItem(index, elementRef.current)
+                return () => {
+                    groupContext.unregisterItem(index)
+                }
+            }
+        }, [groupContext, index])
+
+        // Callback ref to capture the actual DOM element
+        const setElementRef = useCallback(
+            (element: HTMLElement | null) => {
+                elementRef.current = element
+
+                // Also forward to the provided ref if it exists
+                if (ref) {
+                    if (typeof ref === 'function') {
+                        ref(element)
+                    } else {
+                        ref.current = element
+                    }
+                }
+            },
+            [ref]
+        )
+
         const itemProps = useMemo(
             () => ({
                 'data-listbox-item': 'true',
@@ -627,7 +735,7 @@ const ListBoxItem = forwardRef<HTMLLIElement, ListBoxItemProps>(
                 onClick: handleItemClick,
                 onFocus: handleFocus,
                 onBlur: handleBlur,
-                ref,
+                ref: setElementRef,
                 ...(virtualFocusIgnore ? { 'data-virtual-focus-ignore': 'true' } : {}),
                 ...(focusFirst ? { 'data-focus-first': 'true' } : {}),
                 ...props,
@@ -636,13 +744,14 @@ const ListBoxItem = forwardRef<HTMLLIElement, ListBoxItemProps>(
                 handleItemClick,
                 handleFocus,
                 handleBlur,
-                ref,
+                setElementRef,
                 virtualFocusIgnore,
                 focusFirst,
                 props,
                 row,
                 column,
                 focusKey,
+                index,
             ]
         )
 
@@ -666,6 +775,101 @@ const ListBoxItem = forwardRef<HTMLLIElement, ListBoxItemProps>(
 
 ListBoxItem.displayName = 'ListBox.Item'
 
+/** ListBox.Group */
+
+export interface ListBoxGroupProps {
+    children: ReactNode
+    groupId?: string
+}
+
+let groupIdCounter = 0
+
+const ListBoxGroup = forwardRef<ListBoxGroupHandle, ListBoxGroupProps>(
+    ({ children, groupId: providedGroupId }, ref): JSX.Element => {
+        const { registerGroupItem, unregisterGroupItem, focusGroupItem } = useContext(ListBoxContext)
+        const groupId = useMemo(() => providedGroupId || `group-${groupIdCounter++}`, [providedGroupId])
+        const groupItems = useRef<Map<number, HTMLElement>>(new Map())
+        const currentFocusedIndex = useRef<number | null>(null)
+
+        const registerItem = useCallback(
+            (index: number, element: HTMLElement) => {
+                groupItems.current.set(index, element)
+                registerGroupItem?.(groupId, index, element)
+            },
+            [groupId, registerGroupItem]
+        )
+
+        const unregisterItem = useCallback(
+            (index: number) => {
+                groupItems.current.delete(index)
+                unregisterGroupItem?.(groupId, index)
+            },
+            [groupId, unregisterGroupItem]
+        )
+
+        const resumeFocus = useCallback(
+            (index: number): boolean => {
+                const availableIndices = Array.from(groupItems.current.keys()).sort((a, b) => a - b)
+
+                // Try to focus the item at the given index
+                if (focusGroupItem?.(groupId, index)) {
+                    currentFocusedIndex.current = index
+                    return true
+                }
+
+                // If that fails, try to focus the closest available item
+
+                // Find the closest index to the requested one
+                let closestIndex = availableIndices[0]
+                let minDistance = Math.abs(availableIndices[0] - index)
+
+                for (const availableIndex of availableIndices) {
+                    const distance = Math.abs(availableIndex - index)
+                    if (distance < minDistance) {
+                        minDistance = distance
+                        closestIndex = availableIndex
+                    }
+                }
+
+                if (focusGroupItem?.(groupId, closestIndex)) {
+                    currentFocusedIndex.current = closestIndex
+                    return true
+                }
+
+                return false
+            },
+            [groupId, focusGroupItem]
+        )
+
+        const getFocusedIndex = useCallback((): number | null => {
+            return currentFocusedIndex.current
+        }, [])
+
+        useImperativeHandle(
+            ref,
+            () => ({
+                resumeFocus,
+                getFocusedIndex,
+            }),
+            [resumeFocus, getFocusedIndex]
+        )
+
+        const groupContextValue = useMemo(
+            () => ({
+                groupId,
+                registerItem,
+                unregisterItem,
+            }),
+            [groupId, registerItem, unregisterItem]
+        )
+
+        return <ListBoxGroupContext.Provider value={groupContextValue}>{children}</ListBoxGroupContext.Provider>
+    }
+)
+
+ListBoxGroup.displayName = 'ListBox.Group'
+
 export const ListBox = Object.assign(InnerListBox, {
     Item: ListBoxItem,
+    Group: ListBoxGroup,
 })
