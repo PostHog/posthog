@@ -10,7 +10,6 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -18,12 +17,13 @@ import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { DuplicateToProjectModal } from 'scenes/surveys/DuplicateToProjectModal'
+import { SurveyArchiveActions } from 'scenes/surveys/SurveyArchiveActions'
 import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 import { SurveyOverview } from 'scenes/surveys/SurveyOverview'
 import { SurveyResponseFilters } from 'scenes/surveys/SurveyResponseFilters'
-import { SurveyResponseRowActions } from 'scenes/surveys/SurveyResponseRowActions'
 import { SurveyResultDemo } from 'scenes/surveys/SurveyResultDemo'
 import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
+import { CreateTestResponses } from 'scenes/surveys/components/CreateTestResponses'
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
@@ -158,6 +158,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                         isLoading={surveyLoading}
                         actions={
                             <>
+                                <CreateTestResponses />
                                 <SurveyFeedbackButton />
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.Survey}
@@ -344,37 +345,50 @@ function SurveyResponsesByQuestionV2(): JSX.Element {
 }
 
 export function SurveyResult({ disableEventsTable }: { disableEventsTable?: boolean }): JSX.Element {
-    const { dataTableQuery, surveyLoading, surveyAsInsightURL, isAnyResultsLoading, processedSurveyStats, survey } =
-        useValues(surveyLogic)
-    const archivalFeatureEnabled = useFeatureFlag('SURVEY_RESPONSE_ARCHIVAL')
+    const {
+        dataTableQuery,
+        surveyLoading,
+        surveyAsInsightURL,
+        isAnyResultsLoading,
+        processedSurveyStats,
+        survey,
+        isArchiveResponsesFFEnabled,
+    } = useValues(surveyLogic)
 
     const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
 
     const queryContext: QueryContext | undefined = useMemo(() => {
-        if (!archivalFeatureEnabled || !dataTableQuery) {
+        if (!isArchiveResponsesFFEnabled || !dataTableQuery) {
             return undefined
         }
 
         return {
-            columns: {
-                __more: {
-                    width: '0',
-                    render: ({ record }) => {
-                        // Extract UUID from the record
-                        // The record is an array where the first element (index 0) contains the event data
-                        const event = record && Array.isArray(record) ? record[0] : null
-                        const responseUuid = event?.uuid
-
-                        if (!responseUuid) {
-                            return null
-                        }
-
-                        return <SurveyResponseRowActions responseUuid={responseUuid} />
-                    },
-                },
+            eventRowActionsExtra: (event: any) => {
+                return <SurveyArchiveActions event={event} />
+            },
+            rowProps: (record) => {
+                // Add subtle styling to archived responses
+                const result = (record as any)?.result
+                if (!result || !Array.isArray(result)) {
+                    return {}
+                }
+                const event = result.find((item: any) => item?.uuid)
+                if (!event || !event.uuid) {
+                    return {}
+                }
+                const isArchived = survey.archived_response_uuids?.includes(event.uuid)
+                if (isArchived) {
+                    return {
+                        style: {
+                            opacity: 0.6,
+                            backgroundColor: 'var(--bg-light)',
+                        },
+                    }
+                }
+                return {}
             },
         }
-    }, [archivalFeatureEnabled, dataTableQuery, survey])
+    }, [isArchiveResponsesFFEnabled, dataTableQuery, survey])
 
     return (
         <div className="deprecated-space-y-4">

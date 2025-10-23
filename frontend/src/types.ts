@@ -3230,6 +3230,7 @@ export interface Survey extends WithAccessControl {
     response_sampling_daily_limits?: string[] | null
     enable_partial_responses?: boolean | null
     _create_in_folder?: string | null
+    archived_response_uuids?: string[] | null
 }
 
 export enum SurveyMatchType {

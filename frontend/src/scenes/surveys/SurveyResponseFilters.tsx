@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
 import { IconCode, IconCopy, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -79,8 +79,16 @@ function CopyResponseKeyButton({ questionId }: { questionId: string }): JSX.Elem
 }
 
 export const SurveyResponseFilters = React.memo(function SurveyResponseFilters(): JSX.Element {
-    const { survey, answerFilters, propertyFilters, defaultAnswerFilters, dateRange } = useValues(surveyLogic)
-    const { setAnswerFilters, setPropertyFilters, setDateRange } = useActions(surveyLogic)
+    const {
+        survey,
+        answerFilters,
+        propertyFilters,
+        defaultAnswerFilters,
+        dateRange,
+        isArchiveResponsesFFEnabled,
+        showArchivedResponses,
+    } = useValues(surveyLogic)
+    const { setAnswerFilters, setPropertyFilters, setDateRange, setShowArchivedResponses } = useActions(surveyLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const [sqlHelperOpen, setSqlHelperOpen] = useState(false)
 
@@ -132,9 +140,27 @@ export const SurveyResponseFilters = React.memo(function SurveyResponseFilters()
         <div className="deprecated-space-y-2">
             <div className="flex justify-between items-center">
                 <h3 className="m-0">Filter survey results</h3>
-                <LemonButton size="small" type="secondary" icon={<IconCode />} onClick={() => setSqlHelperOpen(true)}>
-                    Get SQL Query
-                </LemonButton>
+                <div className="flex items-center gap-2">
+                    {isArchiveResponsesFFEnabled && (
+                        <LemonCheckbox
+                            checked={showArchivedResponses}
+                            onChange={setShowArchivedResponses}
+                            label={
+                                survey.archived_response_uuids && survey.archived_response_uuids.length > 0
+                                    ? `Show archived responses (${survey.archived_response_uuids.length})`
+                                    : 'Show archived responses'
+                            }
+                        />
+                    )}
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        icon={<IconCode />}
+                        onClick={() => setSqlHelperOpen(true)}
+                    >
+                        Get SQL Query
+                    </LemonButton>
+                </div>
             </div>
             {questionWithFiltersAvailable.length > 0 && (
                 <div className="border rounded overflow-hidden">

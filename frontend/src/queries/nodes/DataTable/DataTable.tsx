@@ -567,7 +567,9 @@ export function DataTable({
                               return { props: { colSpan: 0 } }
                           }
                           if (result && columnsInResponse?.includes('*')) {
-                              return <EventRowActions event={result[columnsInResponse.indexOf('*')]} />
+                              const event = result[columnsInResponse.indexOf('*')]
+                              const extraActions = context?.eventRowActionsExtra?.(event)
+                              return <EventRowActions event={event} extraActions={extraActions} />
                           }
                           return null
                       },

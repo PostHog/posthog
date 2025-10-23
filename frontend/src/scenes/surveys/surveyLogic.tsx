@@ -547,6 +547,7 @@ export const surveyLogic = kea<surveyLogicType>([
         setBaseStatsResults: (results: SurveyBaseStatsResult) => ({ results }),
         setDismissedAndSentCount: (count: DismissedAndSentCountResult) => ({ count }),
         setIsDuplicateToProjectModalOpen: (isOpen: boolean) => ({ isOpen }),
+        setShowArchivedResponses: (showArchived: boolean) => ({ showArchived }),
     }),
     loaders(({ props, actions, values }) => ({
         responseSummary: {
@@ -1048,6 +1049,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 setIsDuplicateToProjectModalOpen: (_, { isOpen }) => isOpen,
             },
         ],
+        showArchivedResponses: [
+            false,
+            {
+                setShowArchivedResponses: (_, { showArchived }) => showArchived,
+            },
+        ],
         surveyMissing: [
             false,
             {
@@ -1306,11 +1313,17 @@ export const surveyLogic = kea<surveyLogicType>([
                         )`
             },
         ],
+        isArchiveResponsesFFEnabled: [
+            (s) => [s.enabledFlags],
+            (enabledFlags: FeatureFlagsSet): boolean => {
+                return !!enabledFlags[FEATURE_FLAGS.SURVEY_RESPONSE_ARCHIVAL]
+            },
+        ],
         archivedResponsesFilter: [
-            (s) => [s.survey, s.enabledFlags],
-            (survey: Survey, enabledFlags: FeatureFlagsSet): string => {
-                // Only apply filter if feature flag is enabled
-                if (!enabledFlags[FEATURE_FLAGS.SURVEY_RESPONSE_ARCHIVAL]) {
+            (s) => [s.survey, s.isArchiveResponsesFFEnabled, s.showArchivedResponses],
+            (survey: Survey, isArchiveResponsesFFEnabled: boolean, showArchivedResponses: boolean): string => {
+                // Only apply filter if feature flag is enabled and user wants to hide archived responses
+                if (!isArchiveResponsesFFEnabled || showArchivedResponses) {
                     return ''
                 }
                 return buildArchivedResponsesFilter(survey)
