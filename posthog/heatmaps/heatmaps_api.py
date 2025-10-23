@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Any, List, Literal  # noqa: UP035
+from typing import Any, List, Literal, cast  # noqa: UP035
 
 from django.db.models import Q
 from django.http import HttpResponse
@@ -21,6 +21,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import TemporaryTokenAuthentication
+from posthog.models import User
 from posthog.models.heatmap_saved import HeatmapSaved
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.tasks.heatmap_screenshot import generate_heatmap_screenshot
@@ -382,7 +383,7 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             team=self.team,
             url=url,
             target_widths=widths,
-            created_by=request.user,
+            created_by=cast(User, request.user),
             status=HeatmapSaved.Status.PROCESSING,
         )
 
@@ -530,7 +531,7 @@ class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             data_url=data_url,
             target_widths=widths,
             type=heatmap_type,
-            created_by=request.user,
+            created_by=cast(User, request.user),
             status=HeatmapSaved.Status.PROCESSING
             if heatmap_type == HeatmapSaved.Type.SCREENSHOT
             else HeatmapSaved.Status.COMPLETED,

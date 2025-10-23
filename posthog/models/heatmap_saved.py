@@ -45,7 +45,7 @@ class HeatmapSaved(UUIDTModel):
             models.Index(fields=["status"]),
             models.Index(fields=["deleted"]),
         ]
-        constraints: list = []
+        constraints = []
         unique_together = ("team", "short_id")
 
     @property
