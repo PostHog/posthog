@@ -16,11 +16,11 @@ export function EmailMFAVerify(): JSX.Element {
             <div className="px-12 py-8 text-center flex flex-col items-center max-w-160 w-full">
                 {view === 'ready' ? (
                     <>
-                        <h1 className="text-3xl font-bold">Email verified!</h1>
+                        <h1 className="text-3xl font-bold">Almost in - just verify below!</h1>
                         <div className="max-w-60 mb-12">
                             <HeartHog className="w-full h-full" />
                         </div>
-                        <p className="mb-6">Great! Click below to verify your email address.</p>
+                        <p className="mb-6">Click below to verify your email address.</p>
                         <p className="text-muted text-sm mb-6">This device will be remembered for 30 days</p>
                         <LemonButton
                             type="primary"
