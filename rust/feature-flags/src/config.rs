@@ -208,6 +208,12 @@ pub struct Config {
     #[envconfig(default = "1800")]
     pub max_lifetime_secs: u64,
 
+    // Additional maximum jitter to max_lifetime to avoid thundering herd.
+    // - Adds random amount of seconds [0, max_lifetime_jitter_secs) to max_lifetime_secs
+    // - Set to 0 to disable (uses fixed max_lifetime).
+    #[envconfig(default = "1800")]
+    pub max_lifetime_jitter_secs: u64,
+
     // Test connection health before returning from pool
     // - Set to true for production to catch stale connections
     // - Set to false in tests or very stable environments for slight performance gain
@@ -344,6 +350,7 @@ impl Config {
             acquire_timeout_secs: 3,
             idle_timeout_secs: 300,
             max_lifetime_secs: 1800,
+            max_lifetime_jitter_secs: 1800,
             test_before_acquire: FlexBool(true),
             db_monitor_interval_secs: 30,
             db_pool_warn_utilization: 0.8,

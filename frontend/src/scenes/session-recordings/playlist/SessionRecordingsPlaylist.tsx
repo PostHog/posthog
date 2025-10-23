@@ -107,81 +107,83 @@ export function SessionRecordingsPlaylist({
 
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
-            <Playlist
-                data-attr="session-recordings-playlist"
-                notebooksHref={urls.replay(ReplayTabs.Home, filters)}
-                embedded={!!notebookNode}
-                sections={sections}
-                headerActions={
-                    <SessionRecordingsPlaylistTopSettings
-                        filters={filters}
-                        setFilters={setFilters}
-                        type={type}
-                        shortId={props.logicKey}
-                    />
-                }
-                filterActions={
-                    notebookNode || (!canMixFiltersAndPinned && !!logicProps.logicKey) ? null : (
-                        <RecordingsUniversalFiltersEmbedButton
+            <div className="h-full deprecated-space-y-2">
+                <Playlist
+                    data-attr="session-recordings-playlist"
+                    notebooksHref={urls.replay(ReplayTabs.Home, filters)}
+                    embedded={!!notebookNode}
+                    sections={sections}
+                    headerActions={
+                        <SessionRecordingsPlaylistTopSettings
+                            filters={filters}
+                            setFilters={setFilters}
+                            type={type}
+                            shortId={props.logicKey}
+                        />
+                    }
+                    filterActions={
+                        notebookNode || (!canMixFiltersAndPinned && !!logicProps.logicKey) ? null : (
+                            <RecordingsUniversalFiltersEmbedButton
+                                filters={filters}
+                                setFilters={setFilters}
+                                totalFiltersCount={totalFiltersCount}
+                            />
+                        )
+                    }
+                    loading={sessionRecordingsResponseLoading}
+                    onScrollListEdge={(edge) => {
+                        if (edge === 'top') {
+                            maybeLoadSessionRecordings('newer')
+                        } else {
+                            maybeLoadSessionRecordings('older')
+                        }
+                    }}
+                    listEmptyState={type === 'collection' ? <CollectionEmptyState /> : <ListEmptyState />}
+                    onSelect={(item) => setSelectedRecordingId(item.id)}
+                    activeItemId={activeSessionRecordingId}
+                    content={({ activeItem }) =>
+                        showContent && activeItem ? (
+                            <SessionRecordingPlayer
+                                playerKey={props.logicKey ?? 'playlist'}
+                                sessionRecordingId={activeItem.id}
+                                matchingEventsMatchType={matchingEventsMatchType}
+                                playlistLogic={playlistLogic}
+                                noBorder
+                                pinned={!!pinnedRecordings.find((x) => x.id === activeItem.id)}
+                                setPinned={
+                                    props.onPinnedChange
+                                        ? (pinned) => {
+                                              if (!activeItem.id) {
+                                                  return
+                                              }
+                                              props.onPinnedChange?.(activeItem, pinned)
+                                          }
+                                        : undefined
+                                }
+                            />
+                        ) : (
+                            <div className="mt-20">
+                                <EmptyMessage
+                                    title="No recording selected"
+                                    description="Please select a recording from the list on the left"
+                                    buttonText="Learn more about recordings"
+                                    buttonTo="https://posthog.com/docs/user-guides/recordings"
+                                />
+                            </div>
+                        )
+                    }
+                    filterContent={
+                        <RecordingsUniversalFiltersEmbed
+                            resetFilters={resetFilters}
                             filters={filters}
                             setFilters={setFilters}
                             totalFiltersCount={totalFiltersCount}
+                            allowReplayHogQLFilters={allowHogQLFilters}
+                            allowReplayGroupsFilters={allowReplayGroupsFilters}
                         />
-                    )
-                }
-                loading={sessionRecordingsResponseLoading}
-                onScrollListEdge={(edge) => {
-                    if (edge === 'top') {
-                        maybeLoadSessionRecordings('newer')
-                    } else {
-                        maybeLoadSessionRecordings('older')
                     }
-                }}
-                listEmptyState={type === 'collection' ? <CollectionEmptyState /> : <ListEmptyState />}
-                onSelect={(item) => setSelectedRecordingId(item.id)}
-                activeItemId={activeSessionRecordingId}
-                content={({ activeItem }) =>
-                    showContent && activeItem ? (
-                        <SessionRecordingPlayer
-                            playerKey={props.logicKey ?? 'playlist'}
-                            sessionRecordingId={activeItem.id}
-                            matchingEventsMatchType={matchingEventsMatchType}
-                            playlistLogic={playlistLogic}
-                            noBorder
-                            pinned={!!pinnedRecordings.find((x) => x.id === activeItem.id)}
-                            setPinned={
-                                props.onPinnedChange
-                                    ? (pinned) => {
-                                          if (!activeItem.id) {
-                                              return
-                                          }
-                                          props.onPinnedChange?.(activeItem, pinned)
-                                      }
-                                    : undefined
-                            }
-                        />
-                    ) : (
-                        <div className="mt-20">
-                            <EmptyMessage
-                                title="No recording selected"
-                                description="Please select a recording from the list on the left"
-                                buttonText="Learn more about recordings"
-                                buttonTo="https://posthog.com/docs/user-guides/recordings"
-                            />
-                        </div>
-                    )
-                }
-                filterContent={
-                    <RecordingsUniversalFiltersEmbed
-                        resetFilters={resetFilters}
-                        filters={filters}
-                        setFilters={setFilters}
-                        totalFiltersCount={totalFiltersCount}
-                        allowReplayHogQLFilters={allowHogQLFilters}
-                        allowReplayGroupsFilters={allowReplayGroupsFilters}
-                    />
-                }
-            />
+                />
+            </div>
         </BindLogic>
     )
 }
