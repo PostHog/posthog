@@ -13,11 +13,13 @@ This page lives in the PostHog monorepo at `docs/published/test-preview.md`, not
 ## Why This Matters
 
 Engineers can now:
+
 - Write docs alongside code in the same PR
 - Preview docs on posthog.com before merging
 - Keep docs and code in sync
 
 Website team can:
+
 - Get fresh technical content automatically
 - Focus on user-facing docs and design
 - Trust that engineering docs stay current
@@ -85,6 +87,7 @@ Result: Your posthog.com changes previewed with stable
 ## What Goes Where
 
 ### PostHog Monorepo (`/docs/`)
+
 Technical documentation that changes with code:
 
 - **`/docs/published/`** → Published on posthog.com
@@ -99,6 +102,7 @@ Technical documentation that changes with code:
   - Internal processes
 
 ### posthog.com (`/contents/`)
+
 User-facing documentation:
 
 - Product tutorials
@@ -129,3 +133,5 @@ This document is in `PostHog/posthog` - when merged to master, it will appear on
 ---
 
 **Questions?** Ask in #team-website
+
+# Test trigger
