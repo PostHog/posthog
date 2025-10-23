@@ -3,14 +3,22 @@ from datetime import timedelta
 
 from freezegun import freeze_time
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
+from posthog.api.test.test_oauth import generate_rsa_key
 from posthog.models import Organization, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 
 
+@override_settings(
+    OAUTH2_PROVIDER={
+        **settings.OAUTH2_PROVIDER,
+        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+    }
+)
 class TestOAuthModels(TestCase):
     def setUp(self):
         self.organization = Organization.objects.create(name="Test Org")
@@ -133,6 +141,106 @@ class TestOAuthModels(TestCase):
             organization=self.organization,
             algorithm="RS256",
         )
+
+    @override_settings(DEBUG=False)
+    def test_can_create_application_with_http_localhost_in_production(self):
+        app = OAuthApplication.objects.create(
+            name="Localhost App",
+            client_id="localhost_client_id",
+            client_secret="localhost_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="http://localhost:3000/callback",
+            organization=self.organization,
+            algorithm="RS256",
+        )
+        self.assertEqual(app.redirect_uris, "http://localhost:3000/callback")
+
+    @override_settings(DEBUG=False)
+    def test_can_create_application_with_http_127_0_0_1_in_production(self):
+        app = OAuthApplication.objects.create(
+            name="Loopback App",
+            client_id="loopback_client_id",
+            client_secret="loopback_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="http://127.0.0.1:3000/callback",
+            organization=self.organization,
+            algorithm="RS256",
+        )
+        self.assertEqual(app.redirect_uris, "http://127.0.0.1:3000/callback")
+
+    @override_settings(DEBUG=False)
+    def test_can_create_application_with_various_127_addresses_in_production(self):
+        test_cases = [
+            "http://127.0.0.1:8000/callback",
+            "http://127.0.0.2:8000/callback",
+            "http://127.0.1.1:8000/callback",
+            "http://127.255.255.255:8000/callback",
+        ]
+        for i, redirect_uri in enumerate(test_cases):
+            app = OAuthApplication.objects.create(
+                name=f"Loopback App {i}",
+                client_id=f"loopback_client_id_{i}",
+                client_secret=f"loopback_client_secret_{i}",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris=redirect_uri,
+                organization=self.organization,
+                algorithm="RS256",
+            )
+            self.assertEqual(app.redirect_uris, redirect_uri)
+
+    @override_settings(DEBUG=False)
+    def test_cannot_create_application_with_malicious_localhost_domain_in_production(self):
+        malicious_domains = [
+            "http://localhost.evil.com/callback",
+            "http://127.0.0.1.evil.com/callback",
+            "http://fake-localhost.com/callback",
+            "http://127.0.0.1.attacker.com/callback",
+            "http://mylocalhost.com/callback",
+        ]
+        for domain in malicious_domains:
+            with self.assertRaises(ValidationError, msg=f"Should reject {domain}"):
+                OAuthApplication.objects.create(
+                    name="Malicious App",
+                    client_id="malicious_client_id",
+                    client_secret="malicious_client_secret",
+                    client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                    authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                    redirect_uris=domain,
+                    organization=self.organization,
+                    algorithm="RS256",
+                )
+
+    @override_settings(DEBUG=False)
+    def test_localhost_with_https_works_in_production(self):
+        app = OAuthApplication.objects.create(
+            name="Secure Localhost App",
+            client_id="secure_localhost_client_id",
+            client_secret="secure_localhost_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://localhost:3000/callback",
+            organization=self.organization,
+            algorithm="RS256",
+        )
+        self.assertEqual(app.redirect_uris, "https://localhost:3000/callback")
+
+    @override_settings(DEBUG=False)
+    def test_multiple_redirect_uris_with_mixed_localhost_and_production(self):
+        app = OAuthApplication.objects.create(
+            name="Mixed App",
+            client_id="mixed_client_id",
+            client_secret="mixed_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback http://localhost:3000/callback http://127.0.0.1:3000/callback",
+            organization=self.organization,
+            algorithm="RS256",
+        )
+        self.assertIn("localhost", app.redirect_uris)
+        self.assertIn("example.com", app.redirect_uris)
 
     def test_unique_client_id_constraint(self):
         OAuthApplication.objects.create(

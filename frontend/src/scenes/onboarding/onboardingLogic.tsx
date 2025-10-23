@@ -96,7 +96,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         setStepKey: (stepKey: OnboardingStepKey) => ({ stepKey }),
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
         setTeamPropertiesForProduct: (productKey: ProductKey) => ({ productKey }),
-        setWaitForBilling: (waitForBilling: boolean) => ({ waitForBilling }),
+        setWaitForBilling: (waitForBilling: boolean) => ({ waitForBilling }), 
         goToNextStep: (numStepsToAdvance?: number) => ({ numStepsToAdvance }),
         goToPreviousStep: true,
         resetStepKey: true,

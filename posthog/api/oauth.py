@@ -252,6 +252,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
     @method_decorator(login_required)
     def get(self, request, *args, **kwargs):
+        print("request", request.query_params)
         try:
             scopes, credentials = self.validate_authorization_request(request)
         except OAuthToolkitError as error:
