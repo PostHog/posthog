@@ -25,6 +25,8 @@ export function SessionRecordingsPlaylist({
     showContent = true,
     canMixFiltersAndPinned = true,
     type = 'filters',
+    isSynthetic = false,
+    description,
     ...props
 }: SessionRecordingPlaylistLogicProps & {
     showContent?: boolean
@@ -34,10 +36,12 @@ export function SessionRecordingsPlaylist({
      * and filters.
      *
      * This prop allows us to allow that case or not.
-     * Eventually this will be removed and we'll only allow one or the other.
+     * Eventually this will be removed, and we'll only allow one or the other.
      */
     canMixFiltersAndPinned?: boolean
     type?: 'filters' | 'collection'
+    isSynthetic?: boolean
+    description?: string
 }): JSX.Element {
     const logicProps: SessionRecordingPlaylistLogicProps = {
         ...props,
@@ -59,7 +63,6 @@ export function SessionRecordingsPlaylist({
     const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, resetFilters } = useActions(playlistLogic)
 
     const notebookNode = useNotebookNode()
-
     const sections: PlaylistSection[] = []
 
     if (type === 'collection' || pinnedRecordings.length > 0) {
@@ -107,81 +110,89 @@ export function SessionRecordingsPlaylist({
 
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
-            <Playlist
-                data-attr="session-recordings-playlist"
-                notebooksHref={urls.replay(ReplayTabs.Home, filters)}
-                embedded={!!notebookNode}
-                sections={sections}
-                headerActions={
-                    <SessionRecordingsPlaylistTopSettings
-                        filters={filters}
-                        setFilters={setFilters}
-                        type={type}
-                        shortId={props.logicKey}
-                    />
-                }
-                filterActions={
-                    notebookNode || (!canMixFiltersAndPinned && !!logicProps.logicKey) ? null : (
-                        <RecordingsUniversalFiltersEmbedButton
+            <div className="h-full deprecated-space-y-2">
+                <Playlist
+                    data-attr="session-recordings-playlist"
+                    notebooksHref={urls.replay(ReplayTabs.Home, filters)}
+                    embedded={!!notebookNode}
+                    sections={sections}
+                    headerActions={
+                        <SessionRecordingsPlaylistTopSettings
+                            filters={filters}
+                            setFilters={setFilters}
+                            type={type}
+                            shortId={props.logicKey}
+                        />
+                    }
+                    filterActions={
+                        notebookNode || (!canMixFiltersAndPinned && !!logicProps.logicKey) ? null : (
+                            <RecordingsUniversalFiltersEmbedButton
+                                filters={filters}
+                                setFilters={setFilters}
+                                totalFiltersCount={totalFiltersCount}
+                            />
+                        )
+                    }
+                    loading={sessionRecordingsResponseLoading}
+                    onScrollListEdge={(edge) => {
+                        if (edge === 'top') {
+                            maybeLoadSessionRecordings('newer')
+                        } else {
+                            maybeLoadSessionRecordings('older')
+                        }
+                    }}
+                    listEmptyState={
+                        type === 'collection' ? (
+                            <CollectionEmptyState isSynthetic={isSynthetic} description={description} />
+                        ) : (
+                            <ListEmptyState />
+                        )
+                    }
+                    onSelect={(item) => setSelectedRecordingId(item.id)}
+                    activeItemId={activeSessionRecordingId}
+                    content={({ activeItem }) =>
+                        showContent && activeItem ? (
+                            <SessionRecordingPlayer
+                                playerKey={props.logicKey ?? 'playlist'}
+                                sessionRecordingId={activeItem.id}
+                                matchingEventsMatchType={matchingEventsMatchType}
+                                playlistLogic={playlistLogic}
+                                noBorder
+                                pinned={!!pinnedRecordings.find((x) => x.id === activeItem.id)}
+                                setPinned={
+                                    props.onPinnedChange
+                                        ? (pinned) => {
+                                              if (!activeItem.id) {
+                                                  return
+                                              }
+                                              props.onPinnedChange?.(activeItem, pinned)
+                                          }
+                                        : undefined
+                                }
+                            />
+                        ) : (
+                            <div className="mt-20">
+                                <EmptyMessage
+                                    title="No recording selected"
+                                    description="Please select a recording from the list on the left"
+                                    buttonText="Learn more about recordings"
+                                    buttonTo="https://posthog.com/docs/user-guides/recordings"
+                                />
+                            </div>
+                        )
+                    }
+                    filterContent={
+                        <RecordingsUniversalFiltersEmbed
+                            resetFilters={resetFilters}
                             filters={filters}
                             setFilters={setFilters}
                             totalFiltersCount={totalFiltersCount}
+                            allowReplayHogQLFilters={allowHogQLFilters}
+                            allowReplayGroupsFilters={allowReplayGroupsFilters}
                         />
-                    )
-                }
-                loading={sessionRecordingsResponseLoading}
-                onScrollListEdge={(edge) => {
-                    if (edge === 'top') {
-                        maybeLoadSessionRecordings('newer')
-                    } else {
-                        maybeLoadSessionRecordings('older')
                     }
-                }}
-                listEmptyState={type === 'collection' ? <CollectionEmptyState /> : <ListEmptyState />}
-                onSelect={(item) => setSelectedRecordingId(item.id)}
-                activeItemId={activeSessionRecordingId}
-                content={({ activeItem }) =>
-                    showContent && activeItem ? (
-                        <SessionRecordingPlayer
-                            playerKey={props.logicKey ?? 'playlist'}
-                            sessionRecordingId={activeItem.id}
-                            matchingEventsMatchType={matchingEventsMatchType}
-                            playlistLogic={playlistLogic}
-                            noBorder
-                            pinned={!!pinnedRecordings.find((x) => x.id === activeItem.id)}
-                            setPinned={
-                                props.onPinnedChange
-                                    ? (pinned) => {
-                                          if (!activeItem.id) {
-                                              return
-                                          }
-                                          props.onPinnedChange?.(activeItem, pinned)
-                                      }
-                                    : undefined
-                            }
-                        />
-                    ) : (
-                        <div className="mt-20">
-                            <EmptyMessage
-                                title="No recording selected"
-                                description="Please select a recording from the list on the left"
-                                buttonText="Learn more about recordings"
-                                buttonTo="https://posthog.com/docs/user-guides/recordings"
-                            />
-                        </div>
-                    )
-                }
-                filterContent={
-                    <RecordingsUniversalFiltersEmbed
-                        resetFilters={resetFilters}
-                        filters={filters}
-                        setFilters={setFilters}
-                        totalFiltersCount={totalFiltersCount}
-                        allowReplayHogQLFilters={allowHogQLFilters}
-                        allowReplayGroupsFilters={allowReplayGroupsFilters}
-                    />
-                }
-            />
+                />
+            </div>
         </BindLogic>
     )
 }
@@ -204,7 +215,13 @@ const ListEmptyState = (): JSX.Element => {
     )
 }
 
-const CollectionEmptyState = (): JSX.Element => {
+const CollectionEmptyState = ({
+    isSynthetic,
+    description,
+}: {
+    isSynthetic?: boolean
+    description?: string
+}): JSX.Element => {
     const { sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
 
     return (
@@ -213,6 +230,11 @@ const CollectionEmptyState = (): JSX.Element => {
                 <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
             ) : unusableEventsInFilter.length ? (
                 <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
+            ) : isSynthetic ? (
+                <div className="flex flex-col gap-2">
+                    <h3 className="title text-secondary mb-0">No recordings yet</h3>
+                    <p>{description || 'This collection is automatically populated.'}</p>
+                </div>
             ) : (
                 <div className="flex flex-col gap-2">
                     <h3 className="title text-secondary mb-0">No recordings in this collection</h3>

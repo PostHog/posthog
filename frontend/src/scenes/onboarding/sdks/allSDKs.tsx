@@ -42,7 +42,7 @@ export const allSDKs: SDK[] = [
     {
         name: 'Next.js',
         key: SDKKey.NEXT_JS,
-        tags: [SDKTag.WEB, SDKTag.RECOMMENDED],
+        tags: [SDKTag.WEB, SDKTag.SERVER, SDKTag.RECOMMENDED],
         recommended: true,
         image: nextjsImage,
         docsLink: 'https://posthog.com/docs/libraries/next-js',
@@ -288,7 +288,7 @@ export const allSDKs: SDK[] = [
     {
         name: 'Nuxt.js',
         key: SDKKey.NUXT_JS,
-        tags: [SDKTag.WEB],
+        tags: [SDKTag.WEB, SDKTag.SERVER],
         image: nuxtImage,
         docsLink: 'https://posthog.com/docs/libraries/nuxt-js',
     },

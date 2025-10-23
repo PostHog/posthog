@@ -9,6 +9,8 @@ import datetime as dt
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.datetimes import date_range
 
+from products.batch_exports.backend.tests.temporal.utils.clickhouse import execute_query
+
 
 class PersonValues(typing.TypedDict):
     """Person values to be inserted for testing."""
@@ -61,7 +63,8 @@ def generate_test_persons(
 
 async def insert_person_values_in_clickhouse(client: ClickHouseClient, persons: list[PersonValues]):
     """Execute an insert query to insert provided PersonValues into person."""
-    await client.execute_query(
+    await execute_query(
+        client,
         f"""
         INSERT INTO `person` (
             id,
@@ -178,7 +181,8 @@ async def insert_person_distinct_id2_values_in_clickhouse(
     client: ClickHouseClient, persons: list[PersonDistinctId2Values]
 ):
     """Execute an insert query to insert provided PersonDistinctId2Values into person."""
-    await client.execute_query(
+    await execute_query(
+        client,
         f"""
         INSERT INTO `person_distinct_id2` (
              team_id,
