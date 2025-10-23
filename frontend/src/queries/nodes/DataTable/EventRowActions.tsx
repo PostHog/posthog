@@ -17,15 +17,17 @@ import { EventType } from '~/types'
 
 interface EventActionProps {
     event: EventType
+    extraActions?: React.ReactNode
 }
 
-export function EventRowActions({ event }: EventActionProps): JSX.Element {
+export function EventRowActions({ event, extraActions }: EventActionProps): JSX.Element {
     const insightUrl = insightUrlForEvent(event)
 
     return (
         <More
             overlay={
                 <>
+                    {extraActions}
                     {getCurrentTeamId() && (
                         <LemonButton
                             onClick={() =>

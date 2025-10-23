@@ -50,6 +50,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     dataTableMaxPaginationLimit?: number
     /** Custom expandable config for DataTable rows */
     expandable?: ExpandableConfig<DataTableRow>
+    /** Extra actions to show in EventRowActions menu (prepended before standard actions) */
+    eventRowActionsExtra?: (event: unknown) => React.ReactNode
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

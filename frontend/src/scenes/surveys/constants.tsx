@@ -181,6 +181,7 @@ export interface NewSurvey
         | 'schedule'
         | 'enable_partial_responses'
         | 'user_access_level'
+        | 'archived_response_uuids'
     > {
     id: 'new'
     linked_flag_id: number | null

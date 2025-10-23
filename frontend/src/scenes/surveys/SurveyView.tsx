@@ -1,7 +1,7 @@
 import './SurveyView.scss'
 
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { IconGraph, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
@@ -17,11 +17,13 @@ import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { DuplicateToProjectModal } from 'scenes/surveys/DuplicateToProjectModal'
+import { SurveyArchiveActions } from 'scenes/surveys/SurveyArchiveActions'
 import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 import { SurveyOverview } from 'scenes/surveys/SurveyOverview'
 import { SurveyResponseFilters } from 'scenes/surveys/SurveyResponseFilters'
 import { SurveyResultDemo } from 'scenes/surveys/SurveyResultDemo'
 import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
+import { CreateTestResponses } from 'scenes/surveys/components/CreateTestResponses'
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
@@ -38,6 +40,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
+import { QueryContext } from '~/queries/types'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -155,6 +158,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                         isLoading={surveyLoading}
                         actions={
                             <>
+                                <CreateTestResponses />
                                 <SurveyFeedbackButton />
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.Survey}
@@ -341,10 +345,51 @@ function SurveyResponsesByQuestionV2(): JSX.Element {
 }
 
 export function SurveyResult({ disableEventsTable }: { disableEventsTable?: boolean }): JSX.Element {
-    const { dataTableQuery, surveyLoading, surveyAsInsightURL, isAnyResultsLoading, processedSurveyStats } =
-        useValues(surveyLogic)
+    const {
+        dataTableQuery,
+        surveyLoading,
+        surveyAsInsightURL,
+        isAnyResultsLoading,
+        processedSurveyStats,
+        survey,
+        isArchiveResponsesFFEnabled,
+    } = useValues(surveyLogic)
 
     const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
+
+    const queryContext: QueryContext | undefined = useMemo(() => {
+        if (!isArchiveResponsesFFEnabled || !dataTableQuery) {
+            return undefined
+        }
+
+        return {
+            eventRowActionsExtra: (event: any) => {
+                return <SurveyArchiveActions event={event} />
+            },
+            rowProps: (record) => {
+                // Add subtle styling to archived responses
+                const result = (record as any)?.result
+                if (!result || !Array.isArray(result)) {
+                    return {}
+                }
+                const event = result.find((item: any) => item?.uuid)
+                if (!event || !event.uuid) {
+                    return {}
+                }
+                const isArchived = survey.archived_response_uuids?.includes(event.uuid)
+                if (isArchived) {
+                    return {
+                        style: {
+                            opacity: 0.6,
+                            backgroundColor: 'var(--bg-light)',
+                        },
+                    }
+                }
+                return {}
+            },
+        }
+    }, [isArchiveResponsesFFEnabled, dataTableQuery, survey])
+
     return (
         <div className="deprecated-space-y-4">
             <SurveyResponseFilters />
@@ -366,7 +411,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                             <LemonSkeleton />
                         ) : (
                             <div className="survey-table-results">
-                                <Query query={dataTableQuery} />
+                                <Query query={dataTableQuery} context={queryContext} />
                             </div>
                         ))}
                 </>
