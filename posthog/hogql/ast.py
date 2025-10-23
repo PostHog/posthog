@@ -855,6 +855,9 @@ class SelectQuery(Expr):
         if columns is not None:
             columns_with_type = {column: UnknownDatabaseField(name="dummy") for column in columns}
 
+        if columns_with_type is None:
+            columns_with_type = {"_": UnknownDatabaseField(name="dummy")}
+
         return SelectQuery(
             select=[
                 Alias(alias=column, expr=Constant(value=cast(DatabaseField, field).default_value()))
