@@ -59,7 +59,11 @@ class TestFileSystemViewLog(TestCase):
         dashboard_logs = FileSystemViewLog.objects.filter(
             team=self.team, user=self.user, type="dashboard", ref=str(dashboard.id)
         )
-        self.assertEqual(dashboard_logs.count(), 2)
+        self.assertEqual(dashboard_logs.count(), 1)
+        self.assertEqual(
+            dashboard_logs.first().viewed_at if dashboard_logs.first() else None,
+            datetime(2024, 1, 3, 10, 0, 0, tzinfo=UTC),
+        )
 
         insight_logs = FileSystemViewLog.objects.filter(
             team=self.team, user=self.user, type="insight", ref=insight.short_id
@@ -76,6 +80,31 @@ class TestFileSystemViewLog(TestCase):
         file_system_refs = FileSystem.objects.filter(team=self.team).values_list("type", "ref")
         self.assertIn(("insight", insight.short_id), file_system_refs)
         self.assertIn(("dashboard", str(dashboard.id)), file_system_refs)
+
+    def test_log_updates_are_rate_limited(self) -> None:
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Insight",
+            saved=True,
+            created_by=self.user,
+            last_modified_by=self.user,
+        )
+
+        with freeze_time("2024-02-01T10:00:00Z"):
+            log_file_system_view(user=self.user, obj=insight)
+
+        with freeze_time("2024-02-01T10:00:03Z"):
+            log_file_system_view(user=self.user, obj=insight)
+
+        with freeze_time("2024-02-01T10:00:10Z"):
+            log_file_system_view(user=self.user, obj=insight)
+
+        logs = FileSystemViewLog.objects.filter(team=self.team, user=self.user, type="insight", ref=insight.short_id)
+        self.assertEqual(logs.count(), 1)
+        self.assertEqual(
+            logs.first().viewed_at if logs.first() else None,
+            datetime(2024, 2, 1, 10, 0, 10, tzinfo=UTC),
+        )
 
     def test_recent_viewers_for_resource(self) -> None:
         other_user = User.objects.create_user("other@posthog.com", "password", "Other")

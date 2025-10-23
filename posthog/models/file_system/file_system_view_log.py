@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, is_dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Optional, cast
 
-from django.db import models
+from django.db import IntegrityError, models
 from django.db.models import Max, OuterRef, Q, QuerySet, Subquery
 from django.utils import timezone
 
@@ -27,6 +27,9 @@ class FileSystemViewLog(UUIDModel):
         indexes = [
             models.Index(fields=["team", "user", "-viewed_at"], name="posthog_fsvl_recent_user_views"),
             models.Index(fields=["team", "type", "ref", "-viewed_at"], name="posthog_fsvl_recent_item_views"),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=("team", "user", "type", "ref"), name="posthog_fsvl_unique_user_item")
         ]
 
 
@@ -52,13 +55,46 @@ def log_file_system_view(
 
     resolved_team_id, representation = resolved
 
-    FileSystemViewLog.objects.create(
+    now = viewed_at or timezone.now()
+
+    recent_threshold = now - timedelta(seconds=5)
+
+    updated = FileSystemViewLog.objects.filter(
         team_id=resolved_team_id,
         user_id=user.id,
         type=representation.type,
         ref=str(representation.ref),
-        viewed_at=viewed_at or timezone.now(),
-    )
+        viewed_at__gte=recent_threshold,
+    ).exists()
+
+    if updated:
+        return
+
+    rows_updated = FileSystemViewLog.objects.filter(
+        team_id=resolved_team_id,
+        user_id=user.id,
+        type=representation.type,
+        ref=str(representation.ref),
+    ).update(viewed_at=now)
+
+    if rows_updated:
+        return
+
+    try:
+        FileSystemViewLog.objects.create(
+            team_id=resolved_team_id,
+            user_id=user.id,
+            type=representation.type,
+            ref=str(representation.ref),
+            viewed_at=now,
+        )
+    except IntegrityError:
+        FileSystemViewLog.objects.filter(
+            team_id=resolved_team_id,
+            user_id=user.id,
+            type=representation.type,
+            ref=str(representation.ref),
+        ).update(viewed_at=now)
 
 
 def annotate_file_system_with_view_logs(
@@ -74,9 +110,7 @@ def annotate_file_system_with_view_logs(
         ref=OuterRef("ref"),
     )
 
-    last_viewed_subquery = (
-        view_logs.order_by().values("team_id").annotate(last_viewed_at=Max("viewed_at")).values("last_viewed_at")[:1]
-    )
+    last_viewed_subquery = view_logs.order_by("-viewed_at").values("viewed_at")[:1]
 
     return base_qs.annotate(
         last_viewed_at=Subquery(last_viewed_subquery),

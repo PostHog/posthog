@@ -36,6 +36,11 @@ class Migration(migrations.Migration):
                 ),
             ],
             options={
+                "constraints": [
+                    models.UniqueConstraint(
+                        fields=("team", "user", "type", "ref"), name="posthog_fsvl_unique_user_item"
+                    ),
+                ],
                 "indexes": [
                     models.Index(fields=["team", "user", "-viewed_at"], name="posthog_fsvl_recent_user_views"),
                     models.Index(fields=["team", "type", "ref", "-viewed_at"], name="posthog_fsvl_recent_item_views"),
