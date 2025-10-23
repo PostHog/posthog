@@ -1668,7 +1668,7 @@
   LIMIT 100
   UNION ALL
   SELECT inner.customer_id AS customer_id,
-         customer_id AS name,
+         revenue_analytics_customer.name AS name,
          inner.amount AS amount,
          inner.month AS month
   FROM
@@ -1757,6 +1757,20 @@
               month
      ORDER BY amount DESC
      LIMIT 20 BY month) AS inner
+  LEFT JOIN
+    (SELECT '' AS id,
+            '' AS source_label,
+            toDateTime64('1970-01-01 00:00:00.000000', 6, 'UTC') AS timestamp,
+            '' AS name,
+            '' AS email,
+            '' AS phone,
+            '' AS address,
+            '' AS metadata,
+            '' AS country,
+            '' AS cohort,
+            '' AS initial_coupon,
+            '' AS initial_coupon_id
+     WHERE 0) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
   LIMIT 100 SETTINGS readonly=2,
