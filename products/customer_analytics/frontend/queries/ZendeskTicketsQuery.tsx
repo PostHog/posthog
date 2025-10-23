@@ -2,6 +2,7 @@ import { Link } from '@posthog/lemon-ui'
 
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn } from '~/queries/types'
+import { hogql } from '~/queries/utils'
 
 const DEFAULT_COLUMN_CONFIG = {
     width: '60px',
@@ -37,12 +38,12 @@ export const zendeskTicketsQuery = ({
         kind: NodeKind.DataTableNode,
         source: {
             kind: NodeKind.HogQLQuery,
-            query: `
+            query: hogql`
               with
                 person as (
                     select properties.email as email
                     from persons
-                    where id = '${personId}'
+                    where id = ${personId}
                 ),
                 zendesk_user as (
                     select u.id, u.email
@@ -56,8 +57,8 @@ export const zendeskTicketsQuery = ({
             select tickets.id, url, subject, status, priority, created_at, updated_at
             from tickets
             inner join zendesk_user on zendesk_user.id = tickets.requester_id
-            where ${conditions.join(' AND ')}
-            order by tickets.${orderBy || 'updated_at'} ${orderDirection || 'asc'}
+            where ${hogql.raw(conditions.join(' AND '))}
+            order by tickets.${hogql.identifier(orderBy || 'updated_at')} ${hogql.identifier(orderDirection || 'asc')}
             limit 500
             `,
         },
