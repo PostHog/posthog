@@ -2,6 +2,8 @@ import { actions, kea, listeners, path, reducers } from 'kea'
 
 import type { sessionRecordingPinnedPropertiesLogicType } from './sessionRecordingPinnedPropertiesLogicType'
 
+export const HARDCODED_DISPLAY_LABELS = ['Start', 'Duration', 'TTL', 'Clicks', 'Errors', 'Key presses'] as const
+
 export const sessionRecordingPinnedPropertiesLogic = kea<sessionRecordingPinnedPropertiesLogicType>([
     path(['scenes', 'session-recordings', 'player', 'playerMetaLogic', 'sessionRecordingPinnedPropertiesLogic']),
     actions({
@@ -10,18 +12,7 @@ export const sessionRecordingPinnedPropertiesLogic = kea<sessionRecordingPinnedP
     }),
     reducers({
         pinnedProperties: [
-            [
-                'Start',
-                'Clicks',
-                'Duration',
-                'TTL',
-                'click_count',
-                'keypress_count',
-                'console_error_count',
-                '$referrer',
-                '$geoip_country_code',
-                '$geoip_city_name',
-            ] as string[],
+            [...HARDCODED_DISPLAY_LABELS, '$referrer', '$geoip_country_code', '$geoip_city_name'] as string[],
             { persist: true },
             {
                 setPinnedProperties: (_, { properties }) => properties,

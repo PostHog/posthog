@@ -34,12 +34,10 @@ import { SimpleTimeLabel } from '../../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionRecordingsListPropertiesLogic'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 import { sessionRecordingPinnedPropertiesLogic } from './sessionRecordingPinnedPropertiesLogic'
+import { HARDCODED_DISPLAY_LABELS } from './sessionRecordingPinnedPropertiesLogic'
 import { SessionSummaryContent } from './types'
 
 const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
-
-// Display labels that are hardcoded in the overview items, not actual property keys
-const HARDCODED_DISPLAY_LABELS = ['Start', 'Duration', 'TTL', 'Clicks', 'Errors', 'Key presses'] as const
 
 function getAllPersonProperties(sessionPlayerMetaData: SessionRecordingType | null): Record<string, any> {
     return sessionPlayerMetaData?.person?.properties ?? {}
