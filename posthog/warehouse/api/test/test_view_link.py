@@ -474,9 +474,10 @@ class TestViewLinkValidation(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
         data = response.json()
         self.assertEqual(data["attr"], None)
-        self.assertEqual(data["code"], "validation_error")
+        self.assertEqual(data["code"], "QueryError")
         self.assertEqual(data["detail"], "Field not found: nonexistent_field")
         self.assertEqual(data["type"], "query_error")
+        self.assertEqual(data["hogql"], "SELECT validation.id FROM events WHERE notEquals(validation.id, '') LIMIT 10")
 
     def test_invalid_source_table(self):
         response = self.client.post(
@@ -614,9 +615,10 @@ class TestViewLinkValidation(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         data = response.json()
         self.assertEqual(data["attr"], None)
-        self.assertEqual(data["code"], "validation_error")
+        self.assertEqual(data["code"], "CHQueryErrorIllegalTypeOfArgument")
         self.assertTrue(data["detail"].startswith("Illegal types of arguments (DateTime64(6, 'UTC'), UUID)"))
         self.assertEqual(data["type"], "query_error")
+        self.assertEqual(data["hogql"], "SELECT validation.id FROM events WHERE notEquals(validation.id, '') LIMIT 10")
 
     @patch(f"{PATH}.execute_hogql_query", side_effect=_mock_execute_hogql_side_effect)
     def test_ambiguous_keys(self, _):

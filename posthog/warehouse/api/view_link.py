@@ -17,6 +17,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.errors import look_up_error_code_meta
+from posthog.exceptions_capture import capture_exception
 from posthog.warehouse.models import DataWarehouseJoin
 
 
@@ -232,11 +233,13 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if len(query_response.results) == 0:
                 response_data["msg"] = "Validation query returned no results"
         except ServerException as e:
+            capture_exception(e)
             response_data = {
                 "attr": None,
-                "code": "validation_error",
+                "code": e.__class__.__name__,
                 "detail": "An internal error occurred while validating.",
                 "type": "query_error",
+                "hogql": validation_query.to_hogql(),
             }
             status_code = status.HTTP_500_INTERNAL_SERVER_ERROR  # type: ignore[assignment]
             response_data["is_valid"] = False
@@ -245,11 +248,13 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if is_safe:
                 response_data["detail"] = str(e)
         except QueryError as e:
+            capture_exception(e)
             response_data = {
                 "attr": None,
-                "code": "validation_error",
+                "code": e.__class__.__name__,
                 "detail": str(e),  # QueryError inherits from ExposedHogQLError, so it is safe to show the message
                 "type": "query_error",
+                "hogql": validation_query.to_hogql(),
             }
             status_code = status.HTTP_400_BAD_REQUEST  # type: ignore[assignment]
 
