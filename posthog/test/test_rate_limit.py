@@ -734,3 +734,19 @@ class TestUserAPI(APIBaseTest):
 
                 result = get_route_from_path(test_path)
                 self.assertEqual(expected_result, result, description)
+
+    def test_parse_rate_with_custom_minutes_format(self):
+        """Test parsing custom format like '6/20minutes'"""
+        throttle = rate_limit.UserOrEmailRateThrottle()
+        num_requests, duration = throttle.parse_rate("6/20minutes")
+
+        self.assertEqual(num_requests, 6)
+        self.assertEqual(duration, 1200)  # 20 minutes * 60 seconds
+
+    def test_parse_rate_with_one_minute(self):
+        """Test parsing '10/1minute'"""
+        throttle = rate_limit.UserOrEmailRateThrottle()
+        num_requests, duration = throttle.parse_rate("10/1minute")
+
+        self.assertEqual(num_requests, 10)
+        self.assertEqual(duration, 60)  # 1 minute
