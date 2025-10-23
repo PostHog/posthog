@@ -10,6 +10,7 @@ from posthog.models.feature_flag import FeatureFlag
 from posthog.models.organization import OrganizationMembership
 from posthog.models.surveys.survey import Survey
 from posthog.models.team import Team
+from posthog.sync import database_sync_to_async
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 
 
@@ -37,58 +38,65 @@ def query_org_members(organization: Organization) -> QuerySet:
     )
 
 
-def query_teams_with_new_dashboards(end: datetime, begin: datetime) -> QuerySet:
+def query_new_dashboards(period_start: datetime, period_end: datetime) -> QuerySet:
     return (
-        Dashboard.objects.filter(created_at__gt=begin, created_at__lte=end)
+        Dashboard.objects.filter(created_at__gt=period_start, created_at__lte=period_end)
         .exclude(name__contains="Generated Dashboard")
         .values("team_id", "name", "id")
     )
 
 
-def query_teams_with_new_event_definitions(end: datetime, begin: datetime) -> QuerySet:
-    return EventDefinition.objects.filter(created_at__gt=begin, created_at__lte=end).values("team_id", "name", "id")
+def query_new_event_definitions(period_start: datetime, period_end: datetime) -> QuerySet:
+    return EventDefinition.objects.filter(created_at__gt=period_start, created_at__lte=period_end).values(
+        "team_id", "name", "id"
+    )
 
 
-def query_teams_with_experiments_launched(end: datetime, begin: datetime) -> QuerySet:
+def query_experiments_launched(period_start: datetime, period_end: datetime) -> QuerySet:
     return (
         Experiment.objects.filter(
-            start_date__gt=begin,
-            start_date__lte=end,
+            start_date__gt=period_start,
+            start_date__lte=period_end,
         )
         .exclude(
-            end_date__gt=begin,
-            end_date__lte=end,
+            end_date__gt=period_start,
+            end_date__lte=period_end,
         )
         .values("team_id", "name", "id", "start_date")
     )
 
 
-def query_teams_with_experiments_completed(end: datetime, begin: datetime) -> QuerySet:
-    return Experiment.objects.filter(end_date__gt=begin, end_date__lte=end).values(
+def query_experiments_completed(period_start: datetime, period_end: datetime) -> QuerySet:
+    return Experiment.objects.filter(end_date__gt=period_start, end_date__lte=period_end).values(
         "team_id", "name", "id", "start_date", "end_date"
     )
 
 
-def query_teams_with_new_external_data_sources(end: datetime, begin: datetime) -> QuerySet:
-    return ExternalDataSource.objects.filter(created_at__gt=begin, created_at__lte=end, deleted=False).values(
-        "team_id", "source_type", "id"
-    )
+def query_new_external_data_sources(period_start: datetime, period_end: datetime) -> QuerySet:
+    return ExternalDataSource.objects.filter(
+        created_at__gt=period_start, created_at__lte=period_end, deleted=False
+    ).values("team_id", "source_type", "id")
 
 
-def query_teams_with_surveys_launched(end: datetime, begin: datetime) -> QuerySet:
-    return Survey.objects.filter(start_date__gt=begin, start_date__lte=end).values(
+def query_surveys_launched(period_start: datetime, period_end: datetime) -> QuerySet:
+    return Survey.objects.filter(start_date__gt=period_start, start_date__lte=period_end).values(
         "team_id", "name", "id", "description", "start_date"
     )
 
 
-def query_teams_with_new_feature_flags(end: datetime, begin: datetime) -> QuerySet:
+def query_new_feature_flags(period_start: datetime, period_end: datetime) -> QuerySet:
     return (
         FeatureFlag.objects.filter(
-            created_at__gt=begin,
-            created_at__lte=end,
+            created_at__gt=period_start,
+            created_at__lte=period_end,
             deleted=False,
         )
         .exclude(name__contains="Feature Flag for Experiment")
         .exclude(name__contains="Targeting flag for survey")
         .values("team_id", "name", "id", "key")
     )
+
+
+@database_sync_to_async
+def queryset_to_list(qs: QuerySet):
+    return list(qs)

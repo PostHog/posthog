@@ -1,60 +1,59 @@
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
+from typing import Optional, TypeAlias
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, RootModel
+
+
+@dataclass(frozen=True)
+class CommonInput:
+    redis_ttl: int = 3600 * 24 * 3  # 3 days
+    redis_host: str = os.getenv("WEEKLY_DIGEST_REDIS_HOST", "localhost")
+    redis_port: int = int(os.getenv("WEEKLY_DIGEST_REDIS_PORT", "6379"))
+    batch_size: int = 100
+
+
+@dataclass(frozen=True)
+class Digest:
+    key: str
+    period_start: datetime
+    period_end: datetime
 
 
 @dataclass(frozen=True)
 class WeeklyDigestInput:
     dry_run: bool
-    redis_ttl: int = 3600 * 24 * 3  # 3 days
-    redis_host: str = os.getenv("WEEKLY_DIGEST_REDIS_HOST", "localhost")
-    redis_port: int = int(os.getenv("WEEKLY_DIGEST_REDIS_PORT", "6379"))
+    common: CommonInput = field(default_factory=CommonInput)
 
 
 @dataclass(frozen=True)
 class GenerateDigestDataInput:
-    digest_key: str
-    period_start: datetime
-    period_end: datetime
-    redis_ttl: int
-    redis_host: str = os.getenv("WEEKLY_DIGEST_REDIS_HOST", "localhost")
-    redis_port: int = int(os.getenv("WEEKLY_DIGEST_REDIS_PORT", "6379"))
-    batch_size: int = 100
+    digest: Digest
+    common: CommonInput
 
 
 @dataclass(frozen=True)
 class GenerateOrganizationDigestInput:
     batch: tuple[int, int]
-    digest_key: str
-    redis_ttl: int
-    redis_host: str = os.getenv("WEEKLY_DIGEST_REDIS_HOST", "localhost")
-    redis_port: int = int(os.getenv("WEEKLY_DIGEST_REDIS_PORT", "6379"))
+    digest: Digest
+    common: CommonInput
 
 
 @dataclass(frozen=True)
 class SendWeeklyDigestInput:
     dry_run: bool
-    digest_key: str
-    period_start: datetime
-    period_end: datetime
-    redis_host: str = os.getenv("WEEKLY_DIGEST_REDIS_HOST", "localhost")
-    redis_port: int = int(os.getenv("WEEKLY_DIGEST_REDIS_PORT", "6379"))
-    batch_size: int = 100
+    digest: Digest
+    common: CommonInput
 
 
 @dataclass(frozen=True)
 class SendWeeklyDigestBatchInput:
-    dry_run: bool
     batch: tuple[int, int]
-    digest_key: str
-    period_start: datetime
-    period_end: datetime
-    redis_host: str = os.getenv("WEEKLY_DIGEST_REDIS_HOST", "localhost")
-    redis_port: int = int(os.getenv("WEEKLY_DIGEST_REDIS_PORT", "6379"))
+    dry_run: bool
+    digest: Digest
+    common: CommonInput
 
 
 class DigestDashboard(BaseModel):
@@ -62,17 +61,9 @@ class DigestDashboard(BaseModel):
     id: int
 
 
-class DashboardList(BaseModel):
-    dashboards: list[DigestDashboard]
-
-
 class DigestEventDefinition(BaseModel):
     name: str
     id: UUID
-
-
-class EventDefinitionList(BaseModel):
-    definitions: list[DigestEventDefinition]
 
 
 class DigestExperiment(BaseModel):
@@ -82,17 +73,15 @@ class DigestExperiment(BaseModel):
     end_date: Optional[datetime] = None
 
 
-class ExperimentList(BaseModel):
-    experiments: list[DigestExperiment]
-
-
 class DigestExternalDataSource(BaseModel):
     source_type: str
     id: UUID
 
 
-class ExternalDataSourceList(BaseModel):
-    sources: list[DigestExternalDataSource]
+class DigestFeatureFlag(BaseModel):
+    name: str
+    id: int
+    key: str
 
 
 class DigestSurvey(BaseModel):
@@ -102,18 +91,41 @@ class DigestSurvey(BaseModel):
     start_date: datetime
 
 
-class SurveyList(BaseModel):
-    surveys: list[DigestSurvey]
+class DashboardList(RootModel):
+    root: list[DigestDashboard]
 
 
-class DigestFeatureFlag(BaseModel):
-    name: str
-    id: int
-    key: str
+class EventDefinitionList(RootModel):
+    root: list[DigestEventDefinition]
 
 
-class FeatureFlagList(BaseModel):
-    flags: list[DigestFeatureFlag]
+class ExperimentList(RootModel):
+    root: list[DigestExperiment]
+
+
+class ExternalDataSourceList(RootModel):
+    root: list[DigestExternalDataSource]
+
+
+class FeatureFlagList(RootModel):
+    root: list[DigestFeatureFlag]
+
+
+class SurveyList(RootModel):
+    root: list[DigestSurvey]
+
+
+# mypy and ruff do not agree about TypeAlias
+# ruff: noqa: UP040
+
+DigestResourceType: TypeAlias = (
+    type[DashboardList]
+    | type[EventDefinitionList]
+    | type[ExperimentList]
+    | type[ExternalDataSourceList]
+    | type[FeatureFlagList]
+    | type[SurveyList]
+)
 
 
 class TeamDigest(BaseModel):
@@ -131,13 +143,13 @@ class TeamDigest(BaseModel):
         return (
             sum(
                 [
-                    len(self.dashboards.dashboards),
-                    len(self.event_definitions.definitions),
-                    len(self.experiments_launched.experiments),
-                    len(self.experiments_completed.experiments),
-                    len(self.external_data_sources.sources),
-                    len(self.surveys_launched.surveys),
-                    len(self.feature_flags.flags),
+                    len(self.dashboards.root),
+                    len(self.event_definitions.root),
+                    len(self.experiments_launched.root),
+                    len(self.experiments_completed.root),
+                    len(self.external_data_sources.root),
+                    len(self.surveys_launched.root),
+                    len(self.feature_flags.root),
                 ]
             )
             == 0
