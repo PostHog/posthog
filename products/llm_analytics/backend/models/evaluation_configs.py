@@ -37,8 +37,8 @@ class BooleanOutputConfig(BaseModel):
 
 
 # Mapping: (evaluation_type, output_type) -> (evaluation_config_model, output_config_model)
-EVALUATION_CONFIG_MODELS = {
-    (EvaluationType.LLM_JUDGE, OutputType.BOOLEAN): (LLMJudgeConfig, BooleanOutputConfig),
+EVALUATION_CONFIG_MODELS: dict[tuple[str, str], tuple[type[LLMJudgeConfig], type[BooleanOutputConfig]]] = {
+    (EvaluationType.LLM_JUDGE.value, OutputType.BOOLEAN.value): (LLMJudgeConfig, BooleanOutputConfig),
 }
 
 

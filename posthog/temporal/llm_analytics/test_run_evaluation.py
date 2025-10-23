@@ -27,7 +27,10 @@ def setup_data(db):
     evaluation = Evaluation.objects.create(
         team=team,
         name="Test Evaluation",
-        prompt="Is this response factually accurate?",
+        evaluation_type="llm_judge",
+        evaluation_config={"prompt": "Is this response factually accurate?"},
+        output_type="boolean",
+        output_config={},
         enabled=True,
     )
     return {"organization": organization, "team": team, "evaluation": evaluation}
