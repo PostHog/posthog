@@ -2,6 +2,7 @@ use std::{future::ready, sync::Arc};
 
 use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::database_pools::DatabasePools;
+use crate::early_access_features::early_access_feature_cache_manager::EarlyAccessFeatureCacheManager;
 use axum::{
     http::Method,
     routing::{any, get},
@@ -41,6 +42,7 @@ pub struct State {
     pub cookieless_manager: Arc<CookielessManager>,
     pub flag_definitions_limiter: FlagDefinitionsRateLimiter,
     pub config: Config,
+    pub early_access_cache_manager: Arc<EarlyAccessFeatureCacheManager>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -55,6 +57,7 @@ pub fn router<RR, RW>(
     session_replay_billing_limiter: SessionReplayLimiter,
     cookieless_manager: Arc<CookielessManager>,
     config: Config,
+    early_access_feature_cache: Arc<EarlyAccessFeatureCacheManager>,
 ) -> Router
 where
     RR: RedisClient + Send + Sync + 'static,
@@ -81,6 +84,7 @@ where
         cookieless_manager,
         flag_definitions_limiter,
         config: config.clone(),
+        early_access_cache_manager: early_access_feature_cache,
     };
 
     // Very permissive CORS policy, as old SDK versions

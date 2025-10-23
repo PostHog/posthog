@@ -2,6 +2,7 @@ use crate::{
     api::types::FlagValue,
     cohorts::cohort_models::{Cohort, CohortId},
     config::{Config, DEFAULT_TEST_CONFIG},
+    early_access_features::early_access_feature_models::EarlyAccessFeature,
     flags::flag_models::{
         FeatureFlag, FeatureFlagRow, FlagFilters, FlagPropertyGroup, TEAM_FLAGS_CACHE_PREFIX,
     },
@@ -784,6 +785,72 @@ pub fn create_test_flag_that_depends_on_flag(
     )
 }
 
+pub fn create_test_early_access_feature(
+    feature_flag_id: i32,
+    team_id: Option<TeamId>,
+    name: Option<String>,
+    description: Option<String>,
+    stage: Option<String>,
+    documentation_url: Option<String>,
+) -> EarlyAccessFeature {
+    return EarlyAccessFeature {
+        id: uuid::Uuid::new_v4(),
+        team_id: Some(team_id.unwrap_or(1)),
+        feature_flag_id: Some(feature_flag_id),
+        name: name.unwrap_or("Test Early Access Feature".to_string()),
+        description: description.unwrap_or("description".to_string()),
+        stage: stage.unwrap_or("concept".to_string()),
+        documentation_url: documentation_url.unwrap_or("".to_string()),
+    };
+}
+
+pub async fn insert_early_access_feature_for_team_in_pg(
+    client: Arc<dyn Client + Send + Sync>,
+    team_id: i32,
+    feature_flag_id: i32,
+    stage: Option<String>,
+) -> Result<EarlyAccessFeature, Error> {
+    let early_access_feature =
+        create_test_early_access_feature(feature_flag_id, Some(team_id), None, None, stage, None);
+    let mut conn = client.get_connection().await?;
+    let row: (Uuid,) = sqlx::query_as(
+        r#"
+    INSERT INTO posthog_earlyaccessfeature
+    (
+        id,
+        team_id,
+        feature_flag_id,
+        name,
+        description,
+        stage,
+        documentation_url,
+        created_at
+    )
+    VALUES
+    (
+        $1, $2, $3, $4, $5, $6, $7,'2024-06-17 14:40:49.298579+00:00'
+    )
+    RETURNING id
+"#,
+    )
+    .bind(uuid::Uuid::new_v4())
+    .bind(&early_access_feature.team_id) // <- $1
+    .bind(&early_access_feature.feature_flag_id) // <- $2
+    .bind(&early_access_feature.name) // <- $3
+    .bind(&early_access_feature.description) // <- $4
+    .bind(&early_access_feature.stage) // <- $5
+    .bind(&early_access_feature.documentation_url)
+    .fetch_one(&mut *conn)
+    .await?;
+
+    let id = row.0;
+
+    Ok(EarlyAccessFeature {
+        id,
+        ..early_access_feature
+    })
+}
+
 /// Test context that encapsulates all database connections needed for testing
 /// This struct manages the proper routing of database operations to the correct
 /// database (persons vs non-persons) based on the configuration
@@ -1262,5 +1329,56 @@ impl TestContext {
         .execute(&mut *conn)
         .await?;
         Ok(())
+    }
+    pub async fn insert_early_access_feature(
+        &self,
+        team_id: i32,
+        stage: Option<String>,
+        flag_id: Option<i32>,
+    ) -> Result<EarlyAccessFeature, Error> {
+        // 1. Determine which FeatureFlag ID to use
+        let flag_id = match flag_id {
+            // Case A: Flag IS provided (flag is not null)
+            Some(existing_flag_id) => {
+                existing_flag_id 
+            }
+
+            // Case B: Flag is NULL (None)
+            None => {
+                // Create a new Flag using the logic you had before
+                let new_flag_row = FeatureFlagRow {
+                    id: 1, // Placeholder, usually ignored by insert_flag_for_team_in_pg
+                    team_id: team_id,
+                    name: Some("Early Access Flag".to_string()),
+                    key: format!("early_access_{}", uuid::Uuid::new_v4()), // Use a unique key
+                    filters: serde_json::json!({"groups": [{"properties": [], "rollout_percentage": 0}]}),
+                    deleted: false,
+                    active: true,
+                    ensure_experience_continuity: Some(false),
+                    version: Some(1),
+                    evaluation_runtime: Some("all".to_string()),
+                    evaluation_tags: None,
+                };
+
+                // Insert the new flag into the database
+                let inserted_flag = insert_flag_for_team_in_pg(
+                    self.non_persons_writer.clone(),
+                    team_id,
+                    Some(new_flag_row),
+                )
+                .await?;
+
+                // Return the ID of the newly inserted flag
+                inserted_flag.id
+            }
+        };
+
+        insert_early_access_feature_for_team_in_pg(
+            self.non_persons_writer.clone(),
+            team_id,
+            flag_id,
+            stage,
+        )
+        .await
     }
 }

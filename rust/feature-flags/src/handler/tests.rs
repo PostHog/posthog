@@ -1,3 +1,4 @@
+use crate::early_access_features::early_access_feature_cache_manager::EarlyAccessFeatureCacheManager;
 #[cfg(test)]
 use crate::{
     api::{
@@ -132,6 +133,11 @@ async fn test_evaluate_feature_flags() {
     let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
     let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
     let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+    let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
+        reader.clone(),
+        None,
+        None,
+    ));
     let context = TestContext::new(None).await;
     let team = context
         .insert_new_team(None)
@@ -189,6 +195,7 @@ async fn test_evaluate_feature_flags() {
         groups: None,
         hash_key_override: None,
         flag_keys: None,
+        early_access_feature_cache,
     };
 
     let request_id = Uuid::new_v4();
@@ -212,6 +219,11 @@ async fn test_evaluate_feature_flags_with_errors() {
     // Set up test dependencies
     let context = TestContext::new(None).await;
     let cohort_cache = Arc::new(CohortCacheManager::new(
+        context.non_persons_reader.clone(),
+        None,
+        None,
+    ));
+    let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
         context.non_persons_reader.clone(),
         None,
         None,
@@ -278,6 +290,7 @@ async fn test_evaluate_feature_flags_with_errors() {
         groups: None,
         hash_key_override: None,
         flag_keys: None,
+        early_access_feature_cache,
     };
 
     let request_id = Uuid::new_v4();
@@ -598,6 +611,11 @@ async fn test_evaluate_feature_flags_multiple_flags() {
     let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
     let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
     let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+    let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
+        reader.clone(),
+        None,
+        None,
+    ));
 
     let context = TestContext::new(None).await;
     let team = context
@@ -679,6 +697,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
         groups: None,
         hash_key_override: None,
         flag_keys: None,
+        early_access_feature_cache,
     };
 
     let request_id = Uuid::new_v4();
@@ -704,6 +723,11 @@ async fn test_evaluate_feature_flags_details() {
     let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
     let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
     let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+    let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
+        reader.clone(),
+        None,
+        None,
+    ));
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(None).await.unwrap();
     let distinct_id = "user123".to_string();
@@ -780,6 +804,7 @@ async fn test_evaluate_feature_flags_details() {
         groups: None,
         hash_key_override: None,
         flag_keys: None,
+        early_access_feature_cache,
     };
 
     let request_id = Uuid::new_v4();
@@ -873,6 +898,12 @@ async fn test_evaluate_feature_flags_with_overrides() {
         None,
         None,
     ));
+
+    let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
+        context.non_persons_reader.clone(),
+        None,
+        None,
+    ));
     let team = context.insert_new_team(None).await.unwrap();
 
     let flag = FeatureFlag {
@@ -932,6 +963,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
         groups: Some(groups),
         hash_key_override: None,
         flag_keys: None,
+        early_access_feature_cache,
     };
 
     let request_id = Uuid::new_v4();
@@ -969,6 +1001,11 @@ async fn test_long_distinct_id() {
     let long_id = "a".repeat(400);
     let context = TestContext::new(None).await;
     let cohort_cache = Arc::new(CohortCacheManager::new(
+        context.non_persons_reader.clone(),
+        None,
+        None,
+    ));
+    let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
         context.non_persons_reader.clone(),
         None,
         None,
@@ -1021,6 +1058,7 @@ async fn test_long_distinct_id() {
         groups: None,
         hash_key_override: None,
         flag_keys: None,
+        early_access_feature_cache,
     };
 
     let request_id = Uuid::new_v4();
