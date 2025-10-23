@@ -1,5 +1,5 @@
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { HeatmapsBrowser } from 'scenes/heatmaps/components/HeatmapsBrowser'
+import { HeatmapRecording } from 'scenes/heatmaps/components/HeatmapRecording'
 import { heatmapRecordingLogic } from 'scenes/heatmaps/scenes/heatmap/heatmapRecordingLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -23,7 +23,7 @@ export function HeatmapRecordingScene(): JSX.Element {
                     directly to us!
                 </p>
             </LemonBanner>
-            <HeatmapsBrowser />
+            <HeatmapRecording />
         </div>
     )
 }

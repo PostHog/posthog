@@ -37,6 +37,7 @@ export function FixedReplayHeatmapBrowser({
                     >
                         <HeatmapCanvas positioning="absolute" widthOverride={widthOverride} context="in-app" />
                         <iframe
+                            id="heatmap-iframe"
                             ref={iframeRef}
                             className="w-full h-full bg-white"
                             srcDoc={replayIframeData?.html}
