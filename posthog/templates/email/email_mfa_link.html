@@ -1,10 +1,9 @@
 {% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}{% block section %}
-<p>Hi {{user_name}},</p>
 
 <p>We received a login attempt to your PostHog account. To continue, please verify it's you by clicking the link below:</p>
 
 <div class="mb mt text-center">
-    <a class="button" href="{{verification_link}}">Verify login</a>
+    <a class="button" href="{{url}}">Verify login</a>
 </div>
 
 <p>This link expires in {{expiration_minutes}} minutes.</p>
@@ -12,7 +11,7 @@
 <div class="mt muted">
     <p>
         If the button above doesn't work, paste this link into your browser:<br />
-        <a href="{{verification_link}}">{{verification_link}}</a>
+        <a href="{{url}}">{{url}}</a>
     </p>
 </div>
 

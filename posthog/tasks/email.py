@@ -256,8 +256,7 @@ def send_email_mfa_link(user_id: int, token: str) -> None:
         template_name="email_mfa_link",
         template_context={
             "preheader": "Please follow the link inside to verify your login.",
-            "user_name": user.first_name,
-            "verification_link": verification_link,
+            "url": verification_link,
             "expiration_minutes": 10,
             "site_url": settings.SITE_URL,
         },
