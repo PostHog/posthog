@@ -199,7 +199,7 @@ const ExperimentFormFields = (): JSX.Element => {
                     <SceneDivider />
                 </>
             )}
-            {groupsAccessStatus === GroupsAccessStatus.AlreadyUsing && (
+            {groupsAccessStatus === GroupsAccessStatus.AlreadyUsing && !validExistingFeatureFlag && (
                 <>
                     <SceneSection
                         title="Participant type"

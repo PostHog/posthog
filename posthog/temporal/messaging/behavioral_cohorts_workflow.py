@@ -271,7 +271,8 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
                     GROUP BY team_id, cohort_id, person_id
                 ) cmc ON bcm.team_id = cmc.team_id AND bcm.cohort_id = cmc.cohort_id AND bcm.person_id = cmc.person_id
                 WHERE status != 'unchanged'
-                SETTINGS join_use_nulls = 1;
+                SETTINGS join_use_nulls = 1
+                FORMAT JSONEachRow
             """
 
             try:

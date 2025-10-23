@@ -33,6 +33,7 @@ from posthog.hogql.context import HogQLContext
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import capture_legacy_api_call
+from posthog.api.mixins import FileSystemViewSetMixin
 from posthog.api.person import get_funnel_actor_class
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -709,7 +710,7 @@ class CohortSerializer(serializers.ModelSerializer):
         return representation
 
 
-class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class CohortViewSet(FileSystemViewSetMixin, TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Cohort.objects.all()
     serializer_class = CohortSerializer
     scope_object = "cohort"
