@@ -117,6 +117,10 @@ def generate_test_events(
     return events
 
 
+async def truncate_table(client: ClickHouseClient, table: str):
+    await execute_query(client, f"TRUNCATE TABLE IF EXISTS `{table}`")
+
+
 async def insert_event_values_in_clickhouse(
     client: ClickHouseClient, events: list[EventValues], table: str = "sharded_events", insert_sessions: bool = False
 ):
