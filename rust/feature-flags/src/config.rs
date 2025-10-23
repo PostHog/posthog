@@ -220,6 +220,27 @@ pub struct Config {
     #[envconfig(default = "true")]
     pub test_before_acquire: FlexBool,
 
+    // PostgreSQL statement_timeout for non-persons reader queries (milliseconds)
+    // - None or unset to use database default (typically unlimited)
+    // - Non-persons readers may run longer analytical queries
+    // - Recommended: Some(60000-300000) for 1-5 minutes, or None for analytics workloads
+    // - This timeout is enforced server-side and properly kills queries
+    pub non_persons_reader_statement_timeout_ms: Option<u64>,
+
+    // PostgreSQL statement_timeout for persons reader queries (milliseconds)
+    // - None or unset to use database default (typically unlimited)
+    // - Persons readers may run longer analytical queries
+    // - Recommended: Some(60000-300000) for 1-5 minutes, or None for analytics workloads
+    // - This timeout is enforced server-side and properly kills queries
+    pub persons_reader_statement_timeout_ms: Option<u64>,
+
+    // PostgreSQL statement_timeout for writer database queries (milliseconds)
+    // - None or unset to use database default (typically unlimited)
+    // - Writers should be fast transactional operations
+    // - Recommended: Some(30000) for 30 seconds for transactional queries
+    // - This timeout is enforced server-side and properly kills queries
+    pub writer_statement_timeout_ms: Option<u64>,
+
     // How often to report database pool metrics (seconds)
     // - Decrease for more granular monitoring (e.g., 10-15)
     // - Increase to reduce metric volume (e.g., 60-120)
@@ -352,6 +373,9 @@ impl Config {
             max_lifetime_secs: 1800,
             max_lifetime_jitter_secs: 1800,
             test_before_acquire: FlexBool(true),
+            non_persons_reader_statement_timeout_ms: None,
+            persons_reader_statement_timeout_ms: None,
+            writer_statement_timeout_ms: None,
             db_monitor_interval_secs: 30,
             db_pool_warn_utilization: 0.8,
             billing_limiter_cache_ttl_secs: 5,
