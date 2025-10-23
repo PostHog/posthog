@@ -35,14 +35,16 @@ export const ErrorDetailsSchema = z.object({
     dateTo: z.string().datetime().optional(),
 })
 
+export const UpdateIssueStatusSchema = z.enum(['active', 'resolved', 'suppressed'])
+
 export const UpdateIssueSchema = z.object({
-    status: z.nativeEnum(StatusErrors).optional(),
+    status: UpdateIssueStatusSchema.optional(),
     name: z.string().optional(),
 })
 
 export const IssueSchema = z.object({
     id: z.string().uuid(),
-    status: z.nativeEnum(StatusErrors),
+    status: UpdateIssueStatusSchema,
     name: z.string(),
     description: z.string().nullish(),
     first_seen: z.string().datetime(),

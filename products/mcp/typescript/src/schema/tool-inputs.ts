@@ -5,7 +5,7 @@ import {
     ListDashboardsSchema,
     UpdateDashboardInputSchema,
 } from './dashboards'
-import { ErrorDetailsSchema, ListErrorsSchema, StatusErrors } from './errors'
+import { ErrorDetailsSchema, ListErrorsSchema, UpdateIssueStatusSchema } from './errors'
 import { FilterGroupsSchema, UpdateFeatureFlagInputSchema } from './flags'
 import { CreateInsightInputSchema, ListInsightsSchema, UpdateInsightInputSchema } from './insights'
 import { InsightQuerySchema } from './query'
@@ -52,7 +52,7 @@ export const ErrorTrackingListSchema = ListErrorsSchema
 
 export const ErrorTrackingUpdateIssueSchema = z.object({
     issueId: z.string().uuid().describe('The UUID of the error tracking issue to update'),
-    status: z.nativeEnum(StatusErrors).optional().describe('The new status for the issue'),
+    status: UpdateIssueStatusSchema.optional().describe('The new status for the issue'),
     name: z.string().optional().describe('The new name for the issue'),
 })
 
