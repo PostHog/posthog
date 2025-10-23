@@ -70,7 +70,10 @@ pub async fn export_logs_http(
                     Ok(row) => row,
                     Err(e) => {
                         error!("Failed to create LogRow: {e}");
-                        continue;
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            Json(json!({"error": format!("Bad input format provided")})),
+                        ));
                     }
                 };
                 rows.push(row);
@@ -80,6 +83,10 @@ pub async fn export_logs_http(
 
     if let Err(e) = service.sink.write(token.unwrap(), rows).await {
         error!("Failed to send logs to Kafka: {}", e);
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Internal server error")})),
+        ));
     } else {
         debug!("Successfully sent logs to Kafka");
     }
