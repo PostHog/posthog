@@ -240,6 +240,20 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
     listeners(({ actions, values }) => ({
         setPropertyFilters: ({ propertyFilters }) => {
             if (propertyFilters && propertyFilters.length > 0) {
+                const aiSessionFilter = propertyFilters.find((f) => f.key === '$ai_session_id')
+
+                if (aiSessionFilter) {
+                    actions.addProductIntent({
+                        product_type: ProductKey.LLM_ANALYTICS,
+                        intent_context: ProductIntentContext.LLM_ANALYTICS_AI_SESSION_VIEWED,
+                        metadata: {
+                            ai_session_id: Array.isArray(aiSessionFilter.value)
+                                ? aiSessionFilter.value[0]
+                                : aiSessionFilter.value,
+                        },
+                    })
+                }
+
                 actions.addProductIntent({
                     product_type: ProductKey.LLM_ANALYTICS,
                     intent_context: ProductIntentContext.LLM_ANALYTICS_FILTERS_APPLIED,

@@ -40,6 +40,7 @@ export enum ProductIntentContext {
     LLM_ANALYTICS_TRACE_VIEW_REPLAY = 'llm_analytics_trace_view_replay',
     LLM_ANALYTICS_DOCS_VIEWED = 'llm_analytics_docs_viewed',
     LLM_ANALYTICS_AI_PROPERTY_INSIGHT_CREATED = 'llm_analytics_ai_property_insight_created',
+    LLM_ANALYTICS_AI_SESSION_VIEWED = 'llm_analytics_ai_session_viewed',
 
     /*
     Cross Sells
