@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Optional, cast
 
 from django.db import IntegrityError, models
-from django.db.models import Max, OuterRef, Q, QuerySet, Subquery
+from django.db.models import Max, Q, QuerySet
 from django.utils import timezone
 
 from posthog.models.file_system.file_system import FileSystem
@@ -103,17 +103,15 @@ def annotate_file_system_with_view_logs(
     queryset = queryset or FileSystem.objects.all()
     base_qs = queryset.filter(team_id=team_id)
 
-    view_logs = FileSystemViewLog.objects.filter(
-        team_id=team_id,
-        user_id=user_id,
-        type=OuterRef("type"),
-        ref=OuterRef("ref"),
-    )
-
-    last_viewed_subquery = view_logs.order_by("-viewed_at").values("viewed_at")[:1]
+    view_logs_filter = Q(team__filesystemviewlog__user_id=user_id)
+    view_logs_filter &= Q(team__filesystemviewlog__type=models.F("type"))
+    view_logs_filter &= Q(team__filesystemviewlog__ref=models.F("ref"))
 
     return base_qs.annotate(
-        last_viewed_at=Subquery(last_viewed_subquery),
+        last_viewed_at=Max(
+            "team__filesystemviewlog__viewed_at",
+            filter=view_logs_filter,
+        )
     )
 
 
