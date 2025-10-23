@@ -1843,10 +1843,6 @@ class TestUserTwoFactor(APIBaseTest):
 
         response = self.client.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
 
-        if response.status_code != status.HTTP_200_OK:
-            print(f"Response status: {response.status_code}")
-            print(f"Response data: {response.json() if response.content else 'No content'}")
-
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["uuid"], str(self.user.uuid))
