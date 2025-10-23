@@ -4769,6 +4769,13 @@ export interface DataWarehouseViewLink {
     configuration?: DataWarehouseViewLinkConfiguration
 }
 
+export interface DataWarehouseViewLinkValidation {
+    is_valid: boolean
+    msg: string | null
+    hogql: string | null
+    results: any[]
+}
+
 export interface QueryTabState {
     id: string
     state: Record<string, any>
@@ -5026,7 +5033,6 @@ export type BatchExportServiceDatabricks = {
         schema: string
         table_name: string
         use_variant_type: boolean
-        table_partition_field: string | null
         exclude_events: string[]
         include_events: string[]
     }

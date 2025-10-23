@@ -14888,6 +14888,9 @@
                 "optimizeJoinedFilters": {
                     "type": "boolean"
                 },
+                "optimizeProjections": {
+                    "type": "boolean"
+                },
                 "personsArgMaxVersion": {
                     "enum": ["auto", "v1", "v2"],
                     "type": "string"
@@ -17480,6 +17483,9 @@
                 },
                 {
                     "$ref": "#/definitions/RecordingPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/GroupPropertyFilter"
                 }
             ]
         },
