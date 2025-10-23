@@ -16,6 +16,78 @@ logger = structlog.get_logger(__name__)
 TMP_DIR = "/tmp"
 
 
+def _dismiss_cookie_banners(page) -> None:
+    """Best-effort removal of cookie/consent banners before measuring height and capturing.
+    Handles common CMPs and explicitly supports Cookiebot (#CybotCookiebotDialog*).
+    """
+    # 1) Try clicking obvious accept/allow buttons (generic + Cookiebot)
+    click_selectors = [
+        # Generic
+        'button:has-text("Accept")',
+        'button:has-text("I Agree")',
+        'button:has-text("I agree")',
+        'button:has-text("Got it")',
+        'button:has-text("OK")',
+        'button[aria-label*="accept" i]',
+        '[role="dialog"] button:has-text("Accept")',
+        'button[id*="accept" i], button[class*="accept" i]',
+        # OneTrust
+        "#onetrust-accept-btn-handler",
+        ".onetrust-accept-btn-handler",
+        # Cookiebot specific
+        "#CybotCookiebotDialogBodyButtonAccept",
+        "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll",
+    ]
+    for sel in click_selectors:
+        try:
+            el = page.locator(sel).first
+            # wait a short time for element to appear, then click
+            el.wait_for(timeout=500)
+            el.click(timeout=500)
+            page.wait_for_timeout(250)
+            break
+        except Exception:
+            pass
+
+    # 2) CSS-hide common cookie/consent containers and overlays
+    css_hide = """
+    [id*="cookie" i], [class*="cookie" i],
+    [id*="consent" i], [class*="consent" i],
+    [id*="gdpr" i], [class*="gdpr" i],
+    [id*="onetrust" i], [class*="onetrust" i],
+    [id*="ot-sdk" i], [class*="ot-sdk" i],
+    [id*="sp_message" i], [class*="sp_message" i],
+    [id*="sp-consent" i], [class*="sp-consent" i],
+    [id*="cmp" i], [class*="cmp" i],
+    [id*="osano" i], [class*="osano" i],
+    [id*="quantcast" i], [class*="quantcast" i],
+    iframe[src*="consent" i], iframe[src*="cookie" i], iframe[src*="onetrust" i],
+    /* generic fixed overlays */
+    div[style*="position:fixed" i][style*="z-index" i] {
+        display: none !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+    }
+    """
+    try:
+        page.add_style_tag(content=css_hide)
+    except Exception:
+        pass
+
+    # 3) Explicitly remove Cookiebot dialog + underlay if present
+    try:
+        page.evaluate(
+            """
+            () => {
+              document.getElementById('CybotCookiebotDialog')?.remove();
+              document.getElementById('CybotCookiebotDialogBodyUnderlay')?.remove();
+            }
+            """
+        )
+    except Exception:
+        pass
+
+
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.EXPORTS.value,
@@ -124,6 +196,7 @@ def _generate_screenshots(screenshot: HeatmapScreenshot) -> None:
                     )
                     page = ctx.new_page()
                     page.goto(screenshot.url, wait_until="load", timeout=120_000)
+                    _dismiss_cookie_banners(page)
 
                     total_height = page.evaluate("""() => Math.max(
                         document.body.scrollHeight,
