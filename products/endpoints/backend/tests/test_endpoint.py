@@ -123,7 +123,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             "query": {"kind": "HogQLQuery", "query": "SELECT 1"},
         }
 
-        response = self.client.put(
+        response = self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/", updated_data, format="json"
         )
 
@@ -198,7 +198,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
 
-        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_missing_required_fields(self):
         """Test validation when required fields are missing."""

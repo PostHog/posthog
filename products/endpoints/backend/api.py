@@ -42,9 +42,10 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import Product, get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import AccessMethod, Product, get_query_tag_value, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import report_user_action
@@ -53,6 +54,7 @@ from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.permissions import ProjectSecretAPIKeyPermission
 from posthog.rate_limit import APIQueriesBurstThrottle, APIQueriesSustainedThrottle
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.types import InsightQueryNode
@@ -76,7 +78,6 @@ ENDPOINT_NAME_REGEX = r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$"
 
 @extend_schema(tags=["endpoints"])
 class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ModelViewSet):
-    # NOTE: Do we need to override the scopes for the "create"
     scope_object = "endpoint"
     # Special case for query - these are all essentially read actions
     scope_object_read_actions = ["retrieve", "list", "run", "versions", "version_detail", "openapi_spec"]
@@ -147,7 +148,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
     def list(self, request: Request, *args, **kwargs) -> Response:
         """List all endpoints for the team."""
-        queryset = self.filter_queryset(self.get_queryset()).select_related("saved_query")
+        queryset = self.filter_queryset(self.get_queryset()).select_related("saved_query", "created_by")
         results = [self._serialize_endpoint(endpoint) for endpoint in queryset]
         return Response({"results": results})
 
@@ -480,7 +481,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             execution_mode=execution_mode,
             query_id=client_query_id,
             user=cast(User, request.user),
-            is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
+            is_query_service=(
+                get_query_tag_value("access_method")
+                in [AccessMethod.PERSONAL_API_KEY, AccessMethod.PROJECT_SECRET_API_KEY]
+            ),
             cache_age_seconds=cache_age_seconds,
         )
 
@@ -662,7 +666,13 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         request=EndpointRunRequest,
         description="Execute endpoint with optional materialization. Supports version parameter, runs latest version if not set.",
     )
-    @action(methods=["GET", "POST"], detail=True)
+    @action(
+        methods=["GET", "POST"],
+        detail=True,
+        required_scopes=["endpoint:read"],
+        authentication_classes=[ProjectSecretAPIKeyAuthentication],
+        permission_classes=[ProjectSecretAPIKeyPermission],
+    )
     def run(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Execute endpoint with optional parameters."""
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name, is_active=True)
@@ -713,7 +723,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         except ConcurrencyLimitExceeded:
             raise Throttled(detail="Too many concurrent requests. Please try again later.")
 
-        if get_query_tag_value("access_method") == "personal_api_key":
+        if get_query_tag_value("access_method") in [AccessMethod.PERSONAL_API_KEY, AccessMethod.PROJECT_SECRET_API_KEY]:
             now = timezone.now()
             if endpoint.last_executed_at is None or (now - endpoint.last_executed_at > timedelta(hours=1)):
                 endpoint.last_executed_at = now

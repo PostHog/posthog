@@ -19,11 +19,12 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 from zxcvbn import zxcvbn
 
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import AccessMethod, tag_queries
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PERSONAL_API_KEY_MODES_TO_TRY, PersonalAPIKey, hash_key_value
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 
@@ -87,7 +88,18 @@ class SessionAuthentication(authentication.SessionAuthentication):
         return "Session"
 
 
-class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
+class APIKeyAuthentication:
+    def update_key_last_updated_at(self, key_instance):
+        now = timezone.now()
+        key_last_used_at = key_instance.last_used_at
+        # Only updating last_used_at if the hour's changed
+        # This is to avoid excessive UPDATE queries, while still presenting accurate (down to the hour) info in the UI
+        if key_last_used_at is None or (now - key_last_used_at > timedelta(hours=1)):
+            key_instance.last_used_at = now
+            key_instance.save(update_fields=["last_used_at"])
+
+
+class PersonalAPIKeyAuthentication(authentication.BaseAuthentication, APIKeyAuthentication):
     """A way of authenticating with personal API keys.
     Only the first key candidate found in the request is tried, and the order is:
     1. Request Authorization header of type Bearer.
@@ -117,6 +129,12 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
                     "pha_"
                 ):  # TRICKY: This returns None to allow the next authentication method to have a go. This should be `if not token.startswith("phx_")`, but we need to support legacy personal api keys that may not have been prefixed with phx_.
                     return None
+                if token.startswith("phs_"):
+                    # Order of Authenticators matters.
+                    # If the ProjectSecretAPIKeyAuthentication was set on the view/method that one would fail before we get here if unsuccessful.
+                    # If not, we know that this API key shouldn't work on this endpoint.
+                    raise AuthenticationFailed("This endpoint does not support project secret API keys.")
+
                 return token, "Authorization header"
         data = request.data if request_data is None and isinstance(request, Request) else request_data
 
@@ -181,20 +199,14 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
 
         personal_api_key_object = self.validate_key(personal_api_key_with_source)
 
-        now = timezone.now()
-        key_last_used_at = personal_api_key_object.last_used_at
-        # Only updating last_used_at if the hour's changed
-        # This is to avoid excessive UPDATE queries, while still presenting accurate (down to the hour) info in the UI
-        if key_last_used_at is None or (now - key_last_used_at > timedelta(hours=1)):
-            personal_api_key_object.last_used_at = now
-            personal_api_key_object.save(update_fields=["last_used_at"])
+        self.update_key_last_updated_at(personal_api_key_object)
         assert personal_api_key_object.user is not None
 
         # :KLUDGE: CHMiddleware does not receive the correct user when authenticating by api key.
         tag_queries(
             user_id=personal_api_key_object.user.pk,
             team_id=personal_api_key_object.user.current_team_id,
-            access_method="personal_api_key",
+            access_method=AccessMethod.PERSONAL_API_KEY,
             api_key_mask=personal_api_key_object.mask_value,
             api_key_label=personal_api_key_object.label,
         )
@@ -208,7 +220,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         return cls.keyword
 
 
-class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
+class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication, APIKeyAuthentication):
     """
     Authenticates using a project secret API key. Unlike a personal API key, this is not associated with a
     user and should only be used for local_evaluation and flags remote_config (not to be confused with the
@@ -222,6 +234,7 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
     """
 
     keyword = "Bearer"
+    project_secret_api_key: Optional["ProjectSecretAPIKey"] = None
 
     @classmethod
     def find_secret_api_token(
@@ -242,6 +255,8 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
 
         if data and "secret_api_key" in data:
             return data["secret_api_key"]
+        elif data and "project_secret_api_key" in data:
+            return data["project_secret_api_key"]
 
         return None
 
@@ -251,35 +266,65 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
         if not secret_api_token:
             return None
 
-        # get the team from the secret api key
+        project_secret_api_key_result = ProjectSecretAPIKey.find_project_secret_api_key(secret_api_token)
+
+        if project_secret_api_key_result:
+            project_secret_api_key, _ = project_secret_api_key_result
+            self.project_secret_api_key = project_secret_api_key
+
+            self.update_key_last_updated_at(project_secret_api_key)
+
+            tag_queries(
+                team_id=project_secret_api_key.team_id,
+                access_method=AccessMethod.PROJECT_SECRET_API_KEY,
+                api_key_mask=project_secret_api_key.mask_value,
+                api_key_label=project_secret_api_key.label,
+            )
+
+            return (ProjectSecretAPIKeyUser(project_secret_api_key.team, project_secret_api_key), None)
+
+        # For backwards compat with feature flags - fallback to team secret_api_token
         try:
             Team = apps.get_model(app_label="posthog", model_name="Team")
             team = Team.objects.get_team_from_cache_or_secret_api_token(secret_api_token)
 
             if team is None:
-                return None
+                raise AuthenticationFailed(detail="Project secret API key is invalid.")
 
-            # Secret api keys are not associated with a user, so we create a ProjectSecretAPIKeyUser
-            # and attach the team. The team is the important part here.
-            return (ProjectSecretAPIKeyUser(team), None)
+            # Team secret token = full access, no project_secret_api_key object
+            return (ProjectSecretAPIKeyUser(team, None), None)
         except Team.DoesNotExist:
-            return None
+            raise AuthenticationFailed(detail="Project secret API key is invalid.")
 
     @classmethod
     def authenticate_header(cls, request) -> str:
         return cls.keyword
 
 
-class ProjectSecretAPIKeyUser:
+class ProjectSecretAPIKeyUser(AnonymousUser):
     """
     A "synthetic" user object returned by the ProjectSecretAPIKeyAuthentication when authenticating with a project secret API key.
     """
 
-    def __init__(self, team):
+    def __init__(self, team, project_secret_api_key: Optional["ProjectSecretAPIKey"] = None):
+        self.pk = -1
+        self.id = -1
         self.team = team
         self.current_team_id = team.id
-        self.is_authenticated = True
-        self.pk = -1
+        self.project_secret_api_key = project_secret_api_key
+        self.distinct_id = (
+            f"ph_secret_project_key:{self.project_secret_api_key.id}"
+            if self.project_secret_api_key
+            else "team_secret_api_token"
+        )
+        self.email = None
+
+    def __str__(self):
+        return f"ProjectSecretAPIKeyUser in project {self.current_team_id}"
+
+    @property
+    def is_authenticated(self):
+        return True
 
     def has_perm(self, perm, obj=None):
         return False
@@ -469,7 +514,7 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
             tag_queries(
                 user_id=access_token.user.pk,
                 team_id=access_token.user.current_team_id,
-                access_method="oauth",
+                access_method=AccessMethod.OAUTH,
             )
 
             return access_token.user, None

@@ -21454,6 +21454,25 @@
             "required": ["products", "games", "metadata"],
             "type": "object"
         },
+        "ProjectSecretAPIKeyAllowedScope": {
+            "enum": ["endpoint:read", "INTERNAL"],
+            "type": "string"
+        },
+        "ProjectSecretAPIKeyRequest": {
+            "additionalProperties": false,
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "scopes": {
+                    "items": {
+                        "$ref": "#/definitions/ProjectSecretAPIKeyAllowedScope"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
         "PropertyFilterBaseValue": {
             "type": ["string", "number", "boolean"]
         },

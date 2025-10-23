@@ -1,3 +1,4 @@
+import { ProjectSecretAPIKeyAllowedScope } from '~/queries/schema/schema-general'
 import type { APIScopeAction, APIScopeObject } from '~/types'
 
 export const MAX_API_KEYS_PER_USER = 10 // Same as in posthog/api/personal_api_key.py
@@ -147,6 +148,33 @@ export const APIScopeActionLabels: Record<APIScopeAction, string> = {
     read: 'Read',
     write: 'Write',
 }
+
+export const PROJECT_SECRET_API_KEY_SCOPES: APIScope[] = Object.values(ProjectSecretAPIKeyAllowedScope)
+    .filter((scopeString) => scopeString.includes(':'))
+    .map((scopeString) => {
+        const [objectKey, action] = scopeString.split(':')
+        const scopeConfig = API_SCOPES.find((s) => s.key === objectKey)
+
+        return {
+            key: objectKey as APIScopeObject,
+            objectPlural: scopeConfig?.objectPlural ?? `${objectKey}s`,
+            disabledActions: action === 'read' ? (['write'] as const) : undefined,
+        }
+    })
+
+export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: {
+    value: string
+    label: string
+    scopes: string[]
+    description: string
+}[] = [
+    {
+        value: 'endpoint_execution',
+        label: 'Endpoint execution',
+        scopes: ['endpoint:read'],
+        description: 'Execute endpoints',
+    },
+]
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
 
