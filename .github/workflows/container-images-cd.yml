@@ -77,6 +77,8 @@ jobs:
                   tags: ghcr.io/posthog/posthog:latest,ghcr.io/posthog/posthog:${{ github.sha }},posthog/posthog:${{ github.sha }},posthog/posthog:latest,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:master,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:${{ github.sha }}
                   platforms: linux/arm64,linux/amd64
                   build-args: COMMIT_HASH=${{ github.sha }}
+                  secrets: |
+                      posthog_upload_sourcemaps_cli_api_key=${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
 
             - name: report failure
               if: failure()
