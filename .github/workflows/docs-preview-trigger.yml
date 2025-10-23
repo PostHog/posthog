@@ -44,7 +44,7 @@ jobs:
           PR_REF="refs/pull/${PR_NUMBER}/head"
 
           echo "📢 Triggering Vercel deployment for posthog.com@feat/docs-monorepo-poc (PoC)"
-          echo "   with POSTHOG_DOCS_REF=${PR_REF}"
+          echo "   with POSTHOG_MONOREPO_REF=${PR_REF}"
 
           # Build request payload with env var for monorepo docs
           PAYLOAD='{
@@ -57,7 +57,7 @@ jobs:
             },
             "env": [
               {
-                "key": "POSTHOG_DOCS_REF",
+                "key": "POSTHOG_MONOREPO_REF",
                 "value": "'"$PR_REF"'",
                 "target": ["production", "preview", "development"]
               }

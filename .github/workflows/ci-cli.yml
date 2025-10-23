@@ -28,7 +28,7 @@ jobs:
         name: Trigger docs preview (PoC)
         runs-on: ubuntu-latest
         steps:
-            - name: Set POSTHOG_DOCS_REF env var for preview branch
+            - name: Set POSTHOG_MONOREPO_REF env var for preview branch
               env:
                   VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
                   VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
@@ -41,12 +41,12 @@ jobs:
 
                   PR_BRANCH="${{ github.event.pull_request.head.ref }}"
 
-                  echo "📝 Updating POSTHOG_DOCS_REF=${PR_BRANCH} for preview branch feat/docs-monorepo-poc"
+                  echo "📝 Updating POSTHOG_MONOREPO_REF=${PR_BRANCH} for preview branch feat/docs-monorepo-poc"
 
                   # Find existing env var ID
                   ENV_ID=$(curl -s "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}/env?teamId=${VERCEL_TEAM_ID}" \
                     -H "Authorization: Bearer $VERCEL_TOKEN" | \
-                    jq -r --arg key "POSTHOG_DOCS_REF" --arg branch "feat/docs-monorepo-poc" \
+                    jq -r --arg key "POSTHOG_MONOREPO_REF" --arg branch "feat/docs-monorepo-poc" \
                       '.envs[] | select(.key==$key and .gitBranch==$branch) | .id')
 
                   # Delete existing env var if it exists
@@ -62,7 +62,7 @@ jobs:
                     -H "Content-Type: application/json" \
                     -d '{
                       "type": "encrypted",
-                      "key": "POSTHOG_DOCS_REF",
+                      "key": "POSTHOG_MONOREPO_REF",
                       "value": "'"$PR_BRANCH"'",
                       "target": ["preview"],
                       "gitBranch": "feat/docs-monorepo-poc"
