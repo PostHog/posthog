@@ -4238,6 +4238,7 @@ class LLMTrace(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aiSessionId: Optional[str] = None
     createdAt: str
     events: list[LLMTraceEvent]
     id: str
