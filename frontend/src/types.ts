@@ -3464,6 +3464,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     _create_in_folder?: string | null
     evaluation_runtime: FeatureFlagEvaluationRuntime
     _should_create_usage_dashboard?: boolean
+    last_called_at?: string | null
 }
 
 export interface OrganizationFeatureFlag {
