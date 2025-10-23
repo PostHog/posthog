@@ -78,7 +78,7 @@ jobs:
                   platforms: linux/arm64,linux/amd64
                   build-args: COMMIT_HASH=${{ github.sha }}
                   secrets: |
-                      posthog_token=${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
+                      posthog_upload_sourccemaps_cli_api_key=${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
 
             - name: report failure
               if: failure()
