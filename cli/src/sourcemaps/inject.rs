@@ -4,8 +4,10 @@ use tracing::info;
 use uuid;
 
 use crate::{
-    api::releases::ReleaseBuilder, invocation_context::context,
-    sourcemaps::source_pair::read_pairs, utils::git::get_git_info,
+    api::releases::ReleaseBuilder,
+    invocation_context::context,
+    sourcemaps::source_pair::{read_pairs, SourcePair},
+    utils::git::get_git_info,
 };
 
 #[derive(clap::Args)]
@@ -86,33 +88,36 @@ pub fn inject(args: &InjectArgs) -> Result<()> {
         }
     }
 
-    let mut skipped_pairs = 0;
-    for pair in &mut pairs {
-        if pair.has_chunk_id() {
-            skipped_pairs += 1;
-            continue;
-        }
-        let chunk_id = uuid::Uuid::now_v7().to_string();
-        pair.set_chunk_id(chunk_id)?;
+    let created_release_id = created_release.as_ref().map(|r| r.id.to_string());
 
-        // If we've got a release, and the user asked us to, or a set is missing one,
-        // put the release ID on the pair
-        if created_release.is_some() && !pair.has_release_id() {
-            pair.set_release_id(created_release.as_ref().unwrap().id.to_string());
-        }
-    }
-    if skipped_pairs > 0 {
-        info!(
-            "Skipped {} pairs because chunk IDs already exist",
-            skipped_pairs
-        );
-    }
+    pairs = inject_pairs(pairs, created_release_id)?;
 
     // Write the source and sourcemaps back to disk
     for pair in &pairs {
         pair.save()?;
     }
     info!("Finished processing directory");
-
     Ok(())
+}
+
+pub fn inject_pairs(
+    mut pairs: Vec<SourcePair>,
+    created_release_id: Option<String>,
+) -> Result<Vec<SourcePair>> {
+    for pair in &mut pairs {
+        let current_release_id = pair.get_release_id();
+        // We only update release ids and chunk ids when the release id changed or is not present
+        if current_release_id != created_release_id || pair.get_chunk_id().is_none() {
+            pair.set_release_id(created_release_id.clone());
+
+            let chunk_id = uuid::Uuid::now_v7().to_string();
+            if let Some(previous_chunk_id) = pair.get_chunk_id() {
+                pair.update_chunk_id(previous_chunk_id, chunk_id)?;
+            } else {
+                pair.add_chunk_id(chunk_id)?;
+            }
+        }
+    }
+
+    Ok(pairs)
 }

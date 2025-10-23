@@ -1,5 +1,9 @@
 # posthog-cli
 
+# 0.5.5
+
+- When running inject command multiple times, we only update chunk ids when releases are different
+
 # 0.5.4
 
 - Added no fail flag to disable non-zero exit codes on errors.
