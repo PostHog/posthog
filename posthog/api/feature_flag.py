@@ -5,7 +5,7 @@ import json
 import time
 import logging
 from datetime import datetime
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from django.conf import settings
 from django.db import transaction
@@ -422,7 +422,7 @@ class FeatureFlagSerializer(
         return SurveyAPISerializer(feature_flag.surveys_linked_flag, many=True).data
         # ignoring type because mypy doesn't know about the surveys_linked_flag `related_name` relationship
 
-    def get_rollout_percentage(self, feature_flag: FeatureFlag) -> Optional[int]:
+    def get_rollout_percentage(self, feature_flag: FeatureFlag) -> int | None:
         if self.get_is_simple_flag(feature_flag):
             return feature_flag.conditions[0].get("rollout_percentage")
         else:
@@ -658,7 +658,7 @@ class FeatureFlagSerializer(
         # Check for cycles using DFS
         def has_cycle(flag_key, path):
             if flag_key in path:
-                cycle_path = path[path.index(flag_key) :] + [flag_key]
+                cycle_path = [*path[path.index(flag_key):], flag_key]
                 cycle_display = " → ".join(cycle_path)
                 raise serializers.ValidationError(f"Circular dependency detected: {cycle_display}")
 
@@ -1542,7 +1542,7 @@ class FeatureFlagViewSet(
                 status=500,
             )
 
-    def _handle_cached_response(self, cached_response: Optional[dict]) -> Optional[Response]:
+    def _handle_cached_response(self, cached_response: dict | None) -> Response | None:
         """Handle cached response including analytics tracking."""
         if cached_response is None:
             return None
@@ -1823,13 +1823,16 @@ class FeatureFlagViewSet(
         if provider not in ["launchdarkly", "statsig"]:
             return Response({"error": f"Provider {provider} is not supported"}, status=400)
 
+        if not request.user.is_authenticated:
+            return Response({"error": "Authentication required"}, status=401)
+
         result = importer.import_flags(
             provider=provider,
             selected_flags=selected_flags,
             environment=environment,
             field_mappings=field_mappings,
             team=self.team,
-            user=request.user,
+            user=request.user,  # type: ignore[arg-type]
         )
         return Response(result)
 

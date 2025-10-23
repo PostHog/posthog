@@ -18,7 +18,7 @@ class ExternalFieldMappingDict(TypedDict):
     external_key: str
     external_type: str
     display_name: str
-    posthog_field: str
+    posthog_field: str | None
     auto_selected: bool
 
 
@@ -63,6 +63,20 @@ class FlagMetadataDict(TypedDict, total=False):
     raw_environments: dict[str, Any]
     api_key: str | None
     project_key: str | None
+    # Statsig-specific
+    statsig_type: str
+    creator: str
+    last_modifier: str
+    original_rules: list[dict[str, Any]]
+    # LaunchDarkly-specific
+    environments: dict[str, Any]
+    tags: list[str]
+    total_rules: int
+    has_prerequisites: bool
+    environment_configs: dict[str, Any]
+    raw_variations: list[dict[str, Any]]
+    raw_key: str
+    debug_raw_flag_keys: list[str]
 
 
 class TransformedFlagDict(TypedDict, total=False):
@@ -76,6 +90,7 @@ class TransformedFlagDict(TypedDict, total=False):
     rollout_percentage: int
     importable: bool
     non_importable_reason: str | None
+    import_issues: list[str]
 
 
 class FieldMappingDict(TypedDict):
@@ -359,7 +374,7 @@ class ExternalProvidersImporter:
             if field_key not in deduplicated_fields:
                 deduplicated_fields[field_key] = (field_type, field_key, display_name)
 
-        result = [
+        result: list[ExternalUniqueFieldDict] = [
             {"type": field_type, "external_key": field_key, "display_name": display_name}
             for field_type, field_key, display_name in sorted(deduplicated_fields.values())
         ]
@@ -416,8 +431,8 @@ class ExternalProvidersImporter:
         """
         from posthog.models import FeatureFlag
 
-        imported_flags = []
-        failed_imports = []
+        imported_flags: list[ImportedFlagResult] = []
+        failed_imports: list[FailedImportResult] = []
 
         for flag_data in selected_flags:
             try:
@@ -444,9 +459,9 @@ class ExternalProvidersImporter:
                         )
                         continue
 
-                is_valid, validation_error = self._validate_flag_field_mappings(flag_data, field_mappings, provider)
+                is_valid, validation_error = self._validate_flag_field_mappings(flag_data, field_mappings, provider)  # type: ignore[arg-type]
                 if not is_valid:
-                    failed_imports.append({"flag": flag_data, "error": validation_error})
+                    failed_imports.append({"flag": flag_data, "error": validation_error or "Validation failed"})
                     continue
 
                 # Generate unique flag key (only adds suffix if there's a conflict)
@@ -468,7 +483,7 @@ class ExternalProvidersImporter:
                     **posthog_flag_data,
                 )
 
-                import_result = {
+                import_result: ImportedFlagResult = {
                     "external_flag": flag_data,
                     "posthog_flag": {
                         "id": new_flag.id,
@@ -515,7 +530,7 @@ class ExternalProvidersImporter:
         has_variants: bool,
     ) -> list[GroupDict]:
         """Build PostHog groups from transformed conditions"""
-        groups = []
+        groups: list[GroupDict] = []
 
         for condition in conditions:
             properties = condition.get("properties", [])
@@ -571,7 +586,7 @@ class ExternalProvidersImporter:
         enabled = provider_importer.extract_enabled_state(external_flag, environment)
 
         variants = external_flag.get("variants", [])
-        filters: dict[str, Any] = {"groups": [], "payloads": {}, "multivariate": None}
+        filters: FiltersDict = {"groups": [], "payloads": {}, "multivariate": None}
         has_variants = False
 
         if variants:
@@ -637,7 +652,7 @@ class ExternalProvidersImporter:
             return properties
 
         provider_importer = self._get_provider_importer(provider)
-        mapped_properties = []
+        mapped_properties: list[PropertyDict] = []
 
         for prop in properties:
             external_key = provider_importer.get_external_key_from_property(prop)
@@ -646,7 +661,7 @@ class ExternalProvidersImporter:
                 posthog_field = mapping.get("posthog_field")
                 posthog_type = mapping.get("posthog_type", "person")
                 if posthog_field:
-                    mapped_prop = {
+                    mapped_prop: PropertyDict = {
                         "key": posthog_field,
                         "operator": prop.get("operator", "exact"),
                         "value": prop.get("value"),
@@ -945,7 +960,7 @@ class StatsigImporter(BaseImporter):
             return False, ["Invalid config structure"]
 
     def _extract_conditions(self, gate: dict[str, Any]) -> list[ConditionDict]:
-        conditions = []
+        conditions: list[ConditionDict] = []
         rules = gate.get("rules", [])
         is_dynamic_config = gate.get("_statsig_type") == "dynamic_config"
 
@@ -960,7 +975,7 @@ class StatsigImporter(BaseImporter):
             if not rule_conditions:
                 continue
 
-            all_properties = []
+            all_properties: list[PropertyDict] = []
             for condition in rule_conditions:
                 properties = self._transform_condition(condition)
                 all_properties.extend(properties)
@@ -976,7 +991,7 @@ class StatsigImporter(BaseImporter):
                 else:
                     rollout_percentage = pass_percentage
 
-                condition_data = {
+                condition_data: ConditionDict = {
                     "properties": all_properties,
                     "rollout_percentage": rollout_percentage,
                     "rule_id": rule.get("id"),
@@ -1016,7 +1031,7 @@ class StatsigImporter(BaseImporter):
             [{"key": "custom_field_plan_type", "operator": "exact", "value": "premium", "type": "person"}]
             []  # For "public" type - no properties needed
         """
-        properties = []
+        properties: list[PropertyDict] = []
         condition_type = condition.get("type", "")
 
         # "public" type conditions apply to everyone and don't need any properties
@@ -1027,19 +1042,18 @@ class StatsigImporter(BaseImporter):
         target_value = condition.get("targetValue", [])
 
         if key and target_value:
-            properties.append(
-                {
-                    "key": key,
-                    "operator": "exact" if len(target_value) == 1 else "in",
-                    "value": target_value[0] if len(target_value) == 1 else target_value,
-                    "type": "person",
-                }
-            )
+            prop: PropertyDict = {
+                "key": key,
+                "operator": "exact" if len(target_value) == 1 else "in",
+                "value": target_value[0] if len(target_value) == 1 else target_value,
+                "type": "person",
+            }
+            properties.append(prop)
 
         return properties
 
     def _transform_variants(self, gate: dict[str, Any]) -> list[VariantDict]:
-        variants = []
+        variants: list[VariantDict] = []
 
         if gate.get("_statsig_type") == "dynamic_config":
             return self._extract_dynamic_config_variants(gate)
@@ -1074,15 +1088,15 @@ class StatsigImporter(BaseImporter):
         return variants
 
     def _extract_dynamic_config_variants(self, config: dict[str, Any]) -> list[VariantDict]:
-        variants = []
+        variants: list[VariantDict] = []
         rules = config.get("rules", [])
-        variant_sets_by_rule = []
+        variant_sets_by_rule: list[list[VariantDict]] = []
 
         for _rule_idx, rule in enumerate(rules):
             rule_variants = rule.get("variants", [])
 
             if rule_variants:
-                rule_variant_set = []
+                rule_variant_set: list[VariantDict] = []
                 for variant in rule_variants:
                     variant_value = variant.get("returnValue")
 
@@ -1107,7 +1121,7 @@ class StatsigImporter(BaseImporter):
                     if variant_value is None:
                         variant_value = variant.get("returnValue", {})
 
-                    variant_data = {
+                    variant_data: VariantDict = {
                         "key": variant.get("name", variant.get("id", "")),
                         "name": variant.get("name", variant.get("id", "")),
                         "value": variant_value,
@@ -1354,7 +1368,7 @@ class LaunchDarklyImporter(BaseImporter):
         team: "Team | None" = None,
     ) -> list[ConditionDict]:
         """Transform LaunchDarkly targeting rules to PostHog condition format"""
-        conditions = []
+        conditions: list[ConditionDict] = []
 
         if not isinstance(flag, dict):
             return [{"properties": [], "rollout_percentage": 0}]
@@ -1414,7 +1428,7 @@ class LaunchDarklyImporter(BaseImporter):
 
         # Process custom targeting rules (this now supports attributes mapping)
         for rule_idx, rule in enumerate(targeting.get("rules", [])):
-            condition = {"properties": [], "rollout_percentage": 100, "rule_id": rule.get("_id", f"rule_{rule_idx}")}
+            condition: ConditionDict = {"properties": [], "rollout_percentage": 100, "rule_id": rule.get("_id", f"rule_{rule_idx}")}
 
             # Transform clauses to properties (maps LaunchDarkly attributes to PostHog)
             for clause in rule.get("clauses", []):
@@ -1996,7 +2010,7 @@ class LaunchDarklyImporter(BaseImporter):
         if not variations:
             return []
 
-        variants = []
+        variants: list[VariantDict] = []
         for idx, variation in enumerate(variations):
             # Use variation value as the key (for boolean flags, skip non-boolean variants)
             variation_value = variation.get("value")
@@ -2006,7 +2020,7 @@ class LaunchDarklyImporter(BaseImporter):
 
             # Use variation name as the key (LaunchDarkly variant key)
             variation_name = variation.get("name", f"variant_{idx}")
-            variant = {
+            variant: VariantDict = {
                 "key": variation_name,
                 "name": variation_name,
                 "rollout_percentage": 0,  # Will be calculated based on targeting rules
@@ -2042,7 +2056,7 @@ class LaunchDarklyImporter(BaseImporter):
         self, flag: dict[str, Any], selected_environment: str | None = None
     ) -> dict[str, EnvironmentDataDict]:
         """Extract environment-specific targeting data from LaunchDarkly flag"""
-        environments_data = {}
+        environments_data: dict[str, EnvironmentDataDict] = {}
         environments = flag.get("environments", {})
 
         # If selected_environment is specified, only process that environment
@@ -2064,9 +2078,9 @@ class LaunchDarklyImporter(BaseImporter):
             has_targets = bool(targets or context_targets)
 
             # Process rules with detailed information
-            detailed_rules = []
+            detailed_rules: list[RuleInfoDict] = []
             for rule in rules[:3]:  # First 3 rules only for UI performance
-                rule_info = {
+                rule_info: RuleInfoDict = {
                     "id": rule.get("_id", ""),
                     "description": rule.get("description", ""),
                     "clauses": [],
@@ -2075,7 +2089,7 @@ class LaunchDarklyImporter(BaseImporter):
 
                 # Process clauses (conditions)
                 for clause in rule.get("clauses", []):
-                    clause_info = {
+                    clause_info: ClauseInfoDict = {
                         "attribute": clause.get("attribute", ""),
                         "operator": clause.get("op", ""),
                         "values": clause.get("values", []),
