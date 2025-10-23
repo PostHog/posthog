@@ -482,7 +482,7 @@ class ExternalProvidersImporter:
 
             except Exception as e:
                 logger.exception(f"Failed to import flag: {str(e)}")
-                failed_imports.append({"flag": flag_data, "error": f"Failed to import flag: {str(e)}"})
+                failed_imports.append({"flag": flag_data, "error": "Failed to import flag: an internal error occurred."})
 
         return {
             "imported_flags": imported_flags,
