@@ -11,6 +11,7 @@ The best way to see what HogQL queries are generated for web analytics is to loo
 This test file contains comprehensive examples of all web analytics query types:
 
 - Web overview queries (with and without filters)
+- Web trends queries (unique users, page views, sessions over time)
 - All 24 breakdown types (Page, InitialPage, DeviceType, Country, etc.)
 - Event property filters (e.g., filtering by pathname)
 - Session property filters (e.g., filtering by channel type)
@@ -86,7 +87,7 @@ curl -X POST https://app.posthog.com/api/projects/:project_id/query \
 
 ```bash
 curl -X POST https://app.posthog.com/api/projects/:project_id/query \
-  -H "Authorization: Bearer YOUR_PERSONAL_ACCESS_TOKEN" \
+  -H "Authorization: Bearer PERSONAL_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "query": {
@@ -107,6 +108,44 @@ curl -X POST https://app.posthog.com/api/projects/:project_id/query \
     }
   }'
 ```
+
+#### Example: Web Trends Query (Unique Users Over Time)
+
+This query powers the "Unique visitors" trend line in the web analytics graphs tab:
+
+```bash
+curl -X POST https://app.posthog.com/api/projects/:project_id/query \
+  -H "Authorization: Bearer PERSONAL_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": {
+      "kind": "TrendsQuery",
+      "dateRange": {
+        "date_from": "2025-10-01",
+        "date_to": "2025-10-31"
+      },
+      "interval": "day",
+      "series": [
+        {
+          "event": "$pageview",
+          "kind": "EventsNode",
+          "math": "dau",
+          "name": "Pageview",
+          "custom_name": "Unique visitors"
+        }
+      ],
+      "trendsFilter": {
+        "display": "ActionsLineGraph"
+      },
+      "filterTestAccounts": true
+    }
+  }'
+```
+
+**Other trend query variations:**
+
+- **Page views**: Use `"math": "total"` instead of `"dau"` for total pageview count
+- **Sessions**: Use `"math": "unique_session"` for unique session count
 
 ### 3. Using Raw HogQL Queries from Snapshots
 
@@ -189,7 +228,7 @@ LIMIT 50000
 
 ```bash
 curl -X POST https://app.posthog.com/api/projects/123/query \
-  -H "Authorization: Bearer phx_..." \
+  -H "Authorization: Bearer PERSONAL_API_KEY" \
   -H "Content-Type: application/json" \
   -d @- <<'EOF'
 {

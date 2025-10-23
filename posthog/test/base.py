@@ -1517,6 +1517,14 @@ def snapshot_hogql_queries(fn_or_class):
         except ImportError:
             pass
 
+        try:
+            from posthog.hogql_queries.insights.trends import trends_query_runner
+
+            if hasattr(trends_query_runner, "execute_hogql_query"):
+                patches.append(patch.object(trends_query_runner, "execute_hogql_query", capture_module_execute))
+        except ImportError:
+            pass
+
         # Apply all patches
         import contextlib
 

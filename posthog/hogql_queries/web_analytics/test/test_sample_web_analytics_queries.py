@@ -20,15 +20,23 @@ Let's try to keep this up to date with the components used in the WebAnalyticsSc
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_hogql_queries
 
 from posthog.schema import (
+    BaseMathType,
+    ChartDisplayType,
     DateRange,
     EventPropertyFilter,
+    EventsNode,
+    IntervalType,
+    NodeKind,
     PropertyOperator,
     SessionPropertyFilter,
+    TrendsFilter,
+    TrendsQuery,
     WebOverviewQuery,
     WebStatsBreakdown,
     WebStatsTableQuery,
 )
 
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
 
@@ -255,4 +263,82 @@ class TestSampleWebAnalyticsQueries(ClickhouseTestMixin, APIBaseTest):
             limit=10,
         )
         runner = WebStatsTableQueryRunner(team=self.team, query=query)
+        runner.calculate()
+
+    def test_web_trends_unique_users_snapshot(self):
+        """
+        Web analytics trends query for unique visitors over time.
+
+        This query powers the "Unique visitors" trend line in the web analytics graphs tab.
+        It shows the number of unique users who had pageviews, grouped by day.
+        This is one of the core metrics for understanding website traffic patterns.
+        """
+        query = TrendsQuery(
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
+            interval=IntervalType.DAY,
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    kind=NodeKind.EVENTS_NODE,
+                    math=BaseMathType.DAU,
+                    name="Pageview",
+                    custom_name="Unique visitors",
+                )
+            ],
+            trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            filterTestAccounts=True,
+        )
+        runner = TrendsQueryRunner(team=self.team, query=query)
+        runner.calculate()
+
+    def test_web_trends_page_views_snapshot(self):
+        """
+        Web analytics trends query for page views over time.
+
+        This query powers the "Page views" trend line in the web analytics graphs tab.
+        It shows the total number of pageview events, grouped by day.
+        This metric helps track overall content consumption on the website.
+        """
+        query = TrendsQuery(
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
+            interval=IntervalType.DAY,
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    kind=NodeKind.EVENTS_NODE,
+                    math=BaseMathType.TOTAL,
+                    name="Pageview",
+                    custom_name="Page views",
+                )
+            ],
+            trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            filterTestAccounts=True,
+        )
+        runner = TrendsQueryRunner(team=self.team, query=query)
+        runner.calculate()
+
+    def test_web_trends_sessions_snapshot(self):
+        """
+        Web analytics trends query for unique sessions over time.
+
+        This query powers the "Unique sessions" trend line in the web analytics graphs tab.
+        It shows the number of unique sessions with pageviews, grouped by day.
+        This metric helps understand user engagement patterns and session frequency.
+        """
+        query = TrendsQuery(
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
+            interval=IntervalType.DAY,
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    kind=NodeKind.EVENTS_NODE,
+                    math=BaseMathType.UNIQUE_SESSION,
+                    name="Pageview",
+                    custom_name="Sessions",
+                )
+            ],
+            trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            filterTestAccounts=True,
+        )
+        runner = TrendsQueryRunner(team=self.team, query=query)
         runner.calculate()
