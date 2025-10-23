@@ -20,7 +20,7 @@ export function EmailMFAVerify(): JSX.Element {
                         <div className="max-w-60 mb-12">
                             <HeartHog className="w-full h-full" />
                         </div>
-                        <p className="mb-6">Great! Your email has been verified. Click below to log in to PostHog.</p>
+                        <p className="mb-6">Great! Click below to verify your email address.</p>
                         <p className="text-muted text-sm mb-6">This device will be remembered for 30 days</p>
                         <LemonButton
                             type="primary"
