@@ -27,7 +27,7 @@ export const RequiredTeamAccessSelector = ({
                         if (autoSelectFirst && arrayValue.length === 0 && teams && teams.length > 0) {
                             onChange([teams[0].id])
                         }
-                    }, [autoSelectFirst, teams])
+                    }, [autoSelectFirst, teams, arrayValue.length, onChange])
 
                     return (
                         <TeamSelector
