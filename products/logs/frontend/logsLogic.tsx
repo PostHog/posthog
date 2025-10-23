@@ -1,5 +1,5 @@
 import equal from 'fast-deep-equal'
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -7,8 +7,10 @@ import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tr
 
 import api from 'lib/api'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
+import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { DateRange, LogMessage, LogsQuery } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
@@ -23,6 +25,10 @@ const DEFAULT_SERVICE_NAMES = [] as LogsQuery['serviceNames']
 
 export const logsLogic = kea<logsLogicType>([
     path(['products', 'logs', 'frontend', 'logsLogic']),
+
+    connect(() => ({
+        values: [teamLogic, ['timezone']],
+    })),
 
     urlToAction(({ actions, values }) => {
         const urlToAction = (_: any, params: Params): void => {
@@ -220,7 +226,18 @@ export const logsLogic = kea<logsLogicType>([
                             limit: 99,
                             offset: values.logs.length,
                             orderBy: values.orderBy,
-                            dateRange: values.dateRange,
+                            dateRange: {
+                                // convert to naive timezone in the project's timezone which is what the backend requires
+                                date_from: dayjs(values.dateRange.date_from).isValid()
+                                    ? dayjs(values.dateRange.date_from)
+                                          .tz(values.timezone)
+                                          .format('YYYY-MM-DD hh:mm:ss')
+                                    : values.dateRange.date_from,
+                                date_to: dayjs(values.dateRange.date_to).isValid()
+                                    ? dayjs(values.dateRange.date_to).tz(values.timezone).format('YYYY-MM-DD hh:mm:ss')
+                                    : values.dateRange.date_to,
+                                explicitDate: values.dateRange.explicitDate,
+                            },
                             searchTerm: values.searchTerm,
                             filterGroup: values.filterGroup as PropertyGroupFilter,
                             severityLevels: values.severityLevels,
@@ -250,7 +267,18 @@ export const logsLogic = kea<logsLogicType>([
                     const response = await api.logs.sparkline({
                         query: {
                             orderBy: values.orderBy,
-                            dateRange: values.dateRange,
+                            dateRange: {
+                                // convert to naive timezone in the project's timezone which is what the backend requires
+                                date_from: dayjs(values.dateRange.date_from).isValid()
+                                    ? dayjs(values.dateRange.date_from)
+                                          .tz(values.timezone)
+                                          .format('YYYY-MM-DD hh:mm:ss')
+                                    : values.dateRange.date_from,
+                                date_to: dayjs(values.dateRange.date_to).isValid()
+                                    ? dayjs(values.dateRange.date_to).tz(values.timezone).format('YYYY-MM-DD hh:mm:ss')
+                                    : values.dateRange.date_to,
+                                explicitDate: values.dateRange.explicitDate,
+                            },
                             searchTerm: values.searchTerm,
                             filterGroup: values.filterGroup as PropertyGroupFilter,
                             severityLevels: values.severityLevels,
