@@ -39,6 +39,18 @@ class SlackDeliveryResult:
 
 
 def _block_for_asset(asset: ExportedAsset) -> dict:
+    # If asset has an exception, return an error block instead of an image
+    if asset.exception:
+        insight_name = asset.insight.name or asset.insight.derived_name if asset.insight else "Unknown insight"
+        error_text = (
+            f"❌ *{insight_name}*\n"
+            f"There was an error generating your asset: {asset.exception}\n"
+            f"_If this issue persists, please contact support._"
+        )
+
+        return {"type": "section", "text": {"type": "mrkdwn", "text": error_text}}
+
+    # Normal image block for successful assets
     image_url = asset.get_public_content_url()
     alt_text = None
     if asset.insight:
