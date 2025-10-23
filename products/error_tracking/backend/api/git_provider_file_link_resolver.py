@@ -17,10 +17,28 @@ logger = structlog.get_logger(__name__)
 def prepare_github_search_query(q):
     if not q:
         return ""
-    special_chars = ".,:;/\\`'\"=*!?#$&+^|~<>(){}[]"
-    for char in special_chars:
-        q = q.replace(char, " ")
-    return " ".join(q.split())
+
+    result = []
+    in_quotes = False
+    quote_char = None
+
+    for char in q:
+        if char in ('"', "'", "`") and not in_quotes:
+            in_quotes = True
+            quote_char = char
+            result.append(char)
+        elif char == quote_char and in_quotes:
+            in_quotes = False
+            quote_char = None
+            result.append(char)
+        elif in_quotes:
+            result.append(char)
+        elif char in ".,:;/\\=*!?#$&+^|~<>(){}[]":
+            result.append(" ")
+        else:
+            result.append(char)
+
+    return " ".join("".join(result).split())
 
 
 def get_github_file_url(code_sample: str, token: str, owner: str, repository: str, file_name: str) -> str | None:
