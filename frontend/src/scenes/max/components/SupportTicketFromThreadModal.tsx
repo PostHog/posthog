@@ -1,11 +1,10 @@
 import { useActions } from 'kea'
 import { useCallback, useEffect } from 'react'
 
-import { LemonBanner } from '@posthog/lemon-ui'
-
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { SupportTicketMessage } from '~/queries/schema'
+
+import { SupportTicketMessage } from '~/queries/schema/schema-assistant-messages'
 
 interface SupportTicketFromThreadModalProps {
     ticketData: SupportTicketMessage['ticket_data']
@@ -68,14 +67,7 @@ Thanks,`
                 Here's a draft support ticket with a summary of your conversation. You can review and submit it below:
             </p>
 
-            <SupportForm />
-
-            <LemonBanner type="info">
-                <div className="text-sm">
-                    <strong>Note:</strong> Our support team will have access to the full conversation history to help
-                    understand your issue.
-                </div>
-            </LemonBanner>
+            <SupportForm attachPostHogAIConversation />
         </div>
     )
 }
