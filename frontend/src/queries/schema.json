@@ -16663,6 +16663,18 @@
                 "attribution_window_days": {
                     "type": "number"
                 },
+                "campaign_name_mappings": {
+                    "additionalProperties": {
+                        "additionalProperties": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "type": "object"
+                    },
+                    "type": "object"
+                },
                 "conversion_goals": {
                     "items": {
                         "$ref": "#/definitions/ConversionGoalFilter"

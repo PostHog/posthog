@@ -327,6 +327,32 @@ describe('process all snapshots', () => {
 
             expect(result).toHaveLength(1)
         })
+
+        it('handles raw Snappy compressed data (LTS format)', async () => {
+            const sessionId = 'test-session'
+
+            const snapshotJson = JSON.stringify({
+                window_id: '1',
+                data: [
+                    {
+                        type: 2,
+                        timestamp: 1234567890,
+                        data: { href: 'https://example.com' },
+                    },
+                ],
+            })
+            const decompressedBytes = new TextEncoder().encode(snapshotJson + '\n')
+            const fakeRawSnappyData = new Uint8Array([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b])
+
+            mockWorkerManager.decompress.mockResolvedValue(decompressedBytes)
+
+            const result = await parseEncodedSnapshots(fakeRawSnappyData, sessionId)
+
+            expect(mockWorkerManager.decompress).toHaveBeenCalledWith(fakeRawSnappyData)
+            expect(result).toHaveLength(1)
+            expect(result[0].windowId).toBe('1')
+            expect(result[0].timestamp).toBe(1234567890)
+        })
     })
 
     describe('mobile recording detection', () => {
