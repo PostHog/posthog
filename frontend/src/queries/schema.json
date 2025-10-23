@@ -19245,6 +19245,25 @@
             ],
             "type": "object"
         },
+        "ProjectSecretAPIKeyAllowedScope": {
+            "enum": ["endpoint:read", "INTERNAL"],
+            "type": "string"
+        },
+        "ProjectSecretAPIKeyRequest": {
+            "additionalProperties": false,
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "scopes": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
         "PropertyFilterBaseValue": {
             "type": ["string", "number", "boolean"]
         },

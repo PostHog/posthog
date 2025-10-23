@@ -147,7 +147,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 execution_mode=execution_mode,
                 query_id=client_query_id,
                 user=request.user,  # type: ignore[arg-type]
-                is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
+                is_query_service=(
+                    get_query_tag_value("access_method") in ["personal_api_key", "project_secret_api_key"]
+                ),
                 limit_context=(
                     # QUERY_ASYNC provides extended max execution time for insight queries
                     LimitContext.QUERY_ASYNC
@@ -156,7 +158,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                         or is_insight_actors_query(query_dict)
                         or is_insight_actors_options_query(query_dict)
                     )
-                    and get_query_tag_value("access_method") != "personal_api_key"
+                    and get_query_tag_value("access_method") not in ["personal_api_key", "project_secret_api_key"]
                     else None
                 ),
             )

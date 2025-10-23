@@ -82,7 +82,7 @@ from posthog.clickhouse.client.limit import (
     get_app_org_rate_limiter,
     get_org_app_concurrency_limit,
 )
-from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import AccessMethod, get_query_tag_value, tag_queries
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_cache import count_query_cache_hit
@@ -1145,12 +1145,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             ):
                 if self.is_query_service:
                     tag_queries(chargeable=1)
-
+                is_api = (
+                    get_query_tag_value("access_method")
+                    in [AccessMethod.PERSONAL_API_KEY, AccessMethod.PROJECT_SECRET_API_KEY],
+                )
                 with get_app_org_rate_limiter().run(
                     org_id=self.team.organization_id,
                     task_id=self.query_id,
                     team_id=self.team.id,
-                    is_api=get_query_tag_value("access_method") == "personal_api_key",
+                    is_api=is_api,
                     limit=get_org_app_concurrency_limit(self.team.organization_id),
                 ):
                     with get_app_dashboard_queries_rate_limiter().run(
@@ -1158,7 +1161,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         dashboard_id=dashboard_id,
                         task_id=self.query_id,
                         team_id=self.team.id,
-                        is_api=get_query_tag_value("access_method") == "personal_api_key",
+                        is_api=is_api,
                     ):
                         query_start_time = perf_counter()
                         query_result = self.calculate()
