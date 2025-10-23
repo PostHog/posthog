@@ -479,6 +479,7 @@ def process_social_domain_jit_provisioning_signup(
             domain=domain,
             is_verified=domain_instance.is_verified,
             jit_provisioning_enabled=domain_instance.jit_provisioning_enabled,
+            scim_enabled=domain_instance.scim_enabled,
         )
         if domain_instance.is_verified and domain_instance.jit_provisioning_enabled:
             if not user:
@@ -513,6 +514,10 @@ def process_social_domain_jit_provisioning_signup(
                         user=user.email,
                         organization=domain_instance.organization_id,
                     )
+
+            # Existing user:
+            # Auto-join because JIT provisioning is enabled
+            # SCIM (if enabled) will update roles/groups after they join
             if not user.organizations.filter(pk=domain_instance.organization_id).exists():
                 user.join(organization=domain_instance.organization)
                 logger.info(
@@ -520,6 +525,7 @@ def process_social_domain_jit_provisioning_signup(
                     domain=domain,
                     user=user.email,
                     organization=domain_instance.organization_id,
+                    scim_enabled=domain_instance.scim_enabled,
                 )
 
     return user
