@@ -379,12 +379,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
 
     listeners(({ actions, props, values, cache }) => ({
         setDisplayUrl: ({ url }) => {
-            if (!values.dataUrl || values.dataUrl.trim() === '') {
-                actions.setDataUrl(url)
-            }
-            if (!url || url.trim() === '') {
-                actions.setDataUrl(null)
-            }
+            actions.setDataUrl(url?.trim() ?? null)
         },
         setReplayIframeData: ({ replayIframeData }) => {
             if (replayIframeData && replayIframeData.url) {
