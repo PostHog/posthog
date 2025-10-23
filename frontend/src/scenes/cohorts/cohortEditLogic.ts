@@ -510,7 +510,6 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     listeners(({ actions, values }) => ({
         deleteCohort: () => {
             cohortsModel.actions.deleteCohort({ id: values.cohort.id, name: values.cohort.name })
-            router.actions.push(urls.cohorts())
         },
         submitCohortFailure: () => {
             scrollToFormError({

@@ -992,6 +992,29 @@ class TestTimeSensitivePermissions(APIBaseTest):
             res = self.client.get("/api/organizations/@current")
             assert res.status_code == 200
 
+    def test_user_after_timeout_modifications_require_reauthentication(self):
+        now = datetime.now()
+        with freeze_time(now):
+            res = self.client.patch("/api/users/@me", {"first_name": "new name"})
+            assert res.status_code == 200
+
+        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE - 100)):
+            res = self.client.patch("/api/users/@me", {"first_name": "new name"})
+            assert res.status_code == 200
+
+        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+            res = self.client.patch("/api/users/@me", {"first_name": "new name"})
+            assert res.status_code == 403
+            assert res.json() == {
+                "type": "authentication_error",
+                "code": "permission_denied",
+                "detail": "This action requires you to be recently authenticated.",
+                "attr": None,
+            }
+
+            res = self.client.get("/api/users/@me")
+            assert res.status_code == 200
+
 
 class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
     def setUp(self):

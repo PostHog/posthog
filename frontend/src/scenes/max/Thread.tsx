@@ -26,7 +26,6 @@ import {
     LemonDialog,
     LemonInput,
     LemonSkeleton,
-    ProfilePicture,
     Tooltip,
 } from '@posthog/lemon-ui'
 
@@ -95,7 +94,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
     return (
         <div
             className={twMerge(
-                '@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-1.5 grow mx-auto',
+                '@container/thread flex flex-col items-stretch w-full max-w-180 self-center gap-1.5 grow mx-auto',
                 className
             )}
         >
@@ -159,24 +158,12 @@ interface MessageGroupProps {
 }
 
 function MessageGroup({ messages, isFinal: isFinalGroup, streamingActive }: MessageGroupProps): JSX.Element {
-    const { user } = useValues(userLogic)
     const { editInsightToolRegistered } = useValues(maxGlobalLogic)
 
     const groupType = messages[0].type === 'human' ? 'human' : 'ai'
 
     return (
         <MessageGroupContainer groupType={groupType}>
-            <Tooltip title={groupType === 'human' ? 'You' : 'Max'}>
-                <ProfilePicture
-                    user={
-                        groupType === 'human'
-                            ? { ...user, hedgehog_config: undefined }
-                            : { hedgehog_config: { ...user?.hedgehog_config, use_as_profile: true } }
-                    }
-                    size="lg"
-                    className="hidden @md/thread:flex mt-1 border"
-                />
-            </Tooltip>
             <div
                 className={clsx(
                     'flex flex-col gap-1.5 min-w-0 w-full',
@@ -752,7 +739,7 @@ function InsightSuggestionButton({ tabId }: { tabId: string }): JSX.Element {
                     }}
                     sideIcon={previousQuery ? <IconX /> : <IconRefresh />}
                     size="xsmall"
-                    tooltip={previousQuery ? "Reject Max's changes" : "Reapply Max's changes"}
+                    tooltip={previousQuery ? 'Reject changes' : 'Reapply changes'}
                 />
             )}
         </>

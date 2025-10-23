@@ -384,7 +384,8 @@ export function LineGraph_({
         if (isBackgroundBasedGraphType) {
             backgroundColor = mainColor
         } else if (isArea) {
-            backgroundColor = hexToRGBA(mainColor, 0.5)
+            const alpha = isPercentStackView ? 1 : 0.5
+            backgroundColor = hexToRGBA(mainColor, alpha)
         }
 
         let adjustedData = dataset.data

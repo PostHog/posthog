@@ -1,7 +1,7 @@
 from dagster import AssetExecutionContext, BackfillPolicy, MonthlyPartitionsDefinition, asset
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models.raw_sessions.sql_v3 import RAW_SESSION_TABLE_BACKFILL_SQL_V3
+from posthog.models.raw_sessions.sessions_v3 import RAW_SESSION_TABLE_BACKFILL_SQL_V3
 
 # Each partition is pretty heavy, as it's an entire month of events, so this number doesn't need to be high
 MAX_PARTITIONS_PER_RUN = 3

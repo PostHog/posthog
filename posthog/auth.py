@@ -477,7 +477,11 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
         if "HTTP_AUTHORIZATION" in request.META:
             authorization_match = re.match(rf"^{self.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
             if authorization_match:
-                return authorization_match.group(1).strip()
+                token = authorization_match.group(1).strip()
+                # Skip tokens that match personal api keys to avoid unnecessary DB queries
+                if token.startswith(("phx_", "phs_")):
+                    return None
+                return token
         return None
 
     def _validate_token(self, token: str):

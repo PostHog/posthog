@@ -635,6 +635,18 @@ class CohortSerializer(serializers.ModelSerializer):
 
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state
         if is_deletion_change:
+            if deleted_state:
+                flags_using_cohort = FeatureFlag.objects.filter(
+                    team__project_id=cohort.team.project_id, active=True, deleted=False
+                )
+                flags_with_cohort = [flag for flag in flags_using_cohort if cohort.id in flag.get_cohort_ids()]
+                if flags_with_cohort:
+                    flag_names = [flag.name or flag.key for flag in flags_with_cohort]
+                    raise ValidationError(
+                        f"This cohort is used in {len(flags_with_cohort)} active feature flag(s): {', '.join(flag_names)}. "
+                        "Please remove the cohort from these feature flags before deleting it."
+                    )
+
             relevant_team_ids = Team.objects.filter(project_id=cohort.team.project_id).values_list("id", flat=True)
             cohort.deleted = deleted_state
             if deleted_state:

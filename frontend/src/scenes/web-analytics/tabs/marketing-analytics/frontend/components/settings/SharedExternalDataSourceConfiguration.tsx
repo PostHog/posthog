@@ -8,10 +8,11 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { MARKETING_ANALYTICS_SCHEMA, MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
+import { MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
+import { ExternalDataSchemaStatus } from '~/types'
 
 import { useSortedPaginatedList } from '../../hooks/useSortedPaginatedList'
-import { ExternalTable } from '../../logic/marketingAnalyticsLogic'
+import { ExternalTable, MarketingSourceStatus, SourceStatus } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { MAX_ITEMS_TO_SHOW } from '../../logic/utils'
 import { AddSourceDropdown } from './AddSourceDropdown'
@@ -49,46 +50,9 @@ export function SharedExternalDataSourceConfiguration<T extends string>({
 }: SharedExternalDataSourceConfigurationProps<T>): JSX.Element {
     const { updateSourceMapping } = useActions(marketingAnalyticsSettingsLogic)
     const [editingTable, setEditingTable] = useState<ExternalTable | null>(null)
-    const requiredFields = Object.values(MarketingAnalyticsColumnsSchemaNames).filter(
-        (field) => MARKETING_ANALYTICS_SCHEMA[field].required
-    )
 
-    const isFieldMapped = (table: ExternalTable, fieldName: MarketingAnalyticsColumnsSchemaNames): boolean => {
-        const sourceMapping = table.source_map
-        if (!sourceMapping) {
-            return false
-        }
-        const mapping = sourceMapping[fieldName]
-        return !!(mapping && mapping.trim() !== '')
-    }
-
-    const getTableMappingInfo = (
-        table: ExternalTable
-    ): { mappedFields: string[]; unmappedFields: string[]; totalRequired: number; mappedCount: number } => {
-        const sourceMapping = table.source_map
-        if (!sourceMapping) {
-            return {
-                mappedFields: [],
-                unmappedFields: requiredFields,
-                totalRequired: requiredFields.length,
-                mappedCount: 0,
-            }
-        }
-
-        const mappedFields = requiredFields.filter((fieldName) => isFieldMapped(table, fieldName))
-        const unmappedFields = requiredFields.filter((fieldName) => !isFieldMapped(table, fieldName))
-
-        return {
-            mappedFields,
-            unmappedFields,
-            totalRequired: requiredFields.length,
-            mappedCount: mappedFields.length,
-        }
-    }
-
-    const isTableFullyConfigured = (table: ExternalTable): boolean => {
-        const { mappedCount, totalRequired } = getTableMappingInfo(table)
-        return mappedCount === totalRequired && totalRequired > 0
+    const isTableFullyConfigured = (table: ExternalTable & { status?: SourceStatus }): boolean => {
+        return table.status === ExternalDataSchemaStatus.Completed
     }
 
     const {
@@ -120,24 +84,6 @@ export function SharedExternalDataSourceConfiguration<T extends string>({
         return !!(sourceMapping && Object.keys(sourceMapping).length > 0)
     }
 
-    const getTableStatus = (table: ExternalTable): { isConfigured: boolean; message: string } => {
-        if (!hasAnyMapping(table)) {
-            return { isConfigured: false, message: 'No fields mapped' }
-        }
-
-        const { mappedCount, totalRequired } = getTableMappingInfo(table)
-
-        if (mappedCount === totalRequired) {
-            return { isConfigured: true, message: 'Ready to use! All fields mapped correctly.' }
-        }
-
-        const missingCount = totalRequired - mappedCount
-        return {
-            isConfigured: false,
-            message: `${missingCount} field${missingCount > 1 ? 's' : ''} still need mapping`,
-        }
-    }
-
     return (
         <SceneSection title={title} description={description}>
             <PaginationControls
@@ -158,15 +104,19 @@ export function SharedExternalDataSourceConfiguration<T extends string>({
                         key: 'source_icon',
                         title: '',
                         width: 0,
-                        render: (_, item: ExternalTable): JSX.Element => (
-                            <DataWarehouseSourceIcon type={item.source_type} />
-                        ),
+                        render: (
+                            _,
+                            item: ExternalTable & { status?: SourceStatus; statusMessage?: string }
+                        ): JSX.Element => <DataWarehouseSourceIcon type={item.source_type} />,
                     },
                     {
                         key: 'source',
                         title: 'Source',
                         width: 0,
-                        render: (_, item: ExternalTable): JSX.Element => {
+                        render: (
+                            _,
+                            item: ExternalTable & { status?: SourceStatus; statusMessage?: string }
+                        ): JSX.Element => {
                             return item.sourceUrl ? (
                                 <Link to={item.sourceUrl}>
                                     {item.source_type} {item.source_prefix}
@@ -181,28 +131,33 @@ export function SharedExternalDataSourceConfiguration<T extends string>({
                     {
                         key: 'prefix',
                         title: 'Table',
-                        render: (_, item: ExternalTable): string => item.name,
+                        render: (_, item: ExternalTable & { status?: SourceStatus; statusMessage?: string }): string =>
+                            item.name,
                     },
                     {
                         key: 'status',
                         title: 'Status',
                         width: 80,
-                        render: (_, item: ExternalTable): JSX.Element => {
-                            const { isConfigured, message } = getTableStatus(item)
-
-                            if (isConfigured) {
-                                return <StatusIcon status="success" message={message} />
-                            } else if (hasAnyMapping(item)) {
-                                return <StatusIcon status="warning" message={message} />
-                            }
-                            return <StatusIcon status="error" message={message} />
+                        render: (
+                            _,
+                            item: ExternalTable & { status?: SourceStatus; statusMessage?: string }
+                        ): JSX.Element => {
+                            return (
+                                <StatusIcon
+                                    status={item.status || MarketingSourceStatus.Error}
+                                    message={item.statusMessage || 'Unknown status'}
+                                />
+                            )
                         },
                     },
                     {
                         key: 'actions',
                         width: 0,
                         title: 'Actions',
-                        render: (_, item: ExternalTable): JSX.Element => {
+                        render: (
+                            _,
+                            item: ExternalTable & { status?: SourceStatus; statusMessage?: string }
+                        ): JSX.Element => {
                             const tableHasMapping = hasAnyMapping(item)
                             return (
                                 <div className="flex gap-1">

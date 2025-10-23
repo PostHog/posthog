@@ -13,7 +13,7 @@ from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE
 from posthog.event_usage import groups
 from posthog.models import ProxyRecord
 from posthog.models.organization import Organization
-from posthog.permissions import OrganizationAdminWritePermissions
+from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.proxy_service import CreateManagedProxyInputs, DeleteManagedProxyInputs
 
@@ -59,7 +59,7 @@ class ProxyRecordSerializer(serializers.ModelSerializer):
 class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     scope_object = "organization"
     serializer_class = ProxyRecordSerializer
-    permission_classes = [OrganizationAdminWritePermissions]
+    permission_classes = [OrganizationAdminWritePermissions, TimeSensitiveActionPermission]
 
     def list(self, request, *args, **kwargs):
         queryset = self.organization.proxy_records.order_by("-created_at")

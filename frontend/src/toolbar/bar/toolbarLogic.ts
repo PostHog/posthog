@@ -10,7 +10,7 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID, inBounds } from '~/toolbar/utils'
+import { TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID, inBounds, makeNavigateWrapper } from '~/toolbar/utils'
 
 import type { toolbarLogicType } from './toolbarLogicType'
 
@@ -449,15 +449,10 @@ export const toolbarLogic = kea<toolbarLogicType>([
             return () => window.removeEventListener('popstate', popstateHandler)
         }, 'popstateListener')
 
-        // Use a setInterval to periodically check for URL changes
-        // We do this because we don't want to write over the history.pushState function in case other scripts rely on it
-        // And mutation observers don't seem to work :shrug:
-        cache.disposables.add(() => {
-            const navigationInterval = setInterval(() => {
-                actions.maybeSendNavigationMessage()
-            }, 500)
-            return () => clearInterval(navigationInterval)
-        }, 'navigationInterval')
+        cache.disposables.add(
+            makeNavigateWrapper(actions.maybeSendNavigationMessage, '__ph_toolbar_logic_wrapped__'),
+            'historyProxy'
+        )
 
         // the toolbar can be run within the posthog parent app
         // if it is then it listens to parent messages

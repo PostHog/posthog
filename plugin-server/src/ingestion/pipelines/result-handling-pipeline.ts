@@ -17,24 +17,30 @@ export type PipelineConfig = {
  * Unified result handling pipeline that wraps any BatchProcessingPipeline and handles
  * non-success results (DLQ, DROP, REDIRECT) by adding side effects.
  */
-export class ResultHandlingPipeline<TInput, TOutput> implements BatchPipeline<TInput, TOutput> {
+export class ResultHandlingPipeline<
+    TInput,
+    TOutput,
+    CInput extends { message: Message },
+    COutput extends { message: Message } = CInput,
+> implements BatchPipeline<TInput, TOutput, CInput, COutput>
+{
     constructor(
-        private pipeline: BatchPipeline<TInput, TOutput>,
+        private pipeline: BatchPipeline<TInput, TOutput, CInput, COutput>,
         private config: PipelineConfig
     ) {}
 
-    feed(elements: BatchPipelineResultWithContext<TInput>): void {
+    feed(elements: BatchPipelineResultWithContext<TInput, CInput>): void {
         this.pipeline.feed(elements)
     }
 
-    async next(): Promise<BatchPipelineResultWithContext<TOutput> | null> {
+    async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput> | null> {
         const results = await this.pipeline.next()
 
         if (results === null) {
             return null
         }
 
-        const processedResults: BatchPipelineResultWithContext<TOutput> = []
+        const processedResults: BatchPipelineResultWithContext<TOutput, COutput> = []
 
         for (const resultWithContext of results) {
             const lastStep = resultWithContext.context.lastStep
@@ -95,12 +101,5 @@ export class ResultHandlingPipeline<TInput, TOutput> implements BatchPipeline<TI
         }
 
         return sideEffects
-    }
-
-    static of<TInput, TOutput>(
-        pipeline: BatchPipeline<TInput, TOutput>,
-        config: PipelineConfig
-    ): ResultHandlingPipeline<TInput, TOutput> {
-        return new ResultHandlingPipeline(pipeline, config)
     }
 }

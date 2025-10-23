@@ -97,6 +97,7 @@ impl KafkaDeduplicatorService {
         // Create checkpoint manager and inject an exporter to enable uploads
         let checkpoint_config = CheckpointConfig {
             checkpoint_interval: config.checkpoint_interval(),
+            checkpoint_full_upload_interval: config.checkpoint_full_upload_interval,
             local_checkpoint_dir: config.local_checkpoint_dir.clone(),
             s3_bucket: config.s3_bucket.clone().unwrap_or_default(),
             s3_key_prefix: config.s3_key_prefix.clone(),

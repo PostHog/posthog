@@ -96,6 +96,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             () => [],
             (): SidePanelSceneContext => ({
                 activity_scope: ActivityScope.ERROR_TRACKING_ISSUE,
+                discussions_disabled: true,
             }),
         ],
     }),

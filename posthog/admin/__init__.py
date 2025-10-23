@@ -22,6 +22,7 @@ def register_all_admin():
         InsightAdmin,
         InstanceSettingAdmin,
         LinkAdmin,
+        OAuthApplicationAdmin,
         OrganizationAdmin,
         OrganizationDomainAdmin,
         PersonalAPIKeyAdmin,
@@ -63,6 +64,7 @@ def register_all_admin():
         Text,
         User,
     )
+    from posthog.models.oauth import OAuthApplication
 
     from products.tasks.backend.admin import SandboxSnapshotAdmin
     from products.tasks.backend.models import SandboxSnapshot
@@ -101,5 +103,6 @@ def register_all_admin():
     admin.site.register(BatchImport, BatchImportAdmin)
 
     admin.site.register(PersonalAPIKey, PersonalAPIKeyAdmin)
+    admin.site.register(OAuthApplication, OAuthApplicationAdmin)
 
     admin.site.register(SandboxSnapshot, SandboxSnapshotAdmin)

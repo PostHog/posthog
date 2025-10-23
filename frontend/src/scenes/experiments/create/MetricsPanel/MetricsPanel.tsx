@@ -48,7 +48,7 @@ export const MetricsPanel = ({
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
 
     // we need this value to calculate the recent activity on the metrics list
-    const filterTestAccounts = experiment.filters?.filter_test_accounts || false
+    const filterTestAccounts = experiment.exposure_criteria?.filterTestAccounts ?? false
 
     const primaryMetrics = sortMetrics(
         [...(experiment.metrics || []).filter(isExperimentMetric), ...sharedMetrics.primary],

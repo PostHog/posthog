@@ -33,9 +33,6 @@ class WebAnalyticsPreAggregatedQueryBuilder:
             if hasattr(prop, "key") and prop.key not in self.supported_props_filters:
                 return False
 
-        if query.conversionGoal:
-            return False
-
         return True
 
     def _get_channel_type_expr(self) -> ast.Expr:

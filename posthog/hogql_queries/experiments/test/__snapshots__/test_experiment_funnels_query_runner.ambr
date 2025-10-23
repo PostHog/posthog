@@ -43,7 +43,7 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     prop AS prop,
+                     prop,
                      if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
                      if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                      prop AS prop
@@ -152,7 +152,7 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     prop AS prop,
+                     prop,
                      if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
                      if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                      prop AS prop
@@ -261,7 +261,7 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     prop AS prop,
+                     prop,
                      if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
                      if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                      prop AS prop
@@ -370,7 +370,7 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     prop AS prop,
+                     prop,
                      if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
                      if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                      prop AS prop
@@ -489,7 +489,7 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     prop AS prop,
+                     prop,
                      if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
                      if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                      prop AS prop
@@ -608,7 +608,7 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     prop AS prop,
+                     prop,
                      if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
                      if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                      prop AS prop
@@ -727,7 +727,7 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     prop AS prop,
+                     prop,
                      if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
                      if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                      prop AS prop
@@ -829,7 +829,7 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     prop AS prop,
+                     prop,
                      if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
                      if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                      prop AS prop
@@ -931,7 +931,7 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     prop AS prop,
+                     prop,
                      if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
                      if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                      prop AS prop

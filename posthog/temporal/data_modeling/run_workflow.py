@@ -571,13 +571,17 @@ async def materialize_model(
 
     file_uris = delta_table.file_uris()
 
+    saved_query_table: DataWarehouseTable | None = None
+    if saved_query.table_id:
+        saved_query_table = await database_sync_to_async(DataWarehouseTable.objects.get)(id=saved_query.table_id)
+
     await logger.adebug("Copying query files in S3")
     folder_path = prepare_s3_files_for_querying(
         folder_path=saved_query.folder_path,
         table_name=saved_query.normalized_name,
         file_uris=file_uris,
         preserve_table_name_casing=True,
-        existing_queryable_folder=saved_query.table.queryable_folder if saved_query.table else None,
+        existing_queryable_folder=saved_query_table.queryable_folder if saved_query_table else None,
         logger=logger,
     )
 
@@ -588,7 +592,7 @@ async def materialize_model(
     dwh_table = await create_table_from_saved_query(str(job.id), str(saved_query.id), team.pk, folder_path)
 
     await database_sync_to_async(saved_query.refresh_from_db)()
-    saved_query.table = dwh_table
+    saved_query.table_id = dwh_table.id
     await database_sync_to_async(saved_query.save)()
 
     await update_table_row_count(saved_query, row_count, logger)

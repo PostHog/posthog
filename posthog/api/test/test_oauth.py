@@ -1924,3 +1924,50 @@ class TestOAuthAPI(APIBaseTest):
         location = response.get("Location")
         assert location
         self.assertIn("error=invalid_scope", location)
+
+    def test_token_endpoint_with_json_payload(self):
+        grant = OAuthGrant.objects.create(
+            application=self.confidential_application,
+            user=self.user,
+            code="test_json_code",
+            code_challenge=self.code_challenge,
+            code_challenge_method="S256",
+            redirect_uri="https://example.com/callback",
+            expires=timezone.now() + timedelta(minutes=5),
+            scoped_organizations=[],
+            scoped_teams=[],
+        )
+
+        token_data = {
+            "grant_type": "authorization_code",
+            "code": grant.code,
+            "client_id": "test_confidential_client_id",
+            "client_secret": "test_confidential_client_secret",
+            "redirect_uri": "https://example.com/callback",
+            "code_verifier": self.code_verifier,
+        }
+
+        response = self.client.post(
+            "/oauth/token/",
+            data=token_data,
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertIn("access_token", response_data)
+        self.assertIn("refresh_token", response_data)
+        self.assertIn("token_type", response_data)
+        self.assertEqual(response_data["token_type"], "Bearer")
+
+    def test_token_endpoint_with_invalid_json_payload(self):
+        response = self.client.post(
+            "/oauth/token/",
+            data="invalid json{{{",
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response_data = response.json()
+        self.assertEqual(response_data["error"], "invalid_request")
+        self.assertIn("Invalid JSON", response_data["error_description"])

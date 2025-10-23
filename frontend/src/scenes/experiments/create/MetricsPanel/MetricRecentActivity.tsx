@@ -26,12 +26,9 @@ export const MetricRecentActivity = ({ metric, filterTestAccounts }: MetricRecen
     const count = eventCount ?? 0
 
     return (
-        <div className="text-xs">
-            <span className="text-muted">Recent activity:</span>{' '}
-            <span className="font-semibold">
-                {count.toLocaleString()} event{count !== 1 ? 's' : ''}
-            </span>{' '}
-            <span className="text-muted">(past 14 days)</span>
+        <div className="flex flex-col gap-1">
+            <span className="text-muted">events in the past 14 days</span>
+            <span className="text-2xl font-semibold text-right">{count.toLocaleString()}</span>
         </div>
     )
 }

@@ -22,9 +22,21 @@ export type HogFlowFiltersProps = {
  */
 export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }: HogFlowFiltersProps): JSX.Element {
     const shouldShowInternalEvents = useFeatureFlag('WORKFLOWS_INTERNAL_EVENT_FILTERS')
+
     const actionsTaxonomicGroupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
     if (shouldShowInternalEvents) {
         actionsTaxonomicGroupTypes.push(TaxonomicFilterGroupType.InternalEvents)
+    }
+
+    const propertyTaxonomicGroupTypes = [
+        TaxonomicFilterGroupType.EventProperties,
+        TaxonomicFilterGroupType.EventFeatureFlags,
+        TaxonomicFilterGroupType.Elements,
+        TaxonomicFilterGroupType.PersonProperties,
+        TaxonomicFilterGroupType.HogQLExpression,
+    ]
+    if (shouldShowInternalEvents) {
+        propertyTaxonomicGroupTypes.push(TaxonomicFilterGroupType.InternalEventProperties)
     }
 
     return (
@@ -40,13 +52,7 @@ export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }
             hideDuplicate
             showNestedArrow={false}
             actionsTaxonomicGroupTypes={actionsTaxonomicGroupTypes}
-            propertiesTaxonomicGroupTypes={[
-                TaxonomicFilterGroupType.EventProperties,
-                TaxonomicFilterGroupType.EventFeatureFlags,
-                TaxonomicFilterGroupType.Elements,
-                TaxonomicFilterGroupType.PersonProperties,
-                TaxonomicFilterGroupType.HogQLExpression,
-            ]}
+            propertiesTaxonomicGroupTypes={propertyTaxonomicGroupTypes}
             propertyFiltersPopover
             addFilterDefaultOptions={{
                 id: '$pageview',

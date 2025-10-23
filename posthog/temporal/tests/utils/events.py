@@ -10,7 +10,7 @@ import itertools
 
 import aiohttp.client_exceptions
 
-from posthog.models.raw_sessions.sql import RAW_SESSION_TABLE_BACKFILL_SELECT_SQL
+from posthog.models.raw_sessions.sessions_v2 import RAW_SESSION_TABLE_BACKFILL_SELECT_SQL
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.datetimes import date_range
 

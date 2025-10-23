@@ -529,6 +529,7 @@ class CloningVisitor(Visitor[Any]):
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             chain=node.chain.copy(),
+            from_asterisk=node.from_asterisk,
         )
         if (
             self.inline_subquery_field_names

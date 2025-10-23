@@ -44,7 +44,6 @@ import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
 import { EventType } from '~/types'
 
-import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
@@ -52,9 +51,12 @@ import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
 import { LLMAnalyticsDatasetsScene } from './datasets/LLMAnalyticsDatasetsScene'
 import { llmEvaluationsLogic } from './evaluations/llmEvaluationsLogic'
 import { EvaluationConfig } from './evaluations/types'
-import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsLogic } from './llmAnalyticsLogic'
-import { CompatMessage } from './types'
-import { normalizeMessages, truncateValue } from './utils'
+import {
+    LLM_ANALYTICS_DATA_COLLECTION_NODE_ID,
+    getDefaultGenerationsColumns,
+    llmAnalyticsLogic,
+} from './llmAnalyticsLogic'
+import { truncateValue } from './utils'
 
 export const scene: SceneExport = {
     component: LLMAnalyticsScene,
@@ -146,12 +148,16 @@ function LLMAnalyticsGenerations(): JSX.Element {
         toggleGenerationExpanded,
     } = useActions(llmAnalyticsLogic)
     const { generationsQuery, expandedGenerationIds, loadedTraces } = useValues(llmAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <DataTable
             query={{
                 ...generationsQuery,
                 showSavedFilters: true,
+                defaultColumns: getDefaultGenerationsColumns(
+                    !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]
+                ),
             }}
             setQuery={(query) => {
                 if (!isEventsQuery(query.source)) {
@@ -170,6 +176,31 @@ function LLMAnalyticsGenerations(): JSX.Element {
             context={{
                 emptyStateHeading: 'There were no generations in this period',
                 emptyStateDetail: 'Try changing the date range or filters.',
+                columns: {
+                    uuid: {
+                        title: 'ID',
+                        render: ({ record, value }) => {
+                            if (!value || typeof value !== 'string') {
+                                return null
+                            }
+
+                            const traceId = Array.isArray(record) && record.length > 1 ? record[1] : undefined
+                            const visualValue = truncateValue(value)
+
+                            return !traceId || typeof traceId !== 'string' ? (
+                                <strong>{visualValue}</strong>
+                            ) : (
+                                <strong>
+                                    <Tooltip title={value}>
+                                        <Link to={`/llm-analytics/traces/${traceId}?event=${value}`}>
+                                            {visualValue}
+                                        </Link>
+                                    </Tooltip>
+                                </strong>
+                            )
+                        },
+                    },
+                },
                 expandable: {
                     expandedRowRender: function renderExpandedGeneration({ result }: DataTableRow) {
                         if (!Array.isArray(result)) {
@@ -224,93 +255,6 @@ function LLMAnalyticsGenerations(): JSX.Element {
                         }
                     },
                     noIndent: true,
-                },
-                columns: {
-                    uuid: {
-                        title: 'ID',
-                        render: ({ record, value }) => {
-                            const traceId = (record as unknown[])[1]
-
-                            if (!value) {
-                                return null
-                            }
-
-                            const visualValue = truncateValue(value)
-
-                            return !traceId ? (
-                                <strong>{visualValue}</strong>
-                            ) : (
-                                <strong>
-                                    <Tooltip title={value as string}>
-                                        <Link to={`/llm-analytics/traces/${traceId}?event=${value as string}`}>
-                                            {visualValue}
-                                        </Link>
-                                    </Tooltip>
-                                </strong>
-                            )
-                        },
-                    },
-                    'properties.$ai_input[-1]': {
-                        title: 'Input',
-                        render: ({ value }) => {
-                            let inputNormalized: CompatMessage[] | undefined
-                            if (typeof value === 'string') {
-                                try {
-                                    inputNormalized = normalizeMessages(JSON.parse(value), 'user')
-                                } catch (e) {
-                                    console.warn('Error parsing properties.$ai_input[-1] as JSON', e)
-                                }
-                            }
-                            if (!inputNormalized?.length) {
-                                return <>–</>
-                            }
-                            return <LLMMessageDisplay message={inputNormalized.at(-1)!} isOutput={false} minimal />
-                        },
-                    },
-                    'properties.$ai_output_choices': {
-                        title: 'Output',
-                        render: ({ value }) => {
-                            let outputNormalized: CompatMessage[] | undefined
-                            if (typeof value === 'string') {
-                                try {
-                                    outputNormalized = normalizeMessages(JSON.parse(value), 'assistant')
-                                } catch (e) {
-                                    console.warn('Error parsing properties.$ai_output_choices as JSON', e)
-                                }
-                            }
-                            if (!outputNormalized?.length) {
-                                return <>–</>
-                            }
-                            return (
-                                <div>
-                                    {outputNormalized.map(
-                                        (
-                                            message,
-                                            index // All output choices, if multiple
-                                        ) => (
-                                            <LLMMessageDisplay key={index} message={message} isOutput={true} minimal />
-                                        )
-                                    )}
-                                </div>
-                            )
-                        },
-                    },
-                    'properties.$ai_trace_id': {
-                        title: 'Trace ID',
-                        render: ({ value }) => {
-                            if (!value) {
-                                return null
-                            }
-
-                            const visualValue = truncateValue(value)
-
-                            return (
-                                <Tooltip title={value as string}>
-                                    <Link to={`/llm-analytics/traces/${value as string}`}>{visualValue}</Link>
-                                </Tooltip>
-                            )
-                        },
-                    },
                 },
             }}
             uniqueKey="llm-analytics-generations"

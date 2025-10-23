@@ -641,6 +641,57 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             mock.return_value = RunnableLambda(interrupt_graph_2)
             await self._run_assistant_graph(graph, conversation=self.conversation)
 
+    async def test_memory_collector_handles_interrupt_with_pending_tool_calls(self):
+        """Test that memory collector correctly routes to tools when resuming from an interrupt with pending tool calls."""
+        graph = (
+            AssistantGraph(self.team, self.user)
+            .add_memory_collector(AssistantNodeName.END)
+            .add_memory_collector_tools()
+            .compile()
+        )
+
+        config: RunnableConfig = {
+            "configurable": {
+                "thread_id": self.conversation.id,
+            }
+        }
+
+        # Simulate an interrupt: Set state with AIMessage that has tool_calls but no corresponding ToolMessage
+        await graph.aupdate_state(
+            config,
+            {
+                "messages": [HumanMessage(content="We use a subscription model")],
+                "memory_collection_messages": [
+                    messages.AIMessage(
+                        content="Analyzing business model",
+                        tool_calls=[
+                            {
+                                "id": "tool_1",
+                                "name": "core_memory_append",
+                                "args": {"memory_content": "Company uses subscription pricing model"},
+                            }
+                        ],
+                    )
+                ],
+            },
+        )
+
+        # Now resume - it should route to tools first to execute the pending tool call
+        with patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model") as model_mock:
+            # After tool execution, the model should return [Done]
+            model_mock.return_value = RunnableLambda(lambda _: messages.AIMessage(content="[Done]"))
+
+            output, _ = await self._run_assistant_graph(
+                graph,
+                conversation=self.conversation,
+                is_new_conversation=False,
+                message=None,
+            )
+
+        # Verify the memory was appended (tool was executed)
+        await self.core_memory.arefresh_from_db()
+        self.assertIn("Company uses subscription pricing model", self.core_memory.text)
+
     async def test_recursion_error_is_handled(self):
         class FakeStream:
             def __init__(self, *args, **kwargs):
@@ -2236,3 +2287,76 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         assistant_output = [(event_type, msg) for event_type, msg in output if isinstance(msg, AssistantMessage)]
         self.assertEqual(len(assistant_output), 1)
         self.assertEqual(cast(AssistantMessage, assistant_output[0][1]).id, message_id_2)
+
+    @patch(
+        "ee.hogai.graph.conversation_summarizer.nodes.AnthropicConversationSummarizer.summarize",
+        new=AsyncMock(return_value="Summary"),
+    )
+    @patch("ee.hogai.graph.root.compaction_manager.AnthropicConversationCompactionManager.should_compact_conversation")
+    @patch("ee.hogai.graph.root.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
+    async def test_compacting_conversation_on_the_second_turn(self, mock_model, mock_tool, mock_should_compact):
+        mock_model.side_effect = cycle(  # Changed from return_value to side_effect
+            [
+                FakeChatAnthropic(
+                    responses=[
+                        messages.AIMessage(
+                            content=[{"text": "Let me think about that", "type": "text"}],
+                            tool_calls=[{"id": "1", "name": "read_taxonomy", "args": {"query": {"kind": "events"}}}],
+                        )
+                    ]
+                ),
+                FakeChatAnthropic(
+                    responses=[
+                        messages.AIMessage(
+                            content=[{"text": "After summary", "type": "text"}],
+                        )
+                    ]
+                ),
+            ]
+        )
+        mock_tool.return_value = ("Event list" * 128000, None)
+        mock_should_compact.side_effect = cycle([False, True])  # Also changed this
+
+        graph = (
+            AssistantGraph(self.team, self.user)
+            .add_root(
+                path_map={
+                    "insights": AssistantNodeName.END,
+                    "search_documentation": AssistantNodeName.END,
+                    "root": AssistantNodeName.ROOT,
+                    "end": AssistantNodeName.END,
+                    "insights_search": AssistantNodeName.END,
+                    "session_summarization": AssistantNodeName.END,
+                    "create_dashboard": AssistantNodeName.END,
+                }
+            )
+            .add_memory_onboarding()
+            .compile()
+        )
+
+        expected_output = [
+            ("message", HumanMessage(content="First")),
+            (
+                "message",
+                AssistantMessage(
+                    content="Let me think about that",
+                    tool_calls=[{"id": "1", "name": "read_taxonomy", "args": {"query": {"kind": "events"}}}],
+                ),
+            ),
+            ("message", ReasoningMessage(content="Searching the taxonomy")),
+            ("message", AssistantToolCallMessage(tool_call_id="1", content="Event list" * 128000)),
+            ("message", HumanMessage(content="First")),  # Should copy this message
+            ("message", AssistantMessage(content="After summary")),
+        ]
+
+        output, _ = await self._run_assistant_graph(graph, message="First", conversation=self.conversation)
+        self.assertConversationEqual(output, expected_output)
+
+        snapshot = await graph.aget_state({"configurable": {"thread_id": str(self.conversation.id)}})
+        state = AssistantState.model_validate(snapshot.values)
+        # should be equal to the copied human message
+        new_human_message = cast(HumanMessage, output[4][1])
+        self.assertEqual(state.start_id, new_human_message.id)
+        # should be equal to the summary message, minus reasoning message
+        self.assertEqual(state.root_conversation_start_id, state.messages[3].id)

@@ -38,7 +38,15 @@ import {
 } from '~/queries/utils'
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { llmAnalyticsColumnRenderers } from 'products/llm_analytics/frontend/llmAnalyticsColumnRenderers'
+
 import { extractExpressionComment, removeExpressionComment } from './utils'
+
+// Registry for product-specific column renderers
+// Products can add their custom column renderers here to have them automatically applied across all DataTable instances
+const productColumnRenderers: Record<string, QueryContextColumn> = {
+    ...llmAnalyticsColumnRenderers,
+}
 
 export function getContextColumn(
     key: string,
@@ -98,6 +106,18 @@ export function renderColumn(
             />
         ) : (
             String(value)
+        )
+    } else if (productColumnRenderers[key]?.render) {
+        const Component = productColumnRenderers[key].render!
+        return (
+            <Component
+                record={record}
+                columnName={key}
+                value={value}
+                query={query}
+                recordIndex={recordIndex}
+                rowCount={rowCount}
+            />
         )
     } else if (typeof value === 'object' && Array.isArray(value) && value[0] === '__hx_tag') {
         return renderHogQLX(value)

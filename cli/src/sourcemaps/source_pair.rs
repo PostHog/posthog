@@ -17,7 +17,9 @@ use walkdir::WalkDir;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SourceMapContent {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub release_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub chunk_id: Option<String>,
     #[serde(flatten)]
     pub fields: BTreeMap<String, Value>,
@@ -38,36 +40,57 @@ pub struct SourcePair {
 }
 
 impl SourcePair {
-    pub fn new(source: MinifiedSourceFile, sourcemap: SourceMapFile) -> Result<Self> {
-        if sourcemap.get_chunk_id() != source.get_chunk_id() {
-            anyhow::bail!(
-                "Source chunk ID and sourcemap chunk ID disagree. Try re-running injection"
-            )
-        }
-
-        Ok(Self { source, sourcemap })
+    pub fn has_chunk_id(&self) -> bool {
+        // Minified chunks are the source of truth for their ID's, not sourcemaps,
+        // because sometimes sourcemaps are shared across multiple chunks.
+        self.get_chunk_id().is_some()
     }
 
-    pub fn has_chunk_id(&self) -> bool {
-        self.sourcemap.get_chunk_id().is_some()
+    pub fn get_chunk_id(&self) -> Option<String> {
+        self.source.get_chunk_id()
     }
 
     pub fn has_release_id(&self) -> bool {
-        self.sourcemap.get_release_id().is_some()
+        self.get_release_id().is_some()
     }
 
-    pub fn set_chunk_id(&mut self, chunk_id: String) -> Result<()> {
+    pub fn remove_chunk_id(&mut self, chunk_id: String) -> Result<()> {
+        if self.get_chunk_id().as_ref() != Some(&chunk_id) {
+            return Err(anyhow!("Chunk ID mismatch"));
+        }
+        let adjustment = self.source.remove_chunk_id(chunk_id)?;
+        self.sourcemap.apply_adjustment(adjustment)?;
+        self.sourcemap.set_chunk_id(None);
+        Ok(())
+    }
+
+    pub fn update_chunk_id(
+        &mut self,
+        previous_chunk_id: String,
+        new_chunk_id: String,
+    ) -> Result<()> {
+        self.remove_chunk_id(previous_chunk_id)?;
+        self.add_chunk_id(new_chunk_id)?;
+        Ok(())
+    }
+
+    pub fn add_chunk_id(&mut self, chunk_id: String) -> Result<()> {
         if self.has_chunk_id() {
             return Err(anyhow!("Chunk ID already set"));
         }
 
         let adjustment = self.source.set_chunk_id(&chunk_id)?;
-        self.sourcemap.apply_adjustment(adjustment)?;
-        self.sourcemap.set_chunk_id(chunk_id);
+        // In cases where sourcemaps are shared across multiple chunks,
+        // we should only apply the adjustment if the sourcemap doesn't
+        // have a chunk ID set (since otherwise, it's already been adjusted)
+        if self.sourcemap.get_chunk_id().is_none() {
+            self.sourcemap.apply_adjustment(adjustment)?;
+            self.sourcemap.set_chunk_id(Some(chunk_id));
+        }
         Ok(())
     }
 
-    pub fn set_release_id(&mut self, release_id: String) {
+    pub fn set_release_id(&mut self, release_id: Option<String>) {
         self.sourcemap.set_release_id(release_id);
     }
 
@@ -76,9 +99,17 @@ impl SourcePair {
         self.sourcemap.save()?;
         Ok(())
     }
+
+    pub(crate) fn get_release_id(&self) -> Option<String> {
+        self.sourcemap.get_release_id()
+    }
 }
 
-pub fn read_pairs(directory: &PathBuf, ignore_globs: &[String]) -> Result<Vec<SourcePair>> {
+pub fn read_pairs(
+    directory: &PathBuf,
+    ignore_globs: &[String],
+    strip_prefix: &Option<String>,
+) -> Result<Vec<SourcePair>> {
     // Make sure the directory exists
     if !directory.exists() {
         bail!("Directory does not exist");
@@ -110,7 +141,7 @@ pub fn read_pairs(directory: &PathBuf, ignore_globs: &[String]) -> Result<Vec<So
 
         info!("Processing file: {}", entry_path.display());
         let source = MinifiedSourceFile::load(&entry_path)?;
-        let sourcemap_path = source.get_sourcemap_path()?;
+        let sourcemap_path = source.get_sourcemap_path(strip_prefix)?;
 
         let Some(path) = sourcemap_path else {
             warn!(
@@ -131,7 +162,6 @@ impl TryInto<SymbolSetUpload> for SourcePair {
 
     fn try_into(self) -> Result<SymbolSetUpload> {
         let chunk_id = self
-            .sourcemap
             .get_chunk_id()
             .ok_or_else(|| anyhow!("Chunk ID not found"))?;
         let source_content = self.source.inner.content;
@@ -174,12 +204,12 @@ impl SourceMapFile {
         let new_content = {
             let content = serde_json::to_string(&self.inner.content)?.into_bytes();
             let mut original_sourcemap = match sourcemap::decode_slice(content.as_slice())
-                .map_err(|err| anyhow!("Failed to parse sourcemap: {}", err))?
+                .map_err(|err| anyhow!("Failed to parse sourcemap: {err}"))?
             {
                 sourcemap::DecodedMap::Regular(map) => map,
                 sourcemap::DecodedMap::Index(index_map) => index_map
                     .flatten()
-                    .map_err(|err| anyhow!("Failed to parse sourcemap: {}", err))?,
+                    .map_err(|err| anyhow!("Failed to parse sourcemap: {err}"))?,
                 sourcemap::DecodedMap::Hermes(_) => {
                     // TODO(olly) - YES THEY ARE!!!!! WOOOOOOO!!!!! YIPEEEEEEEE!!!
                     anyhow::bail!("Hermes source maps are not supported")
@@ -203,12 +233,12 @@ impl SourceMapFile {
         Ok(())
     }
 
-    pub fn set_chunk_id(&mut self, chunk_id: String) {
-        self.inner.content.chunk_id = Some(chunk_id);
+    pub fn set_chunk_id(&mut self, chunk_id: Option<String>) {
+        self.inner.content.chunk_id = chunk_id;
     }
 
-    pub fn set_release_id(&mut self, release_id: String) {
-        self.inner.content.release_id = Some(release_id);
+    pub fn set_release_id(&mut self, release_id: Option<String>) {
+        self.inner.content.release_id = release_id;
     }
 }
 
@@ -224,7 +254,7 @@ impl MinifiedSourceFile {
     }
 
     pub fn get_chunk_id(&self) -> Option<String> {
-        let patterns = ["//#chunk_id"];
+        let patterns = ["//# chunkId="];
         self.get_comment_value(&patterns)
     }
 
@@ -233,27 +263,27 @@ impl MinifiedSourceFile {
             // Update source content with chunk ID
             let source_content = &self.inner.content;
             let mut magic_source = MagicString::new(source_content);
-            let code_snippet = CODE_SNIPPET_TEMPLATE.replace(CHUNKID_PLACEHOLDER, &chunk_id);
+            let code_snippet = CODE_SNIPPET_TEMPLATE.replace(CHUNKID_PLACEHOLDER, chunk_id);
             magic_source
                 .prepend(&code_snippet)
-                .map_err(|err| anyhow!("Failed to prepend code snippet: {}", err))?;
-            let chunk_comment = CHUNKID_COMMENT_PREFIX.replace(CHUNKID_PLACEHOLDER, &chunk_id);
+                .map_err(|err| anyhow!("Failed to prepend code snippet: {err}"))?;
+            let chunk_comment = CHUNKID_COMMENT_PREFIX.replace(CHUNKID_PLACEHOLDER, chunk_id);
             magic_source
                 .append(&chunk_comment)
-                .map_err(|err| anyhow!("Failed to append chunk comment: {}", err))?;
+                .map_err(|err| anyhow!("Failed to append chunk comment: {err}"))?;
             let adjustment = magic_source
                 .generate_map(GenerateDecodedMapOptions {
                     include_content: true,
                     ..Default::default()
                 })
-                .map_err(|err| anyhow!("Failed to generate source map: {}", err))?;
+                .map_err(|err| anyhow!("Failed to generate source map: {err}"))?;
             let adjustment_sourcemap = SourceMap::from_slice(
                 adjustment
                     .to_string()
-                    .map_err(|err| anyhow!("Failed to serialize source map: {}", err))?
+                    .map_err(|err| anyhow!("Failed to serialize source map: {err}"))?
                     .as_bytes(),
             )
-            .map_err(|err| anyhow!("Failed to parse adjustment sourcemap: {}", err))?;
+            .map_err(|err| anyhow!("Failed to parse adjustment sourcemap: {err}"))?;
             (magic_source.to_string(), adjustment_sourcemap)
         };
 
@@ -261,36 +291,55 @@ impl MinifiedSourceFile {
         Ok(source_adjustment)
     }
 
-    pub fn get_sourcemap_path(&self) -> Result<Option<PathBuf>> {
-        match self.get_sourcemap_reference()? {
-            // If we've got a reference, use it
-            Some(filename) => {
-                let sourcemap_path = self
-                    .inner
+    pub fn get_sourcemap_path(&self, prefix: &Option<String>) -> Result<Option<PathBuf>> {
+        let mut possible_paths = Vec::new();
+        if let Some(filename) = self.get_sourcemap_reference()? {
+            possible_paths.push(
+                self.inner
                     .path
                     .parent()
                     .map(|p| p.join(&filename))
-                    .unwrap_or_else(|| PathBuf::from(&filename));
-                Ok(Some(sourcemap_path))
-            }
-            // If we don't, try guessing
-            None => {
-                let mut sourcemap_path = self.inner.path.to_path_buf();
-                match sourcemap_path.extension() {
-                    Some(ext) => {
-                        sourcemap_path.set_extension(format!("{}.map", ext.to_string_lossy()))
-                    }
-                    None => sourcemap_path.set_extension("map"),
-                };
-                if sourcemap_path.exists() {
-                    info!("Guessed sourcemap path: {}", sourcemap_path.display());
-                    Ok(Some(sourcemap_path))
-                } else {
-                    warn!("Could not find sourcemap for {}", self.inner.path.display());
-                    Ok(None)
+                    .unwrap_or_else(|| PathBuf::from(&filename)),
+            );
+
+            if let Some(prefix) = prefix {
+                if let Some(filename) = filename.strip_prefix(prefix) {
+                    possible_paths.push(
+                        self.inner
+                            .path
+                            .parent()
+                            .map(|p| p.join(filename))
+                            .unwrap_or_else(|| PathBuf::from(&filename)),
+                    );
+                }
+
+                if let Some(filename) = filename.strip_prefix(&format!("{prefix}/")) {
+                    possible_paths.push(
+                        self.inner
+                            .path
+                            .parent()
+                            .map(|p| p.join(filename))
+                            .unwrap_or_else(|| PathBuf::from(&filename)),
+                    );
                 }
             }
+        };
+
+        let mut guessed_path = self.inner.path.to_path_buf();
+        match guessed_path.extension() {
+            Some(ext) => guessed_path.set_extension(format!("{}.map", ext.to_string_lossy())),
+            None => guessed_path.set_extension("map"),
+        };
+        possible_paths.push(guessed_path);
+
+        for path in possible_paths.into_iter() {
+            if path.exists() {
+                info!("Found sourcemap at path: {}", path.display());
+                return Ok(Some(path));
+            }
         }
+
+        Ok(None)
     }
 
     pub fn get_sourcemap_reference(&self) -> Result<Option<String>> {
@@ -317,5 +366,49 @@ impl MinifiedSourceFile {
             }
         }
         None
+    }
+
+    fn remove_chunk_id(&mut self, chunk_id: String) -> Result<SourceMap> {
+        let (new_source_content, source_adjustment) = {
+            // Update source content with chunk ID
+            let source_content = &self.inner.content;
+            let mut magic_source = MagicString::new(source_content);
+
+            let chunk_comment = CHUNKID_COMMENT_PREFIX.replace(CHUNKID_PLACEHOLDER, &chunk_id);
+            if let Some(chunk_comment_start) = source_content.find(&chunk_comment) {
+                let chunk_comment_end = chunk_comment_start as i64 + chunk_comment.len() as i64;
+                magic_source
+                    .remove(chunk_comment_start as i64, chunk_comment_end)
+                    .map_err(|err| anyhow!("Failed to remove chunk comment: {err}"))?;
+            }
+
+            let code_snippet = CODE_SNIPPET_TEMPLATE.replace(CHUNKID_PLACEHOLDER, &chunk_id);
+            if let Some(code_snippet_start) = source_content.find(&code_snippet) {
+                let code_snippet_end = code_snippet_start as i64 + code_snippet.len() as i64;
+                magic_source
+                    .remove(code_snippet_start as i64, code_snippet_end)
+                    .map_err(|err| anyhow!("Failed to remove code snippet {err}"))?;
+            }
+
+            let adjustment = magic_source
+                .generate_map(GenerateDecodedMapOptions {
+                    include_content: true,
+                    ..Default::default()
+                })
+                .map_err(|err| anyhow!("Failed to generate source map: {err}"))?;
+
+            let adjustment_sourcemap = SourceMap::from_slice(
+                adjustment
+                    .to_string()
+                    .map_err(|err| anyhow!("Failed to serialize source map: {err}"))?
+                    .as_bytes(),
+            )
+            .map_err(|err| anyhow!("Failed to parse adjustment sourcemap: {err}"))?;
+
+            (magic_source.to_string(), adjustment_sourcemap)
+        };
+
+        self.inner.content = new_source_content;
+        Ok(source_adjustment)
     }
 }

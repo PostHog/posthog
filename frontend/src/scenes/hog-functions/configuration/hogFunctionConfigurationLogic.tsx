@@ -1159,14 +1159,16 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (type, template, hogFunction) => {
                 const codeLanguage = template?.code_language || hogFunction?.template?.code_language
 
+                if (type === 'site_app' || type === 'site_destination') {
+                    return true
+                }
+
                 // Only allow editing if code language is 'hog'
                 if (codeLanguage && codeLanguage !== 'hog') {
                     return false
                 }
 
-                return ['site_destination', 'site_app', 'source_webhook', 'transformation', 'destination'].includes(
-                    type
-                )
+                return ['source_webhook', 'transformation', 'destination'].includes(type)
             },
         ],
 

@@ -3,8 +3,7 @@ import { DateTime } from 'luxon'
 import { defaultConfig } from '~/config/config'
 import { PluginsServerConfig } from '~/types'
 
-import { HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../../_tests/examples'
-import { HOG_EXAMPLES } from '../../_tests/examples'
+import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
 import { createInvocation } from '../../utils/invocation-utils'
 import { CyclotronJobQueue, JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS, getProducerMapping } from './job-queue'
@@ -200,7 +199,7 @@ describe('getProducerMapping', () => {
         ],
         [
             'wrong_queue:kafka',
-            'Invalid mapping: wrong_queue:kafka - queue wrong_queue must be one of *, hog, hog_overflow, hogflow',
+            'Invalid mapping: wrong_queue:kafka - queue wrong_queue must be one of *, hog, hogoverflow, hogflow',
         ],
         ['hog:kafka:1.1', 'Invalid mapping: hog:kafka:1.1 - percentage 1.1 must be 0 < x <= 1'],
         ['hog:kafka', 'No mapping for the default queue for example: *:postgres'],

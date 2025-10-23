@@ -108,6 +108,7 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebStatsDailyTable,
     WebStatsHourlyTable,
 )
+from posthog.hogql.database.utils import get_join_field_chain
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
@@ -818,42 +819,12 @@ def create_hogql_database(
                 source_table = database.get_table(join.source_table_name)
                 joining_table = database.get_table(join.joining_table_name)
 
-                field = parse_expr(join.source_table_key)
-                if isinstance(field, ast.Field):
-                    from_field = field.chain
-                elif (
-                    isinstance(field, ast.Alias)
-                    and isinstance(field.expr, ast.Call)
-                    and isinstance(field.expr.args[0], ast.Field)
-                ):
-                    from_field = field.expr.args[0].chain
-                elif isinstance(field, ast.Call) and isinstance(field.args[0], ast.Field):
-                    from_field = field.args[0].chain
-                else:
-                    capture_exception(
-                        Exception(
-                            f"Data Warehouse Join HogQL expression should be a Field or Call node: {join.source_table_key}"
-                        )
-                    )
+                from_field = get_join_field_chain(join.source_table_key)
+                if from_field is None:
                     continue
 
-                field = parse_expr(join.joining_table_key)
-                if isinstance(field, ast.Field):
-                    to_field = field.chain
-                elif (
-                    isinstance(field, ast.Alias)
-                    and isinstance(field.expr, ast.Call)
-                    and isinstance(field.expr.args[0], ast.Field)
-                ):
-                    to_field = field.expr.args[0].chain
-                elif isinstance(field, ast.Call) and isinstance(field.args[0], ast.Field):
-                    to_field = field.args[0].chain
-                else:
-                    capture_exception(
-                        Exception(
-                            f"Data Warehouse Join HogQL expression should be a Field or Call node: {join.joining_table_key}"
-                        )
-                    )
+                to_field = get_join_field_chain(join.joining_table_key)
+                if to_field is None:
                     continue
 
                 source_table.fields[join.field_name] = LazyJoin(

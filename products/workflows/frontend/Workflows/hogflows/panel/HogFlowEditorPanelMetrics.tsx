@@ -36,6 +36,7 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
     const logic = appMetricsLogic({
         logicKey,
         loadOnChanges: true,
+        loadOnMount: true,
         forceParams: {
             appSource: 'hog_flow',
             appSourceId: workflow.id,

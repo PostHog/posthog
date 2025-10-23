@@ -100,7 +100,7 @@ from posthog.models.person.sql import (
 from posthog.models.person.util import bulk_create_persons, create_person
 from posthog.models.project import Project
 from posthog.models.property_definition import DROP_PROPERTY_DEFINITIONS_TABLE_SQL, PROPERTY_DEFINITIONS_TABLE_SQL
-from posthog.models.raw_sessions.sql import (
+from posthog.models.raw_sessions.sessions_v2 import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_SQL,
     DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL,
     DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL,
@@ -112,16 +112,16 @@ from posthog.models.raw_sessions.sql import (
     RAW_SESSIONS_TABLE_SQL,
     WRITABLE_RAW_SESSIONS_TABLE_SQL,
 )
-from posthog.models.raw_sessions.sql_v3 import (
+from posthog.models.raw_sessions.sessions_v3 import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3,
     DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL_V3,
     DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL_V3,
-    DROP_RAW_SESSION_TABLE_SQL_V3,
+    DROP_RAW_SESSION_SHARDED_TABLE_SQL_V3,
     DROP_RAW_SESSION_VIEW_SQL_V3,
     DROP_RAW_SESSION_WRITABLE_TABLE_SQL_V3,
     RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL_V3,
     RAW_SESSIONS_TABLE_MV_SQL_V3,
-    RAW_SESSIONS_TABLE_SQL_V3,
+    SHARDED_RAW_SESSIONS_TABLE_SQL_V3,
     WRITABLE_RAW_SESSIONS_TABLE_SQL_V3,
 )
 from posthog.models.sessions.sql import (
@@ -1240,7 +1240,7 @@ def reset_clickhouse_database() -> None:
             DROP_PERSON_TABLE_SQL,
             DROP_PROPERTY_DEFINITIONS_TABLE_SQL(),
             DROP_RAW_SESSION_SHARDED_TABLE_SQL(),
-            DROP_RAW_SESSION_TABLE_SQL_V3(),
+            DROP_RAW_SESSION_SHARDED_TABLE_SQL_V3(),
             DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL(),
             DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL_V3(),
             DROP_RAW_SESSION_WRITABLE_TABLE_SQL(),
@@ -1278,7 +1278,7 @@ def reset_clickhouse_database() -> None:
             PERSONS_TABLE_SQL(),
             PROPERTY_DEFINITIONS_TABLE_SQL(),
             RAW_SESSIONS_TABLE_SQL(),
-            RAW_SESSIONS_TABLE_SQL_V3(),
+            SHARDED_RAW_SESSIONS_TABLE_SQL_V3(),
             WRITABLE_RAW_SESSIONS_TABLE_SQL(),
             WRITABLE_RAW_SESSIONS_TABLE_SQL_V3(),
             SESSIONS_TABLE_SQL(),

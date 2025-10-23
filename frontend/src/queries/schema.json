@@ -7923,6 +7923,13 @@
                     "$ref": "#/definitions/DataTableNodeViewPropsContext",
                     "description": "Context for the table, used by components like ColumnConfigurator"
                 },
+                "defaultColumns": {
+                    "description": "Default columns to use when resetting column configuration",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "embedded": {
                     "description": "Uses the embedded version of LemonTable",
                     "type": "boolean"
@@ -12461,6 +12468,12 @@
                 "metric_uuid": {
                     "type": "string"
                 },
+                "recalculation_created_at": {
+                    "type": ["string", "null"]
+                },
+                "recalculation_status": {
+                    "type": ["string", "null"]
+                },
                 "status": {
                     "enum": ["pending", "completed", "partial", "failed"],
                     "type": "string"
@@ -14699,6 +14712,12 @@
         "HogQLMetadataResponse": {
             "additionalProperties": false,
             "properties": {
+                "ch_table_names": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "errors": {
                     "items": {
                         "$ref": "#/definitions/HogQLNotice"
@@ -14866,6 +14885,9 @@
                     "type": "string"
                 },
                 "optimizeJoinedFilters": {
+                    "type": "boolean"
+                },
+                "optimizeProjections": {
                     "type": "boolean"
                 },
                 "personsArgMaxVersion": {
@@ -15954,6 +15976,9 @@
         "LLMTrace": {
             "additionalProperties": false,
             "properties": {
+                "aiSessionId": {
+                    "type": "string"
+                },
                 "createdAt": {
                     "type": "string"
                 },
@@ -17460,6 +17485,9 @@
                 },
                 {
                     "$ref": "#/definitions/RecordingPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/GroupPropertyFilter"
                 }
             ]
         },
@@ -18865,6 +18893,12 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "ch_table_names": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
                         "errors": {
                             "items": {
                                 "$ref": "#/definitions/HogQLNotice"
@@ -24063,6 +24097,13 @@
                     "$ref": "#/definitions/DataTableNodeViewPropsContext",
                     "description": "Context for the table, used by components like ColumnConfigurator"
                 },
+                "defaultColumns": {
+                    "description": "Default columns to use when resetting column configuration",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "embedded": {
                     "description": "Query is embedded inside another bordered component",
                     "type": "boolean"
@@ -25843,6 +25884,7 @@
                 "elements",
                 "events",
                 "internal_events",
+                "internal_event_properties",
                 "event_properties",
                 "event_feature_flags",
                 "event_metadata",

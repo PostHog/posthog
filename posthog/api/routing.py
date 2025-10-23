@@ -13,6 +13,7 @@ from rest_framework_extensions.settings import extensions_api_settings
 from posthog.api.utils import get_token
 from posthog.auth import (
     JwtAuthentication,
+    OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
     SharingAccessTokenAuthentication,
@@ -128,7 +129,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             authentication_classes.append(SharingPasswordProtectedAuthentication)
             authentication_classes.append(SharingAccessTokenAuthentication)
 
-        authentication_classes.extend([JwtAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication])
+        authentication_classes.extend(
+            [JwtAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication]
+        )
 
         return [auth() for auth in authentication_classes]
 
