@@ -180,9 +180,6 @@ function Category({
                                 (newTabSceneData && isFirstCategoryWithResults && index === 0) ||
                                 (filteredItemsGrid.length > 0 && isFirstCategory && index === 0)
 
-                            if (focusFirst) {
-                            }
-
                             return (
                                 // If we have filtered results set virtual focus to first item
                                 <ButtonGroupPrimitive key={item.id} className="group w-full border-0">
