@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict
 
 class AccessMethod(StrEnum):
     PERSONAL_API_KEY = "personal_api_key"
+    PROJECT_SECRET_API_KEY = "project_secret_api_key"
     OAUTH = "oauth"
 
 
@@ -30,6 +31,7 @@ class Product(StrEnum):
     WAREHOUSE = "warehouse"
     EXPERIMENTS = "experiments"
     SDK_DOCTOR = "sdk_doctor"
+    ENDPOINTS = "endpoints"
 
 
 class Feature(StrEnum):
