@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import { IconApps, IconArrowRight, IconDatabase, IconHogQL, IconPerson, IconSparkles, IconToggle } from '@posthog/icons'
+import { IconApps, IconArrowRight, IconDatabase, IconHogQL, IconPerson, IconSparkles } from '@posthog/icons'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -458,7 +458,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         name: eventDef.name,
                         category: 'eventDefinitions' as NEW_TAB_CATEGORY_ITEMS,
                         href: urls.eventDefinition(eventDef.id),
-                        icon: <IconToggle />,
+                        icon: <IconApps />,
                         record: {
                             type: 'event-definition',
                             path: `Event: ${eventDef.name}`,
