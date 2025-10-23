@@ -223,13 +223,13 @@ class QueryDateRange:
     def date_to_as_hogql(self) -> ast.Expr:
         return ast.Call(
             name="assumeNotNull",
-            args=[ast.Call(name="toDateTime", args=[(ast.Constant(value=self.date_to_str))])],
+            args=[ast.Call(name="toDateTime", args=[ast.Constant(value=self.date_to_str)])],
         )
 
     def date_from_as_hogql(self) -> ast.Expr:
         return ast.Call(
             name="assumeNotNull",
-            args=[ast.Call(name="toDateTime", args=[(ast.Constant(value=self.date_from_str))])],
+            args=[ast.Call(name="toDateTime", args=[ast.Constant(value=self.date_from_str)])],
         )
 
     def previous_period_date_from_as_hogql(self) -> ast.Expr:
@@ -238,7 +238,7 @@ class QueryDateRange:
             args=[
                 ast.Call(
                     name="toDateTime",
-                    args=[(ast.Constant(value=self.previous_period_date_from_str))],
+                    args=[ast.Constant(value=self.previous_period_date_from_str)],
                 )
             ],
         )
@@ -385,10 +385,12 @@ class QueryDateRangeWithIntervals(QueryDateRange):
         team: Team,
         interval: IntervalType,
         now: datetime,
+        lookahead_days: Optional[int] = None,
     ) -> None:
         super().__init__(date_range, team, interval, now)
         # intervals to look ahead for return event
-        self.lookahead = total_intervals
+        self.lookahead = lookahead_days if lookahead_days is not None else total_intervals
+        self._total_intervals = total_intervals
 
     @staticmethod
     def determine_time_delta(interval: int, period: str) -> timedelta:
@@ -424,7 +426,7 @@ class QueryDateRangeWithIntervals(QueryDateRange):
 
         # otherwise calculate from date_to and lookahead
         # needed to support old retention queries (before date range update in Jan 2025)
-        delta = self.determine_time_delta(self.lookahead, self._interval.name)
+        delta = self.determine_time_delta(self._total_intervals, self._interval.name)
 
         return date_to_start_of_interval(self.date_to() - delta, self._interval, self._team)
 

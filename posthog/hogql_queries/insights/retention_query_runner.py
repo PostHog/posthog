@@ -224,11 +224,12 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
     @cached_property
     def query_date_range(self) -> QueryDateRangeWithIntervals:
         if self.is_custom_bracket_retention:
-            # In custom brackets mode, the `totalIntervals` is the sum of the bracket lengths.
-            # The period is used to determine the unit of the brackets (days, weeks, months).
+            # For custom brackets, lookahead is sum of brackets, but total intervals for date range is from query
             intervals_to_look_ahead = sum(self.query.retentionFilter.retentionCustomBrackets)
+            total_intervals = self.query.retentionFilter.totalIntervals or DEFAULT_TOTAL_INTERVALS
         else:
             intervals_to_look_ahead = self.query.retentionFilter.totalIntervals or DEFAULT_TOTAL_INTERVALS
+            total_intervals = intervals_to_look_ahead
 
         interval = (
             IntervalType(self.query.retentionFilter.period.lower())
@@ -238,10 +239,11 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
         return QueryDateRangeWithIntervals(
             date_range=self.query.dateRange,
-            total_intervals=intervals_to_look_ahead,
+            total_intervals=total_intervals,
             team=self.team,
             interval=interval,
             now=datetime.now(),
+            lookahead_days=intervals_to_look_ahead if self.is_custom_bracket_retention else None,
         )
 
     def get_events_for_entity(self, entity: RetentionEntity) -> list[str | None]:
@@ -773,12 +775,15 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             "dateDiff({unit}, start_event_timestamps[1], _timestamp)", {"unit": ast.Constant(value=unit)}
         )
 
-        cumulative_total = 1  # Brackets start from day 1
-        multi_if_args: list[ast.Expr] = []
+        multi_if_args: list[ast.Expr] = [
+            ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=date_diff_expr, right=ast.Constant(value=0)),
+            ast.Constant(value=-1),
+        ]
+        cumulative_total = 0
         for i, bracket_size in enumerate(self.query.retentionFilter.retentionCustomBrackets):
             cumulative_total += int(bracket_size)
             condition = ast.CompareOperation(
-                op=ast.CompareOperationOp.Lt,
+                op=ast.CompareOperationOp.LtEq,
                 left=date_diff_expr,
                 right=ast.Constant(value=cumulative_total),
             )
