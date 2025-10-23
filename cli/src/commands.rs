@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use tracing::error;
 
 use crate::{
     error::CapturedError,
@@ -13,6 +14,10 @@ pub struct Cli {
     /// The PostHog host to connect to
     #[arg(long)]
     host: Option<String>,
+
+    /// Disable non-zero exit codes on errors. Use with caution.
+    #[arg(long, default_value = "false")]
+    no_fail: bool,
 
     #[command(subcommand)]
     command: Commands,
@@ -60,23 +65,42 @@ pub enum ExpCommand {
 impl Cli {
     pub fn run() -> Result<(), CapturedError> {
         let command = Cli::parse();
+        let no_fail = command.no_fail;
 
-        match command.command {
+        match command.run_impl() {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                let msg = match &e.exception_id {
+                    Some(id) => format!("Oops! {} (ID: {})", e.inner, id),
+                    None => format!("Oops! {:?}", e.inner),
+                };
+                error!(msg);
+                if no_fail {
+                    Ok(())
+                } else {
+                    Err(e)
+                }
+            }
+        }
+    }
+
+    fn run_impl(self) -> Result<(), CapturedError> {
+        match self.command {
             Commands::Login => {
                 // Notably login doesn't have a context set up going it - it sets one up
                 crate::login::login()?;
             }
             Commands::Sourcemap { cmd } => match cmd {
                 SourcemapCommand::Inject(input_args) => {
-                    init_context(command.host.clone(), false)?;
+                    init_context(self.host.clone(), false)?;
                     crate::sourcemaps::inject::inject(&input_args)?;
                 }
                 SourcemapCommand::Upload(upload_args) => {
-                    init_context(command.host.clone(), upload_args.skip_ssl_verification)?;
+                    init_context(self.host.clone(), upload_args.skip_ssl_verification)?;
                     crate::sourcemaps::upload::upload_cmd(upload_args.clone())?;
                 }
                 SourcemapCommand::Process(args) => {
-                    init_context(command.host.clone(), args.skip_ssl_verification)?;
+                    init_context(self.host.clone(), args.skip_ssl_verification)?;
                     let (inject, upload) = args.into();
                     crate::sourcemaps::inject::inject(&inject)?;
                     crate::sourcemaps::upload::upload_cmd(upload)?;
@@ -87,11 +111,11 @@ impl Cli {
                     cmd,
                     skip_ssl_verification,
                 } => {
-                    init_context(command.host.clone(), skip_ssl_verification)?;
+                    init_context(self.host.clone(), skip_ssl_verification)?;
                     cmd.run()?;
                 }
                 ExpCommand::Query { cmd } => {
-                    init_context(command.host.clone(), false)?;
+                    init_context(self.host.clone(), false)?;
                     crate::experimental::query::command::query_command(&cmd)?
                 }
             },
