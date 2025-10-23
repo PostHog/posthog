@@ -4,7 +4,7 @@ import dataclasses
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Literal, Optional, Union, get_args
+from typing import Any, Literal, Optional, Union, cast, get_args
 
 from posthog.hogql.base import AST, CTE, ConstantType, Expr, Type, UnknownType
 from posthog.hogql.constants import ConstantDataType, HogQLQuerySettings
@@ -19,6 +19,7 @@ from posthog.hogql.database.models import (
     StringArrayDatabaseField,
     StringJSONDatabaseField,
     Table,
+    UnknownDatabaseField,
     VirtualTable,
 )
 from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionError
@@ -831,16 +832,35 @@ class SelectQuery(Expr):
     view_name: Optional[str] = None
 
     @classmethod
-    def empty(cls, *, columns: list[str] | None = None) -> "SelectQuery":
+    def empty(
+        cls,
+        *,
+        columns: list[str] | None = None,
+        columns_with_type: dict[str, FieldOrTable] | None = None,
+    ) -> "SelectQuery":
         """Returns an empty SelectQuery that evaluates to no rows.
 
         Creates a query that selects NULL with a WHERE clause that is always false,
         effectively returning zero rows while maintaining valid SQL syntax.
+
+        `columns_with_type` is preferred over `columns` because it allows us to specify the type of the column
+        instead of using the default `UnknownType`.
+
+        If `columns` is passed we'll override `columns_with_type` with a default `UnknownType`.
         """
-        if columns is None:
+
+        if columns is None and columns_with_type is None:
             columns = ["_"]
+
+        if columns is not None:
+            columns_with_type = {column: UnknownDatabaseField(name="dummy") for column in columns}
+
         return SelectQuery(
-            select=[Alias(alias=column, expr=Constant(value=None)) for column in columns], where=Constant(value=False)
+            select=[
+                Alias(alias=column, expr=Constant(value=cast(DatabaseField, field).default_value()))
+                for (column, field) in columns_with_type.items()
+            ],
+            where=Constant(value=False),
         )
 
 

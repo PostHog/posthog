@@ -115,7 +115,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
         return BuiltQuery(
             key=str(source.id),  # Using source rather than table because table hasn't been found yet
             prefix=prefix,
-            query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys())),
+            query=ast.SelectQuery.empty(columns_with_type=SCHEMA.fields),
             test_comments="no_schema",
         )
 
@@ -136,7 +136,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
         return BuiltQuery(
             key=str(source.id),  # Using source rather than table because table hasn't been found
             prefix=prefix,
-            query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys())),
+            query=ast.SelectQuery.empty(columns_with_type=SCHEMA.fields),
             test_comments="no_table",
         )
 
@@ -487,7 +487,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
     ]
     if len(queries) == 0:
         return BuiltQuery(
-            key=f"{prefix}.no_query", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
+            key=f"{prefix}.no_query", prefix=prefix, query=ast.SelectQuery.empty(columns_with_type=SCHEMA.fields)
         )
 
     # Very cumbersome, but mypy won't be happy otherwise
