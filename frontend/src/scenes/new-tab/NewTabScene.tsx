@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-// import { SearchHints } from './components/SearchHints'
 import { router } from 'kea-router'
 import { useRef, useState } from 'react'
 
@@ -107,9 +106,6 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
 
     const handleAskAi = (question?: string): void => {
         const nextQuestion = (question ?? search).trim()
-        // openSidePanel(SidePanelTab.Max)
-        // setQuestion(nextQuestion)
-        // focusMaxInput()
         router.actions.push(urls.max(undefined, nextQuestion))
     }
 
