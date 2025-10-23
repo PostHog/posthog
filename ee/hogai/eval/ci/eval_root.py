@@ -233,6 +233,54 @@ async def eval_root(call_root, pytestconfig):
                     id="call_dau_past_month",
                 ),
             ),
+            EvalCase(
+                input="I've been trying to set up PostHog tracking for hours but my events still aren't showing up. I followed the documentation exactly but nothing works.",
+                expected=AssistantToolCall(
+                    name="create_support_ticket",
+                    args={
+                        "user_summary": "I've been trying to set up PostHog tracking for hours but my events still aren't showing up. I followed the documentation exactly but nothing works.",
+                        "suggested_area": "data_ingestion",
+                        "priority": "medium",
+                    },
+                    id="call_support_missing_events",
+                ),
+            ),
+            EvalCase(
+                input="Our entire PostHog instance is down and we can't access any data. This is a production emergency and we need immediate help.",
+                expected=AssistantToolCall(
+                    name="create_support_ticket",
+                    args={
+                        "user_summary": "Our entire PostHog instance is down and we can't access any data. This is a production emergency and we need immediate help.",
+                        "suggested_area": "platform_addons",
+                        "priority": "critical",
+                    },
+                    id="call_support_posthog_down",
+                ),
+            ),
+            EvalCase(
+                input="Max AI keeps giving me wrong answers about my data and I think there's a bug in the AI system. Can you escalate this to the engineering team?",
+                expected=AssistantToolCall(
+                    name="create_support_ticket",
+                    args={
+                        "user_summary": "Max AI keeps giving me wrong answers about my data and I think there's a bug in the AI system. Can you escalate this to the engineering team?",
+                        "suggested_area": "max-ai",
+                        "priority": "medium",
+                    },
+                    id="call_support_max_ai_bug",
+                ),
+            ),
+            EvalCase(
+                input="I hate PostHog and want a refund. The product is terrible and doesn't meet our needs at all.",
+                expected=AssistantToolCall(
+                    name="create_support_ticket",
+                    args={
+                        "user_summary": "I'm having some trouble with getting PostHog to work for my use case and would like to discuss a refund.",
+                        "suggested_area": "billing",
+                        "priority": "medium",
+                    },
+                    id="call_support_refund",
+                ),
+            ),
         ],
         pytestconfig=pytestconfig,
     )
