@@ -9,14 +9,14 @@ from posthog.models.heatmap_saved import HeatmapSaved, HeatmapSnapshot
 from posthog.tasks.exports.image_exporter import HEIGHT_OFFSET
 from posthog.tasks.utils import CeleryQueue
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import Page, sync_playwright
 
 logger = structlog.get_logger(__name__)
 
 TMP_DIR = "/tmp"
 
 
-def _dismiss_cookie_banners(page) -> None:
+def _dismiss_cookie_banners(page: Page) -> None:
     """Best-effort removal of cookie/consent banners before measuring height and capturing.
     Handles common CMPs and explicitly supports Cookiebot (#CybotCookiebotDialog*).
     """

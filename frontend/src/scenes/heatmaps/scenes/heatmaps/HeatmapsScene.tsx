@@ -137,7 +137,7 @@ export function HeatmapsScene(): JSX.Element {
                 <LemonInput
                     type="search"
                     placeholder="Search for heatmaps"
-                    onChange={(value) => setHeatmapsFilters({ search: value || undefined })}
+                    onChange={(value) => setHeatmapsFilters({ search: value || '' })}
                     value={filters.search || ''}
                 />
 
@@ -145,7 +145,7 @@ export function HeatmapsScene(): JSX.Element {
                     <span>Created by:</span>
                     <MemberSelect
                         value={filters.createdBy === 'All users' ? null : (filters.createdBy as string | number | null)}
-                        onChange={(user) => setHeatmapsFilters({ createdBy: user?.id || 'All users' })}
+                        onChange={(user) => setHeatmapsFilters({ ...filters, createdBy: user?.id || 'All users' })}
                     />
                 </div>
             </div>

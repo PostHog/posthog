@@ -7,7 +7,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, HeatmapFilters, HeatmapScreenshotType } from '~/types'
+import { Breadcrumb, HeatmapSavedFilters, HeatmapScreenshotType } from '~/types'
 
 import type { heatmapsSceneLogicType } from './heatmapsSceneLogicType'
 
@@ -15,6 +15,7 @@ export const DEFAULT_HEATMAP_FILTERS = {
     createdBy: 'All users',
     search: '',
     page: 1,
+    order: '-created_at',
 }
 
 export const heatmapsSceneLogic = kea<heatmapsSceneLogicType>([
@@ -24,7 +25,7 @@ export const heatmapsSceneLogic = kea<heatmapsSceneLogicType>([
         setSavedHeatmaps: (items: HeatmapScreenshotType[]) => ({ items }),
         setLoading: (loading: boolean) => ({ loading }),
         deleteHeatmap: (short_id: string) => ({ short_id }),
-        setHeatmapsFilters: (filters: HeatmapFilters) => ({ filters }),
+        setHeatmapsFilters: (filters: HeatmapSavedFilters) => ({ filters }),
     }),
     reducers({
         savedHeatmaps: [
@@ -40,7 +41,7 @@ export const heatmapsSceneLogic = kea<heatmapsSceneLogicType>([
             },
         ],
         filters: [
-            DEFAULT_HEATMAP_FILTERS,
+            DEFAULT_HEATMAP_FILTERS as HeatmapSavedFilters,
             { persist: true },
             {
                 setHeatmapsFilters: (_, { filters }) => filters,
@@ -71,10 +72,10 @@ export const heatmapsSceneLogic = kea<heatmapsSceneLogicType>([
             try {
                 const f = values.filters || {}
                 const createdBy = f.createdBy === 'All users' ? undefined : f.createdBy
-                const params: Record<string, any> = {
-                    limit: 100,
-                    search: f.search || undefined,
-                    created_by: createdBy || undefined,
+                const params: HeatmapSavedFilters = {
+                    search: f.search || '',
+                    createdBy: createdBy || 'All users',
+                    page: f.page || 1,
                     order: f.order || '-created_at',
                 }
                 const response = await api.heatmapSaved.list(params)
@@ -84,7 +85,7 @@ export const heatmapsSceneLogic = kea<heatmapsSceneLogicType>([
             }
         },
         deleteHeatmap: async ({ short_id }) => {
-            const item = values.savedHeatmaps.find((h) => h.short_id === short_id)
+            const item = values.savedHeatmaps.find((h: HeatmapScreenshotType) => h.short_id === short_id)
             const object = { id: item?.id, short_id, name: item?.name || item?.url || 'Heatmap' }
             await deleteWithUndo({
                 object,

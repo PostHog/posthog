@@ -16,6 +16,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { HeatmapType } from '~/types'
 
 import { heatmapLogic } from './heatmapLogic'
 
@@ -93,7 +94,7 @@ export function HeatmapNewScene(): JSX.Element {
                         },
                     ]}
                     value={type}
-                    onChange={(value: string) => setType(value)}
+                    onChange={(value: HeatmapType) => setType(value)}
                 />
             </SceneSection>
             <SceneDivider />
