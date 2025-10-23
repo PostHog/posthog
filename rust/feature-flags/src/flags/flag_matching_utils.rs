@@ -204,17 +204,19 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
 
     if person_query_duration.as_millis() > 500 {
         warn!(
-            "Slow person query detected: {}ms for distinct_id={}, team_id={}",
-            person_query_duration.as_millis(),
-            distinct_id,
-            team_id
+            duration_ms = person_query_duration.as_millis(),
+            distinct_id = distinct_id,
+            team_id = team_id,
+            sql_summary =
+                "SELECT person_id, properties with INNER JOIN from persondistinctid to person",
+            "Slow person query detected"
         );
     } else {
         info!(
-            "Person query completed: {}ms for distinct_id={}, team_id={}",
-            person_query_duration.as_millis(),
-            distinct_id,
-            team_id,
+            duration_ms = person_query_duration.as_millis(),
+            distinct_id = distinct_id,
+            team_id = team_id,
+            "Person query completed"
         );
     }
     let person_processing_timer = common_metrics::timing_guard(FLAG_PERSON_PROCESSING_TIME, &[]);
@@ -249,17 +251,19 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
 
             if cohort_query_duration.as_millis() > 200 {
                 warn!(
-                    "Slow cohort query detected: {}ms for person_id={}, cohort_count={}",
-                    cohort_query_duration.as_millis(),
-                    person_id,
-                    static_cohort_ids.len()
+                    duration_ms = cohort_query_duration.as_millis(),
+                    person_id = person_id,
+                    cohort_count = static_cohort_ids.len(),
+                    sql_summary =
+                        "SELECT cohort membership with LEFT JOIN from UNNEST to cohortpeople",
+                    "Slow cohort query detected"
                 );
             } else {
                 info!(
-                    "Cohort query completed: {}ms for person_id={}, cohort_count={}",
-                    cohort_query_duration.as_millis(),
-                    person_id,
-                    static_cohort_ids.len()
+                    duration_ms = cohort_query_duration.as_millis(),
+                    person_id = person_id,
+                    cohort_count = static_cohort_ids.len(),
+                    "Cohort query completed"
                 );
             }
 
@@ -337,20 +341,22 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
 
         if group_query_duration.as_millis() > 300 {
             warn!(
-                "Slow group query detected: {}ms for team_id={}, group_types={}, group_keys={}",
-                group_query_duration.as_millis(),
-                team_id,
-                group_type_indexes_vec.len(),
-                group_keys_vec.len()
+                duration_ms = group_query_duration.as_millis(),
+                team_id = team_id,
+                group_type_count = group_type_indexes_vec.len(),
+                group_key_count = group_keys_vec.len(),
+                sql_summary =
+                    "SELECT group properties with UNNEST for group_type_index, group_key pairs",
+                "Slow group query detected"
             );
         } else {
             info!(
-                "Group query completed: {}ms for team_id={}, group_types={}, group_keys={}, results={}",
-                group_query_duration.as_millis(),
-                team_id,
-                group_type_indexes_vec.len(),
-                group_keys_vec.len(),
-                groups.len()
+                duration_ms = group_query_duration.as_millis(),
+                team_id = team_id,
+                group_type_count = group_type_indexes_vec.len(),
+                group_key_count = group_keys_vec.len(),
+                result_count = groups.len(),
+                "Group query completed"
             );
         }
 
@@ -618,11 +624,30 @@ async fn try_get_feature_flag_hash_key_overrides(
                 AND ppd.distinct_id = ANY($2)
         "#;
 
+    let query_start = Instant::now();
     let rows = sqlx::query(hash_override_query)
         .bind(team_id)
         .bind(distinct_id_and_hash_key_override)
         .fetch_all(&mut *conn)
         .await?;
+    let query_duration = query_start.elapsed();
+
+    if query_duration.as_millis() > 200 {
+        warn!(
+            duration_ms = query_duration.as_millis(),
+            team_id = team_id,
+            distinct_id_count = distinct_id_and_hash_key_override.len(),
+            sql_summary = "SELECT person_id, hash_key overrides with LEFT JOIN",
+            "Slow hash override lookup query detected"
+        );
+    } else {
+        info!(
+            duration_ms = query_duration.as_millis(),
+            team_id = team_id,
+            distinct_id_count = distinct_id_and_hash_key_override.len(),
+            "Hash override lookup query completed"
+        );
+    }
 
     // Process results to build person mapping and collect any existing overrides
     let mut person_id_to_distinct_id = HashMap::new();
@@ -803,6 +828,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "set_hash_key_overrides".to_string(),
             ),
         ];
+        let person_query_start = Instant::now();
         let person_query_timer =
             common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &person_query_labels);
         let person_data_rows = sqlx::query(person_data_query)
@@ -812,6 +838,24 @@ async fn try_set_feature_flag_hash_key_overrides(
             .await
             .map_err(FlagError::from)?;
         person_query_timer.fin();
+        let person_query_duration = person_query_start.elapsed();
+
+        if person_query_duration.as_millis() > 200 {
+            warn!(
+                duration_ms = person_query_duration.as_millis(),
+                team_id = team_id,
+                distinct_id_count = distinct_ids.len(),
+                sql_summary = "SELECT person_id with LEFT JOIN to existing hash_key overrides",
+                "Slow person data query detected in set_hash_key_overrides"
+            );
+        } else {
+            info!(
+                duration_ms = person_query_duration.as_millis(),
+                team_id = team_id,
+                distinct_id_count = distinct_ids.len(),
+                "Person data query completed in set_hash_key_overrides"
+            );
+        }
 
         if person_data_rows.is_empty() {
             return Ok(0); // No persons found, nothing to insert
@@ -865,6 +909,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "set_hash_key_overrides".to_string(),
             ),
         ];
+        let flags_query_start = Instant::now();
         let flags_query_timer =
             common_metrics::timing_guard(FLAG_DEFINITION_QUERY_TIME, &flags_labels);
         let flag_rows = sqlx::query(flags_query)
@@ -873,6 +918,23 @@ async fn try_set_feature_flag_hash_key_overrides(
             .await
             .map_err(FlagError::from)?;
         flags_query_timer.fin();
+        let flags_query_duration = flags_query_start.elapsed();
+
+        if flags_query_duration.as_millis() > 200 {
+            warn!(
+                duration_ms = flags_query_duration.as_millis(),
+                project_id = project_id,
+                sql_summary =
+                    "SELECT active feature flags with ensure_experience_continuity = true",
+                "Slow active flags query detected in set_hash_key_overrides"
+            );
+        } else {
+            info!(
+                duration_ms = flags_query_duration.as_millis(),
+                project_id = project_id,
+                "Active flags query completed in set_hash_key_overrides"
+            );
+        }
 
         let flag_keys: Vec<String> = flag_rows
             .iter()
@@ -910,6 +972,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "set_hash_key_overrides".to_string(),
             ),
         ];
+        let insert_start = Instant::now();
         let insert_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &insert_labels);
         let result = sqlx::query(bulk_insert_query)
             .bind(team_id)
@@ -920,6 +983,24 @@ async fn try_set_feature_flag_hash_key_overrides(
             .await
             .map_err(FlagError::from)?;
         insert_timer.fin();
+        let insert_duration = insert_start.elapsed();
+
+        if insert_duration.as_millis() > 200 {
+            warn!(
+                duration_ms = insert_duration.as_millis(),
+                team_id = team_id,
+                row_count = person_ids_to_insert.len(),
+                sql_summary = "INSERT INTO hash_key_override with UNNEST bulk insert",
+                "Slow bulk insert query detected in set_hash_key_overrides"
+            );
+        } else {
+            info!(
+                duration_ms = insert_duration.as_millis(),
+                team_id = team_id,
+                row_count = person_ids_to_insert.len(),
+                "Bulk insert query completed in set_hash_key_overrides"
+            );
+        }
 
         Ok(result.rows_affected())
     }
