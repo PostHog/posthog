@@ -24,7 +24,7 @@ export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
     }),
 
     actions({
-        setSourceData: (rawId: string, data: SourceData | null) => ({ rawId, data }),
+        setSourceData: (data: Record<string, SourceData | null>) => ({ data }),
         computeSourceUrls: true,
     }),
 
@@ -32,9 +32,9 @@ export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
         frameSourceUrls: [
             {} as Record<string, SourceData | null>,
             {
-                setSourceData: (state, { rawId, data }) => ({
+                setSourceData: (state, { data }) => ({
                     ...state,
-                    [rawId]: data,
+                    ...data,
                 }),
             },
         ],
@@ -43,6 +43,7 @@ export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
     listeners(({ actions, values }) => ({
         computeSourceUrls: async () => {
             const records = values.stackFrameRecords
+            const batchData: Record<string, SourceData | null> = {}
 
             const searchPromises = Object.entries(records).map(async ([rawId, record]) => {
                 // Skip if already computed or not in-app
@@ -52,6 +53,7 @@ export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
 
                 const codeSample = record.context?.line.line
                 const remoteUrl = record.release?.metadata?.git?.remote_url
+                const lineNumber = record.context?.line.number
 
                 if (!record.contents.source) {
                     return
@@ -72,14 +74,22 @@ export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
                         codeSample,
                         fileName
                     )
-                    actions.setSourceData(rawId, {
-                        url: result.found && result.url ? result.url : null,
+                    let url = result.found && result.url ? `${result.url}` : null
+
+                    if (url && lineNumber) {
+                        url = `${url}#L${lineNumber + 1}`
+                    }
+
+                    batchData[rawId] = {
+                        url,
                         provider: parsed.provider,
-                    })
+                    }
                 }
             })
 
             await Promise.all(searchPromises)
+
+            actions.setSourceData(batchData)
         },
     })),
 
