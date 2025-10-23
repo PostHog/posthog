@@ -11,9 +11,10 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="teammarketinganalyticsconfig",
-            name="campaign_name_mappings",
+            name="_campaign_name_mappings",
             field=models.JSONField(
                 blank=True,
+                db_column="campaign_name_mappings",
                 default=dict,
                 help_text="Maps campaign names to lists of raw UTM values per data source",
                 null=False,
