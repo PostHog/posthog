@@ -74,7 +74,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
         return post_response
 
-    def _get_non_synthetic_playlists(self, query_params: str = "", expected_synthetic_count: int = 5) -> list[dict]:
+    def _get_non_synthetic_playlists(self, query_params: str = "", expected_synthetic_count: int = 6) -> list[dict]:
         url = f"/api/projects/{self.team.id}/session_recording_playlists{query_params}"
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
@@ -115,7 +115,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        assert response_data["count"] == 7
+        assert response_data["count"] == 8
         assert response_data["next"] is None
         assert response_data["previous"] is None
         assert [x for x in response_data["results"] if not x["is_synthetic"]] == [
@@ -846,9 +846,9 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ["no_filter", "", 5, 2],
+            ["no_filter", "", 6, 2],
             ["custom_only", "?collection_type=custom", 0, 2],
-            ["synthetic_only", "?collection_type=synthetic", 5, 0],
+            ["synthetic_only", "?collection_type=synthetic", 6, 0],
         ]
     )
     def test_filters_playlist_by_collection_type(
