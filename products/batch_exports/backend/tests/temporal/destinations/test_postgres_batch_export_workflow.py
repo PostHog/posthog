@@ -27,10 +27,6 @@ from posthog.batch_exports.service import BackfillDetails, BatchExportModel, Bat
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
-from posthog.temporal.tests.utils.persons import (
-    generate_test_person_distinct_id2_in_clickhouse,
-    generate_test_persons_in_clickhouse,
-)
 
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.postgres_batch_export import (
@@ -47,12 +43,16 @@ from products.batch_exports.backend.temporal.destinations.postgres_batch_export 
 )
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue, RecordBatchTaskError
-from products.batch_exports.backend.tests.temporal.utils import (
-    FlakyClickHouseClient,
+from products.batch_exports.backend.tests.temporal.utils.clickhouse import FlakyClickHouseClient
+from products.batch_exports.backend.tests.temporal.utils.persons import (
+    generate_test_person_distinct_id2_in_clickhouse,
+    generate_test_persons_in_clickhouse,
+)
+from products.batch_exports.backend.tests.temporal.utils.records import (
     get_record_batch_from_queue,
-    mocked_start_batch_export_run,
     remove_duplicates_from_records,
 )
+from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
 
 pytestmark = [
     pytest.mark.asyncio,

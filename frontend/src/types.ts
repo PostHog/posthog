@@ -1071,6 +1071,7 @@ export interface RecordingSegment {
     durationMs: number
     windowId?: string
     isActive: boolean
+    isLoading?: boolean
 }
 
 export type EncodedRecordingSnapshot = {
@@ -1345,6 +1346,7 @@ export interface PersonListParams {
     cohort?: number
     distinct_id?: string
     include_total?: boolean // PostHog 3000-only
+    limit?: number
 }
 
 export type SearchableEntity =
@@ -1617,6 +1619,8 @@ export interface SessionRecordingPlaylistType {
      */
     recordings_counts?: PlaylistRecordingsCounts
     type: 'filters' | 'collection'
+    /** Whether this playlist is a synthetic (virtual) playlist that's computed on-demand */
+    is_synthetic?: boolean
     _create_in_folder?: string | null
 }
 
@@ -1629,6 +1633,7 @@ export interface SavedSessionRecordingPlaylistsFilters {
     page: number
     pinned: boolean
     type?: 'collection' | 'saved_filters'
+    collectionType: 'custom' | 'synthetic' | null
 }
 
 export interface SavedSessionRecordingPlaylistsResult extends PaginatedResponse<SessionRecordingPlaylistType> {
@@ -3462,6 +3467,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     _create_in_folder?: string | null
     evaluation_runtime: FeatureFlagEvaluationRuntime
     _should_create_usage_dashboard?: boolean
+    last_called_at?: string | null
 }
 
 export interface OrganizationFeatureFlag {
@@ -4768,6 +4774,13 @@ export interface DataWarehouseViewLink {
     configuration?: DataWarehouseViewLinkConfiguration
 }
 
+export interface DataWarehouseViewLinkValidation {
+    is_valid: boolean
+    msg: string | null
+    hogql: string | null
+    results: any[]
+}
+
 export interface QueryTabState {
     id: string
     state: Record<string, any>
@@ -5025,7 +5038,6 @@ export type BatchExportServiceDatabricks = {
         schema: string
         table_name: string
         use_variant_type: boolean
-        table_partition_field: string | null
         exclude_events: string[]
         include_events: string[]
     }
