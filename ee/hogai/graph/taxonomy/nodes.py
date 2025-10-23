@@ -172,7 +172,7 @@ class TaxonomyAgentToolsNode(
         tools_metadata: dict[str, list[tuple[TaxonomyTool, str]]] = defaultdict(list)
         invalid_tools = []
         steps = []
-
+        tool_msgs = []
         for action, _ in intermediate_steps:
             try:
                 tool_input = self._toolkit.get_tool_input_model(action)
@@ -185,19 +185,19 @@ class TaxonomyAgentToolsNode(
                     .content
                 )
                 steps.append((action, output))
+                tool_msgs.append(
+                    LangchainToolMessage(
+                        content=output,
+                        tool_call_id=action.log,
+                    )
+                )
                 invalid_tools.append(action.log)
                 continue
             else:
                 if tool_input.name == "final_answer":
-                    tool_msg = LangchainToolMessage(
-                        content=tool_input.arguments.answer,  # type: ignore
-                        tool_call_id=action.log,
-                    )
-                    old_msg = state.tool_progress_messages or []
                     return self._partial_state_class(
                         output=tool_input.arguments.answer,  # type: ignore
                         intermediate_steps=None,
-                        tool_progress_messages=[*old_msg, tool_msg],
                     )
 
                 if tool_input.name == "ask_user_for_help":
@@ -221,7 +221,6 @@ class TaxonomyAgentToolsNode(
 
         tool_results = await self._toolkit.handle_tools(tools_metadata)
 
-        tool_msgs = []
         for action, _ in intermediate_steps:
             if action.log in invalid_tools:
                 continue
