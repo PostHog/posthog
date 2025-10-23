@@ -9,9 +9,109 @@ type Props = {
     organizations: Pick<OrganizationBasicType, 'id' | 'name'>[]
     teams?: Pick<TeamBasicType, 'id' | 'name' | 'organization' | 'api_token'>[]
     accessType?: 'all' | 'organizations' | 'teams'
+    requiredAccessLevel?: 'organization' | 'team' | null
 }
 
-const ScopeAccessSelector = ({ accessType, organizations, teams }: Props): JSX.Element => {
+const ScopeAccessSelector = ({ accessType, organizations, teams, requiredAccessLevel }: Props): JSX.Element => {
+    if (requiredAccessLevel === 'organization') {
+        return (
+            <div className="flex flex-col gap-2">
+                <LemonLabel>Select organization</LemonLabel>
+                <p className="text-sm text-muted mb-2">
+                    This application requires access to a specific organization.
+                </p>
+                <LemonField name="scoped_organizations">
+                    {({ value, onChange }) => {
+                        const arrayValue = Array.isArray(value) ? value : []
+                        return (
+                            <LemonInputSelect
+                                mode="single"
+                                data-attr="organizations"
+                                value={arrayValue.length > 0 ? [arrayValue[0]] : []}
+                                onChange={(val: string[]) => onChange(val.length > 0 ? [val[0]] : [])}
+                                options={
+                                organizations.map((org) => ({
+                                    key: `${org.id}`,
+                                    label: org.name,
+                                    labelComponent: (
+                                        <Tooltip
+                                            title={
+                                                <div>
+                                                    <div className="font-semibold">{org.name}</div>
+                                                    <div className="text-xs whitespace-nowrap">ID: {org.id}</div>
+                                                </div>
+                                            }
+                                        >
+                                            <span className="flex-1 font-semibold">{org.name}</span>
+                                        </Tooltip>
+                                    ),
+                                })) ?? []
+                            }
+                            loading={organizations === undefined}
+                            placeholder="Select an organization..."
+                        />
+                        )
+                    }}
+                </LemonField>
+            </div>
+        )
+    }
+
+    if (requiredAccessLevel === 'team') {
+        return (
+            <div className="flex flex-col gap-2">
+                <LemonLabel>Select project</LemonLabel>
+                <p className="text-sm text-muted mb-2">This application requires access to a specific project.</p>
+                <LemonField name="scoped_teams">
+                    {({ value, onChange }) => {
+                        const arrayValue = Array.isArray(value) ? value : []
+                        return (
+                            <LemonInputSelect
+                                mode="single"
+                                data-attr="teams"
+                                value={arrayValue.length > 0 ? [String(arrayValue[0])] : []}
+                                onChange={(val: string[]) => onChange(val.length > 0 ? [parseInt(val[0])] : [])}
+                                options={
+                                    (teams || []).map((team) => ({
+                                    key: `${team.id}`,
+                                    label: team.name,
+                                    labelComponent: (
+                                        <Tooltip
+                                            title={
+                                                <div>
+                                                    <div className="font-semibold">{team.name}</div>
+                                                    <div className="text-xs whitespace-nowrap">Token: {team.api_token}</div>
+                                                    <div className="text-xs whitespace-nowrap">
+                                                        Organization ID: {team.organization}
+                                                    </div>
+                                                </div>
+                                            }
+                                        >
+                                            {organizations.length > 1 ? (
+                                                <span>
+                                                    <span>
+                                                        {organizations.find((org) => org.id === team.organization)?.name}
+                                                    </span>
+                                                    <span className="text-secondary mx-1">/</span>
+                                                    <span className="flex-1 font-semibold">{team.name}</span>
+                                                </span>
+                                            ) : (
+                                                <span>{team.name}</span>
+                                            )}
+                                        </Tooltip>
+                                    ),
+                                }))
+                            }
+                            loading={teams === undefined}
+                            placeholder="Select a project..."
+                        />
+                        )
+                    }}
+                </LemonField>
+            </div>
+        )
+    }
+
     return (
         <div className="flex flex-col gap-2">
             <LemonField name="access_type" className="mt-4 mb-2">

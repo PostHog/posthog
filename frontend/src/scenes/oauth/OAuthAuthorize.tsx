@@ -30,6 +30,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         oauthAuthorization,
         isOauthAuthorizationSubmitting,
         redirectDomain,
+        requiredAccessLevel,
     } = useValues(oauthAuthorizeLogic)
     const { cancel, submitOauthAuthorization } = useActions(oauthAuthorizeLogic)
 
@@ -66,6 +67,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                             accessType={oauthAuthorization.access_type}
                             organizations={allOrganizations}
                             teams={allTeams ?? undefined}
+                            requiredAccessLevel={requiredAccessLevel}
                         />
                         <div>
                             <div className="text-sm font-semibold uppercase text-muted mb-2">Requested Permissions</div>
