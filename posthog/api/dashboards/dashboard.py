@@ -701,6 +701,7 @@ class DashboardsViewSet(
         # Do all database operations and data loading synchronously first
         dashboard.last_accessed_at = now()
         dashboard.save(update_fields=["last_accessed_at"])
+        log_api_file_system_view(request, dashboard)
 
         # Prepare metadata with initial tiles
         metadata_serializer = DashboardMetadataSerializer(dashboard, context=self.get_serializer_context())
