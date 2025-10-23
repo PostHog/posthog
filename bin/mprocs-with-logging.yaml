@@ -19,6 +19,7 @@ procs:
         shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue general-purpose-task-queue 2>&1 | tee /tmp/posthog-temporal-worker-general-purpose.log'
 
     temporal-worker-batch-exports:
+        # added a sleep to give the docker stuff time to start
         shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue batch-exports-task-queue --metrics-port 8002 2>&1 | tee /tmp/posthog-temporal-worker-batch-exports.log'
 
     temporal-worker-data-warehouse:
@@ -45,6 +46,9 @@ procs:
     temporal-worker-session-replay:
         shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue session-replay-task-queue --metrics-port 8010 2>&1 | tee /tmp/posthog-temporal-worker-session-replay.log'
 
+    temporal-worker-analytics-platform:
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue analytics-platform-task-queue --metrics-port 8011 2>&1 | tee /tmp/posthog-temporal-worker-analytics-platform.log'
+
     dagster:
         shell: |-
             bin/check_postgres_up && \
@@ -52,6 +56,7 @@ procs:
             dagster dev --workspace $DAGSTER_HOME/workspace.yaml -p $DAGSTER_UI_PORT 2>&1 | tee /tmp/posthog-dagster.log
 
     docker-compose:
+        # docker-compose makes sure the stack is up, and then follows its logs - but doesn't tear down on exit for speed
         shell: 'docker compose -f docker-compose.dev.yml up --pull always -d && docker compose -f docker-compose.dev.yml logs --tail=0 -f 2>&1 | tee /tmp/posthog-docker-compose.log'
 
     cyclotron-janitor:
@@ -70,7 +75,6 @@ procs:
         shell: |-
             bin/check_kafka_clickhouse_up && \
             bin/start-rust-service embedding-worker 2>&1 | tee /tmp/posthog-embedding-worker.log
-        autostart: false
 
     feature-flags:
         shell: |-
@@ -102,13 +106,16 @@ procs:
             bin/start-rust-service batch-import-worker 2>&1 | tee /tmp/posthog-batch-import-worker.log
 
     migrate-postgres:
-        shell: 'bin/check_postgres_up && python manage.py migrate 2>&1 | tee /tmp/posthog-migrate-postgres.log'
+        shell: 'bin/check_postgres_up && python manage.py migrate 2>&1 | tee /tmp/posthog-migrate-postgres.log' # This takes ~10 s
 
     migrate-clickhouse:
-        shell: 'bin/check_kafka_clickhouse_up && python manage.py migrate_clickhouse 2>&1 | tee /tmp/posthog-migrate-clickhouse.log'
+        shell: 'bin/check_kafka_clickhouse_up && python manage.py migrate_clickhouse 2>&1 | tee /tmp/posthog-migrate-clickhouse.log' # This takes ~10 s too
 
     migrate-persons-db:
         shell: 'bin/check_postgres_up posthog_persons && cd rust && DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog_persons sqlx migrate run --source persons_migrations 2>&1 | tee /tmp/posthog-migrate-persons-db.log'
+
+    migrate-behavioral-cohorts:
+        shell: 'bin/check_postgres_up behavioral_cohorts && rust/bin/migrate-behavioral-cohorts 2>&1 | tee /tmp/posthog-migrate-behavioral-cohorts.log'
 
     generate-demo-data:
         shell: |-
