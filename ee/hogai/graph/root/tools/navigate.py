@@ -24,7 +24,7 @@ Make sure that the state is aligned with the user's request using the tools avai
 - If the user asks to do something fun in the platform, you can navigate them to the `game368hedgehogs` page.
 
 # When NOT to use this tool:
-- If the currently definied tools can be used to assist the user. For example, if a SQL query fails, the tools of the SQL Editor page will not fix the query.
+- If the currently defined tools can be used to assist the user. For example, if a SQL query fails, the tools of the SQL Editor page will not fix the query.
 
 # List of pages and the tools available on a page
 {{{scene_descriptions}}}
