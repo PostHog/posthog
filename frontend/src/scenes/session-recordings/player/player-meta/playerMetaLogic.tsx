@@ -33,6 +33,7 @@ import { PersonType, PropertyFilterType, SessionRecordingType } from '~/types'
 import { SimpleTimeLabel } from '../../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionRecordingsListPropertiesLogic'
 import type { playerMetaLogicType } from './playerMetaLogicType'
+import { sessionRecordingPinnedPropertiesLogic } from './sessionRecordingPinnedPropertiesLogic'
 import { SessionSummaryContent } from './types'
 
 const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
@@ -113,12 +114,16 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             ['scale', 'currentTimestamp', 'currentPlayerTime', 'currentSegment', 'currentURL', 'resolution'],
             sessionRecordingsListPropertiesLogic,
             ['recordingPropertiesById'],
+            sessionRecordingPinnedPropertiesLogic,
+            ['pinnedProperties'],
         ],
         actions: [
             sessionRecordingDataCoordinatorLogic(props),
             ['loadRecordingMetaSuccess', 'setTrackedWindow'],
             sessionRecordingsListPropertiesLogic,
             ['maybeLoadPropertiesForSessions', 'loadPropertiesForSessionsSuccess'],
+            sessionRecordingPinnedPropertiesLogic,
+            ['setPinnedProperties', 'togglePropertyPin'],
         ],
     })),
     actions({
@@ -126,8 +131,6 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         setSessionSummaryContent: (content: SessionSummaryContent) => ({ content }),
         summarizeSession: () => ({}),
         setSessionSummaryLoading: (isLoading: boolean) => ({ isLoading }),
-        setPinnedProperties: (properties: string[]) => ({ properties }),
-        togglePropertyPin: (propertyKey: string) => ({ propertyKey }),
         setIsPropertyPopoverOpen: (isOpen: boolean) => ({ isOpen }),
         setPropertySearchQuery: (query: string) => ({ query }),
     }),
@@ -152,24 +155,6 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 setSessionSummaryLoading: (_, { isLoading }) => isLoading,
             },
         ],
-        pinnedProperties: [
-            [
-                'Start',
-                'Clicks',
-                'Duration',
-                'TTL',
-                'console_error_count',
-                'click_count',
-                'key_press_count',
-                '$referrer',
-                '$geoip_country_code',
-                '$geoip_city_name',
-            ] as string[],
-            { persist: true },
-            {
-                setPinnedProperties: (_, { properties }) => properties,
-            },
-        ],
         isPropertyPopoverOpen: [
             false,
             {
@@ -183,15 +168,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values }) => ({
-        togglePropertyPin: ({ propertyKey }) => {
-            const currentPinned = values.pinnedProperties
-            if (currentPinned.includes(propertyKey)) {
-                actions.setPinnedProperties(currentPinned.filter((k) => k !== propertyKey))
-            } else {
-                actions.setPinnedProperties([...currentPinned, propertyKey])
-            }
-        },
+    listeners(({ actions }) => ({
         setIsPropertyPopoverOpen: ({ isOpen }) => {
             // Clear search query when popover is closed
             if (!isOpen) {
@@ -269,8 +246,13 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             },
         ],
         allOverviewItems: [
-            (s) => [s.sessionPlayerMetaData, s.startTime, s.recordingPropertiesById],
-            (sessionPlayerMetaData, startTime, recordingPropertiesById) => {
+            (s) => [s.sessionPlayerMetaData, s.startTime, s.recordingPropertiesById, s.pinnedProperties],
+            (
+                sessionPlayerMetaData: SessionRecordingType | null,
+                startTime: string | null,
+                recordingPropertiesById: Record<string, Record<string, any>>,
+                pinnedProperties: string[]
+            ) => {
                 const items: OverviewItem[] = []
 
                 if (startTime) {
@@ -307,7 +289,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 }
 
                 recordingPropertyKeys.forEach((property) => {
-                    if (sessionPlayerMetaData?.[property]) {
+                    if (sessionPlayerMetaData?.[property] !== undefined) {
                         items.push({
                             icon:
                                 property === 'click_count' ? (
@@ -336,13 +318,26 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     // we don't need both, prefer $os_name in case mobile sends better value in that field
                     delete allProperties['$os']
                 }
-                Object.entries(allProperties).forEach(([property, value]) => {
+
+                const allPropertyKeys = new Set(Object.keys(allProperties))
+
+                // This is necessary because there may be pinned properties
+                // that don't exist as keys on this specific user, we still
+                // want to show them, albeit with a value of '-'.
+                pinnedProperties.forEach((property: string) => {
+                    if (property.startsWith('$') && !allPropertyKeys.has(property)) {
+                        allPropertyKeys.add(property)
+                    }
+                })
+
+                Array.from(allPropertyKeys).forEach((property) => {
                     if (property === '$geoip_subdivision_1_name' || property === '$geoip_city_name') {
                         // they're just shown in the title for Country
                         return
                     }
 
                     const propertyInfo = getPropertyDisplayInfo(property, recordingProperties)
+                    const value = allProperties[property]
 
                     const safeValue =
                         value == null
