@@ -15,10 +15,10 @@ class TestHeatmapsAPI(APIBaseTest):
     @patch("posthog.tasks.heatmap_screenshot.generate_heatmap_screenshot.delay")
     def test_generate_creates_saved_with_target_widths(self, mock_task):
         resp = self.client.post(
-            f"/api/environments/{self.team.id}/heatmap_screenshots/generate/",
+            f"/api/environments/{self.team.id}/saved/",
             {"url": "https://example.com", "widths": [768, 1024]},
         )
-        self.assertEqual(resp.status_code, 202)
+        self.assertEqual(resp.status_code, 201)
         saved = HeatmapSaved.objects.get(id=resp.data["id"])
         self.assertEqual(saved.url, "https://example.com")
         self.assertEqual(saved.created_by, self.user)
