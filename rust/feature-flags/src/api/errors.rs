@@ -69,6 +69,20 @@ pub enum FlagError {
     DatabaseUnavailable,
     #[error("Database error: {0}")]
     DatabaseError(sqlx::Error, Option<String>),
+    /// Timeout error with optional type classification.
+    ///
+    /// Valid timeout types include:
+    /// - `"query_canceled"` - Statement timeout (PostgreSQL SQLSTATE 57014)
+    /// - `"lock_not_available"` - Lock timeout (PostgreSQL SQLSTATE 55P03)
+    /// - `"idle_in_transaction_timeout"` - Idle transaction timeout (PostgreSQL SQLSTATE 25P03)
+    /// - `"pool_timeout"` - Connection pool acquisition timeout
+    /// - `"io_timeout"` - Network/socket timeout
+    /// - `"protocol_timeout"` - PostgreSQL protocol timeout
+    /// - `"client_timeout"` - Client-side tokio::timeout wrapper
+    /// - `"redis_timeout"` - Redis operation timeout
+    /// - `"cache_timeout"` - Cache operation timeout
+    /// - `"database_timeout"` - Generic database timeout (fallback when SQLSTATE unavailable)
+    /// - `None` - Timeout occurred but specific type unknown
     #[error("Timed out while fetching data")]
     TimeoutError(Option<String>),
     #[error("No group type mappings")]

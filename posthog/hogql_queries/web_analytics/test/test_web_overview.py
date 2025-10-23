@@ -993,7 +993,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     @freeze_time("2023-12-15T12:00:00Z")
-    def test_cannot_use_preaggregated_tables_with_conversion_goal(self):
+    def test_can_use_preaggregated_tables_with_conversion_goal(self):
         query = WebOverviewQuery(
             dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
             properties=[],
@@ -1001,8 +1001,8 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         runner = WebOverviewQueryRunner(team=self.team, query=query)
         pre_agg_builder = WebOverviewPreAggregatedQueryBuilder(runner)
-        self.assertFalse(
-            pre_agg_builder.can_use_preaggregated_tables(), "Should not use pre-aggregated tables with conversion goal"
+        self.assertTrue(
+            pre_agg_builder.can_use_preaggregated_tables(), "Should use pre-aggregated tables with conversion goal"
         )
 
     @freeze_time("2023-12-15T12:00:00Z")

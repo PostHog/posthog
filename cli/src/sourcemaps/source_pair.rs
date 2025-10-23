@@ -43,7 +43,7 @@ impl SourcePair {
     pub fn has_chunk_id(&self) -> bool {
         // Minified chunks are the source of truth for their ID's, not sourcemaps,
         // because sometimes sourcemaps are shared across multiple chunks.
-        self.source.get_chunk_id().is_some()
+        self.get_chunk_id().is_some()
     }
 
     pub fn get_chunk_id(&self) -> Option<String> {
@@ -51,10 +51,30 @@ impl SourcePair {
     }
 
     pub fn has_release_id(&self) -> bool {
-        self.sourcemap.get_release_id().is_some()
+        self.get_release_id().is_some()
     }
 
-    pub fn set_chunk_id(&mut self, chunk_id: String) -> Result<()> {
+    pub fn remove_chunk_id(&mut self, chunk_id: String) -> Result<()> {
+        if self.get_chunk_id().as_ref() != Some(&chunk_id) {
+            return Err(anyhow!("Chunk ID mismatch"));
+        }
+        let adjustment = self.source.remove_chunk_id(chunk_id)?;
+        self.sourcemap.apply_adjustment(adjustment)?;
+        self.sourcemap.set_chunk_id(None);
+        Ok(())
+    }
+
+    pub fn update_chunk_id(
+        &mut self,
+        previous_chunk_id: String,
+        new_chunk_id: String,
+    ) -> Result<()> {
+        self.remove_chunk_id(previous_chunk_id)?;
+        self.add_chunk_id(new_chunk_id)?;
+        Ok(())
+    }
+
+    pub fn add_chunk_id(&mut self, chunk_id: String) -> Result<()> {
         if self.has_chunk_id() {
             return Err(anyhow!("Chunk ID already set"));
         }
@@ -65,12 +85,12 @@ impl SourcePair {
         // have a chunk ID set (since otherwise, it's already been adjusted)
         if self.sourcemap.get_chunk_id().is_none() {
             self.sourcemap.apply_adjustment(adjustment)?;
-            self.sourcemap.set_chunk_id(chunk_id);
+            self.sourcemap.set_chunk_id(Some(chunk_id));
         }
         Ok(())
     }
 
-    pub fn set_release_id(&mut self, release_id: String) {
+    pub fn set_release_id(&mut self, release_id: Option<String>) {
         self.sourcemap.set_release_id(release_id);
     }
 
@@ -78,6 +98,10 @@ impl SourcePair {
         self.source.save()?;
         self.sourcemap.save()?;
         Ok(())
+    }
+
+    pub(crate) fn get_release_id(&self) -> Option<String> {
+        self.sourcemap.get_release_id()
     }
 }
 
@@ -209,12 +233,12 @@ impl SourceMapFile {
         Ok(())
     }
 
-    pub fn set_chunk_id(&mut self, chunk_id: String) {
-        self.inner.content.chunk_id = Some(chunk_id);
+    pub fn set_chunk_id(&mut self, chunk_id: Option<String>) {
+        self.inner.content.chunk_id = chunk_id;
     }
 
-    pub fn set_release_id(&mut self, release_id: String) {
-        self.inner.content.release_id = Some(release_id);
+    pub fn set_release_id(&mut self, release_id: Option<String>) {
+        self.inner.content.release_id = release_id;
     }
 }
 
@@ -284,7 +308,7 @@ impl MinifiedSourceFile {
                         self.inner
                             .path
                             .parent()
-                            .map(|p| p.join(&filename))
+                            .map(|p| p.join(filename))
                             .unwrap_or_else(|| PathBuf::from(&filename)),
                     );
                 }
@@ -294,7 +318,7 @@ impl MinifiedSourceFile {
                         self.inner
                             .path
                             .parent()
-                            .map(|p| p.join(&filename))
+                            .map(|p| p.join(filename))
                             .unwrap_or_else(|| PathBuf::from(&filename)),
                     );
                 }
@@ -342,5 +366,49 @@ impl MinifiedSourceFile {
             }
         }
         None
+    }
+
+    fn remove_chunk_id(&mut self, chunk_id: String) -> Result<SourceMap> {
+        let (new_source_content, source_adjustment) = {
+            // Update source content with chunk ID
+            let source_content = &self.inner.content;
+            let mut magic_source = MagicString::new(source_content);
+
+            let chunk_comment = CHUNKID_COMMENT_PREFIX.replace(CHUNKID_PLACEHOLDER, &chunk_id);
+            if let Some(chunk_comment_start) = source_content.find(&chunk_comment) {
+                let chunk_comment_end = chunk_comment_start as i64 + chunk_comment.len() as i64;
+                magic_source
+                    .remove(chunk_comment_start as i64, chunk_comment_end)
+                    .map_err(|err| anyhow!("Failed to remove chunk comment: {err}"))?;
+            }
+
+            let code_snippet = CODE_SNIPPET_TEMPLATE.replace(CHUNKID_PLACEHOLDER, &chunk_id);
+            if let Some(code_snippet_start) = source_content.find(&code_snippet) {
+                let code_snippet_end = code_snippet_start as i64 + code_snippet.len() as i64;
+                magic_source
+                    .remove(code_snippet_start as i64, code_snippet_end)
+                    .map_err(|err| anyhow!("Failed to remove code snippet {err}"))?;
+            }
+
+            let adjustment = magic_source
+                .generate_map(GenerateDecodedMapOptions {
+                    include_content: true,
+                    ..Default::default()
+                })
+                .map_err(|err| anyhow!("Failed to generate source map: {err}"))?;
+
+            let adjustment_sourcemap = SourceMap::from_slice(
+                adjustment
+                    .to_string()
+                    .map_err(|err| anyhow!("Failed to serialize source map: {err}"))?
+                    .as_bytes(),
+            )
+            .map_err(|err| anyhow!("Failed to parse adjustment sourcemap: {err}"))?;
+
+            (magic_source.to_string(), adjustment_sourcemap)
+        };
+
+        self.inner.content = new_source_content;
+        Ok(source_adjustment)
     }
 }

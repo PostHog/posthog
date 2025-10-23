@@ -202,13 +202,15 @@ function MainPanel(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
 
     return (
-        <SceneContent fullHeight>
+        <SceneContent>
             <Warnings />
 
             {!tab ? (
                 <Spinner />
             ) : tab === ReplayTabs.Home ? (
-                <SessionRecordingsPlaylist updateSearchParams />
+                <div className="SessionRecordingPlaylistHeightWrapper">
+                    <SessionRecordingsPlaylist updateSearchParams />
+                </div>
             ) : tab === ReplayTabs.Playlists ? (
                 <SessionRecordingCollections />
             ) : tab === ReplayTabs.Templates ? (
@@ -279,7 +281,7 @@ export function SessionRecordingsPageTabs(): JSX.Element {
 }
 export function SessionsRecordings(): JSX.Element {
     return (
-        <SceneContent fullHeight>
+        <SceneContent className="h-full">
             <SessionRecordingsPageTabs />
             <MainPanel />
         </SceneContent>

@@ -3572,6 +3572,18 @@ const api = {
             }
             return await apiRequest.get()
         },
+        async duplicateToProjects(
+            surveyId: Survey['id'],
+            targetTeamIds: TeamType['id'][]
+        ): Promise<{
+            created_surveys: Array<{ team_id: number; survey_id: string; name: string }>
+            count: number
+        }> {
+            return await new ApiRequest()
+                .survey(surveyId)
+                .withAction('duplicate_to_projects')
+                .create({ data: { target_team_ids: targetTeamIds } })
+        },
     },
 
     dataWarehouseTables: {

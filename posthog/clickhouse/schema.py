@@ -117,14 +117,14 @@ from posthog.models.person_overrides.sql import (
     PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL,
     PERSON_OVERRIDES_CREATE_TABLE_SQL,
 )
-from posthog.models.raw_sessions.sql import (
+from posthog.models.raw_sessions.sessions_v2 import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_SQL,
     RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL,
     RAW_SESSIONS_TABLE_MV_SQL,
     RAW_SESSIONS_TABLE_SQL,
     WRITABLE_RAW_SESSIONS_TABLE_SQL,
 )
-from posthog.models.raw_sessions.sql_v3 import (
+from posthog.models.raw_sessions.sessions_v3 import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3,
     RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL_V3,
     RAW_SESSIONS_TABLE_MV_SQL_V3,
