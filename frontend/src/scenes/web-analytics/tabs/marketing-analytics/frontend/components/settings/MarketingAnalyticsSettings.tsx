@@ -1,6 +1,7 @@
 import { LemonCollapse } from '@posthog/lemon-ui'
 
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
@@ -50,15 +51,17 @@ export function MarketingAnalyticsSettings({
             <SceneDivider />
             <SelfManagedExternalDataSourceConfiguration />
             <SceneDivider />
-            <LemonCollapse
-                panels={[
-                    {
-                        key: 'advanced',
-                        header: 'Advanced marketing settings',
-                        content: <CampaignNameMappingsConfiguration />,
-                    },
-                ]}
-            />
+            <FlaggedFeature flag="advance-marketing-analytics-settings">
+                <LemonCollapse
+                    panels={[
+                        {
+                            key: 'advanced-marketing-settings',
+                            header: 'Advanced marketing settings',
+                            content: <CampaignNameMappingsConfiguration />,
+                        },
+                    ]}
+                />
+            </FlaggedFeature>
         </SceneContent>
     )
 }
