@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0889_add_schema_models"),
+        ("posthog", "0891_file_system_view_log"),
     ]
 
     operations = [
