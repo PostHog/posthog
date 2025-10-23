@@ -6,12 +6,7 @@ from freezegun import freeze_time
 from django.test import TestCase
 
 from posthog.models import Dashboard, FileSystem, FileSystemViewLog, Insight, Organization, Team, User
-from posthog.models.file_system.file_system_view_log import (
-    RecentViewer,
-    get_recent_file_system_items,
-    get_recent_viewers_for_resource,
-    log_file_system_view,
-)
+from posthog.models.file_system.file_system_view_log import get_recent_file_system_items, log_file_system_view
 
 
 class FileSystemWithLastViewed(Protocol):
@@ -104,51 +99,4 @@ class TestFileSystemViewLog(TestCase):
         self.assertEqual(
             logs.first().viewed_at if logs.first() else None,
             datetime(2024, 2, 1, 10, 0, 10, tzinfo=UTC),
-        )
-
-    def test_recent_viewers_for_resource(self) -> None:
-        other_user = User.objects.create_user("other@posthog.com", "password", "Other")
-        insight = Insight.objects.create(
-            team=self.team,
-            name="Insight",
-            saved=True,
-            created_by=self.user,
-            last_modified_by=self.user,
-        )
-
-        with freeze_time("2024-01-01T09:00:00Z"):
-            log_file_system_view(user=self.user, obj=insight)
-
-        with freeze_time("2024-01-01T10:00:00Z"):
-            log_file_system_view(user=other_user, obj=insight)
-
-        with freeze_time("2024-01-01T11:00:00Z"):
-            log_file_system_view(user=self.user, obj=insight)
-
-        viewers = get_recent_viewers_for_resource(team_id=self.team.id, file_type="insight", ref=insight.short_id)
-        self.assertEqual(
-            viewers,
-            [
-                RecentViewer(user_id=self.user.id, last_viewed_at=datetime(2024, 1, 1, 11, 0, 0, tzinfo=UTC)),
-                RecentViewer(user_id=other_user.id, last_viewed_at=datetime(2024, 1, 1, 10, 0, 0, tzinfo=UTC)),
-            ],
-        )
-
-        recent_only = get_recent_viewers_for_resource(
-            team_id=self.team.id,
-            file_type="insight",
-            ref=insight.short_id,
-            since=datetime(2024, 1, 1, 10, 30, 0, tzinfo=UTC),
-        )
-        self.assertEqual(
-            recent_only,
-            [RecentViewer(user_id=self.user.id, last_viewed_at=datetime(2024, 1, 1, 11, 0, 0, tzinfo=UTC))],
-        )
-
-        limited = get_recent_viewers_for_resource(
-            team_id=self.team.id, file_type="insight", ref=insight.short_id, limit=1
-        )
-        self.assertEqual(
-            limited,
-            [RecentViewer(user_id=self.user.id, last_viewed_at=datetime(2024, 1, 1, 11, 0, 0, tzinfo=UTC))],
         )

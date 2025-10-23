@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, is_dataclass
+from dataclasses import is_dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional, cast
 
@@ -31,12 +31,6 @@ class FileSystemViewLog(UUIDModel):
         constraints = [
             models.UniqueConstraint(fields=("team", "user", "type", "ref"), name="posthog_fsvl_unique_user_item")
         ]
-
-
-@dataclass(frozen=True)
-class RecentViewer:
-    user_id: int
-    last_viewed_at: datetime
 
 
 def log_file_system_view(
@@ -97,31 +91,6 @@ def get_recent_file_system_items(*, team_id: int, user_id: int, limit: Optional[
         queryset = queryset[:limit]
 
     return queryset
-
-
-def get_recent_viewers_for_resource(
-    *,
-    team_id: int,
-    file_type: str,
-    ref: str,
-    since: Optional[datetime] = None,
-    limit: Optional[int] = None,
-) -> list[RecentViewer]:
-    view_qs = FileSystemViewLog.objects.filter(team_id=team_id, type=file_type, ref=str(ref))
-
-    if since is not None:
-        view_qs = view_qs.filter(viewed_at__gte=since)
-
-    aggregated = (
-        view_qs.values("user_id")
-        .annotate(last_viewed_at=Max("viewed_at"))
-        .order_by(models.F("last_viewed_at").desc(nulls_last=True))
-    )
-
-    if limit is not None:
-        aggregated = aggregated[:limit]
-
-    return [RecentViewer(user_id=row["user_id"], last_viewed_at=row["last_viewed_at"]) for row in aggregated]
 
 
 def _resolve_representation(
