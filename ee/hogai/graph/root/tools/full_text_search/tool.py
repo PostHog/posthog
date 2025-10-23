@@ -64,7 +64,7 @@ ENTITY_MAP: dict[str, EntityConfig] = {
     },
     "error_tracking_issue": {
         "klass": ErrorTrackingIssue,
-        "search_fields": {"name": "A", "description": "C"},
+        "search_fields": {"name": "A", "description": "B"},
         "extra_fields": ["name", "description"],
     },
 }
