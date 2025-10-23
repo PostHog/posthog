@@ -1254,6 +1254,26 @@ class ExperimentExposureTimeSeries(BaseModel):
     variant: str
 
 
+class ExperimentMaxBayesianContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    chance_to_win: float
+    credible_interval: list[float] = Field(..., max_length=2, min_length=2)
+    key: str
+    significant: bool
+
+
+class ExperimentMaxFrequentistContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    confidence_interval: list[float] = Field(..., max_length=2, min_length=2)
+    key: str
+    p_value: float
+    significant: bool
+
+
 class ExperimentMetricGoal(StrEnum):
     INCREASE = "increase"
     DECREASE = "decrease"
