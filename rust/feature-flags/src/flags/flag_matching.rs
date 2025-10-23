@@ -15,6 +15,7 @@ use crate::flags::flag_matching_utils::{
 };
 use crate::flags::flag_models::{FeatureFlag, FeatureFlagId, FeatureFlagList, FlagPropertyGroup};
 use crate::flags::flag_operations::flags_require_db_preparation;
+use crate::flags::identifier_resolution::{resolve_identifier_for_flag, FlagIdentifierContext};
 use crate::metrics::consts::{
     DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, FLAG_DB_PROPERTIES_FETCH_TIME,
     FLAG_EVALUATE_ALL_CONDITIONS_TIME, FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME,
@@ -654,29 +655,74 @@ impl FeatureFlagMatcher {
             .copied()
             .collect::<Vec<&FeatureFlag>>();
 
-        // Pre-compute property overrides for all flags upfront
-        // TODO: We can probably do this even earlier, but I'll save that for another PR - @haacked
+        // Pre-resolve identifier contexts for all flags upfront at the boundary
+        // This replaces the old property override pre-computation with a unified
+        // identifier resolution abstraction that handles person vs group logic in one place
+        let mut precomputed_contexts: HashMap<String, Option<FlagIdentifierContext>> =
+            HashMap::new();
+
         for flag in &flags_to_evaluate {
-            let relevant_property_overrides = match flag.get_group_type_index() {
-                Some(group_type_index) => {
-                    // For group flags, extract the relevant group overrides
-                    match self.group_overrides_to_property_overrides(
-                        group_type_index,
-                        group_property_overrides,
-                    ) {
-                        Ok(overrides) => overrides,
-                        Err(e) => {
-                            warn!(
-                                "Failed to get group type mapping for flag '{}' with group_type_index {}: {:?}. Treating as no overrides.",
-                                flag.key, group_type_index, e
-                            );
-                            None // If we can't get the mapping, treat as no overrides; we'll hit the DB later if needed, but odds are that this is an error on the client side
-                        }
-                    }
+            match resolve_identifier_for_flag(
+                flag,
+                &self.distinct_id,
+                &self.groups,
+                person_property_overrides,
+                group_property_overrides,
+                hash_key_overrides.as_ref(),
+                &self.group_type_mapping_cache,
+            ) {
+                Ok(context) => {
+                    let property_overrides = match context.as_ref() {
+                        Some(ctx) => ctx.property_overrides.clone(),
+                        None => match flag.get_group_type_index() {
+                            Some(group_type_index) => {
+                                match self.group_overrides_to_property_overrides(
+                                    group_type_index,
+                                    group_property_overrides,
+                                ) {
+                                    Ok(overrides) => overrides,
+                                    Err(e) => {
+                                        warn!(
+                                            "Failed to get group type mapping for flag '{}' with group_type_index {}: {:?}. Treating as no overrides.",
+                                            flag.key, group_type_index, e
+                                        );
+                                        None
+                                    }
+                                }
+                            }
+                            None => person_property_overrides.clone(),
+                        },
+                    };
+
+                    precomputed_contexts.insert(flag.key.clone(), context);
+                    precomputed_property_overrides.insert(flag.key.clone(), property_overrides);
                 }
-                None => person_property_overrides.clone(),
-            };
-            precomputed_property_overrides.insert(flag.key.clone(), relevant_property_overrides);
+                Err(e) => {
+                    warn!(
+                        "Failed to resolve identifier context for flag '{}': {:?}. Treating as no context.",
+                        flag.key, e
+                    );
+                    precomputed_contexts.insert(flag.key.clone(), None);
+                    // Fall back to legacy override extraction since context failed
+                    let legacy_overrides = match flag.get_group_type_index() {
+                        Some(group_type_index) => match self.group_overrides_to_property_overrides(
+                            group_type_index,
+                            group_property_overrides,
+                        ) {
+                            Ok(overrides) => overrides,
+                            Err(err) => {
+                                warn!(
+                                    "Failed to get group type mapping for flag '{}' with group_type_index {} after context error: {:?}. Treating as no overrides.",
+                                    flag.key, group_type_index, err
+                                );
+                                None
+                            }
+                        },
+                        None => person_property_overrides.clone(),
+                    };
+                    precomputed_property_overrides.insert(flag.key.clone(), legacy_overrides);
+                }
+            }
         }
 
         // Evaluate flags with cached properties using pre-computed overrides
@@ -696,9 +742,17 @@ impl FeatureFlagMatcher {
                     .get(&flag.key)
                     .unwrap_or(&None)
                     .clone();
+                let context = precomputed_contexts
+                    .get(&flag.key)
+                    .and_then(|ctx_opt| ctx_opt.as_ref());
                 (
                     flag.key.clone(),
-                    self.get_match(flag, property_overrides, hash_key_overrides.clone()),
+                    self.get_match(
+                        flag,
+                        context,
+                        property_overrides,
+                        hash_key_overrides.clone(),
+                    ),
                 )
             })
             .collect();
@@ -804,11 +858,12 @@ impl FeatureFlagMatcher {
     pub fn get_match(
         &self,
         flag: &FeatureFlag,
+        context: Option<&FlagIdentifierContext>,
         property_overrides: Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<FeatureFlagMatch, FlagError> {
         // Check if this is a group-based flag with missing group
-        let hashed_id = self.hashed_identifier(flag, hash_key_overrides.clone())?;
+        let hashed_id = self.hashed_identifier(flag, context, hash_key_overrides.clone())?;
         if flag.get_group_type_index().is_some() && hashed_id.is_empty() {
             // This is a group-based flag but we don't have the group key
             return Ok(FeatureFlagMatch {
@@ -829,6 +884,7 @@ impl FeatureFlagMatcher {
             if !super_groups.is_empty() {
                 let super_condition_evaluation = self.is_super_condition_match(
                     flag,
+                    context,
                     property_overrides.clone(),
                     hash_key_overrides.clone(),
                 )?;
@@ -859,7 +915,7 @@ impl FeatureFlagMatcher {
         if let Some(holdout_groups) = &flag.filters.holdout_groups {
             if !holdout_groups.is_empty() {
                 let (is_match, holdout_value, evaluation_reason) =
-                    self.is_holdout_condition_match(flag)?;
+                    self.is_holdout_condition_match(flag, context)?;
                 if is_match {
                     let payload = self.get_matching_payload(holdout_value.as_deref(), flag);
                     return Ok(FeatureFlagMatch {
@@ -880,6 +936,7 @@ impl FeatureFlagMatcher {
             let (is_match, reason) = self.is_condition_match(
                 flag,
                 condition,
+                context,
                 property_overrides.clone(),
                 hash_key_overrides.clone(),
             )?;
@@ -911,11 +968,11 @@ impl FeatureFlagMatcher {
                         Some(variant_override.clone())
                     } else {
                         // If override isn't valid, fall back to computed variant
-                        self.get_matching_variant(flag, hash_key_overrides.clone())?
+                        self.get_matching_variant(flag, context, hash_key_overrides.clone())?
                     }
                 } else {
                     // No override, use computed variant
-                    self.get_matching_variant(flag, hash_key_overrides.clone())?
+                    self.get_matching_variant(flag, context, hash_key_overrides.clone())?
                 };
                 let payload = self.get_matching_payload(variant.as_deref(), flag);
 
@@ -969,6 +1026,7 @@ impl FeatureFlagMatcher {
         &self,
         feature_flag: &FeatureFlag,
         condition: &FlagPropertyGroup,
+        context: Option<&FlagIdentifierContext>,
         property_overrides: Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
@@ -976,7 +1034,12 @@ impl FeatureFlagMatcher {
 
         if let Some(flag_property_filters) = &condition.properties {
             if flag_property_filters.is_empty() {
-                return self.check_rollout(feature_flag, rollout_percentage, hash_key_overrides);
+                return self.check_rollout(
+                    feature_flag,
+                    context,
+                    rollout_percentage,
+                    hash_key_overrides,
+                );
             }
 
             // Separate flag value filters from other filters
@@ -1027,7 +1090,12 @@ impl FeatureFlagMatcher {
             }
         }
 
-        self.check_rollout(feature_flag, rollout_percentage, hash_key_overrides)
+        self.check_rollout(
+            feature_flag,
+            context,
+            rollout_percentage,
+            hash_key_overrides,
+        )
     }
 
     /// Gets the properties to check for a feature flag condition, merging DB properties with overrides.
@@ -1086,6 +1154,7 @@ impl FeatureFlagMatcher {
     fn is_holdout_condition_match(
         &self,
         flag: &FeatureFlag,
+        context: Option<&FlagIdentifierContext>,
     ) -> Result<(bool, Option<String>, FeatureFlagMatchReason), FlagError> {
         // TODO: Right now holdout conditions only support basic rollout %s, and not property overrides.
 
@@ -1102,7 +1171,7 @@ impl FeatureFlagMatcher {
 
                 if let Some(percentage) = rollout_percentage {
                     if percentage < 100.0
-                        && self.get_holdout_hash(flag, None)? > (percentage / 100.0)
+                        && self.get_holdout_hash(flag, context, None)? > (percentage / 100.0)
                     {
                         // If hash is greater than percentage, we're OUT of holdout
                         return Ok((false, None, FeatureFlagMatchReason::OutOfRolloutBound));
@@ -1114,7 +1183,7 @@ impl FeatureFlagMatcher {
                 let variant = if let Some(variant_override) = condition.variant.as_ref() {
                     variant_override.clone()
                 } else {
-                    self.get_matching_variant(flag, None)?
+                    self.get_matching_variant(flag, context, None)?
                         .unwrap_or_else(|| "holdout".to_string())
                 };
 
@@ -1137,6 +1206,7 @@ impl FeatureFlagMatcher {
     fn is_super_condition_match(
         &self,
         feature_flag: &FeatureFlag,
+        context: Option<&FlagIdentifierContext>,
         property_overrides: Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<SuperConditionEvaluation, FlagError> {
@@ -1160,6 +1230,7 @@ impl FeatureFlagMatcher {
                 let (is_match, _) = self.is_condition_match(
                     feature_flag,
                     super_condition,
+                    context,
                     Some(merged_properties),
                     hash_key_overrides,
                 )?;
@@ -1183,11 +1254,31 @@ impl FeatureFlagMatcher {
     ///
     /// This function generates a hashed identifier for a feature flag based on the feature flag's group type index.
     /// If the feature flag is group-based, it fetches the group key; otherwise, it uses the distinct ID.
+    /// Get the hashed identifier for a feature flag.
+    ///
+    /// This method now uses the pre-resolved FlagIdentifierContext when available,
+    /// eliminating the need for branching logic based on flag type.
+    ///
+    /// ## New approach (with context):
+    /// - Identifier resolution happens at the boundary (see `resolve_identifier_for_flag`)
+    /// - This method just extracts the already-resolved identifier - no branching needed!
+    ///
+    /// ## Legacy approach (without context):
+    /// - Falls back to the old branching logic for backward compatibility
+    /// - This fallback can be removed once all call sites provide contexts
     fn hashed_identifier(
         &self,
         feature_flag: &FeatureFlag,
+        context: Option<&FlagIdentifierContext>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<String, FlagError> {
+        // NEW APPROACH: Use pre-resolved context if available (no branching!)
+        if let Some(ctx) = context {
+            return Ok(ctx.identifier.clone());
+        }
+
+        // LEGACY APPROACH: Fall back to old branching logic for backward compatibility
+        // This can be removed once all call sites provide contexts
         if let Some(group_type_index) = feature_flag.get_group_type_index() {
             // Group-based flag
             let group_key = match self
@@ -1229,10 +1320,12 @@ impl FeatureFlagMatcher {
     fn get_hash(
         &self,
         feature_flag: &FeatureFlag,
+        context: Option<&FlagIdentifierContext>,
         salt: &str,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<f64, FlagError> {
-        let hashed_identifier = self.hashed_identifier(feature_flag, hash_key_overrides)?;
+        let hashed_identifier =
+            self.hashed_identifier(feature_flag, context, hash_key_overrides)?;
         if hashed_identifier.is_empty() {
             // Return a hash value that will make the flag evaluate to false; since we
             // can't evaluate a flag without an identifier.
@@ -1245,9 +1338,10 @@ impl FeatureFlagMatcher {
     fn get_holdout_hash(
         &self,
         feature_flag: &FeatureFlag,
+        context: Option<&FlagIdentifierContext>,
         salt: Option<&str>,
     ) -> Result<f64, FlagError> {
-        let hashed_identifier = self.hashed_identifier(feature_flag, None)?;
+        let hashed_identifier = self.hashed_identifier(feature_flag, context, None)?;
         let hash = calculate_hash("holdout-", &hashed_identifier, salt.unwrap_or(""))?;
         Ok(hash)
     }
@@ -1261,13 +1355,14 @@ impl FeatureFlagMatcher {
     fn check_rollout(
         &self,
         feature_flag: &FeatureFlag,
+        context: Option<&FlagIdentifierContext>,
         rollout_percentage: f64,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
         if rollout_percentage == 100.0 {
             return Ok((true, FeatureFlagMatchReason::ConditionMatch));
         }
-        let hash = self.get_hash(feature_flag, "", hash_key_overrides)?;
+        let hash = self.get_hash(feature_flag, context, "", hash_key_overrides)?;
         if hash <= (rollout_percentage / 100.0) {
             Ok((true, FeatureFlagMatchReason::ConditionMatch))
         } else {
@@ -1279,9 +1374,10 @@ impl FeatureFlagMatcher {
     pub(crate) fn get_matching_variant(
         &self,
         feature_flag: &FeatureFlag,
+        context: Option<&FlagIdentifierContext>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<Option<String>, FlagError> {
-        let hash = self.get_hash(feature_flag, "variant", hash_key_overrides)?;
+        let hash = self.get_hash(feature_flag, context, "variant", hash_key_overrides)?;
         let mut cumulative_percentage = 0.0;
 
         for variant in feature_flag.get_variants() {
