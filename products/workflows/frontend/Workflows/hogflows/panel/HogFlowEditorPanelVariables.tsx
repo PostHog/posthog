@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCode, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonInput, LemonLabel, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonLabel, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
 
@@ -92,8 +92,15 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
                         />
                     </LemonField.Pure>
                     <LemonField.Pure label="Usage syntax">
-                        <Tooltip title={`{ ${variable.key} }`}>
-                            <code className="w-36 py-2 bg-primary-alt-highlight-light rounded-sm text-center truncate">{`{ ${variable.key} }`}</code>
+                        <Tooltip title={`{{ variables.${variable.key} }}`}>
+                            <code
+                                className="w-36 py-2 bg-primary-alt-highlight-light rounded-sm text-center text-xs truncate cursor-pointer"
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    void navigator.clipboard.writeText(`{{ variables.${variable.key} }}`)
+                                    lemonToast.success('Copied to clipboard')
+                                }}
+                            >{`{{ variables.${variable.key} }}`}</code>
                         </Tooltip>
                     </LemonField.Pure>
                     <LemonButton
