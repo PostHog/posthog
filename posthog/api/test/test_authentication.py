@@ -11,7 +11,7 @@ from django.conf import settings
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.core.cache import cache
-from django.test import RequestFactory
+from django.test import RequestFactory, override_settings
 from django.utils import timezone
 
 from django_otp.oath import totp
@@ -26,6 +26,7 @@ from social_django.models import UserSocialAuth
 from two_factor.utils import totp_digits
 
 from posthog.api.authentication import password_reset_token_generator, post_login, social_login_notification
+from posthog.api.test.test_oauth import generate_rsa_key
 from posthog.auth import OAuthAccessTokenAuthentication, ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
 from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
@@ -1130,6 +1131,12 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         self.assertEqual(user.team, self.team)
 
 
+@override_settings(
+    OAUTH2_PROVIDER={
+        **settings.OAUTH2_PROVIDER,
+        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+    }
+)
 class TestOAuthAccessTokenAuthentication(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -1173,15 +1180,16 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
     def test_authenticate_with_invalid_oauth_token(self):
         wsgi_request = self.factory.get(
             "/",
-            headers={"AUTHORIZATION": "Bearer invalid_token_123"},
+            headers={"AUTHORIZATION": "Bearer pha_invalid_token_123"},
         )
         request = Request(wsgi_request)
 
         authenticator = OAuthAccessTokenAuthentication()
-        result = authenticator.authenticate(request)
 
-        # Should return None for nonexistent tokens to allow next auth method
-        self.assertIsNone(result)
+        with self.assertRaises(AuthenticationFailed) as context:
+            authenticator.authenticate(request)
+
+        self.assertEqual(str(context.exception.detail), "Invalid access token.")
 
     def test_authenticate_with_expired_oauth_token(self):
         expired_token = OAuthAccessToken.objects.create(

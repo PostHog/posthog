@@ -462,7 +462,7 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
             access_token = self._validate_token(authorization_token)
 
             if not access_token:
-                return None  # We return None here because we want to let the next authentication method have a go
+                raise AuthenticationFailed(detail="Invalid access token.")
 
             self.access_token = access_token
 
