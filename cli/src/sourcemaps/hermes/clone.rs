@@ -63,11 +63,11 @@ pub fn clone(args: &CloneArgs) -> Result<()> {
 
         // Copy metadata from source map to composed map
         if let Some(chunk_id) = minified.get_chunk_id() {
-            composed.set_chunk_id(chunk_id);
+            composed.set_chunk_id(Some(chunk_id));
         }
 
         if let Some(release_id) = minified.get_release_id() {
-            composed.set_release_id(release_id);
+            composed.set_release_id(Some(release_id));
         }
 
         composed.save()?;
