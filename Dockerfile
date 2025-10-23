@@ -35,6 +35,9 @@ COPY common/esbuilder/ common/esbuilder/
 COPY common/tailwind/ common/tailwind/
 COPY products/ products/
 COPY ee/frontend/ ee/frontend/
+COPY .git/config .git/config
+COPY .git/HEAD .git/HEAD
+COPY .git/refs/heads .git/refs/heads
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
     corepack enable && pnpm --version && \
     pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store-v23
@@ -51,7 +54,7 @@ RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
     export PATH="/root/.posthog:$PATH" && \
     export POSTHOG_CLI_TOKEN="$(cat /run/secrets/posthog_upload_sourcemaps_cli_api_key)" && \
     export POSTHOG_CLI_ENV_ID=2 && \
-    posthog-cli sourcemap process --directory /code/frontend/dist --public-path-prefix /static --no-fail --project frontend --version 0.0.1; \
+    posthog-cli sourcemap process --directory /code/frontend/dist --public-path-prefix /static --no-fail; \
 fi
 
 #
