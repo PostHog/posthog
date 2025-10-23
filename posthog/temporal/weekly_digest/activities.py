@@ -38,7 +38,42 @@ from posthog.temporal.weekly_digest.types import (
     TeamDigest,
 )
 
+
+@database_sync_to_async
+def _queryset_to_list(qs: QuerySet):
+    return list(qs)
+
+
 LOGGER = get_write_only_logger()
+
+
+async def generate_generic(
+    input: GenerateDigestDataInput,
+    resource_name: str,
+    query_func,
+) -> None:
+    async with Heartbeater():
+        bind_contextvars(digest_key=input.digest_key, period_start=input.period_start, period_end=input.period_end)
+        logger = LOGGER.bind()
+        logger.info("Querying new dashboards")
+
+        dashboard_count = 0
+        team_count = 0
+
+        async with redis.from_url(f"redis://{input.redis_host}:{input.redis_port}?decode_responses=true") as r:
+            dashboard_query: QuerySet = query_teams_with_new_dashboards(input.period_end, input.period_start)
+            async for team in query_teams_for_digest():
+                result = await _queryset_to_list(dashboard_query.filter(team_id=team.id))
+
+                dashboards = DashboardList(dashboards=result)
+
+                dashboard_count += len(result)
+                team_count += 1
+
+                key: str = f"{input.digest_key}-dashboards-{team.id}"
+                await r.setex(key, input.redis_ttl, dashboards.model_dump_json())
+
+        logger.info(f"Finished querying new dashboards", dashboard_count=dashboard_count, team_count=team_count)
 
 
 @activity.defn(name="generate-dashboard-lookup")
@@ -51,21 +86,16 @@ async def generate_dashboard_lookup(input: GenerateDigestDataInput) -> None:
         dashboard_count = 0
         team_count = 0
 
-        r = await redis.from_url(f"redis://{input.redis_host}:{input.redis_port}?decode_responses=true")
+        async with redis.from_url(f"redis://{input.redis_host}:{input.redis_port}?decode_responses=true") as r:
+            dashboard_query: QuerySet = query_teams_with_new_dashboards(input.period_end, input.period_start)
+            async for team in query_teams_for_digest():
+                dashboards = DashboardList(dashboards=await _queryset_to_list(dashboard_query.filter(team_id=team.id)))
 
-        dashboard_query: QuerySet = query_teams_with_new_dashboards(input.period_end, input.period_start)
-        async for team in query_teams_for_digest():
-            dashboards = DashboardList(
-                dashboards=await database_sync_to_async(list)(dashboard_query.filter(team_id=team.id))
-            )
+                dashboard_count += len(dashboards.dashboards)
+                team_count += 1
 
-            dashboard_count += len(dashboards.dashboards)
-            team_count += 1
-
-            key: str = f"{input.digest_key}-dashboards-{team.id}"
-            await r.set(key, dashboards.model_dump_json(), ex=input.redis_ttl)
-
-        await r.aclose()
+                key: str = f"{input.digest_key}-dashboards-{team.id}"
+                await r.setex(key, input.redis_ttl, dashboards.model_dump_json())
 
         logger.info(f"Finished querying new dashboards", dashboard_count=dashboard_count, team_count=team_count)
 
@@ -80,21 +110,20 @@ async def generate_event_definition_lookup(input: GenerateDigestDataInput) -> No
         definition_count = 0
         team_count = 0
 
-        r = await redis.from_url(f"redis://{input.redis_host}:{input.redis_port}?decode_responses=true")
-
-        event_definition_query: QuerySet = query_teams_with_new_event_definitions(input.period_end, input.period_start)
-        async for team in query_teams_for_digest():
-            event_definitions = EventDefinitionList(
-                definitions=await database_sync_to_async(list)(event_definition_query.filter(team_id=team.id))
+        async with redis.from_url(f"redis://{input.redis_host}:{input.redis_port}?decode_responses=true") as r:
+            event_definition_query: QuerySet = query_teams_with_new_event_definitions(
+                input.period_end, input.period_start
             )
+            async for team in query_teams_for_digest():
+                event_definitions = EventDefinitionList(
+                    definitions=await _queryset_to_list(event_definition_query.filter(team_id=team.id))
+                )
 
-            definition_count += len(event_definitions.definitions)
-            team_count += 1
+                definition_count += len(event_definitions.definitions)
+                team_count += 1
 
-            key: str = f"{input.digest_key}-event-definitions-{team.id}"
-            await r.set(key, event_definitions.model_dump_json(), ex=input.redis_ttl)
-
-        await r.aclose()
+                key: str = f"{input.digest_key}-event-definitions-{team.id}"
+                await r.setex(key, input.redis_ttl, event_definitions.model_dump_json())
 
         logger.info(
             f"Finished querying new event definitions", definition_count=definition_count, team_count=team_count
@@ -112,35 +141,32 @@ async def generate_experiment_lookup(input: GenerateDigestDataInput) -> None:
         experiments_completed_count = 0
         team_count = 0
 
-        r = await redis.from_url(f"redis://{input.redis_host}:{input.redis_port}?decode_responses=true")
-
-        experiments_launched_query: QuerySet = query_teams_with_experiments_launched(
-            input.period_end, input.period_start
-        )
-        experiments_completed_query: QuerySet = query_teams_with_experiments_completed(
-            input.period_end, input.period_start
-        )
-        async for team in query_teams_for_digest():
-            experiments_launched = ExperimentList(
-                experiments=await database_sync_to_async(list)(experiments_launched_query.filter(team_id=team.id))
+        async with redis.from_url(f"redis://{input.redis_host}:{input.redis_port}?decode_responses=true") as r:
+            experiments_launched_query: QuerySet = query_teams_with_experiments_launched(
+                input.period_end, input.period_start
             )
-
-            experiments_launched_count += len(experiments_launched.experiments)
-
-            key: str = f"{input.digest_key}-experiments-launched-{team.id}"
-            await r.set(key, experiments_launched.model_dump_json(), ex=input.redis_ttl)
-
-            experiments_completed = ExperimentList(
-                experiments=await database_sync_to_async(list)(experiments_completed_query.filter(team_id=team.id))
+            experiments_completed_query: QuerySet = query_teams_with_experiments_completed(
+                input.period_end, input.period_start
             )
+            async for team in query_teams_for_digest():
+                experiments_launched = ExperimentList(
+                    experiments=await _queryset_to_list(experiments_launched_query.filter(team_id=team.id))
+                )
 
-            experiments_completed_count += len(experiments_completed.experiments)
-            team_count += 1
+                experiments_launched_count += len(experiments_launched.experiments)
 
-            key = f"{input.digest_key}-experiments-completed-{team.id}"
-            await r.set(key, experiments_completed.model_dump_json(), ex=input.redis_ttl)
+                key: str = f"{input.digest_key}-experiments-launched-{team.id}"
+                await r.setex(key, input.redis_ttl, experiments_launched.model_dump_json())
 
-        await r.aclose()
+                experiments_completed = ExperimentList(
+                    experiments=await _queryset_to_list(experiments_completed_query.filter(team_id=team.id))
+                )
+
+                experiments_completed_count += len(experiments_completed.experiments)
+                team_count += 1
+
+                key = f"{input.digest_key}-experiments-completed-{team.id}"
+                await r.setex(key, input.redis_ttl, experiments_completed.model_dump_json())
 
         logger.info(
             f"Finished querying new experiments",
@@ -160,23 +186,20 @@ async def generate_external_data_source_lookup(input: GenerateDigestDataInput) -
         source_count = 0
         team_count = 0
 
-        r = await redis.from_url(f"redis://{input.redis_host}:{input.redis_port}?decode_responses=true")
-
-        external_data_source_query: QuerySet = query_teams_with_new_external_data_sources(
-            input.period_end, input.period_start
-        )
-        async for team in query_teams_for_digest():
-            sources = ExternalDataSourceList(
-                sources=await database_sync_to_async(list)(external_data_source_query.filter(team_id=team.id))
+        async with redis.from_url(f"redis://{input.redis_host}:{input.redis_port}?decode_responses=true") as r:
+            external_data_source_query: QuerySet = query_teams_with_new_external_data_sources(
+                input.period_end, input.period_start
             )
+            async for team in query_teams_for_digest():
+                sources = ExternalDataSourceList(
+                    sources=await _queryset_to_list(external_data_source_query.filter(team_id=team.id))
+                )
 
-            source_count += len(sources.sources)
-            team_count += 1
+                source_count += len(sources.sources)
+                team_count += 1
 
-            key: str = f"{input.digest_key}-external-data-sources-{team.id}"
-            await r.set(key, sources.model_dump_json(), ex=input.redis_ttl)
-
-        await r.aclose()
+                key: str = f"{input.digest_key}-external-data-sources-{team.id}"
+                await r.setex(key, input.redis_ttl, sources.model_dump_json())
 
         logger.info(f"Finished querying new external data sources", source_count=source_count, team_count=team_count)
 
@@ -191,21 +214,16 @@ async def generate_survey_lookup(input: GenerateDigestDataInput) -> None:
         survey_count = 0
         team_count = 0
 
-        r = await redis.from_url(f"redis://{input.redis_host}:{input.redis_port}?decode_responses=true")
+        async with redis.from_url(f"redis://{input.redis_host}:{input.redis_port}?decode_responses=true") as r:
+            survey_query: QuerySet = query_teams_with_surveys_launched(input.period_end, input.period_start)
+            async for team in query_teams_for_digest():
+                surveys_launched = SurveyList(surveys=await _queryset_to_list(survey_query.filter(team_id=team.id)))
 
-        survey_query: QuerySet = query_teams_with_surveys_launched(input.period_end, input.period_start)
-        async for team in query_teams_for_digest():
-            surveys_launched = SurveyList(
-                surveys=await database_sync_to_async(list)(survey_query.filter(team_id=team.id))
-            )
+                survey_count += len(surveys_launched.surveys)
+                team_count += 1
 
-            survey_count += len(surveys_launched.surveys)
-            team_count += 1
-
-            key: str = f"{input.digest_key}-surveys-launched-{team.id}"
-            await r.set(key, surveys_launched.model_dump_json(), ex=input.redis_ttl)
-
-        await r.aclose()
+                key: str = f"{input.digest_key}-surveys-launched-{team.id}"
+                await r.setex(key, input.redis_ttl, surveys_launched.model_dump_json())
 
         logger.info(f"Finished querying surveys launched", survey_count=survey_count, team_count=team_count)
 
@@ -220,21 +238,16 @@ async def generate_feature_flag_lookup(input: GenerateDigestDataInput) -> None:
         flag_count = 0
         team_count = 0
 
-        r = await redis.from_url(f"redis://{input.redis_host}:{input.redis_port}?decode_responses=true")
+        async with redis.from_url(f"redis://{input.redis_host}:{input.redis_port}?decode_responses=true") as r:
+            feature_flag_query: QuerySet = query_teams_with_new_feature_flags(input.period_end, input.period_start)
+            async for team in query_teams_for_digest():
+                flags = FeatureFlagList(flags=await _queryset_to_list(feature_flag_query.filter(team_id=team.id)))
 
-        feature_flag_query: QuerySet = query_teams_with_new_feature_flags(input.period_end, input.period_start)
-        async for team in query_teams_for_digest():
-            flags = FeatureFlagList(
-                flags=await database_sync_to_async(list)(feature_flag_query.filter(team_id=team.id))
-            )
+                flag_count += len(flags.flags)
+                team_count += 1
 
-            flag_count += len(flags.flags)
-            team_count += 1
-
-            key: str = f"{input.digest_key}-feature-flags-{team.id}"
-            await r.set(key, flags.model_dump_json(), ex=input.redis_ttl)
-
-        await r.aclose()
+                key: str = f"{input.digest_key}-feature-flags-{team.id}"
+                await r.setex(key, input.redis_ttl, flags.model_dump_json())
 
         logger.info(f"Finished querying new feature flags", flag_count=flag_count, team_count=team_count)
 
@@ -249,18 +262,15 @@ async def generate_user_notification_lookup(input: GenerateDigestDataInput) -> N
         team_count = 0
         user_count = 0
 
-        r = await redis.from_url(f"redis://{input.redis_host}:{input.redis_port}?decode_responses=true")
-
-        async for team in query_teams_for_digest():
-            team_count += 1
-            async for user in await database_sync_to_async(team.all_users_with_access)():
-                user_count += 1
-                if should_send_notification(user, NotificationSetting.WEEKLY_PROJECT_DIGEST.value, team.id):
-                    key: str = f"{input.digest_key}-user-notify-{user.id}"
-                    await r.sadd(key, team.id)
-                    await r.expire(key, input.redis_ttl)
-
-        await r.aclose()
+        async with redis.from_url(f"redis://{input.redis_host}:{input.redis_port}?decode_responses=true") as r:
+            async for team in query_teams_for_digest():
+                team_count += 1
+                async for user in await database_sync_to_async(team.all_users_with_access)():
+                    user_count += 1
+                    if should_send_notification(user, NotificationSetting.WEEKLY_PROJECT_DIGEST.value, team.id):
+                        key: str = f"{input.digest_key}-user-notify-{user.id}"
+                        await r.sadd(key, team.id)
+                        await r.expire(key, input.redis_ttl)
 
         logger.info(
             "Finished querying team access and notification settings", user_count=user_count, team_count=team_count
@@ -283,54 +293,56 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
         organization_count = 0
         team_count = 0
 
-        r = await redis.from_url(f"redis://{input.redis_host}:{input.redis_port}?decode_responses=true")
+        async with redis.from_url(f"redis://{input.redis_host}:{input.redis_port}?decode_responses=true") as r:
+            batch_start, batch_end = input.batch
+            async for organization in query_orgs_for_digest()[batch_start:batch_end]:
+                organization_count += 1
 
-        batch_start, batch_end = input.batch
-        async for organization in query_orgs_for_digest()[batch_start:batch_end]:
-            organization_count += 1
+                team_digests: list[TeamDigest] = []
 
-            team_digests: list[TeamDigest] = []
-
-            async for team in query_org_teams(organization):
-                team_count += 1
-
-                digest_data: list[str] = await asyncio.gather(
-                    *[
-                        r.get(f"{input.digest_key}-dashboards-{team.id}"),
-                        r.get(f"{input.digest_key}-event-definitions-{team.id}"),
-                        r.get(f"{input.digest_key}-experiments-launched-{team.id}"),
-                        r.get(f"{input.digest_key}-experiments-completed-{team.id}"),
-                        r.get(f"{input.digest_key}-external-data-sources-{team.id}"),
-                        r.get(f"{input.digest_key}-surveys-launched-{team.id}"),
-                        r.get(f"{input.digest_key}-feature-flags-{team.id}"),
-                    ]
-                )
-
-                team_digests.append(
-                    TeamDigest(
-                        id=team.id,
-                        name=team.name,
-                        dashboards=DashboardList.model_validate_json(digest_data[0]),
-                        event_definitions=EventDefinitionList.model_validate_json(digest_data[1]),
-                        experiments_launched=ExperimentList.model_validate_json(digest_data[2]),
-                        experiments_completed=ExperimentList.model_validate_json(digest_data[3]),
-                        external_data_sources=ExternalDataSourceList.model_validate_json(digest_data[4]),
-                        surveys_launched=SurveyList.model_validate_json(digest_data[5]),
-                        feature_flags=FeatureFlagList.model_validate_json(digest_data[6]),
+                async for team in query_org_teams(organization):
+                    results: list[str | None] = await asyncio.gather(
+                        *[
+                            r.get(f"{input.digest_key}-dashboards-{team.id}"),
+                            r.get(f"{input.digest_key}-event-definitions-{team.id}"),
+                            r.get(f"{input.digest_key}-experiments-launched-{team.id}"),
+                            r.get(f"{input.digest_key}-experiments-completed-{team.id}"),
+                            r.get(f"{input.digest_key}-external-data-sources-{team.id}"),
+                            r.get(f"{input.digest_key}-surveys-launched-{team.id}"),
+                            r.get(f"{input.digest_key}-feature-flags-{team.id}"),
+                        ]
                     )
+
+                    digest_data: list[str] = [r for r in results if r is not None]
+
+                    if len(digest_data) < len(results):
+                        logger.warning(f"Missing digest data for team, skipping...", team_id=team.id)
+                        continue
+
+                    team_digests.append(
+                        TeamDigest(
+                            id=team.id,
+                            name=team.name,
+                            dashboards=DashboardList.model_validate_json(digest_data[0]),
+                            event_definitions=EventDefinitionList.model_validate_json(digest_data[1]),
+                            experiments_launched=ExperimentList.model_validate_json(digest_data[2]),
+                            experiments_completed=ExperimentList.model_validate_json(digest_data[3]),
+                            external_data_sources=ExternalDataSourceList.model_validate_json(digest_data[4]),
+                            surveys_launched=SurveyList.model_validate_json(digest_data[5]),
+                            feature_flags=FeatureFlagList.model_validate_json(digest_data[6]),
+                        )
+                    )
+                    team_count += 1
+
+                org_digest = OrganizationDigest(
+                    id=organization.id,
+                    name=organization.name,
+                    created_at=organization.created_at,
+                    team_digests=team_digests,
                 )
 
-            org_digest = OrganizationDigest(
-                id=organization.id,
-                name=organization.name,
-                created_at=organization.created_at,
-                team_digests=team_digests,
-            )
-
-            key: str = f"{input.digest_key}-{organization.id}"
-            await r.set(key, org_digest.model_dump_json(), ex=input.redis_ttl)
-
-        await r.aclose()
+                key: str = f"{input.digest_key}-{organization.id}"
+                await r.setex(key, input.redis_ttl, org_digest.model_dump_json())
 
         logger.info(
             "Finished generating organization-level digests",
@@ -350,39 +362,38 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
         empty_org_digest_count = 0
         empty_user_digest_count = 0
 
-        r = await redis.from_url(f"redis://{input.redis_host}:{input.redis_port}?decode_responses=true")
+        async with redis.from_url(f"redis://{input.redis_host}:{input.redis_port}?decode_responses=true") as r:
+            batch_start, batch_end = input.batch
+            async for organization in query_orgs_for_digest()[batch_start:batch_end]:
+                raw_digest: Optional[str] = await r.get(f"{input.digest_key}-{organization.id}")
 
-        batch_start, batch_end = input.batch
-        async for organization in query_orgs_for_digest()[batch_start:batch_end]:
-            raw_digest: Optional[str] = await r.get(f"{input.digest_key}-{organization.id}")
-
-            if not raw_digest:
-                logger.warning(f"Missing digest data for organization", organization_id=organization.id)
-                continue
-
-            org_digest = OrganizationDigest.model_validate_json(raw_digest)
-
-            if org_digest.is_empty():
-                empty_org_digest_count += 1
-                continue
-
-            async for member in query_org_members(organization):
-                user = member.user
-                user_notify_teams: set[int] = set(
-                    map(int, await r.smembers(f"{input.digest_key}-user-notify-{user.id}"))
-                )
-                user_specific_digest: OrganizationDigest = org_digest.filter_for_user(user_notify_teams)
-
-                if user_specific_digest.is_empty():
-                    empty_user_digest_count += 1
+                if not raw_digest:
+                    logger.warning(f"Missing digest data for organization", organization_id=organization.id)
                     continue
 
-                if input.dry_run:
-                    logger.info("DRY RUN - would send digest", digest=user_specific_digest.model_dump())
-                else:
-                    raise NotImplementedError()
+                org_digest = OrganizationDigest.model_validate_json(raw_digest)
 
-                sent_digest_count += 1
+                if org_digest.is_empty():
+                    empty_org_digest_count += 1
+                    continue
+
+                async for member in query_org_members(organization):
+                    user = member.user
+                    user_notify_teams: set[int] = set(
+                        map(int, await r.smembers(f"{input.digest_key}-user-notify-{user.id}"))
+                    )
+                    user_specific_digest: OrganizationDigest = org_digest.filter_for_user(user_notify_teams)
+
+                    if user_specific_digest.is_empty():
+                        empty_user_digest_count += 1
+                        continue
+
+                    if input.dry_run:
+                        logger.info("DRY RUN - would send digest", digest=user_specific_digest.model_dump())
+                    else:
+                        raise NotImplementedError()
+
+                    sent_digest_count += 1
 
         logger.info(
             "Finished sending weekly digest batch",

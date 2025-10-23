@@ -26,7 +26,7 @@ def query_orgs_for_digest() -> QuerySet:
 
 
 def query_org_teams(organization: Organization) -> QuerySet:
-    return Team.objects.only("id", "name").filter(organization=organization)
+    return Team.objects.only("id", "name").filter(organization=organization).exclude(is_demo=True)
 
 
 def query_org_members(organization: Organization) -> QuerySet:

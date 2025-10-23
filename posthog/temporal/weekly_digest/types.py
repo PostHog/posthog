@@ -1,7 +1,7 @@
 import os
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, Self
+from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -150,7 +150,7 @@ class OrganizationDigest(BaseModel):
     created_at: datetime
     team_digests: list[TeamDigest]
 
-    def filter_for_user(self, user_teams: set[int]) -> Self:
+    def filter_for_user(self, user_teams: set[int]) -> "OrganizationDigest":
         """Returns a new OrganizationDigest with only the teams the user has access to and notifications enabled for."""
         filtered_digests = [team_digest for team_digest in self.team_digests if team_digest.id in user_teams]
 
