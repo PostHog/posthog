@@ -127,9 +127,6 @@ class ExperimentQueryRunner(QueryRunner):
         """
         Determines whether to use the new CTE-based query builder.
         """
-        if not isinstance(self.metric, ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric):
-            return False
-
         return self.use_new_query_builder is True
 
     def _get_metrics_aggregated_per_entity_query(
