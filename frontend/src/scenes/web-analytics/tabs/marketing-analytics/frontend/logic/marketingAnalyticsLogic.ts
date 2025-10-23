@@ -529,6 +529,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             (externalTables, nativeSources) => {
                 // Filter out tables that belong to native sources (to avoid duplicates)
                 // Only include BigQuery, self-managed, and other non-native sources
+                // For example a native source could have multiple external tables.
                 const nonNativeTables = externalTables.filter(
                     (table) => !VALID_NATIVE_MARKETING_SOURCES.includes(table.source_type as NativeMarketingSource)
                 )

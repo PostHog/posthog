@@ -5,12 +5,10 @@ import { IconGear, IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { FEATURE_FLAGS } from '~/lib/constants'
 import { MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
 import { ExternalDataSchemaStatus, ExternalDataSource, ManualLinkSourceType } from '~/types'
 
@@ -58,12 +56,7 @@ type UnifiedSource = {
 export function ExternalDataSourceConfiguration(): JSX.Element {
     const { allExternalTablesWithStatus, loading } = useValues(marketingAnalyticsLogic)
     const { updateSourceMapping } = useActions(marketingAnalyticsSettingsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const [editingTable, setEditingTable] = useState<ExternalTable | null>(null)
-
-    const validNativeSources = featureFlags[FEATURE_FLAGS.META_ADS_DWH]
-        ? VALID_NATIVE_MARKETING_SOURCES
-        : VALID_NATIVE_MARKETING_SOURCES.filter((source) => source !== 'MetaAds')
 
     // Helper to get sync info for native sources
     const getSourceSyncInfo = (source: ExternalDataSource): { syncingTables: string[]; tablesToSync: string[] } => {
@@ -188,15 +181,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                 totalCount={sourcesToUse.length}
                 itemName={ItemName.Sources}
                 maxItemsToShow={MAX_ITEMS_TO_SHOW}
-                additionalControls={
-                    <AddIntegrationButton
-                        filterSources={{
-                            native: validNativeSources,
-                            external: VALID_NON_NATIVE_MARKETING_SOURCES,
-                            selfManaged: VALID_SELF_MANAGED_MARKETING_SOURCES,
-                        }}
-                    />
-                }
+                additionalControls={<AddIntegrationButton />}
             />
             <LemonTable
                 rowKey={(item) => item.id}

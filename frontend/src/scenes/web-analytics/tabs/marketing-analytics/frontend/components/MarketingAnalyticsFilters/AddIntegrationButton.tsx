@@ -15,23 +15,15 @@ import {
 
 interface AddIntegrationButtonProps {
     onIntegrationSelect?: (integrationId: string) => void
-    filterSources?: {
-        native?: string[]
-        external?: string[]
-        selfManaged?: string[]
-    }
 }
 
-export function AddIntegrationButton({
-    onIntegrationSelect,
-    filterSources,
-}: AddIntegrationButtonProps = {}): JSX.Element {
+export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButtonProps = {}): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
 
     const groupedIntegrations = {
-        native: filterSources?.native || VALID_NATIVE_MARKETING_SOURCES,
-        external: filterSources?.external || VALID_NON_NATIVE_MARKETING_SOURCES,
-        'self-managed': filterSources?.selfManaged || VALID_SELF_MANAGED_MARKETING_SOURCES,
+        native: VALID_NATIVE_MARKETING_SOURCES,
+        external: VALID_NON_NATIVE_MARKETING_SOURCES,
+        'self-managed': VALID_SELF_MANAGED_MARKETING_SOURCES,
     }
 
     const handleIntegrateClick = (integrationId: string): void => {
