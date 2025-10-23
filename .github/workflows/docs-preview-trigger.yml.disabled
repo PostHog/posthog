@@ -26,6 +26,25 @@ jobs:
           echo "pr_branch=${{ github.event.pull_request.head.ref }}" >> $GITHUB_OUTPUT
           echo "pr_ref=refs/pull/${{ github.event.pull_request.number }}/head" >> $GITHUB_OUTPUT
 
+      - name: Detect changed docs files
+        id: changed-files
+        run: |
+          # Fetch base branch to compare
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+
+          # Get list of changed .md/.mdx files in docs/published/
+          CHANGED_FILES=$(git diff --name-only origin/${{ github.event.pull_request.base.ref }}...HEAD -- 'docs/published/*.md' 'docs/published/*.mdx' 'docs/published/**/*.md' 'docs/published/**/*.mdx' || echo "")
+
+          # Convert to JSON array for use in PR comment
+          if [ -n "$CHANGED_FILES" ]; then
+            FILES_JSON=$(echo "$CHANGED_FILES" | jq -R -s -c 'split("\n") | map(select(length > 0))')
+            echo "files=$FILES_JSON" >> $GITHUB_OUTPUT
+            echo "count=$(echo "$CHANGED_FILES" | wc -l | tr -d ' ')" >> $GITHUB_OUTPUT
+          else
+            echo "files=[]" >> $GITHUB_OUTPUT
+            echo "count=0" >> $GITHUB_OUTPUT
+          fi
+
       - name: Trigger Vercel preview build
         id: trigger-build
         env:
@@ -100,74 +119,68 @@ jobs:
             const prRef = "${{ steps.pr-info.outputs.pr_ref }}";
             const triggerStatus = "${{ steps.trigger-build.outputs.trigger_status }}";
             const configNeeded = "${{ steps.trigger-build.outputs.configure_needed }}";
+            const deploymentUrl = "${{ steps.trigger-build.outputs.deployment_url }}";
+            const changedFiles = ${{ steps.changed-files.outputs.files }};
+            const fileCount = "${{ steps.changed-files.outputs.count }}";
 
             let message = '';
 
             if (configNeeded === 'true') {
               message = `## 📚 Docs Preview Build
 
-⚠️ **Preview build not configured** - Required Vercel secrets not found.
+**Preview build not configured** - Required Vercel secrets not found.
 
 ### Setup Required (One-time in PostHog/posthog repo)
 Add these repository secrets in Settings → Secrets and variables → Actions:
 
 1. **VERCEL_TOKEN** - Vercel API token for deployments
-   - Generate at: https://vercel.com/account/tokens
-   - Scope: Full access recommended
-
 2. **VERCEL_PROJECT_ID** - ID of posthog.com Vercel project
-   - Find at: https://vercel.com/posthog/posthog-com/settings/general
-
 3. **VERCEL_TEAM_ID** (Optional) - If posthog.com is in a team
-   - Find at: https://vercel.com/teams/settings
 
-### After Setup:
-- Re-run this workflow or push another commit
-- Preview build will trigger automatically
-
-See [MONOREPO_DOCS_BUILD_GUIDE.md](https://github.com/PostHog/posthog/blob/master/docs/MONOREPO_DOCS_BUILD_GUIDE.md) for details.`;
+See [workflow file](https://github.com/PostHog/posthog/blob/master/.github/workflows/docs-preview-trigger.yml) for details.`;
             } else if (triggerStatus === 'success') {
-              message = `## 📚 Docs Preview Build ✅
+              // Build preview URL
+              const baseUrl = deploymentUrl || 'https://posthog.com';
+              const handbookBase = `${baseUrl}/handbook/engineering`;
 
-Successfully triggered Vercel deployment! Your docs are being built...
+              // Build table of changed files with preview links
+              let filesTable = '';
+              if (changedFiles && changedFiles.length > 0) {
+                filesTable = '\n### Changed Documentation\n\n| File | Preview |\n|------|---------|';
 
-### What's happening:
-1. posthog.com@feat/docs-monorepo-poc (PoC) is being deployed with your docs
-2. Prebuild script clones posthog at: \`${prRef}\`
-3. Gatsby loads docs from entire \`docs/\` directory
-4. Pages created at \`/docs-from-monorepo/\` (PoC path)
+                for (const file of changedFiles) {
+                  // Convert docs/published/foo/bar.md -> /handbook/engineering/foo/bar
+                  const relativePath = file.replace('docs/published/', '').replace(/\.mdx?$/, '');
+                  const previewUrl = `${handbookBase}/${relativePath}`;
+                  const fileName = file.split('/').pop();
 
-### Preview URL:
-Check the **Vercel** deployment check below - preview link will appear in 1-2 minutes
+                  filesTable += `\n| \`${fileName}\` | [View →](${previewUrl}) |`;
+                }
+              }
 
-### What to test:
-- [ ] Docs accessible at \`/docs-from-monorepo/<path>\` (mirrors your docs/ structure)
-- [ ] Relative links between docs work
-- [ ] Images render
-- [ ] Sidebar navigation displays
-- [ ] Frontmatter parsed correctly
+              message = `## 📚 Docs Preview
 
-**Tip:** All doc files must have YAML frontmatter for rendering to work.
+**Preview URL:** ${baseUrl}
 
-See [DOCS_MIGRATION_PLAN.md](https://github.com/PostHog/posthog/blob/master/docs/DOCS_MIGRATION_PLAN.md) for details.`;
+${filesTable || `\n**${fileCount} docs file(s) changed** in \`docs/published/\``}
+
+### Resources
+
+- [Handbook base](${handbookBase})
+- [External docs manifest](${baseUrl}/external-docs-map.json)
+
+Preview will be ready in ~2 minutes. Check Vercel bot comment below for deployment status.`;
             } else {
-              message = `## 📚 Docs Preview Build ❌
+              message = `## 📚 Docs Preview Build Failed
 
-Failed to trigger preview build. Check the GitHub Action logs for details.
+Preview build could not be triggered. Check the [GitHub Action logs](https://github.com/PostHog/posthog/actions/runs/${{ github.run_id }}) for details.
 
 ### Common issues:
-- **Invalid git ref:** PR number doesn't exist or branch was deleted
-- **Vercel API error:** Check VERCEL_TOKEN and VERCEL_PROJECT_ID are correct
-- **Rate limit:** Too many builds triggered rapidly
-- **Network issue:** Temporary connectivity problem
+- Invalid git ref or deleted branch
+- Vercel API error (check secrets)
+- Rate limiting
 
-### Debugging steps:
-1. Check GitHub Action logs (click "Run" → scroll down)
-2. Verify Vercel secrets are correct and not expired
-3. Try re-running the workflow
-4. Check Vercel dashboard for API status
-
-**Manual workaround:** Ask a maintainer to manually trigger preview in Vercel.`;
+Try re-running the workflow or contact a maintainer.`;
             }
 
             github.rest.issues.createComment({
