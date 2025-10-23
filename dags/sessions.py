@@ -1,6 +1,7 @@
+from clickhouse_driver import Client
 from dagster import AssetExecutionContext, BackfillPolicy, MonthlyPartitionsDefinition, asset
 
-from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.cluster import get_cluster
 from posthog.git import get_git_commit_short
 from posthog.models.raw_sessions.sessions_v3 import RAW_SESSION_TABLE_BACKFILL_SQL_V3
 
@@ -41,7 +42,12 @@ def sessions_v3_backfill(context: AssetExecutionContext):
         f"Running backfill for {context.partition_key} (where='{where_clause}') using commit {get_git_commit_short() or 'unknown'} "
     )
 
-    sync_execute(backfill_sql)
+    cluster = get_cluster()
+
+    def backfill_per_shard(client: Client):
+        client.execute(backfill_sql)
+
+    cluster.map_one_host_per_shard(backfill_per_shard)
 
     context.log.info(f"Successfully backfilled sessions_v3 for {context.partition_key}")
 
