@@ -273,16 +273,14 @@ class TableNode(
         table_conflict_mode: Literal["override", "ignore"] = "ignore",
         children_conflict_mode: Literal["override", "merge", "ignore"] = "merge",
     ):
-        if self.table is None and other.table is not None:
-            self.table = other.table
-            return
-
-        # This implies we have a conflict so check conflict mode to decide what to do here
-        if self.table is not None and other.table is not None:
-            if table_conflict_mode == "override":
+        if other.table is not None:
+            if self.table is None:  # Easy case, just set it
                 self.table = other.table
-            elif table_conflict_mode == "ignore":
-                pass
+            else:  # We have a conflict so check conflict mode to decide what to do here
+                if table_conflict_mode == "override":
+                    self.table = other.table
+                elif table_conflict_mode == "ignore":
+                    pass
 
         for child in other.children.values():
             self.add_child(
