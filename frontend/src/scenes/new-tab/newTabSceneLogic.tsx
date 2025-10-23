@@ -881,6 +881,59 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 return fullCounts
             },
         ],
+        allCategories: [
+            (s) => [s.featureFlags, s.groupedFilteredItems, s.newTabSceneDataGroupedItems, s.newTabSceneDataInclude],
+            (
+                featureFlags: any,
+                groupedFilteredItems: Record<string, NewTabTreeDataItem[]>,
+                newTabSceneDataGroupedItems: Record<string, NewTabTreeDataItem[]>,
+                newTabSceneDataInclude: NEW_TAB_COMMANDS[]
+            ): Array<[string, NewTabTreeDataItem[]]> => {
+                const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
+
+                if (!newTabSceneData) {
+                    return Object.entries(groupedFilteredItems)
+                }
+
+                const orderedSections: string[] = []
+                const showAll = newTabSceneDataInclude.includes('all')
+
+                // Add sections in a useful order
+                const mainSections = ['create-new', 'apps', 'data-management', 'recents']
+                mainSections.forEach((section) => {
+                    if (showAll || newTabSceneDataInclude.includes(section as NEW_TAB_COMMANDS)) {
+                        orderedSections.push(section)
+                    }
+                })
+                if (showAll || newTabSceneDataInclude.includes('persons')) {
+                    orderedSections.push('persons')
+                }
+                if (showAll || newTabSceneDataInclude.includes('eventDefinitions')) {
+                    orderedSections.push('eventDefinitions')
+                }
+                if (showAll || newTabSceneDataInclude.includes('propertyDefinitions')) {
+                    orderedSections.push('propertyDefinitions')
+                }
+                if (showAll || newTabSceneDataInclude.includes('askAI')) {
+                    orderedSections.push('askAI')
+                }
+
+                return orderedSections
+                    .map(
+                        (section) =>
+                            [section, newTabSceneDataGroupedItems[section] || []] as [string, NewTabTreeDataItem[]]
+                    )
+                    .filter(([, items]) => {
+                        // If include is NOT 'all', keep all enabled sections visible (even when empty)
+                        if (!showAll) {
+                            return true
+                        }
+
+                        // If include is 'all', hide empty sections
+                        return items.length > 0
+                    })
+            },
+        ],
         selectedIndex: [
             (s) => [s.rawSelectedIndex, s.filteredItemsGrid],
             (rawSelectedIndex, filteredItemsGrid): number | null => {

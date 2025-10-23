@@ -49,9 +49,6 @@ function Category({
         filteredItemsGrid,
         search,
         isSearching,
-        personSearchResults,
-        eventDefinitionSearchResults,
-        propertyDefinitionSearchResults,
         newTabSceneDataGroupedItemsFullData,
         getSectionItemLimit,
         newTabSceneDataInclude,
@@ -68,86 +65,15 @@ function Category({
             >
                 <div className={cn('mb-4', { 'mb-2 @xl/main-content:min-w-[200px]': newTabSceneData })}>
                     <div className={cn('flex items-baseline gap-2', { 'gap-0': newTabSceneData })}>
-                        <>
-                            {newTabSceneData ? (
-                                <Label intent="menu" className="px-2">
-                                    {getCategoryDisplayName(category)}
-                                </Label>
-                            ) : (
-                                <h3 className="mb-0 text-lg font-medium text-secondary">
-                                    {getCategoryDisplayName(category)}
-                                </h3>
-                            )}
-                            {newTabSceneData && category === 'persons' && (
-                                <div className="flex items-center gap-1">
-                                    {isSearching ? (
-                                        <WrappingLoadingSkeleton className="h-[18px]">
-                                            <LemonTag className="text-xs text-tertiary" size="small">
-                                                Showing {personSearchResults.length} results
-                                            </LemonTag>
-                                        </WrappingLoadingSkeleton>
-                                    ) : (
-                                        <>
-                                            {personSearchResults.length > 0 ? (
-                                                <LemonTag className="text-xs text-tertiary" size="small">
-                                                    Showing {personSearchResults.length} results
-                                                </LemonTag>
-                                            ) : (
-                                                <LemonTag className="text-xs text-tertiary" size="small">
-                                                    No results found
-                                                </LemonTag>
-                                            )}
-                                        </>
-                                    )}
-                                </div>
-                            )}
-                            {newTabSceneData && category === 'eventDefinitions' && (
-                                <div className="flex items-center gap-1">
-                                    {isSearching ? (
-                                        <WrappingLoadingSkeleton className="h-[18px]">
-                                            <LemonTag className="text-xs text-tertiary" size="small">
-                                                Showing {eventDefinitionSearchResults.length} results
-                                            </LemonTag>
-                                        </WrappingLoadingSkeleton>
-                                    ) : (
-                                        <>
-                                            {eventDefinitionSearchResults.length > 0 ? (
-                                                <LemonTag className="text-xs text-tertiary" size="small">
-                                                    Showing {eventDefinitionSearchResults.length} results
-                                                </LemonTag>
-                                            ) : (
-                                                <LemonTag className="text-xs text-tertiary" size="small">
-                                                    No results found
-                                                </LemonTag>
-                                            )}
-                                        </>
-                                    )}
-                                </div>
-                            )}
-                            {newTabSceneData && category === 'propertyDefinitions' && (
-                                <div className="flex items-center gap-1">
-                                    {isSearching ? (
-                                        <WrappingLoadingSkeleton className="h-[18px]">
-                                            <LemonTag className="text-xs text-tertiary" size="small">
-                                                Showing {propertyDefinitionSearchResults.length} results
-                                            </LemonTag>
-                                        </WrappingLoadingSkeleton>
-                                    ) : (
-                                        <>
-                                            {propertyDefinitionSearchResults.length > 0 ? (
-                                                <LemonTag className="text-xs text-tertiary" size="small">
-                                                    Showing {propertyDefinitionSearchResults.length} results
-                                                </LemonTag>
-                                            ) : (
-                                                <LemonTag className="text-xs text-tertiary" size="small">
-                                                    No results found
-                                                </LemonTag>
-                                            )}
-                                        </>
-                                    )}
-                                </div>
-                            )}
-                        </>
+                        {newTabSceneData ? (
+                            <Label intent="menu" className="px-2">
+                                {getCategoryDisplayName(category)}
+                            </Label>
+                        ) : (
+                            <h3 className="mb-0 text-lg font-medium text-secondary">
+                                {getCategoryDisplayName(category)}
+                            </h3>
+                        )}
                         {category === 'recents' && isSearching && <Spinner size="small" />}
                         {/* Show "No results found" tag for other categories when empty and include is NOT 'all' */}
                         {newTabSceneData &&
@@ -338,60 +264,17 @@ export function Results({
     const {
         filteredItemsGrid,
         groupedFilteredItems,
-        newTabSceneDataGroupedItems,
         search,
         selectedCategory,
         isSearching,
         newTabSceneDataInclude,
+        allCategories,
     } = useValues(newTabSceneLogic({ tabId }))
     const { setSearch } = useActions(newTabSceneLogic({ tabId }))
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
-    const isAIAvailable = useFeatureFlag('ARTIFICIAL_HOG')
     const items = groupedFilteredItems[selectedCategory] || []
     const typedItems = items as NewTabTreeDataItem[]
-
-    // For newTabSceneData, use the new grouped items with section ordering
-    const allCategories = useMemo(() => {
-        if (!newTabSceneData) {
-            return Object.entries(groupedFilteredItems)
-        }
-
-        const orderedSections: string[] = []
-        const showAll = newTabSceneDataInclude.includes('all')
-
-        // Add sections in a useful order
-        const mainSections = ['create-new', 'apps', 'data-management', 'recents']
-        mainSections.forEach((section) => {
-            if (showAll || newTabSceneDataInclude.includes(section as any)) {
-                orderedSections.push(section)
-            }
-        })
-        if (showAll || newTabSceneDataInclude.includes('persons')) {
-            orderedSections.push('persons')
-        }
-        if (showAll || newTabSceneDataInclude.includes('eventDefinitions')) {
-            orderedSections.push('eventDefinitions')
-        }
-        if (showAll || newTabSceneDataInclude.includes('propertyDefinitions')) {
-            orderedSections.push('propertyDefinitions')
-        }
-        if (isAIAvailable && (showAll || newTabSceneDataInclude.includes('askAI'))) {
-            orderedSections.push('askAI')
-        }
-
-        return orderedSections
-            .map((section) => [section, newTabSceneDataGroupedItems[section] || []] as [string, any[]])
-            .filter(([, items]) => {
-                // If include is NOT 'all', keep all enabled sections visible (even when empty)
-                if (!showAll) {
-                    return true
-                }
-
-                // If include is 'all', hide empty sections
-                return items.length > 0
-            })
-    }, [newTabSceneData, groupedFilteredItems, newTabSceneDataGroupedItems, newTabSceneDataInclude, isAIAvailable])
 
     // Memoized helper to determine which category should get first focus
     const firstCategoryWithResults = useMemo((): string | null => {
@@ -519,7 +402,7 @@ export function Results({
 
     return (
         <>
-            {allCategories.map(([category, items], columnIndex) => (
+            {allCategories.map(([category, items]: [string, NewTabTreeDataItem[]], columnIndex: number) => (
                 <Category
                     tabId={tabId}
                     items={items}
