@@ -115,7 +115,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
 
                 if token.startswith(
                     "pha_"
-                ):  # This is an OAuth access token, not a personal API key. We assume all other tokens are personal API keys, since legacy tokens may not have been prefixed.
+                ):  # This is an OAuth access token, not a personal API key. We assume all other tokens are personal API keys, since legacy personal api keys may not have been prefixed with phx_.
                     return None
                 return token, "Authorization header"
         data = request.data if request_data is None and isinstance(request, Request) else request_data
@@ -484,7 +484,7 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
             authorization_match = re.match(rf"^{self.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
             if authorization_match:
                 token = authorization_match.group(1).strip()
-                # Skip tokens that match personal api keys to avoid unnecessary DB queries
+
                 if token.startswith("pha_"):
                     return token
                 return None
