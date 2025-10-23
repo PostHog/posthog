@@ -231,10 +231,10 @@ export const logsLogic = kea<logsLogicType>([
                                 date_from: dayjs(values.dateRange.date_from).isValid()
                                     ? dayjs(values.dateRange.date_from)
                                           .tz(values.timezone)
-                                          .format('YYYY-MM-DD hh:mm:ss')
+                                          .format('YYYY-MM-DD HH:mm:ss')
                                     : values.dateRange.date_from,
                                 date_to: dayjs(values.dateRange.date_to).isValid()
-                                    ? dayjs(values.dateRange.date_to).tz(values.timezone).format('YYYY-MM-DD hh:mm:ss')
+                                    ? dayjs(values.dateRange.date_to).tz(values.timezone).format('YYYY-MM-DD HH:mm:ss')
                                     : values.dateRange.date_to,
                                 explicitDate: values.dateRange.explicitDate,
                             },
@@ -272,10 +272,10 @@ export const logsLogic = kea<logsLogicType>([
                                 date_from: dayjs(values.dateRange.date_from).isValid()
                                     ? dayjs(values.dateRange.date_from)
                                           .tz(values.timezone)
-                                          .format('YYYY-MM-DD hh:mm:ss')
+                                          .format('YYYY-MM-DD HH:mm:ss')
                                     : values.dateRange.date_from,
                                 date_to: dayjs(values.dateRange.date_to).isValid()
-                                    ? dayjs(values.dateRange.date_to).tz(values.timezone).format('YYYY-MM-DD hh:mm:ss')
+                                    ? dayjs(values.dateRange.date_to).tz(values.timezone).format('YYYY-MM-DD HH:mm:ss')
                                     : values.dateRange.date_to,
                                 explicitDate: values.dateRange.explicitDate,
                             },
