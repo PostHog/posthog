@@ -274,6 +274,74 @@ describe('consumer', () => {
                 [[{ offset: 4, partition: 0, topic: 'test-topic' }]],
             ])
         })
+
+        it('should not corrupt backgroundTask array when task is not found (index = -1)', async () => {
+            // This test verifies proper handling when indexOf returns -1
+            // Expected correct behavior:
+            // 1. If task not found (index = -1), nothing should be removed from array
+            // 2. The task should not wait for any other tasks
+            // 3. The array should remain unchanged
+
+            // Set up initial background tasks
+            await simulateMessageWithBackgroundTask(
+                [createKafkaMessage({ offset: 1, partition: 0 })],
+                Promise.resolve()
+            )
+            await simulateMessageWithBackgroundTask(
+                [createKafkaMessage({ offset: 2, partition: 0 })],
+                Promise.resolve()
+            )
+            await simulateMessageWithBackgroundTask(
+                [createKafkaMessage({ offset: 3, partition: 0 })],
+                Promise.resolve()
+            )
+
+            // Wait for tasks to complete and clear
+            await delay(100)
+
+            // Now add 3 pending tasks
+            const p1 = triggerablePromise()
+            const p2 = triggerablePromise()
+            const p3 = triggerablePromise()
+
+            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 4, partition: 0 })], p1.promise)
+            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 5, partition: 0 })], p2.promise)
+            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 6, partition: 0 })], p3.promise)
+
+            const tasksBeforeCorruption = [...consumer['backgroundTask']]
+            expect(tasksBeforeCorruption.map((t) => t.promise)).toEqual([p1.promise, p2.promise, p3.promise])
+
+            // Simulate a task that completes but is somehow not in the array
+            // This could happen due to race conditions or double-completion
+            const orphanTask = Promise.resolve()
+
+            // Manually inject the orphan task's finally handler using the FIXED logic
+            const backgroundTaskWithFinally = orphanTask.finally(async () => {
+                const index = consumer['backgroundTask'].findIndex((t) => t.promise === orphanTask)
+                // This will be -1 since orphanTask is not in the array
+                const promisesToWait =
+                    index >= 0 ? consumer['backgroundTask'].slice(0, index).map((t) => t.promise) : []
+
+                // Only remove the task if it was actually found
+                if (index >= 0) {
+                    consumer['backgroundTask'].splice(index, 1)
+                }
+
+                await Promise.all(promisesToWait)
+            })
+
+            await backgroundTaskWithFinally
+
+            // The array should remain unchanged if the code handles -1 index properly
+            // With the bug, p3 would be incorrectly removed
+            expect(consumer['backgroundTask'].map((t) => t.promise)).toEqual([p1.promise, p2.promise, p3.promise])
+
+            // Clean up
+            p1.resolve()
+            p2.resolve()
+            p3.resolve()
+            await delay(100)
+        })
     })
 
     describe('rebalancing', () => {

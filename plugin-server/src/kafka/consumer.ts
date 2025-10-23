@@ -714,12 +714,19 @@ export class KafkaConsumer {
 
                         // First of all clear ourselves from the queue
                         const index = this.backgroundTask.findIndex((t) => t.promise === backgroundTask)
+
+                        // TRICKY: We need to wait for all promises ahead of us in the queue before we store the offsets
+                        // Important: capture the promises BEFORE removing the task, as the array changes after splice
+                        // Also handle the case where index is -1 (task not found)
+                        const promisesToWait =
+                            index >= 0 ? this.backgroundTask.slice(0, index).map((t) => t.promise) : []
+
+                        // Only remove the task if it was actually found
                         if (index >= 0) {
                             this.backgroundTask.splice(index, 1)
                         }
 
-                        // TRICKY: We need to wait for all promises ahead of us in the queue before we store the offsets
-                        await Promise.all(this.backgroundTask.slice(0, index).map((t) => t.promise))
+                        await Promise.all(promisesToWait)
 
                         if (this.config.autoCommit && this.config.autoOffsetStore) {
                             this.storeOffsetsForMessages(topicPartitionOffsetsToCommit)
