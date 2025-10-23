@@ -108,11 +108,7 @@ pub fn inject_pairs(
         let current_release_id = pair.get_release_id();
         // We only update release ids and chunk ids when the release id changed or is not present
         if current_release_id != created_release_id || current_release_id.is_none() {
-            if let Some(ref release_id) = created_release_id {
-                pair.set_release_id(Some(release_id.clone()));
-            } else {
-                pair.set_release_id(None);
-            }
+            pair.set_release_id(created_release_id.clone());
 
             let chunk_id = uuid::Uuid::now_v7().to_string();
             if let Some(previous_chunk_id) = pair.get_chunk_id() {
