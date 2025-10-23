@@ -4186,6 +4186,7 @@ class HogQLQueryModifiers(BaseModel):
     inCohortVia: Optional[InCohortVia] = None
     materializationMode: Optional[MaterializationMode] = None
     optimizeJoinedFilters: Optional[bool] = None
+    optimizeProjections: Optional[bool] = None
     personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
     personsJoinMode: Optional[PersonsJoinMode] = None
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
@@ -4237,6 +4238,7 @@ class LLMTrace(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aiSessionId: Optional[str] = None
     createdAt: str
     events: list[LLMTraceEvent]
     id: str
@@ -4418,6 +4420,7 @@ class QueryResponseAlternative8(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    ch_table_names: Optional[list[str]] = None
     errors: list[HogQLNotice]
     isUsingIndices: Optional[QueryIndexUsage] = None
     isValid: Optional[bool] = None
@@ -4771,6 +4774,9 @@ class SavedInsightNode(BaseModel):
     )
     context: Optional[DataTableNodeViewPropsContext] = Field(
         default=None, description="Context for the table, used by components like ColumnConfigurator"
+    )
+    defaultColumns: Optional[list[str]] = Field(
+        default=None, description="Default columns to use when resetting column configuration"
     )
     embedded: Optional[bool] = Field(default=None, description="Query is embedded inside another bordered component")
     expandable: Optional[bool] = Field(
@@ -9325,6 +9331,7 @@ class HogQLMetadataResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    ch_table_names: Optional[list[str]] = None
     errors: list[HogQLNotice]
     isUsingIndices: Optional[QueryIndexUsage] = None
     isValid: Optional[bool] = None
@@ -9464,6 +9471,7 @@ class MarketingAnalyticsConfig(BaseModel):
     )
     attribution_mode: Optional[AttributionMode] = None
     attribution_window_days: Optional[float] = None
+    campaign_name_mappings: Optional[dict[str, dict[str, list[str]]]] = None
     conversion_goals: Optional[list[Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]]] = None
     sources_map: Optional[dict[str, SourceMap]] = None
 
@@ -12604,7 +12612,15 @@ class MaxInnerUniversalFiltersGroup(BaseModel):
         extra="forbid",
     )
     type: FilterLogicalOperator
-    values: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter, RecordingPropertyFilter]]
+    values: list[
+        Union[
+            EventPropertyFilter,
+            PersonPropertyFilter,
+            SessionPropertyFilter,
+            RecordingPropertyFilter,
+            GroupPropertyFilter,
+        ]
+    ]
 
 
 class MaxOuterUniversalFiltersGroup(BaseModel):
@@ -14924,6 +14940,9 @@ class DataTableNode(BaseModel):
     )
     context: Optional[DataTableNodeViewPropsContext] = Field(
         default=None, description="Context for the table, used by components like ColumnConfigurator"
+    )
+    defaultColumns: Optional[list[str]] = Field(
+        default=None, description="Default columns to use when resetting column configuration"
     )
     embedded: Optional[bool] = Field(default=None, description="Uses the embedded version of LemonTable")
     expandable: Optional[bool] = Field(

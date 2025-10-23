@@ -75,7 +75,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                 containerClassName,
                 !isSticky && !isThreadVisible
                     ? 'px-3 w-[min(40rem,100%)]'
-                    : 'sticky bottom-0 z-10 w-full max-w-[45.25rem] self-center'
+                    : 'sticky bottom-0 z-10 w-full max-w-180 self-center'
             )}
             ref={ref}
         >

@@ -13,7 +13,7 @@ from langchain_core.messages import (
 from langchain_core.runnables import RunnableLambda
 from langgraph.errors import NodeInterrupt
 
-from posthog.schema import AssistantMessage, EventTaxonomyItem, HumanMessage
+from posthog.schema import AssistantMessage, ContextMessage, EventTaxonomyItem, HumanMessage
 
 from ee.hogai.graph.memory import prompts
 from ee.hogai.graph.memory.nodes import (
@@ -532,9 +532,9 @@ class TestMemoryEnquiryInterruptNode(ClickhouseTestMixin, BaseTest):
         self.core_memory = CoreMemory.objects.create(team=self.team)
         self.node = MemoryOnboardingEnquiryInterruptNode(team=self.team, user=self.user)
 
-    def test_run(self):
+    async def test_run(self):
         with self.assertRaises(NodeInterrupt) as e:
-            self.node.run(
+            await self.node.arun(
                 AssistantState(
                     messages=[AssistantMessage(content="What is your name?"), HumanMessage(content="Hello")],
                     onboarding_question="What is your target market?",
@@ -545,7 +545,7 @@ class TestMemoryEnquiryInterruptNode(ClickhouseTestMixin, BaseTest):
         self.assertIsInstance(e.exception.args[0][0].value, AssistantMessage)
         self.assertEqual(e.exception.args[0][0].value.content, "What is your target market?")
 
-        new_state = self.node.run(
+        new_state = await self.node.arun(
             AssistantState(
                 messages=[AssistantMessage(content="What is your target market?"), HumanMessage(content="Hello")],
                 onboarding_question="What is your target market?",
@@ -568,9 +568,9 @@ class TestMemoryOnboardingFinalizeNode(ClickhouseTestMixin, BaseTest):
             self.core_memory.save()
             new_state = self.node.run(AssistantState(messages=[]), {})
             self.assertEqual(len(new_state.messages), 1)
-            self.assertEqual(
-                cast(AssistantMessage, new_state.messages[0]).content, prompts.SCRAPING_MEMORY_SAVED_MESSAGE
-            )
+            self.assertIsInstance(new_state.messages[0], ContextMessage)
+            self.assertEqual(new_state.messages[0].id, new_state.root_conversation_start_id)
+            self.assertEqual(new_state.messages[0].id, new_state.start_id)
             self.core_memory.refresh_from_db()
             self.assertEqual(self.core_memory.text, "Compressed memory about enterprise product")
 
@@ -600,9 +600,7 @@ Additional context: Our system also handles nested configurations like {"feature
             new_state = self.node.run(AssistantState(messages=[]), {})
 
             self.assertEqual(len(new_state.messages), 1)
-            self.assertEqual(
-                cast(AssistantMessage, new_state.messages[0]).content, prompts.SCRAPING_MEMORY_SAVED_MESSAGE
-            )
+            self.assertIsInstance(new_state.messages[0], ContextMessage)
             self.core_memory.refresh_from_db()
             self.assertEqual(self.core_memory.text, "Company uses structured JSON for event tracking")
 

@@ -6,6 +6,7 @@ import requests
 from dateutil import parser
 from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
+from requests import JSONDecodeError
 from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
@@ -381,11 +382,23 @@ def get_messages(
                     f"{get_base_url(region, subdomain)}resources/conversations/{id}",
                     headers={"Authorization": f"Basic {basic_token}:"},
                 )
-                messages = conversation_response.json().get("messages") or []
-                logger.debug(f"Yielding {len(messages)} messages")
-                for message in messages:
-                    message["conversation_updated_at"] = conversation_updated_at
-                    yield message
+
+                try:
+                    conversation_response.raise_for_status()
+
+                    messages = conversation_response.json().get("messages") or []
+                    logger.debug(f"Yielding {len(messages)} messages")
+                    for message in messages:
+                        message["conversation_updated_at"] = conversation_updated_at
+                        yield message
+                except requests.HTTPError as e:
+                    logger.debug(
+                        f"Failed to fetch messages for conversation {id}: {conversation_response.status_code} {e}. Body: {conversation_response.text}"
+                    )
+                except JSONDecodeError as e:
+                    logger.debug(
+                        f"Failed to decode JSON response for conversation {id}: {conversation_response.status_code} {e}. Body: {conversation_response.text}"
+                    )
 
             paginator.update_state(response)
 

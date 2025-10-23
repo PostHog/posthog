@@ -2287,3 +2287,76 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         assistant_output = [(event_type, msg) for event_type, msg in output if isinstance(msg, AssistantMessage)]
         self.assertEqual(len(assistant_output), 1)
         self.assertEqual(cast(AssistantMessage, assistant_output[0][1]).id, message_id_2)
+
+    @patch(
+        "ee.hogai.graph.conversation_summarizer.nodes.AnthropicConversationSummarizer.summarize",
+        new=AsyncMock(return_value="Summary"),
+    )
+    @patch("ee.hogai.graph.root.compaction_manager.AnthropicConversationCompactionManager.should_compact_conversation")
+    @patch("ee.hogai.graph.root.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
+    async def test_compacting_conversation_on_the_second_turn(self, mock_model, mock_tool, mock_should_compact):
+        mock_model.side_effect = cycle(  # Changed from return_value to side_effect
+            [
+                FakeChatAnthropic(
+                    responses=[
+                        messages.AIMessage(
+                            content=[{"text": "Let me think about that", "type": "text"}],
+                            tool_calls=[{"id": "1", "name": "read_taxonomy", "args": {"query": {"kind": "events"}}}],
+                        )
+                    ]
+                ),
+                FakeChatAnthropic(
+                    responses=[
+                        messages.AIMessage(
+                            content=[{"text": "After summary", "type": "text"}],
+                        )
+                    ]
+                ),
+            ]
+        )
+        mock_tool.return_value = ("Event list" * 128000, None)
+        mock_should_compact.side_effect = cycle([False, True])  # Also changed this
+
+        graph = (
+            AssistantGraph(self.team, self.user)
+            .add_root(
+                path_map={
+                    "insights": AssistantNodeName.END,
+                    "search_documentation": AssistantNodeName.END,
+                    "root": AssistantNodeName.ROOT,
+                    "end": AssistantNodeName.END,
+                    "insights_search": AssistantNodeName.END,
+                    "session_summarization": AssistantNodeName.END,
+                    "create_dashboard": AssistantNodeName.END,
+                }
+            )
+            .add_memory_onboarding()
+            .compile()
+        )
+
+        expected_output = [
+            ("message", HumanMessage(content="First")),
+            (
+                "message",
+                AssistantMessage(
+                    content="Let me think about that",
+                    tool_calls=[{"id": "1", "name": "read_taxonomy", "args": {"query": {"kind": "events"}}}],
+                ),
+            ),
+            ("message", ReasoningMessage(content="Searching the taxonomy")),
+            ("message", AssistantToolCallMessage(tool_call_id="1", content="Event list" * 128000)),
+            ("message", HumanMessage(content="First")),  # Should copy this message
+            ("message", AssistantMessage(content="After summary")),
+        ]
+
+        output, _ = await self._run_assistant_graph(graph, message="First", conversation=self.conversation)
+        self.assertConversationEqual(output, expected_output)
+
+        snapshot = await graph.aget_state({"configurable": {"thread_id": str(self.conversation.id)}})
+        state = AssistantState.model_validate(snapshot.values)
+        # should be equal to the copied human message
+        new_human_message = cast(HumanMessage, output[4][1])
+        self.assertEqual(state.start_id, new_human_message.id)
+        # should be equal to the summary message, minus reasoning message
+        self.assertEqual(state.root_conversation_start_id, state.messages[3].id)

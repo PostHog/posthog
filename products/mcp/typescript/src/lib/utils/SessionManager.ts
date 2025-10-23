@@ -1,3 +1,4 @@
+import type { PrefixedString } from '@/lib/types'
 import type { ScopedCache } from '@/lib/utils/cache/ScopedCache'
 import type { State } from '@/tools'
 import { v7 as uuidv7 } from 'uuid'

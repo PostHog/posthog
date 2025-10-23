@@ -1,4 +1,3 @@
-import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
 import { EventHeaders } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
 import { drop, ok } from '../pipelines/results'
@@ -21,12 +20,6 @@ export function createApplyDropRestrictionsStep<T extends { headers: EventHeader
         const { headers } = input
 
         if (applyDropEventsRestrictions(eventIngestionRestrictionManager, headers)) {
-            eventDroppedCounter
-                .labels({
-                    event_type: 'analytics',
-                    drop_cause: 'blocked_token',
-                })
-                .inc()
             return drop('blocked_token')
         }
 

@@ -55,7 +55,7 @@ def create_default_modifiers_for_team(
 
     if isinstance(team.modifiers, dict):
         for key, value in team.modifiers.items():
-            if getattr(modifiers, key) is None:
+            if getattr(modifiers, key, None) is None:
                 if key == "customChannelTypeRules":
                     # don't break all queries if customChannelTypeRules are invalid
                     try:

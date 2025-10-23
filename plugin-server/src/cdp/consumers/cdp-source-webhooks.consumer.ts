@@ -307,7 +307,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
 
             if (hogFunctionState?.state === HogWatcherState.degraded) {
                 // Degraded functions are not executed immediately
-                invocation.queue = 'hog_overflow'
+                invocation.queue = 'hogoverflow'
                 await this.cyclotronJobQueue.queueInvocations([invocation])
 
                 result = createInvocationResult<CyclotronJobInvocationHogFunction>(

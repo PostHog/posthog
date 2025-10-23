@@ -7,25 +7,29 @@ import { PersonsStoreForBatch } from '../../worker/ingestion/persons/persons-sto
 import { PipelineResult } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
-export interface EventPipelineRunnerV1StepInput {
-    eventWithTeam: IncomingEventWithTeam
+export interface EventPipelineRunnerInput extends IncomingEventWithTeam {
     personsStoreForBatch: PersonsStoreForBatch
     groupStoreForBatch: GroupStoreForBatch
-}
-
-export interface PreprocessedEventWithStores extends IncomingEventWithTeam {
-    personsStoreForBatch: PersonsStoreForBatch
-    groupStoreForBatch: GroupStoreForBatch
+    processPerson: boolean
+    forceDisablePersonProcessing: boolean
 }
 
 export function createEventPipelineRunnerV1Step(
     hub: Hub,
     hogTransformer: HogTransformerService
-): ProcessingStep<PreprocessedEventWithStores, EventPipelineResult> {
+): ProcessingStep<EventPipelineRunnerInput, EventPipelineResult> {
     return async function eventPipelineRunnerV1Step(
-        input: PreprocessedEventWithStores
+        input: EventPipelineRunnerInput
     ): Promise<PipelineResult<EventPipelineResult>> {
-        const { event, team, headers, personsStoreForBatch, groupStoreForBatch } = input
+        const {
+            event,
+            team,
+            headers,
+            personsStoreForBatch,
+            groupStoreForBatch,
+            processPerson,
+            forceDisablePersonProcessing,
+        } = input
 
         const runner = new EventPipelineRunner(
             hub,
@@ -35,7 +39,7 @@ export function createEventPipelineRunnerV1Step(
             groupStoreForBatch,
             headers
         )
-        const result = await runner.runEventPipeline(event, team)
+        const result = await runner.runEventPipeline(event, team, processPerson, forceDisablePersonProcessing)
         return result
     }
 }

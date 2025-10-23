@@ -102,6 +102,7 @@ class MainAssistant(BaseAssistant):
             AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
             AssistantNodeName.ROOT_TOOLS,
             TaxonomyNodeName.TOOLS_NODE,
+            TaxonomyNodeName.TASK_EXECUTOR,
         }
 
     @property

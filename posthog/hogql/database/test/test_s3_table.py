@@ -10,7 +10,7 @@ from posthog.hogql.database.s3_table import build_function_call
 from posthog.hogql.database.test.tables import create_aapl_stock_s3_table
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 
 from posthog.warehouse.models.table import DataWarehouseTable
@@ -30,7 +30,7 @@ class TestS3Table(BaseTest):
         )
 
     def _select(self, query: str, dialect: Literal["hogql", "clickhouse"] = "clickhouse") -> str:
-        return print_ast(parse_select(query), self.context, dialect=dialect)
+        return prepare_and_print_ast(parse_select(query), self.context, dialect=dialect)[0]
 
     def test_s3_table_select(self):
         self._init_database()

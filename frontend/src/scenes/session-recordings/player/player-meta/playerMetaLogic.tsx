@@ -129,6 +129,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         setPinnedProperties: (properties: string[]) => ({ properties }),
         togglePropertyPin: (propertyKey: string) => ({ propertyKey }),
         setIsPropertyPopoverOpen: (isOpen: boolean) => ({ isOpen }),
+        setPropertySearchQuery: (query: string) => ({ query }),
     }),
     reducers(() => ({
         summaryHasHadFeedback: [
@@ -175,6 +176,12 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 setIsPropertyPopoverOpen: (_, { isOpen }) => isOpen,
             },
         ],
+        propertySearchQuery: [
+            '',
+            {
+                setPropertySearchQuery: (_, { query }) => query,
+            },
+        ],
     })),
     listeners(({ actions, values }) => ({
         togglePropertyPin: ({ propertyKey }) => {
@@ -183,6 +190,12 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 actions.setPinnedProperties(currentPinned.filter((k) => k !== propertyKey))
             } else {
                 actions.setPinnedProperties([...currentPinned, propertyKey])
+            }
+        },
+        setIsPropertyPopoverOpen: ({ isOpen }) => {
+            // Clear search query when popover is closed
+            if (!isOpen) {
+                actions.setPropertySearchQuery('')
             }
         },
     })),
@@ -370,6 +383,41 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     const key = item.type === 'property' ? item.property : item.label
                     return pinnedProperties.includes(String(key))
                 })
+            },
+        ],
+        filteredPropertiesWithInfo: [
+            (s) => [s.sessionPlayerMetaData, s.recordingPropertiesById, s.propertySearchQuery],
+            (sessionPlayerMetaData, recordingPropertiesById, propertySearchQuery) => {
+                const recordingProperties = sessionPlayerMetaData?.id
+                    ? recordingPropertiesById[sessionPlayerMetaData?.id] || {}
+                    : {}
+
+                const personProperties = getAllPersonProperties(sessionPlayerMetaData)
+                const personPropertyKeys = personProperties ? Object.keys(personProperties).sort() : []
+
+                // Get recording property keys from allOverviewItems
+                const recordingPropertyKeys = sessionPlayerMetaData?.id
+                    ? Object.keys(recordingPropertiesById[sessionPlayerMetaData?.id] || {})
+                    : []
+
+                const allPropertyKeys = Array.from(new Set([...recordingPropertyKeys, ...personPropertyKeys])).sort()
+
+                return allPropertyKeys
+                    .map((propertyKey) => {
+                        const propertyInfo = getPropertyDisplayInfo(propertyKey, recordingProperties)
+                        return { propertyKey, propertyInfo }
+                    })
+                    .filter(({ propertyInfo }) => {
+                        if (!propertySearchQuery.trim()) {
+                            return true
+                        }
+
+                        const searchLower = propertySearchQuery.toLowerCase()
+                        return (
+                            propertyInfo.label.toLowerCase().includes(searchLower) ||
+                            propertyInfo.originalKey.toLowerCase().includes(searchLower)
+                        )
+                    })
             },
         ],
     })),

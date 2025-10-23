@@ -2,6 +2,7 @@ import json
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any, TypeVar
+from uuid import uuid4
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models import BaseChatModel
@@ -10,11 +11,13 @@ from langchain_core.messages import (
     HumanMessage as LangchainHumanMessage,
 )
 from langchain_core.tools import BaseTool
+from pydantic import BaseModel
 
-from posthog.schema import AssistantMessage, AssistantToolCallMessage, HumanMessage
+from posthog.schema import AssistantMessage, AssistantToolCallMessage, ContextMessage, HumanMessage
 
 from posthog.sync import database_sync_to_async
 
+from ee.hogai.utils.helpers import find_start_message, find_start_message_idx, insert_messages_before_start
 from ee.hogai.utils.types import AssistantMessageUnion
 
 if TYPE_CHECKING:
@@ -23,6 +26,12 @@ if TYPE_CHECKING:
 T = TypeVar("T", bound=AssistantMessageUnion)
 
 LangchainTools = Sequence[dict[str, Any] | type | Callable | BaseTool]
+
+
+class InsertionResult(BaseModel):
+    messages: Sequence[AssistantMessageUnion]
+    updated_start_id: str
+    updated_window_start_id: str
 
 
 class ConversationCompactionManager(ABC):
@@ -39,26 +48,26 @@ class ConversationCompactionManager(ABC):
     Determines the approximate number of characters per token.
     """
 
-    def find_window_boundary(
-        self, messages: list[AssistantMessageUnion], max_messages: int = 10, max_tokens: int = 1000
-    ) -> str:
+    def find_window_boundary(self, messages: Sequence[T], max_messages: int = 10, max_tokens: int = 1000) -> str | None:
         """
         Find the optimal window start ID based on message count and token limits.
         Ensures the window starts at a human or assistant message.
         """
 
-        new_window_id: str = str(messages[-1].id)
+        new_window_id: str | None = None
         for message in reversed(messages):
+            # Handle limits before assigning the window ID.
+            max_tokens -= self._get_estimated_tokens(message)
+            max_messages -= 1
+            if max_tokens < 0 or max_messages < 0:
+                break
+
+            # Assign the new new window ID.
             if message.id is not None:
                 if isinstance(message, HumanMessage):
                     new_window_id = message.id
                 if isinstance(message, AssistantMessage):
                     new_window_id = message.id
-
-            max_messages -= 1
-            max_tokens -= self._get_estimated_tokens(message)
-            if max_messages <= 0 or max_tokens <= 0:
-                break
 
         return new_window_id
 
@@ -83,6 +92,50 @@ class ConversationCompactionManager(ABC):
             return False
         token_count = await self._get_token_count(model, messages, tools, **kwargs)
         return token_count > self.CONVERSATION_WINDOW_SIZE
+
+    def update_window(
+        self, messages: Sequence[T], summary_message: ContextMessage, start_id: str | None = None
+    ) -> InsertionResult:
+        """Finds the optimal position to insert the summary message in the conversation window."""
+        window_start_id_candidate = self.find_window_boundary(messages, max_messages=16, max_tokens=2048)
+        start_message = find_start_message(messages, start_id)
+        if not start_message:
+            raise ValueError("Start message not found")
+
+        start_message_copy = start_message.model_copy(deep=True)
+        start_message_copy.id = str(uuid4())
+
+        # The last messages were too large to fit into the window. Copy the last human message to the start of the window.
+        if not window_start_id_candidate:
+            return InsertionResult(
+                messages=[*messages, summary_message, start_message_copy],
+                updated_start_id=start_message_copy.id,
+                updated_window_start_id=summary_message.id,
+            )
+
+        # Find the updated window
+        start_message_idx = find_start_message_idx(messages, window_start_id_candidate)
+        new_window = messages[start_message_idx:]
+
+        # If the start human message is in the window, insert the summary message before it
+        # and update the window start.
+        if next((m for m in new_window if m.id == start_id), None):
+            updated_messages = insert_messages_before_start(messages, [summary_message], start_id=start_id)
+            return InsertionResult(
+                messages=updated_messages,
+                updated_start_id=start_id,
+                updated_window_start_id=window_start_id_candidate,
+            )
+
+        # If the start message is not in the window, insert the summary message and human message at the start of the window.
+        updated_messages = insert_messages_before_start(
+            new_window, [summary_message, start_message_copy], start_id=window_start_id_candidate
+        )
+        return InsertionResult(
+            messages=updated_messages,
+            updated_start_id=start_message_copy.id,
+            updated_window_start_id=window_start_id_candidate,
+        )
 
     def _get_estimated_tokens(self, message: AssistantMessageUnion) -> int:
         """

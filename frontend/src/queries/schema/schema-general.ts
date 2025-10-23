@@ -366,6 +366,7 @@ export interface HogQLQueryModifiers {
     convertToProjectTimezone?: boolean
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level **/
     usePreaggregatedTableTransforms?: boolean
+    optimizeProjections?: boolean
 }
 
 export interface DataWarehouseEventsModifier {
@@ -530,6 +531,7 @@ export interface HogQLMetadataResponse {
     notices: HogQLNotice[]
     query_status?: never
     table_names?: string[]
+    ch_table_names?: string[]
 }
 
 export type AutocompleteCompletionItemKind =
@@ -1005,6 +1007,8 @@ interface DataTableNodeViewProps {
     embedded?: boolean
     /** Context for the table, used by components like ColumnConfigurator */
     context?: DataTableNodeViewPropsContext
+    /** Default columns to use when resetting column configuration */
+    defaultColumns?: string[]
 }
 
 // Saved insight node
@@ -3454,6 +3458,7 @@ export interface LLMTracePerson {
 
 export interface LLMTrace {
     id: string
+    aiSessionId?: string
     createdAt: string
     person: LLMTracePerson
     totalLatency?: number
@@ -4018,6 +4023,7 @@ export interface MarketingAnalyticsConfig {
     conversion_goals?: ConversionGoalFilter[]
     attribution_window_days?: number
     attribution_mode?: AttributionMode
+    campaign_name_mappings?: Record<string, Record<string, string[]>>
 }
 
 export enum MarketingAnalyticsBaseColumns {

@@ -25,11 +25,10 @@ pub struct CheckpointMetadata {
     pub consumer_offset: i64,
     /// Producer offset at time of checkpoint
     pub producer_offset: i64,
-    /// Remote file path (minus app-level bucket namespace) to each file
-    /// required to reconsitute a local RocksDB store across all relevant
-    /// checkpoint attempts. A relative path of the form:
-    /// <topic_name>/<partition_number>/<checkpoint_id>/<filename>
-    pub files: Vec<String>,
+    /// Registry of file metadata for all remotely-stored files required
+    /// to reconsitute a local RocksDB store across all relevant
+    /// checkpoint attempts
+    pub files: Vec<CheckpointFile>,
 }
 
 impl CheckpointMetadata {
@@ -83,6 +82,12 @@ impl CheckpointMetadata {
         let json = tokio::fs::read_to_string(path).await?;
         let metadata: Self = serde_json::from_str(&json)?;
         Ok(metadata)
+    }
+
+    /// Append another CheckpointFile to the files list
+    pub fn track_file(&mut self, remote_filepath: String, checksum: String) {
+        self.files
+            .push(CheckpointFile::new(remote_filepath, checksum));
     }
 
     /// Generate attempt-scoped path elements for this checkpoint, not including
@@ -154,6 +159,32 @@ impl CheckpointInfo {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckpointFile {
+    /// The fully-qualified remote file path, as of the time of its
+    /// original upload during a checkpoint attempt (latest or previous)
+    /// Example:
+    /// <remote_namespace>/<topic_name>/<partition_number>/<checkpoint_id>/<filename>
+    pub remote_filepath: String,
+
+    /// SHA256 checksum of the file's contents. Used during checkpoint
+    /// planning to decide if we should keep the original reference to
+    /// same-named files from a previous checkpoint attempt, or replace with
+    /// the newest version. Critical for non-SST files that can be appended to
+    /// by RocksDB between checkpoint attempts. NOT TRACKED FOR SST FILES as
+    /// they are immutable after creation.
+    pub checksum: String,
+}
+
+impl CheckpointFile {
+    pub fn new(remote_filepath: String, checksum: String) -> Self {
+        Self {
+            remote_filepath,
+            checksum,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,29 +235,35 @@ mod tests {
         );
 
         // Add files - assume planner has already resolved full S3 remote paths
-        metadata
-            .files
-            .push(format!("{remote_base_path}/000001.sst"));
-        metadata
-            .files
-            .push(format!("{remote_base_path}/000002.sst"));
-        metadata
-            .files
-            .push(format!("{remote_base_path}/MANIFEST-000123"));
+        metadata.track_file(
+            format!("{remote_base_path}/000001.sst"),
+            "checksum1".to_string(),
+        );
+        metadata.track_file(
+            format!("{remote_base_path}/000002.sst"),
+            "checksum2".to_string(),
+        );
+        metadata.track_file(
+            format!("{remote_base_path}/MANIFEST-000123"),
+            "checksum3".to_string(),
+        );
 
         assert_eq!(metadata.files.len(), 3);
         assert_eq!(
-            metadata.files[0],
+            metadata.files[0].remote_filepath,
             format!("checkpoints/test-topic/0/{checkpoint_id}/000001.sst")
         );
+        assert_eq!(metadata.files[0].checksum, "checksum1");
         assert_eq!(
-            metadata.files[1],
+            metadata.files[1].remote_filepath,
             format!("checkpoints/test-topic/0/{checkpoint_id}/000002.sst")
         );
+        assert_eq!(metadata.files[1].checksum, "checksum2");
         assert_eq!(
-            metadata.files[2],
+            metadata.files[2].remote_filepath,
             format!("checkpoints/test-topic/0/{checkpoint_id}/MANIFEST-000123")
         );
+        assert_eq!(metadata.files[2].checksum, "checksum3");
     }
 
     #[tokio::test]
@@ -255,11 +292,14 @@ mod tests {
         );
         // simulate what planner will do to format remote path for upload
         // files retained from a planner diff will retained and remote path already fully qualified
-        metadata.files.push(format!(
-            "{}/{}/000001.sst",
-            bucket_namespace,
-            metadata.get_attempt_path()
-        ));
+        metadata.track_file(
+            format!(
+                "{}/{}/000001.sst",
+                bucket_namespace,
+                metadata.get_attempt_path()
+            ),
+            "checksum1".to_string(),
+        );
 
         // Save metadata
         metadata.save_to_file(local_base_path.path()).await.unwrap();
@@ -283,7 +323,11 @@ mod tests {
         let expected_remote_file_path =
             format!("{bucket_namespace}/{topic}/{partition}/{checkpoint_id}/000001.sst");
         assert_eq!(loaded_metadata.files.len(), 1);
-        assert_eq!(loaded_metadata.files[0], expected_remote_file_path);
+        assert_eq!(
+            loaded_metadata.files[0].remote_filepath,
+            expected_remote_file_path
+        );
+        assert_eq!(loaded_metadata.files[0].checksum, "checksum1");
     }
 
     #[test]
@@ -323,7 +367,7 @@ mod tests {
             50,
         );
 
-        let info = CheckpointInfo::new(metadata.clone(), bucket_namespace.to_string());
+        let info = CheckpointInfo::new(metadata, bucket_namespace.to_string());
 
         assert_eq!(
             info.get_metadata_key(),

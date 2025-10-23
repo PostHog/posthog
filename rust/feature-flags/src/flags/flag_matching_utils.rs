@@ -14,21 +14,22 @@ use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{Acquire, Row};
 use tokio::time::timeout;
-use tracing::{error, info, instrument, warn};
+use tracing::{info, instrument, warn};
 
-// Use thread-local storage for test counter to isolate concurrent tests
+// Add thread-local imports for test-specific counter
 #[cfg(test)]
 use std::cell::RefCell;
 
 use crate::{
     api::{errors::FlagError, types::FlagValue},
     cohorts::cohort_models::CohortId,
-    config::Config,
     flags::flag_models::FeatureFlagId,
     metrics::consts::{
-        FLAG_COHORT_PROCESSING_TIME, FLAG_COHORT_QUERY_TIME, FLAG_CONNECTION_HOLD_TIME,
-        FLAG_DB_CONNECTION_TIME, FLAG_DEFINITION_QUERY_TIME, FLAG_GROUP_PROCESSING_TIME,
-        FLAG_GROUP_QUERY_TIME, FLAG_HASH_KEY_RETRIES_COUNTER, FLAG_PERSON_PROCESSING_TIME,
+        FLAG_ACQUIRE_TIMEOUT_COUNTER, FLAG_CLIENT_TIMEOUT_COUNTER, FLAG_COHORT_PROCESSING_TIME,
+        FLAG_COHORT_QUERY_TIME, FLAG_CONNECTION_HOLD_TIME, FLAG_CONNECTION_OVERLAP_TIME_MS,
+        FLAG_DATABASE_ERROR_COUNTER, FLAG_DB_CONNECTION_TIME, FLAG_DEFINITION_QUERY_TIME,
+        FLAG_GROUP_PROCESSING_TIME, FLAG_GROUP_QUERY_TIME, FLAG_HASH_KEY_RETRIES_COUNTER,
+        FLAG_MULTI_CONNECTION_OPERATION_COUNTER, FLAG_PERSON_PROCESSING_TIME,
         FLAG_PERSON_QUERY_TIME, FLAG_POOL_UTILIZATION_GAUGE,
         FLAG_READER_TIMEOUT_WITH_WRITER_STATE_COUNTER,
     },
@@ -42,83 +43,10 @@ use super::{flag_group_type_mapping::GroupTypeIndex, flag_matching::FlagEvaluati
 
 const LONG_SCALE: u64 = 0xfffffffffffffff;
 
-// Thread-local counter ensures test isolation when running in parallel
+// Replace the static counter with thread-local storage
 #[cfg(test)]
 thread_local! {
-    static FETCH_CALLS: RefCell<usize> = const { RefCell::new(0) };
-}
-
-/// Context for flag queries - encapsulates common parameters
-pub struct FlagQueryContext<'a> {
-    pub reader: PostgresReader,
-    pub team_id: TeamId,
-    pub config: &'a Config,
-}
-
-/// RAII guard for timing queries with automatic logging
-struct QueryTimer<'a> {
-    name: &'static str,
-    start: Instant,
-    _metric_guard: common_metrics::TimingGuard<'a>,
-}
-
-impl<'a> QueryTimer<'a> {
-    fn new(name: &'static str, metric_name: &'static str) -> Self {
-        Self {
-            name,
-            start: Instant::now(),
-            _metric_guard: common_metrics::timing_guard(metric_name, &[]),
-        }
-    }
-
-    fn elapsed_ms(&self) -> u128 {
-        self.start.elapsed().as_millis()
-    }
-}
-
-impl<'a> Drop for QueryTimer<'a> {
-    fn drop(&mut self) {
-        // Metric is automatically finalized via the guard drop
-        let duration = self.elapsed_ms();
-        if duration > 500 {
-            warn!("{} took {}ms", self.name, duration);
-        }
-    }
-}
-
-/// Log query duration based on configured thresholds
-fn log_query_duration(
-    query_name: &str,
-    duration_ms: u128,
-    config: &Config,
-    context: impl FnOnce() -> String,
-) {
-    let threshold_ms = config.flag_query_slow_error_threshold_ms as u128;
-    let warn_ms = config.flag_query_slow_warn_threshold_ms as u128;
-    let info_ms = config.flag_query_slow_info_threshold_ms as u128;
-
-    match duration_ms {
-        d if d > threshold_ms => {
-            error!(
-                duration_ms = d,
-                query = query_name,
-                "CRITICAL: Very slow query - {}",
-                context()
-            );
-        }
-        d if d > warn_ms => {
-            warn!(
-                duration_ms = d,
-                query = query_name,
-                "Slow query detected - {}",
-                context()
-            );
-        }
-        d if d > info_ms => {
-            info!(duration_ms = d, query = query_name, "Query completed");
-        }
-        _ => {}
-    }
+    static FETCH_CALLS: RefCell<u64> = const { RefCell::new(0) };
 }
 
 /// Calculates a deterministic hash value between 0 and 1 for a given identifier and salt.
@@ -154,7 +82,6 @@ pub fn calculate_hash(prefix: &str, hashed_identifier: &str, salt: &str) -> Resu
     group_type_indexes = ?group_type_indexes,
     group_keys = ?group_keys
 ))]
-#[allow(clippy::too_many_arguments)]
 pub async fn fetch_and_locally_cache_all_relevant_properties(
     flag_evaluation_state: &mut FlagEvaluationState,
     reader: PostgresReader,
@@ -163,32 +90,85 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     group_type_indexes: &HashSet<GroupTypeIndex>,
     group_keys: &HashSet<String>,
     static_cohort_ids: Vec<CohortId>,
-    config: &Config,
 ) -> Result<(), FlagError> {
     // Add the test-specific counter increment
     #[cfg(test)]
     increment_fetch_calls_count();
+    let labels = [
+        ("pool".to_string(), "reader".to_string()),
+        (
+            "operation".to_string(),
+            "fetch_and_locally_cache_all_relevant_properties".to_string(),
+        ),
+    ];
+    let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
 
-    // Log pool state at function entry to track patterns - use structured logging
+    // Log pool stats before attempting connection
     if let Some(stats) = reader.as_ref().get_pool_stats() {
-        let utilization =
-            (stats.size.saturating_sub(stats.num_idle as u32) as f64) / stats.size as f64;
-        if utilization > 0.8 {
-            warn!(
-                utilization_pct = utilization * 100.0,
-                idle = stats.num_idle,
-                total = stats.size,
-                %team_id,
-                %distinct_id,
-                "High pool utilization at function entry"
-            );
-        }
+        info!(
+            pool_size = stats.size,
+            pool_idle = stats.num_idle,
+            pool_in_use = stats.size.saturating_sub(stats.num_idle as u32),
+            "Connection pool stats before acquiring connection"
+        );
     }
 
-    // Track total function execution time
-    let function_start = Instant::now();
+    let conn_acquisition_start = Instant::now();
+    let conn_result = reader.as_ref().get_connection().await;
+    let conn_acquisition_duration = conn_acquisition_start.elapsed();
 
-    // No longer acquiring a connection here - each query will use the pool directly
+    let mut conn = match conn_result {
+        Ok(conn) => {
+            info!(
+                conn_acquisition_ms = conn_acquisition_duration.as_millis(),
+                "Database connection acquired"
+            );
+            conn
+        }
+        Err(e) => {
+            let (pool_size, pool_idle, pool_in_use) =
+                if let Some(stats) = reader.as_ref().get_pool_stats() {
+                    (
+                        stats.size,
+                        stats.num_idle as u32,
+                        stats.size.saturating_sub(stats.num_idle as u32),
+                    )
+                } else {
+                    (0, 0, 0) // Default values if stats unavailable
+                };
+
+            warn!(
+                conn_acquisition_ms = conn_acquisition_duration.as_millis(),
+                pool_size = pool_size,
+                pool_idle = pool_idle,
+                pool_in_use = pool_in_use,
+                error = ?e,
+                "Failed to acquire database connection"
+            );
+
+            // Track pool acquisition timeouts specifically
+            if matches!(
+                e,
+                common_database::CustomDatabaseError::Other(sqlx::Error::PoolTimedOut)
+            ) {
+                common_metrics::inc(
+                    FLAG_ACQUIRE_TIMEOUT_COUNTER,
+                    &[
+                        ("pool".to_string(), "persons_reader".to_string()),
+                        (
+                            "operation".to_string(),
+                            "should_write_hash_key_override".to_string(),
+                        ),
+                    ],
+                    1,
+                );
+            }
+
+            conn_timer.fin();
+            return Err(FlagError::from(e));
+        }
+    };
+    conn_timer.fin();
 
     // First query: Get person data from the distinct_id (person_id and person_properties)
     // TRICKY: sometimes we don't have a person_id ingested by the time we get a `/flags` request for a given
@@ -210,42 +190,35 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             AND ppd.team_id = $2
     "#;
 
-    let _person_timer = QueryTimer::new("Person query", FLAG_PERSON_QUERY_TIME);
+    let person_query_start = Instant::now();
+    let person_query_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &[]);
+    let (person_id, person_props): (Option<PersonId>, Option<Value>) = sqlx::query_as(person_query)
+        .bind(&distinct_id)
+        .bind(team_id)
+        .fetch_optional(&mut *conn)
+        .await?
+        .unwrap_or((None, None));
+    person_query_timer.fin();
 
-    let (person_id, person_props): (Option<PersonId>, Option<Value>) = {
-        let mut conn = reader.get_connection().await?;
-        // DUAL TIMEOUT APPROACH:
-        // 1. Client-side timeout (tokio::time::timeout) - fails fast, doesn't cancel server query
-        // 2. Server-side timeout (statement_timeout) - actually cancels long-running queries
-        // The server timeout is configured in the connection pool and is slightly higher
-        // than client timeouts to allow for network overhead.
-        timeout(
-            Duration::from_millis(config.flag_person_query_timeout_ms),
-            sqlx::query_as(person_query)
-                .bind(&distinct_id)
-                .bind(team_id)
-                .fetch_optional(&mut *conn),
-        )
-        .await
-        .map_err(|_| {
-            warn!("Person query timeout");
-            FlagError::TimeoutError(Some("Person query".to_string()))
-        })?
-        .map(|opt| opt.unwrap_or((None, None)))
-        .map_err(|e: sqlx::Error| FlagError::from(e))?
-    };
+    let person_query_duration = person_query_start.elapsed();
 
-    let person_query_duration = _person_timer.elapsed_ms();
-
-    // Use structured logging helper
-    log_query_duration("Person query", person_query_duration, config, || {
-        let cohort_count = static_cohort_ids.len();
-        let group_count = group_type_indexes.len();
-        let person_found = person_id.is_some();
-        format!(
-            "distinct_id={distinct_id}, team_id={team_id}, cohort_count={cohort_count}, group_count={group_count}, person_found={person_found}"
-        )
-    });
+    if person_query_duration.as_millis() > 500 {
+        warn!(
+            duration_ms = person_query_duration.as_millis(),
+            distinct_id = distinct_id,
+            team_id = team_id,
+            sql_summary =
+                "SELECT person_id, properties with INNER JOIN from persondistinctid to person",
+            "Slow person query detected"
+        );
+    } else {
+        info!(
+            duration_ms = person_query_duration.as_millis(),
+            distinct_id = distinct_id,
+            team_id = team_id,
+            "Person query completed"
+        );
+    }
     let person_processing_timer = common_metrics::timing_guard(FLAG_PERSON_PROCESSING_TIME, &[]);
     if let Some(person_id) = person_id {
         // NB: this is where we actually set our person ID in the flag evaluation state.
@@ -265,34 +238,34 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
                     FROM cohort_membership
                 "#;
 
-            let _cohort_timer = QueryTimer::new("Cohort query", FLAG_COHORT_QUERY_TIME);
+            let cohort_query_start = Instant::now();
+            let cohort_timer = common_metrics::timing_guard(FLAG_COHORT_QUERY_TIME, &[]);
+            let cohort_rows = sqlx::query(cohort_query)
+                .bind(&static_cohort_ids)
+                .bind(person_id)
+                .fetch_all(&mut *conn)
+                .await?;
+            cohort_timer.fin();
 
-            let cohort_rows = {
-                let mut conn = reader.get_connection().await?;
-                // DUAL TIMEOUT APPROACH: Client-side fails fast, server-side cancels query
-                timeout(
-                    Duration::from_millis(config.flag_cohort_query_timeout_ms),
-                    sqlx::query(cohort_query)
-                        .bind(&static_cohort_ids)
-                        .bind(person_id)
-                        .fetch_all(&mut *conn),
-                )
-                .await
-                .map_err(|_| {
-                    warn!("Cohort query timeout");
-                    FlagError::TimeoutError(Some("Cohort query".to_string()))
-                })?
-                .map_err(|e: sqlx::Error| FlagError::from(e))?
-            };
+            let cohort_query_duration = cohort_query_start.elapsed();
 
-            let cohort_query_duration = _cohort_timer.elapsed_ms();
-
-            // Use structured logging helper
-            log_query_duration("Cohort query", cohort_query_duration, config, || {
-                format!(
-                    "person_id={person_id}, cohort_ids={static_cohort_ids:?}, team_id={team_id}"
-                )
-            });
+            if cohort_query_duration.as_millis() > 200 {
+                warn!(
+                    duration_ms = cohort_query_duration.as_millis(),
+                    person_id = person_id,
+                    cohort_count = static_cohort_ids.len(),
+                    sql_summary =
+                        "SELECT cohort membership with LEFT JOIN from UNNEST to cohortpeople",
+                    "Slow cohort query detected"
+                );
+            } else {
+                info!(
+                    duration_ms = cohort_query_duration.as_millis(),
+                    person_id = person_id,
+                    cohort_count = static_cohort_ids.len(),
+                    "Cohort query completed"
+                );
+            }
 
             let cohort_processing_timer =
                 common_metrics::timing_guard(FLAG_COHORT_PROCESSING_TIME, &[]);
@@ -332,10 +305,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
 
     // Always add distinct_id to person properties to match Python implementation
     // This allows flags to filter on distinct_id even when no other person properties exist
-    all_person_properties.insert(
-        "distinct_id".to_string(),
-        Value::String(distinct_id.clone()),
-    );
+    all_person_properties.insert("distinct_id".to_string(), Value::String(distinct_id));
 
     flag_evaluation_state.set_person_properties(all_person_properties);
     person_processing_timer.fin();
@@ -357,36 +327,38 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             group_type_indexes.iter().copied().collect();
         let group_keys_vec: Vec<String> = group_keys.iter().cloned().collect();
 
-        let _group_timer = QueryTimer::new("Group query", FLAG_GROUP_QUERY_TIME);
+        let group_query_start = Instant::now();
+        let group_query_timer = common_metrics::timing_guard(FLAG_GROUP_QUERY_TIME, &[]);
+        let groups = sqlx::query(group_query)
+            .bind(team_id)
+            .bind(&group_type_indexes_vec)
+            .bind(&group_keys_vec)
+            .fetch_all(&mut *conn)
+            .await?;
+        group_query_timer.fin();
 
-        let groups = {
-            let mut conn = reader.get_connection().await?;
-            // DUAL TIMEOUT APPROACH: Client-side fails fast, server-side cancels query
-            timeout(
-                Duration::from_millis(config.flag_group_query_timeout_ms),
-                sqlx::query(group_query)
-                    .bind(team_id)
-                    .bind(&group_type_indexes_vec)
-                    .bind(&group_keys_vec)
-                    .fetch_all(&mut *conn),
-            )
-            .await
-            .map_err(|_| {
-                warn!("Group query timeout");
-                FlagError::TimeoutError(Some("Group query".to_string()))
-            })?
-            .map_err(|e: sqlx::Error| FlagError::from(e))?
-        };
+        let group_query_duration = group_query_start.elapsed();
 
-        let group_query_duration = _group_timer.elapsed_ms();
-
-        // Use structured logging helper
-        log_query_duration("Group query", group_query_duration, config, || {
-            let results = groups.len();
-            format!(
-                "team_id={team_id}, group_type_indexes={group_type_indexes_vec:?}, group_keys={group_keys_vec:?}, results={results}"
-            )
-        });
+        if group_query_duration.as_millis() > 300 {
+            warn!(
+                duration_ms = group_query_duration.as_millis(),
+                team_id = team_id,
+                group_type_count = group_type_indexes_vec.len(),
+                group_key_count = group_keys_vec.len(),
+                sql_summary =
+                    "SELECT group properties with UNNEST for group_type_index, group_key pairs",
+                "Slow group query detected"
+            );
+        } else {
+            info!(
+                duration_ms = group_query_duration.as_millis(),
+                team_id = team_id,
+                group_type_count = group_type_indexes_vec.len(),
+                group_key_count = group_keys_vec.len(),
+                result_count = groups.len(),
+                "Group query completed"
+            );
+        }
 
         let group_processing_timer = common_metrics::timing_guard(FLAG_GROUP_PROCESSING_TIME, &[]);
         for row in groups {
@@ -399,29 +371,6 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             }
         }
         group_processing_timer.fin();
-    }
-
-    // Log if the entire function took too long - use structured logging
-    let total_duration = function_start.elapsed();
-    let total_duration_ms = total_duration.as_millis();
-
-    if total_duration_ms > config.flag_total_execution_error_threshold_ms as u128 {
-        error!(
-            duration_ms = total_duration_ms,
-            %team_id,
-            %distinct_id,
-            had_person = flag_evaluation_state.get_person_id().is_some(),
-            cohort_count = static_cohort_ids.len(),
-            group_count = group_type_indexes.len(),
-            "CRITICAL: Total property fetch exceeded threshold"
-        );
-    } else if total_duration_ms > config.flag_total_execution_warn_threshold_ms as u128 {
-        warn!(
-            duration_ms = total_duration_ms,
-            %team_id,
-            %distinct_id,
-            "Slow total property fetch"
-        );
     }
 
     Ok(())
@@ -490,6 +439,45 @@ fn should_retry_on_error(error: &FlagError) -> bool {
     }
 }
 
+/// Classify and track database errors
+fn classify_and_track_error(error: &FlagError, operation: &str, will_retry: bool) {
+    let (error_type, timeout_subtype) = match error {
+        FlagError::DatabaseError(sqlx_error, _) => {
+            let err_type = if common_database::is_foreign_key_constraint_error(sqlx_error) {
+                "foreign_key"
+            } else if common_database::is_transient_error(sqlx_error) {
+                "transient"
+            } else if common_database::is_timeout_error(sqlx_error) {
+                "timeout"
+            } else {
+                match sqlx_error {
+                    sqlx::Error::PoolTimedOut | sqlx::Error::PoolClosed => "connection",
+                    _ => "unknown",
+                }
+            };
+            (err_type, None)
+        }
+        FlagError::TimeoutError(timeout_type) => {
+            let subtype = timeout_type.as_ref().map(|s| s.as_str());
+            ("timeout", subtype)
+        }
+        _ => return, // Only track database-related errors
+    };
+
+    let mut labels = vec![
+        ("error_type".to_string(), error_type.to_string()),
+        ("operation".to_string(), operation.to_string()),
+        ("retried".to_string(), will_retry.to_string()),
+    ];
+
+    // Add timeout subtype if available
+    if let Some(subtype) = timeout_subtype {
+        labels.push(("timeout_type".to_string(), subtype.to_string()));
+    }
+
+    common_metrics::inc(FLAG_DATABASE_ERROR_COUNTER, &labels, 1);
+}
+
 /// Check if all properties match the given filters
 pub fn all_properties_match(
     flag_condition_properties: &[PropertyFilter],
@@ -552,7 +540,6 @@ pub async fn get_feature_flag_hash_key_overrides(
     reader: PostgresReader,
     team_id: TeamId,
     distinct_id_and_hash_key_override: Vec<String>,
-    config: &Config,
 ) -> Result<HashMap<String, String>, FlagError> {
     let retry_strategy = ExponentialBackoff::from_millis(50)
         .max_delay(Duration::from_millis(300))
@@ -565,13 +552,17 @@ pub async fn get_feature_flag_hash_key_overrides(
             &reader,
             team_id,
             &distinct_id_and_hash_key_override,
-            config,
         )
         .await;
 
         // Log retry attempts for observability
         if let Err(ref e) = result {
-            if should_retry_on_error(e) {
+            let will_retry = should_retry_on_error(e);
+
+            // Track error classification
+            classify_and_track_error(e, "get_hash_key_overrides", will_retry);
+
+            if will_retry {
                 // Increment retry counter for monitoring
                 common_metrics::inc(
                     FLAG_HASH_KEY_RETRIES_COUNTER,
@@ -601,18 +592,23 @@ pub async fn get_feature_flag_hash_key_overrides(
 
 /// Internal function that performs the actual hash key override retrieval.
 /// This is separated to make it easy to retry with tokio-retry.
-#[instrument(skip_all, fields(
-    team_id = %team_id,
-    distinct_ids = ?distinct_id_and_hash_key_override
-))]
 async fn try_get_feature_flag_hash_key_overrides(
     reader: &PostgresReader,
     team_id: TeamId,
     distinct_id_and_hash_key_override: &[String],
-    config: &Config,
 ) -> Result<HashMap<String, String>, FlagError> {
-    let function_start = Instant::now();
     let mut feature_flag_hash_key_overrides = HashMap::new();
+    let labels = [
+        ("pool".to_string(), "reader".to_string()),
+        (
+            "operation".to_string(),
+            "get_feature_flag_hash_key_overrides".to_string(),
+        ),
+    ];
+    let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
+    let mut conn = reader.as_ref().get_connection().await?;
+    conn_timer.fin();
+
     // Get person data and their hash key overrides in one query
     let hash_override_query = r#"
             SELECT
@@ -629,42 +625,27 @@ async fn try_get_feature_flag_hash_key_overrides(
         "#;
 
     let query_start = Instant::now();
-
-    // Get connection, execute query, then immediately release
-    let rows = {
-        let mut conn = reader.get_connection().await?;
-        let query_result = timeout(
-            Duration::from_millis(config.flag_hash_key_override_query_timeout_ms),
-            sqlx::query(hash_override_query)
-                .bind(team_id)
-                .bind(distinct_id_and_hash_key_override)
-                .fetch_all(&mut *conn),
-        )
-        .await;
-
-        match query_result {
-            Ok(Ok(result)) => result,
-            Ok(Err(e)) => return Err(e.into()),
-            Err(_) => {
-                warn!(
-                    "Hash key override query timeout for team_id={}, distinct_ids={:?}",
-                    team_id, distinct_id_and_hash_key_override
-                );
-                return Err(FlagError::TimeoutError(Some(
-                    "Hash key override query exceeded 500ms".to_string(),
-                )));
-            }
-        }
-    }; // Connection is dropped here
-
+    let rows = sqlx::query(hash_override_query)
+        .bind(team_id)
+        .bind(distinct_id_and_hash_key_override)
+        .fetch_all(&mut *conn)
+        .await?;
     let query_duration = query_start.elapsed();
-    if query_duration.as_millis() > config.flag_query_slow_warn_threshold_ms as u128 {
+
+    if query_duration.as_millis() > 200 {
         warn!(
-            "Slow hash key override query: {}ms for team_id={}, distinct_ids={}, results={}",
-            query_duration.as_millis(),
-            team_id,
-            distinct_id_and_hash_key_override.len(),
-            rows.len()
+            duration_ms = query_duration.as_millis(),
+            team_id = team_id,
+            distinct_id_count = distinct_id_and_hash_key_override.len(),
+            sql_summary = "SELECT person_id, hash_key overrides with LEFT JOIN",
+            "Slow hash override lookup query detected"
+        );
+    } else {
+        info!(
+            duration_ms = query_duration.as_millis(),
+            team_id = team_id,
+            distinct_id_count = distinct_id_and_hash_key_override.len(),
+            "Hash override lookup query completed"
         );
     }
 
@@ -706,24 +687,6 @@ async fn try_get_feature_flag_hash_key_overrides(
         feature_flag_hash_key_overrides.insert(feature_flag_key, hash_key);
     }
 
-    let total_duration = function_start.elapsed();
-    if total_duration.as_millis() > config.flag_query_slow_error_threshold_ms as u128 {
-        error!(
-            "CRITICAL: Hash key override retrieval took {}ms! team_id={}, distinct_ids={}, overrides_found={}",
-            total_duration.as_millis(),
-            team_id,
-            distinct_id_and_hash_key_override.len(),
-            feature_flag_hash_key_overrides.len()
-        );
-    } else if total_duration.as_millis() > config.flag_query_slow_warn_threshold_ms as u128 {
-        warn!(
-            "Slow hash key override retrieval: {}ms for team_id={}, distinct_ids={}",
-            total_duration.as_millis(),
-            team_id,
-            distinct_id_and_hash_key_override.len()
-        );
-    }
-
     Ok(feature_flag_hash_key_overrides)
 }
 
@@ -738,7 +701,6 @@ pub async fn set_feature_flag_hash_key_overrides(
     distinct_ids: Vec<String>,
     project_id: ProjectId,
     hash_key_override: String,
-    config: &Config,
 ) -> Result<bool, FlagError> {
     let retry_strategy = ExponentialBackoff::from_millis(100)
         .max_delay(Duration::from_millis(300))
@@ -753,13 +715,15 @@ pub async fn set_feature_flag_hash_key_overrides(
             &distinct_ids,
             project_id,
             &hash_key_override,
-            config,
         )
         .await;
 
         // Only retry on foreign key constraint errors (person deletion race condition)
         match &result {
             Err(e) if flag_error_is_foreign_key_constraint(e) => {
+                // Track error classification
+                classify_and_track_error(e, "set_hash_key_overrides", true);
+
                 // Increment retry counter for monitoring
                 common_metrics::inc(
                     FLAG_HASH_KEY_RETRIES_COUNTER,
@@ -784,7 +748,12 @@ pub async fn set_feature_flag_hash_key_overrides(
                 result
             }
             // For other errors, don't retry - return immediately to stop retrying
-            Err(_) => result,
+            Err(e) => {
+                // Track error classification for non-retried errors
+                classify_and_track_error(e, "set_hash_key_overrides", false);
+
+                result
+            }
             // Success case - return the result
             Ok(_) => result,
         }
@@ -794,20 +763,13 @@ pub async fn set_feature_flag_hash_key_overrides(
 
 /// Internal function that performs the actual hash key override setting.
 /// This is separated to make it easy to retry with tokio-retry.
-#[instrument(skip_all, fields(
-    team_id = %team_id,
-    distinct_ids = ?distinct_ids,
-    project_id = %project_id
-))]
 async fn try_set_feature_flag_hash_key_overrides(
     router: &PostgresRouter,
     team_id: TeamId,
     distinct_ids: &[String],
     project_id: ProjectId,
     hash_key_override: &str,
-    config: &Config,
 ) -> Result<bool, FlagError> {
-    let function_start = Instant::now();
     // Get connection from persons writer for the transaction
     let persons_labels = [
         ("pool".to_string(), "persons_writer".to_string()),
@@ -866,10 +828,9 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "set_hash_key_overrides".to_string(),
             ),
         ];
+        let person_query_start = Instant::now();
         let person_query_timer =
             common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &person_query_labels);
-
-        let person_query_start = Instant::now();
         let person_data_rows = sqlx::query(person_data_query)
             .bind(team_id)
             .bind(distinct_ids)
@@ -877,14 +838,22 @@ async fn try_set_feature_flag_hash_key_overrides(
             .await
             .map_err(FlagError::from)?;
         person_query_timer.fin();
-
         let person_query_duration = person_query_start.elapsed();
-        if person_query_duration.as_millis() > config.flag_query_slow_warn_threshold_ms as u128 {
+
+        if person_query_duration.as_millis() > 200 {
             warn!(
-                "Slow person data query in hash key override set: {}ms for team_id={}, distinct_ids={}",
-                person_query_duration.as_millis(),
-                team_id,
-                distinct_ids.len()
+                duration_ms = person_query_duration.as_millis(),
+                team_id = team_id,
+                distinct_id_count = distinct_ids.len(),
+                sql_summary = "SELECT person_id with LEFT JOIN to existing hash_key overrides",
+                "Slow person data query detected in set_hash_key_overrides"
+            );
+        } else {
+            info!(
+                duration_ms = person_query_duration.as_millis(),
+                team_id = team_id,
+                distinct_id_count = distinct_ids.len(),
+                "Person data query completed in set_hash_key_overrides"
             );
         }
 
@@ -940,23 +909,30 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "set_hash_key_overrides".to_string(),
             ),
         ];
+        let flags_query_start = Instant::now();
         let flags_query_timer =
             common_metrics::timing_guard(FLAG_DEFINITION_QUERY_TIME, &flags_labels);
-
-        let flags_query_start = Instant::now();
         let flag_rows = sqlx::query(flags_query)
             .bind(project_id)
             .fetch_all(&mut *non_persons_conn)
             .await
             .map_err(FlagError::from)?;
         flags_query_timer.fin();
-
         let flags_query_duration = flags_query_start.elapsed();
-        if flags_query_duration.as_millis() > config.flag_query_slow_warn_threshold_ms as u128 {
+
+        if flags_query_duration.as_millis() > 200 {
             warn!(
-                "Slow flags query in hash key override set: {}ms for project_id={}",
-                flags_query_duration.as_millis(),
-                project_id
+                duration_ms = flags_query_duration.as_millis(),
+                project_id = project_id,
+                sql_summary =
+                    "SELECT active feature flags with ensure_experience_continuity = true",
+                "Slow active flags query detected in set_hash_key_overrides"
+            );
+        } else {
+            info!(
+                duration_ms = flags_query_duration.as_millis(),
+                project_id = project_id,
+                "Active flags query completed in set_hash_key_overrides"
             );
         }
 
@@ -996,15 +972,8 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "set_hash_key_overrides".to_string(),
             ),
         ];
-        let insert_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &insert_labels);
-
         let insert_start = Instant::now();
-        info!(
-            "Bulk inserting hash key overrides: {} records for team_id={}",
-            person_ids_to_insert.len(),
-            team_id
-        );
-
+        let insert_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &insert_labels);
         let result = sqlx::query(bulk_insert_query)
             .bind(team_id)
             .bind(hash_key_override)
@@ -1014,21 +983,22 @@ async fn try_set_feature_flag_hash_key_overrides(
             .await
             .map_err(FlagError::from)?;
         insert_timer.fin();
-
         let insert_duration = insert_start.elapsed();
-        if insert_duration.as_millis() > config.flag_query_slow_error_threshold_ms as u128 {
-            error!(
-                "CRITICAL: Bulk insert took {}ms! team_id={}, records={}",
-                insert_duration.as_millis(),
-                team_id,
-                person_ids_to_insert.len()
-            );
-        } else if insert_duration.as_millis() > config.flag_query_slow_warn_threshold_ms as u128 {
+
+        if insert_duration.as_millis() > 200 {
             warn!(
-                "Slow bulk insert: {}ms for team_id={}, records={}",
-                insert_duration.as_millis(),
-                team_id,
-                person_ids_to_insert.len()
+                duration_ms = insert_duration.as_millis(),
+                team_id = team_id,
+                row_count = person_ids_to_insert.len(),
+                sql_summary = "INSERT INTO hash_key_override with UNNEST bulk insert",
+                "Slow bulk insert query detected in set_hash_key_overrides"
+            );
+        } else {
+            info!(
+                duration_ms = insert_duration.as_millis(),
+                team_id = team_id,
+                row_count = person_ids_to_insert.len(),
+                "Bulk insert query completed in set_hash_key_overrides"
             );
         }
 
@@ -1036,44 +1006,12 @@ async fn try_set_feature_flag_hash_key_overrides(
     }
     .await;
 
-    let total_duration = function_start.elapsed();
-
     match result {
         Ok(rows_affected) => {
             // Commit the transaction if successful
-            let commit_start = Instant::now();
             transaction.commit().await.map_err(|e| {
                 FlagError::DatabaseError(e, Some("Failed to commit transaction".to_string()))
             })?;
-
-            let commit_duration = commit_start.elapsed();
-            if commit_duration.as_millis() > config.flag_query_slow_warn_threshold_ms as u128 {
-                warn!(
-                    "Slow transaction commit: {}ms for team_id={}",
-                    commit_duration.as_millis(),
-                    team_id
-                );
-            }
-
-            if total_duration.as_millis() > config.flag_total_execution_error_threshold_ms as u128 {
-                error!(
-                    "CRITICAL: Total hash key override set took {}ms! team_id={}, distinct_ids={}, rows_affected={}",
-                    total_duration.as_millis(),
-                    team_id,
-                    distinct_ids.len(),
-                    rows_affected
-                );
-            } else if total_duration.as_millis()
-                > config.flag_total_execution_warn_threshold_ms as u128
-            {
-                warn!(
-                    "Slow hash key override set: {}ms for team_id={}, distinct_ids={}",
-                    total_duration.as_millis(),
-                    team_id,
-                    distinct_ids.len()
-                );
-            }
-
             Ok(rows_affected > 0)
         }
         Err(e) => {
@@ -1280,6 +1218,19 @@ async fn try_should_write_hash_key_override(
             ),
         ];
 
+        // Track that we're about to hold multiple connections
+        common_metrics::inc(
+            FLAG_MULTI_CONNECTION_OPERATION_COUNTER,
+            &[
+                ("operation".to_string(), "should_write_hash_key_override".to_string()),
+                ("connection_count".to_string(), "2".to_string()),
+            ],
+            1,
+        );
+
+        // Start tracking connection overlap time
+        let overlap_start = persons_conn_start;
+
         // Log that we're holding one connection while acquiring another
         info!(
             team_id = %team_id,
@@ -1331,6 +1282,16 @@ async fn try_should_write_hash_key_override(
             }
         }
 
+        // Record connection overlap time (time holding both connections)
+        common_metrics::histogram(
+            FLAG_CONNECTION_OVERLAP_TIME_MS,
+            &[
+                ("operation".to_string(), "should_write_hash_key_override".to_string()),
+                ("connection_count".to_string(), "2".to_string()),
+            ],
+            overlap_start.elapsed().as_millis() as f64,
+        );
+
         // Record how long both connections were held
         common_metrics::histogram(
             FLAG_CONNECTION_HOLD_TIME,
@@ -1371,6 +1332,22 @@ async fn try_should_write_hash_key_override(
             Err(e)
         }
         Err(_) => {
+            // Track client timeout
+            common_metrics::inc(
+                FLAG_CLIENT_TIMEOUT_COUNTER,
+                &[
+                    (
+                        "operation".to_string(),
+                        "should_write_hash_key_override".to_string(),
+                    ),
+                    (
+                        "timeout_ms".to_string(),
+                        QUERY_TIMEOUT.as_millis().to_string(),
+                    ),
+                ],
+                1,
+            );
+
             // Capture all pool states on timeout
             let persons_reader_stats = router.get_persons_reader().get_pool_stats();
             let non_persons_reader_stats = router.get_non_persons_reader().get_pool_stats();
@@ -1415,7 +1392,7 @@ async fn try_should_write_hash_key_override(
 }
 
 #[cfg(test)]
-pub fn get_fetch_calls_count() -> usize {
+pub fn get_fetch_calls_count() -> u64 {
     FETCH_CALLS.with(|counter| *counter.borrow())
 }
 
@@ -1499,7 +1476,6 @@ mod tests {
             vec![distinct_id.clone()],
             team.project_id,
             "hash_key_2".to_string(),
-            &context.config,
         )
         .await
         .unwrap();
@@ -1613,7 +1589,6 @@ mod tests {
             distinct_ids.clone(),
             team.project_id,
             hash_key.clone(),
-            &context.config,
         )
         .await
         .expect("Failed to set hash key overrides");
@@ -1750,7 +1725,6 @@ mod tests {
             distinct_ids.clone(),
             team.project_id,
             new_hash.clone(),
-            &context.config,
         )
         .await
         .expect("Failed to set hash key overrides");
@@ -1898,7 +1872,6 @@ mod tests {
             vec!["filter_test_user".to_string()],
             team.project_id,
             "filter_hash".to_string(),
-            &context.config,
         )
         .await
         .expect("Should not error");
@@ -1992,7 +1965,6 @@ mod tests {
             vec!["should_write_user".to_string()],
             team.project_id,
             "hash_key_1".to_string(),
-            &context.config,
         )
         .await
         .expect("Failed to set override");
@@ -2067,7 +2039,6 @@ mod tests {
             ],
             team.project_id,
             "some_hash".to_string(),
-            &context.config,
         )
         .await
         .expect("Should not error even with non-existent users");

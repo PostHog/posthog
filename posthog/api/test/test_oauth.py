@@ -399,6 +399,8 @@ class TestOAuthAPI(APIBaseTest):
         self.assertIn("expires_in", data)
         self.assertIn("refresh_token", data)
         self.assertIn("scope", data)
+        self.assertIn("scoped_teams", data)
+        self.assertIn("scoped_organizations", data)
 
         access_token = data["access_token"]
         refresh_token = data["refresh_token"]
@@ -538,6 +540,8 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertIn("access_token", token_response_data)
         self.assertIn("refresh_token", token_response_data)
+        self.assertIn("scoped_teams", token_response_data)
+        self.assertEqual(token_response_data["scoped_teams"], scoped_teams)
 
         access_token = OAuthAccessToken.objects.get(token=token_response_data["access_token"])
 
@@ -562,6 +566,8 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertIn("access_token", refresh_token_response_data)
         self.assertIn("refresh_token", refresh_token_response_data)
+        self.assertIn("scoped_teams", refresh_token_response_data)
+        self.assertEqual(refresh_token_response_data["scoped_teams"], scoped_teams)
 
         access_token = OAuthAccessToken.objects.get(token=refresh_token_response_data["access_token"])
 
@@ -610,6 +616,9 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(token_response.status_code, status.HTTP_200_OK)
         token_response_data = token_response.json()
 
+        self.assertIn("scoped_organizations", token_response_data)
+        self.assertEqual(token_response_data["scoped_organizations"], scoped_organizations)
+
         access_token = OAuthAccessToken.objects.get(token=token_response_data["access_token"])
 
         self.assertEqual(access_token.scoped_organizations, scoped_organizations)
@@ -632,6 +641,8 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertIn("access_token", refresh_token_response_data)
         self.assertIn("refresh_token", refresh_token_response_data)
+        self.assertIn("scoped_organizations", refresh_token_response_data)
+        self.assertEqual(refresh_token_response_data["scoped_organizations"], scoped_organizations)
 
         access_token = OAuthAccessToken.objects.get(token=refresh_token_response_data["access_token"])
 
@@ -1924,3 +1935,54 @@ class TestOAuthAPI(APIBaseTest):
         location = response.get("Location")
         assert location
         self.assertIn("error=invalid_scope", location)
+
+    def test_token_endpoint_with_json_payload(self):
+        grant = OAuthGrant.objects.create(
+            application=self.confidential_application,
+            user=self.user,
+            code="test_json_code",
+            code_challenge=self.code_challenge,
+            code_challenge_method="S256",
+            redirect_uri="https://example.com/callback",
+            expires=timezone.now() + timedelta(minutes=5),
+            scoped_organizations=[],
+            scoped_teams=[],
+        )
+
+        token_data = {
+            "grant_type": "authorization_code",
+            "code": grant.code,
+            "client_id": "test_confidential_client_id",
+            "client_secret": "test_confidential_client_secret",
+            "redirect_uri": "https://example.com/callback",
+            "code_verifier": self.code_verifier,
+        }
+
+        response = self.client.post(
+            "/oauth/token/",
+            data=token_data,
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertIn("access_token", response_data)
+        self.assertIn("refresh_token", response_data)
+        self.assertIn("token_type", response_data)
+        self.assertIn("scoped_teams", response_data)
+        self.assertIn("scoped_organizations", response_data)
+        self.assertEqual(response_data["token_type"], "Bearer")
+        self.assertEqual(response_data["scoped_teams"], [])
+        self.assertEqual(response_data["scoped_organizations"], [])
+
+    def test_token_endpoint_with_invalid_json_payload(self):
+        response = self.client.post(
+            "/oauth/token/",
+            data="invalid json{{{",
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response_data = response.json()
+        self.assertEqual(response_data["error"], "invalid_request")
+        self.assertIn("Invalid JSON", response_data["error_description"])

@@ -41,8 +41,8 @@ class final_answer(base_final_answer[FinalAnswerArgs]):
 
 
 class HogQLGeneratorToolkit(TaxonomyAgentToolkit):
-    def __init__(self, team: Team):
-        super().__init__(team)
+    def __init__(self, team: Team, user: User):
+        super().__init__(team, user)
 
     def _get_custom_tools(self) -> list:
         """Get custom tools for the HogQLGenerator."""

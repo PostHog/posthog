@@ -211,10 +211,17 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
     attribution_mode = serializers.ChoiceField(
         choices=[(mode.value, mode.value.replace("_", " ").title()) for mode in AttributionMode], required=False
     )
+    campaign_name_mappings = serializers.JSONField(required=False)
 
     class Meta:
         model = TeamMarketingAnalyticsConfig
-        fields = ["sources_map", "conversion_goals", "attribution_window_days", "attribution_mode"]
+        fields = [
+            "sources_map",
+            "conversion_goals",
+            "attribution_window_days",
+            "attribution_mode",
+            "campaign_name_mappings",
+        ]
 
     def update(self, instance, validated_data):
         # Handle sources_map with partial updates
@@ -239,6 +246,9 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
 
         if "attribution_mode" in validated_data:
             instance.attribution_mode = validated_data["attribution_mode"]
+
+        if "campaign_name_mappings" in validated_data:
+            instance.campaign_name_mappings = validated_data["campaign_name_mappings"]
 
         instance.save()
         return instance

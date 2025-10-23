@@ -1,5 +1,6 @@
 # ruff: noqa: T201 allow print statements
 
+import os
 import logging
 import secrets
 import datetime as dt
@@ -81,8 +82,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "--staff",
             action="store_true",
-            default=False,
-            help="Create a staff user",
+            default=True,
+            help="Whether the demo user should be a staff user (default: True)",
         )
         parser.add_argument(
             "--skip-materialization",
@@ -109,12 +110,19 @@ class Command(BaseCommand):
         now = options.get("now") or dt.datetime.now(dt.UTC)
         existing_team_id = options.get("team_id")
         existing_team: Optional[Team] = None
+
         if existing_team_id is not None and existing_team_id != 0:
             try:
                 existing_team = Team.objects.get(pk=existing_team_id)
             except Team.DoesNotExist:
                 print(f"Team with ID {options['team_id']} does not exist!")
                 return
+
+        if os.environ.get("CI") is None and existing_team_id is None and Team.objects.count() != 0:
+            print("No team ID provided and database is not empty. Aborting.")
+            print("Either pass a team ID or reset your database before running this command.")
+            return
+
         print("Instantiating the Matrix...")
         try:
             RelevantMatrix = {"hedgebox": HedgeboxMatrix, "spikegpt": SpikeGPTMatrix}[options["product"]]

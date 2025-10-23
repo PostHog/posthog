@@ -115,11 +115,11 @@ class final_answer(base_final_answer[ErrorTrackingIssueImpactToolOutput]):
 
 
 class ErrorTrackingIssueImpactToolkit(TaxonomyAgentToolkit):
-    def __init__(self, team: Team):
-        super().__init__(team)
+    def __init__(self, team: Team, user: User):
+        super().__init__(team, user)
 
-    async def handle_tools(self, tool_name: str, tool_input: TaxonomyTool) -> tuple[str, str]:
-        return await super().handle_tools(tool_name, tool_input)
+    async def handle_tools(self, tool_metadata: dict[str, list[tuple[TaxonomyTool, str]]]) -> dict[str, str]:
+        return await super().handle_tools(tool_metadata)
 
     def _get_custom_tools(self) -> list:
         return [final_answer]

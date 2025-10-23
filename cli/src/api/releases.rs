@@ -189,7 +189,7 @@ impl ReleaseBuilder {
             Ok(response)
         } else {
             let e = response.text()?;
-            Err(anyhow::anyhow!("Failed to create release: {}", e))
+            Err(anyhow::anyhow!("Failed to create release: {e}"))
         }
     }
 }

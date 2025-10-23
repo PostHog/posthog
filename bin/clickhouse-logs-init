@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# temporary script to init logs clickhouse schema before we've got migrations setup properly
+bin/check_kafka_clickhouse_up
+
+cat bin/clickhouse-logs.sql | docker-compose exec -T clickhouse clickhouse-client

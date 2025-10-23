@@ -115,7 +115,8 @@ IMPORTANT: DO NOT REMOVE ANY FIELDS FROM THE CURRENT INSIGHT DEFINITION. DO NOT 
         state = AssistantState.model_validate(state_dict)
 
         result = state.messages[-1]
-        viz_message = [message for message in state.messages if isinstance(message, VisualizationMessage)][-1]
+        viz_messages = [message for message in state.messages if isinstance(message, VisualizationMessage)]
+        viz_message = viz_messages[-1] if viz_messages else None
         if not viz_message:
             raise ValueError("Visualization was not generated")
         if not isinstance(result, AssistantToolCallMessage):

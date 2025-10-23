@@ -18,11 +18,7 @@ class ConversationSummarizer:
         self._team = team
 
     async def summarize(self, messages: Sequence[BaseMessage]) -> str:
-        prompt = (
-            ChatPromptTemplate.from_messages([("system", SYSTEM_PROMPT)])
-            + messages
-            + ChatPromptTemplate.from_messages([("user", USER_PROMPT)])
-        )
+        prompt = self._construct_messages(messages)
         model = self._get_model()
         chain = prompt | model | StrOutputParser() | self._parse_xml_tags
         response: str = await chain.ainvoke({})  # Do not pass config here, so the node doesn't stream
@@ -30,6 +26,13 @@ class ConversationSummarizer:
 
     @abstractmethod
     def _get_model(self): ...
+
+    def _construct_messages(self, messages: Sequence[BaseMessage]):
+        return (
+            ChatPromptTemplate.from_messages([("system", SYSTEM_PROMPT)])
+            + messages
+            + ChatPromptTemplate.from_messages([("user", USER_PROMPT)])
+        )
 
     def _parse_xml_tags(self, message: str) -> str:
         """
@@ -54,7 +57,7 @@ class ConversationSummarizer:
 class AnthropicConversationSummarizer(ConversationSummarizer):
     def _get_model(self):
         return MaxChatAnthropic(
-            model="claude-sonnet-4-5",
+            model="claude-haiku-4-5",
             streaming=False,
             stream_usage=False,
             max_tokens=8192,
@@ -62,3 +65,16 @@ class AnthropicConversationSummarizer(ConversationSummarizer):
             user=self._user,
             team=self._team,
         )
+
+    def _construct_messages(self, messages: Sequence[BaseMessage]):
+        """Removes cache_control headers."""
+        messages_without_cache: list[BaseMessage] = []
+        for message in messages:
+            if isinstance(message.content, list):
+                message = message.model_copy(deep=True)
+                for content in message.content:
+                    if isinstance(content, dict) and "cache_control" in content:
+                        content.pop("cache_control")
+            messages_without_cache.append(message)
+
+        return super()._construct_messages(messages_without_cache)

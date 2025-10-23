@@ -21,7 +21,7 @@ from posthog.hogql.database.database import SerializedField, create_hogql_databa
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import FindPlaceholders
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -350,7 +350,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             raise exceptions.ValidationError(detail="Filters and placeholder expressions are not allowed in views")
 
         try:
-            print_ast(
+            prepare_and_print_ast(
                 node=select_ast,
                 context=context,
                 dialect="clickhouse",

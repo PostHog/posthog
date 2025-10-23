@@ -692,34 +692,6 @@ export function BatchExportsEditFields({
                         </LemonField>
 
                         {isNew ? (
-                            <LemonField
-                                name="table_partition_field"
-                                label="Table partition field"
-                                showOptional
-                                info={
-                                    <>
-                                        The field to partition the table by. If left empty, the default partition by
-                                        field for the model will be used (if applicable). For more information, refer to
-                                        the{' '}
-                                        <Link
-                                            to="https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-partition"
-                                            target="_blank"
-                                        >
-                                            Databricks documentation
-                                        </Link>
-                                        .
-                                        <br />
-                                        <strong>
-                                            This setting cannot be changed after the batch export is created.
-                                        </strong>
-                                    </>
-                                }
-                            >
-                                <LemonInput placeholder="my-partition-field" />
-                            </LemonField>
-                        ) : null}
-
-                        {isNew ? (
                             <LemonField name="use_variant_type">
                                 {({ value, onChange }) => (
                                     <LemonCheckbox

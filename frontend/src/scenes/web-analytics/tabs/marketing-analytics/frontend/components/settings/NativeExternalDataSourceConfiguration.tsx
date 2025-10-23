@@ -14,7 +14,7 @@ import { FEATURE_FLAGS } from '~/lib/constants'
 import { ExternalDataSource } from '~/types'
 
 import { useSortedPaginatedList } from '../../hooks/useSortedPaginatedList'
-import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
+import { MarketingSourceStatus, SourceStatus, marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import {
     MAX_ITEMS_TO_SHOW,
     NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
@@ -26,7 +26,7 @@ import { ItemName, PaginationControls } from './PaginationControls'
 import { StatusIcon } from './StatusIcon'
 
 export function NativeExternalDataSourceConfiguration(): JSX.Element {
-    const { nativeSources, loading } = useValues(marketingAnalyticsLogic)
+    const { nativeSourcesWithStatus, loading } = useValues(marketingAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const validNativeSources = featureFlags[FEATURE_FLAGS.META_ADS_DWH]
         ? VALID_NATIVE_MARKETING_SOURCES
@@ -68,9 +68,8 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
         }
     }
 
-    const isSourceFullyConfigured = (source: ExternalDataSource): boolean => {
-        const { syncingCount, totalRequired } = getSourceSyncInfo(source)
-        return totalRequired > 0 && syncingCount === totalRequired
+    const isSourceFullyConfigured = (source: ExternalDataSource & { status?: string }): boolean => {
+        return source.status === 'Completed'
     }
 
     const {
@@ -80,35 +79,11 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
         showAll,
         setShowAll,
     } = useSortedPaginatedList({
-        items: nativeSources,
+        items: nativeSourcesWithStatus,
         maxItemsToShow: MAX_ITEMS_TO_SHOW,
         getId: (source) => source.id,
         isItemConfigured: isSourceFullyConfigured,
     })
-
-    const getSourceStatus = (source: ExternalDataSource): { isConfigured: boolean; message: string } => {
-        if (!source.schemas || source.schemas.length === 0) {
-            return { isConfigured: false, message: 'No schemas configured' }
-        }
-
-        const { syncingCount, totalRequired, tablesToSync } = getSourceSyncInfo(source)
-
-        if (totalRequired === 0) {
-            return { isConfigured: false, message: 'Unknown source type' }
-        }
-
-        if (syncingCount === totalRequired) {
-            return { isConfigured: true, message: 'Ready to use! All required fields are syncing.' }
-        }
-
-        const missingCount = totalRequired - syncingCount
-        return {
-            isConfigured: false,
-            message: `${missingCount} field${missingCount > 1 ? 's' : ''} need to be synced: ${tablesToSync.join(
-                ', '
-            )}`,
-        }
-    }
 
     return (
         <SceneSection
@@ -140,14 +115,20 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
                         key: 'source',
                         title: '',
                         width: 0,
-                        render: (_, item: ExternalDataSource): JSX.Element => {
+                        render: (
+                            _,
+                            item: ExternalDataSource & { status?: string; statusMessage?: string }
+                        ): JSX.Element => {
                             return <DataWarehouseSourceIcon type={item.source_type} />
                         },
                     },
                     {
                         key: 'prefix',
                         title: 'Source',
-                        render: (_, item: ExternalDataSource): JSX.Element => {
+                        render: (
+                            _,
+                            item: ExternalDataSource & { status?: string; statusMessage?: string }
+                        ): JSX.Element => {
                             return (
                                 <Link to={urls.dataWarehouseSource(`managed-${item.id}`)}>
                                     {item.prefix || item.source_type}
@@ -159,7 +140,10 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
                         key: 'syncing',
                         title: 'Tables Syncing',
                         width: 150,
-                        render: (_, item: ExternalDataSource): JSX.Element => {
+                        render: (
+                            _,
+                            item: ExternalDataSource & { status?: string; statusMessage?: string }
+                        ): JSX.Element => {
                             const { syncingTables } = getSourceSyncInfo(item)
                             return <ListDisplay list={syncingTables} />
                         },
@@ -168,7 +152,10 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
                         key: 'to_sync',
                         title: 'Tables to Sync',
                         width: 150,
-                        render: (_, item: ExternalDataSource): JSX.Element => {
+                        render: (
+                            _,
+                            item: ExternalDataSource & { status?: string; statusMessage?: string }
+                        ): JSX.Element => {
                             const { tablesToSync } = getSourceSyncInfo(item)
                             return <ListDisplay list={tablesToSync} />
                         },
@@ -177,21 +164,26 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
                         key: 'status',
                         title: 'Status',
                         width: 80,
-                        render: (_, item: ExternalDataSource): JSX.Element => {
-                            const { isConfigured, message } = getSourceStatus(item)
-
-                            if (isConfigured) {
-                                return <StatusIcon status="success" message={message} />
-                            }
-                            const hasAnySchemas = item.schemas && item.schemas.length > 0
-                            return <StatusIcon status={hasAnySchemas ? 'warning' : 'error'} message={message} />
+                        render: (
+                            _,
+                            item: ExternalDataSource & { status?: string; statusMessage?: string }
+                        ): JSX.Element => {
+                            return (
+                                <StatusIcon
+                                    status={(item.status as SourceStatus) || MarketingSourceStatus.Error}
+                                    message={item.statusMessage || 'Unknown status'}
+                                />
+                            )
                         },
                     },
                     {
                         key: 'actions',
                         title: 'Actions',
                         width: 80,
-                        render: (_, item: ExternalDataSource): JSX.Element => {
+                        render: (
+                            _,
+                            item: ExternalDataSource & { status?: string; statusMessage?: string }
+                        ): JSX.Element => {
                             return (
                                 <LemonButton
                                     icon={<IconGear />}

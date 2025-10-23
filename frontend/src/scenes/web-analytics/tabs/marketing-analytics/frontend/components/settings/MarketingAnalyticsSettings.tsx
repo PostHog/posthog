@@ -1,4 +1,7 @@
+import { LemonCollapse } from '@posthog/lemon-ui'
+
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
@@ -7,6 +10,7 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { AttributionSettings } from './AttributionSettings'
+import { CampaignNameMappingsConfiguration } from './CampaignNameMappingsConfiguration'
 import { ConversionGoalsConfiguration } from './ConversionGoalsConfiguration'
 import { NativeExternalDataSourceConfiguration } from './NativeExternalDataSourceConfiguration'
 import { NonNativeExternalDataSourceConfiguration } from './NonNativeExternalDataSourceConfiguration'
@@ -46,6 +50,18 @@ export function MarketingAnalyticsSettings({
             <NonNativeExternalDataSourceConfiguration />
             <SceneDivider />
             <SelfManagedExternalDataSourceConfiguration />
+            <SceneDivider />
+            <FlaggedFeature flag="advance-marketing-analytics-settings">
+                <LemonCollapse
+                    panels={[
+                        {
+                            key: 'advanced-marketing-settings',
+                            header: 'Advanced marketing settings',
+                            content: <CampaignNameMappingsConfiguration />,
+                        },
+                    ]}
+                />
+            </FlaggedFeature>
         </SceneContent>
     )
 }

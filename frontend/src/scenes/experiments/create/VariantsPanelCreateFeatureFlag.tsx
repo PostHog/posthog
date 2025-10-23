@@ -66,12 +66,27 @@ export const VariantsPanelCreateFeatureFlag = ({
     ]
 
     const ensureExperienceContinuity =
-        (experiment.parameters as { ensure_experience_continuity?: boolean })?.ensure_experience_continuity ?? true
+        (experiment.parameters as { ensure_experience_continuity?: boolean })?.ensure_experience_continuity ?? false
 
     const variantRolloutSum = variants.reduce((sum, { rollout_percentage }) => sum + rollout_percentage, 0)
     const areVariantRolloutsValid =
         variants.every(({ rollout_percentage }) => rollout_percentage >= 0 && rollout_percentage <= 100) &&
         variantRolloutSum === 100
+
+    const areVariantKeysValid = variants.every(({ key }) => key && key.trim().length > 0)
+    const variantKeys = variants.map(({ key }) => key)
+    const hasDuplicateKeys = variantKeys.length !== new Set(variantKeys).size
+    const hasZeroRolloutVariants =
+        variants.some(({ rollout_percentage }) => rollout_percentage === 0) && variantRolloutSum !== 100
+
+    // Check if specific variant has an error
+    const hasVariantError = (index: number): boolean => {
+        const variant = variants[index]
+        const isEmpty = !variant.key || variant.key.trim().length === 0
+        const isDuplicate = variantKeys.filter((k) => k === variant.key).length > 1
+        const hasZeroRollout = variant.rollout_percentage === 0 && variantRolloutSum !== 100
+        return isEmpty || isDuplicate || hasZeroRollout
+    }
 
     const updateVariant = (index: number, updates: Partial<MultivariateFlagVariant>): void => {
         const newVariants = [...variants]
@@ -200,14 +215,24 @@ export const VariantsPanelCreateFeatureFlag = ({
                         </div>
                     </div>
                     {variants.map((variant, index) => (
-                        <div key={variant.key} className="grid grid-cols-24 gap-2 mb-2">
+                        <div
+                            key={index}
+                            className={`grid grid-cols-24 gap-2 mb-2 p-2 rounded ${
+                                hasVariantError(index)
+                                    ? 'bg-danger-highlight border border-danger'
+                                    : 'bg-transparent border border-transparent'
+                            }`}
+                        >
                             <div className="flex items-center justify-center">
                                 <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
                             </div>
                             <div className="col-span-4">
                                 <LemonInput
                                     value={variant.key}
-                                    onChange={(value) => updateVariant(index, { key: value })}
+                                    disabledReason={
+                                        variant.key === 'control' ? 'Control variant cannot be changed' : null
+                                    }
+                                    onChange={(value) => updateVariant(index, { key: value.replace(/\s+/g, '-') })}
                                     data-attr="experiment-variant-key"
                                     data-key-index={index.toString()}
                                     className="ph-ignore-input"
@@ -261,6 +286,15 @@ export const VariantsPanelCreateFeatureFlag = ({
                         <p className="text-danger">
                             Percentage rollouts for variants must sum to 100 (currently {variantRolloutSum}).
                         </p>
+                    )}
+                    {variants.length > 0 && !areVariantKeysValid && (
+                        <p className="text-danger">All variants must have a key.</p>
+                    )}
+                    {variants.length > 0 && hasDuplicateKeys && (
+                        <p className="text-danger">Variant keys must be unique.</p>
+                    )}
+                    {variants.length > 0 && hasZeroRolloutVariants && (
+                        <p className="text-danger">All variants must have a rollout percentage greater than 0.</p>
                     )}
                     {variants.length < MAX_EXPERIMENT_VARIANTS && (
                         <LemonButton type="secondary" onClick={addVariant} icon={<IconPlus />} center>

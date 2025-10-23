@@ -8,7 +8,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 
 import { hogqlQuery } from '~/queries/query'
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
-import { HogQLQueryString, hogql } from '~/queries/utils'
+import { hogql } from '~/queries/utils'
 import { DataWarehouseViewLink } from '~/types'
 
 import { ViewLinkKeyLabel } from './ViewLinkModal'
@@ -382,21 +382,15 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 return
             }
             try {
-                const sourceKeyExpression = `${values.selectedSourceTableName}.${sourceTableKey}`
-                const joiningKeyExpression = `${values.selectedJoiningTableName}.${joiningTableKey}`
-                const response = await hogqlQuery(
-                    `
-                    SELECT ${sourceKeyExpression} as source_key, ${joiningKeyExpression} as joining_key
-                    FROM ${values.selectedSourceTableName}
-                    JOIN ${values.selectedJoiningTableName}
-                    ON ${sourceKeyExpression} = ${joiningKeyExpression}
-                    LIMIT 10` as HogQLQueryString
-                )
-                if (response.results.length === 0) {
-                    actions.setValidationWarning('No matching data found between source and joining tables.')
-                    actions.setIsJoinValid(false)
-                } else {
-                    actions.setIsJoinValid(true)
+                const response = await api.dataWarehouseViewLinks.validate({
+                    source_table_name: values.selectedSourceTableName,
+                    source_table_key: sourceTableKey,
+                    joining_table_name: values.selectedJoiningTableName,
+                    joining_table_key: joiningTableKey,
+                })
+                actions.setIsJoinValid(response.is_valid)
+                if (response.msg) {
+                    actions.setValidationWarning(response.msg)
                 }
             } catch (error: any) {
                 actions.setValidationError(error.detail)

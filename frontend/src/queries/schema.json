@@ -7923,6 +7923,13 @@
                     "$ref": "#/definitions/DataTableNodeViewPropsContext",
                     "description": "Context for the table, used by components like ColumnConfigurator"
                 },
+                "defaultColumns": {
+                    "description": "Default columns to use when resetting column configuration",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "embedded": {
                     "description": "Uses the embedded version of LemonTable",
                     "type": "boolean"
@@ -14705,6 +14712,12 @@
         "HogQLMetadataResponse": {
             "additionalProperties": false,
             "properties": {
+                "ch_table_names": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "errors": {
                     "items": {
                         "$ref": "#/definitions/HogQLNotice"
@@ -14872,6 +14885,9 @@
                     "type": "string"
                 },
                 "optimizeJoinedFilters": {
+                    "type": "boolean"
+                },
+                "optimizeProjections": {
                     "type": "boolean"
                 },
                 "personsArgMaxVersion": {
@@ -15960,6 +15976,9 @@
         "LLMTrace": {
             "additionalProperties": false,
             "properties": {
+                "aiSessionId": {
+                    "type": "string"
+                },
                 "createdAt": {
                     "type": "string"
                 },
@@ -16643,6 +16662,18 @@
                 },
                 "attribution_window_days": {
                     "type": "number"
+                },
+                "campaign_name_mappings": {
+                    "additionalProperties": {
+                        "additionalProperties": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "type": "object"
+                    },
+                    "type": "object"
                 },
                 "conversion_goals": {
                     "items": {
@@ -17466,6 +17497,9 @@
                 },
                 {
                     "$ref": "#/definitions/RecordingPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/GroupPropertyFilter"
                 }
             ]
         },
@@ -18871,6 +18905,12 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "ch_table_names": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
                         "errors": {
                             "items": {
                                 "$ref": "#/definitions/HogQLNotice"
@@ -24068,6 +24108,13 @@
                 "context": {
                     "$ref": "#/definitions/DataTableNodeViewPropsContext",
                     "description": "Context for the table, used by components like ColumnConfigurator"
+                },
+                "defaultColumns": {
+                    "description": "Default columns to use when resetting column configuration",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "embedded": {
                     "description": "Query is embedded inside another bordered component",

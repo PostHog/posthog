@@ -36,7 +36,7 @@ from products.batch_exports.backend.temporal.destinations.http_batch_export impo
     http_default_fields,
     insert_into_http_activity,
 )
-from products.batch_exports.backend.tests.temporal.utils import mocked_start_batch_export_run
+from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
 
 pytestmark = [
     pytest.mark.asyncio,

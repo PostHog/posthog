@@ -127,7 +127,7 @@
 }
 
 .button-primitive--variant-outline {
-    border: 1px solid var(--color-border-secondary);
+    border: 1px solid var(--color-border-primary);
 
     &:not([aria-disabled='true']) {
         &[data-active='true'],

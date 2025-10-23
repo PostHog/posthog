@@ -100,7 +100,8 @@ def dereference_schema(schema: dict) -> dict:
 
 
 def find_start_message_idx(messages: Sequence[AssistantMessageUnion], start_id: str | None = None) -> int:
-    for idx, msg in enumerate(messages):
+    for idx in range(len(messages) - 1, -1, -1):
+        msg = messages[idx]
         if isinstance(msg, HumanMessage) and msg.id == start_id:
             return idx
     return 0

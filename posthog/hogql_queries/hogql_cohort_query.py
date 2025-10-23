@@ -37,7 +37,7 @@ from posthog.hogql.ast import SelectQuery, SelectSetNode, SelectSetQuery
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property import get_property_type
 from posthog.hogql.query import HogQLQueryExecutor
 
@@ -136,7 +136,7 @@ class HogQLCohortQuery:
         return self._get_conditions()
 
     def query_str(self, dialect: Literal["hogql", "clickhouse"]):
-        return print_ast(self.get_query(), self.hogql_context, dialect, pretty=True)
+        return prepare_and_print_ast(self.get_query(), self.hogql_context, dialect, pretty=True)[0]
 
     def _get_series(self, prop: Property, math=None):
         if prop.event_type == "events":

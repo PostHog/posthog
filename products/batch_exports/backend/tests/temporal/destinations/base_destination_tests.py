@@ -40,11 +40,11 @@ from products.batch_exports.backend.temporal.metrics import BATCH_EXPORT_ACTIVIT
 from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue
-from products.batch_exports.backend.tests.temporal.utils import (
-    fail_on_application_error,
+from products.batch_exports.backend.tests.temporal.utils.records import (
     get_record_batch_from_queue,
     remove_duplicates_from_records,
 )
+from products.batch_exports.backend.tests.temporal.utils.workflow import fail_on_application_error
 
 
 class RetryableTestException(Exception):

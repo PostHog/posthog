@@ -50,10 +50,8 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
 )
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue
-from products.batch_exports.backend.tests.temporal.utils import (
-    get_record_batch_from_queue,
-    mocked_start_batch_export_run,
-)
+from products.batch_exports.backend.tests.temporal.utils.records import get_record_batch_from_queue
+from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
