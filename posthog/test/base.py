@@ -1451,7 +1451,7 @@ def snapshot_hogql_queries(fn_or_class):
     """
     from posthog.hogql import ast
     from posthog.hogql.context import HogQLContext
-    from posthog.hogql.printer import print_ast
+    from posthog.hogql.printer import print_ast  # type: ignore[attr-defined]
 
     # check if fn_or_class is a class
     if inspect.isclass(fn_or_class):
