@@ -1615,16 +1615,22 @@ wheels = [
 
 [[package]]
 name = "django-structlog"
-version = "2.1.3"
+version = "9.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "asgiref" },
     { name = "django" },
     { name = "django-ipware" },
     { name = "structlog" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/33/a5/81685c81a673811f9a18c61e7d967e5ad4d6f4e12f08e61ca676265bac44/django-structlog-2.1.3.tar.gz", hash = "sha256:eda70d97217a14f610a59f0d638e5206c59861c5031584c67f0017c88bfdf6c0", size = 13673, upload-time = "2021-09-29T01:14:36.192Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6b/8c/cc2711def7a365ce5ff4cee73a57f7ca329369a02715adf7090b208f71fe/django_structlog-9.1.1.tar.gz", hash = "sha256:14342c6c824581f1e063c88a8bc52314cd67995a3bd4a4fc8c27ea37ccd78947", size = 22948, upload-time = "2025-04-07T12:56:35.262Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f9/15/b4181fb493d870844c7fa09e9677773f6c5b4c449711704db449dfa5da72/django_structlog-2.1.3-py3-none-any.whl", hash = "sha256:4923f944e35b26920efba5e3254672b55dae064ed5b747c194c4eb3400ac0ee1", size = 13017, upload-time = "2021-09-29T01:14:33.859Z" },
+    { url = "https://files.pythonhosted.org/packages/ec/c5/c43b4182464e0dada9674c3e9602222023808ad3be39663074b5f9080a8c/django_structlog-9.1.1-py3-none-any.whl", hash = "sha256:5b6ac3abdf6549e94ccb35160b1f10266f1627c3ac77844571235a08a1ddae66", size = 18087, upload-time = "2025-04-07T12:56:33.394Z" },
+]
+
+[package.optional-dependencies]
+celery = [
+    { name = "celery" },
 ]
 
 [[package]]
@@ -4186,7 +4192,7 @@ dependencies = [
     { name = "django-prometheus" },
     { name = "django-redis" },
     { name = "django-statsd" },
-    { name = "django-structlog" },
+    { name = "django-structlog", extra = ["celery"] },
     { name = "django-two-factor-auth" },
     { name = "djangorestframework" },
     { name = "djangorestframework-csv" },
@@ -4426,7 +4432,7 @@ requires-dist = [
     { name = "django-prometheus", specifier = "==2.2.0" },
     { name = "django-redis", specifier = "==5.2.0" },
     { name = "django-statsd", specifier = "==2.5.2" },
-    { name = "django-structlog", specifier = "==2.1.3" },
+    { name = "django-structlog", extras = ["celery"], specifier = "~=9.1.0" },
     { name = "django-two-factor-auth", specifier = "~=1.18.0" },
     { name = "djangorestframework", specifier = "~=3.16.1" },
     { name = "djangorestframework-csv", specifier = "~=3.0.2" },
@@ -4493,7 +4499,7 @@ requires-dist = [
     { name = "pyarrow", specifier = "==18.1.0" },
     { name = "pydantic", specifier = "==2.10.3" },
     { name = "pydantic-avro", specifier = ">=0.9.0" },
-    { name = "pyjwt", specifier = "==2.4.0" },
+    { name = "pyjwt", specifier = "~=2.7.0" },
     { name = "pymongo", specifier = "==4.13.2" },
     { name = "pympler", specifier = "==1.1" },
     { name = "pymssql", specifier = "==2.3.5" },
@@ -4516,8 +4522,8 @@ requires-dist = [
     { name = "slack-sdk", specifier = "==3.17.1" },
     { name = "snowflake-connector-python", specifier = "==3.15.0" },
     { name = "snowflake-sqlalchemy", specifier = "==1.7.3" },
-    { name = "social-auth-app-django", specifier = "==5.0.0" },
-    { name = "social-auth-core", specifier = "==4.3.0" },
+    { name = "social-auth-app-django", specifier = "~=5.4.0" },
+    { name = "social-auth-core", specifier = "~=4.7.0" },
     { name = "sqlalchemy", specifier = "==2.0.38" },
     { name = "sqlalchemy-bigquery", extras = ["bqstorage"], specifier = "==1.12.1" },
     { name = "sqlparse", specifier = "==0.4.4" },
@@ -4607,7 +4613,7 @@ dev = [
     { name = "types-python-dateutil", specifier = ">=2.8.3" },
     { name = "types-pytz", specifier = "==2023.3" },
     { name = "types-pyyaml", specifier = "==6.0.1" },
-    { name = "types-redis", specifier = "==4.3.20" },
+    { name = "types-redis", specifier = "==4.6.0.20241004" },
     { name = "types-requests", specifier = "==2.31.0.6" },
     { name = "types-retry", specifier = "==0.9.9.4" },
     { name = "types-tzlocal", specifier = "~=5.1.0.1" },
@@ -4983,11 +4989,11 @@ wheels = [
 
 [[package]]
 name = "pyjwt"
-version = "2.4.0"
+version = "2.7.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/d8/6b/6287745054dbcccf75903630346be77d4715c594402cec7c2518032416c2/PyJWT-2.4.0.tar.gz", hash = "sha256:d42908208c699b3b973cbeb01a969ba6a96c821eefb1c5bfe4c390c01d67abba", size = 66327, upload-time = "2022-05-12T18:58:21.274Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e0/f0/9804c72e9a314360c135f42c434eb42eaabb5e7ebad760cbd8fc7023be38/PyJWT-2.7.0.tar.gz", hash = "sha256:bd6ca4a3c4285c1a2d4349e5a035fdf8fb94e04ccd0fcbe6ba289dae9cc3e074", size = 77902, upload-time = "2023-05-09T20:04:43.179Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1c/fb/b82e9601b00d88cf8bbee1f39b855ae773f9d5bcbcedb3801b2f72460696/PyJWT-2.4.0-py3-none-any.whl", hash = "sha256:72d1d253f32dbd4f5c88eaf1fdc62f3a19f676ccbadb9dbc5d07e951b2b26daf", size = 18228, upload-time = "2022-05-12T18:58:19.269Z" },
+    { url = "https://files.pythonhosted.org/packages/c7/e8/01b2e35d81e618a8212e651e10c91660bdfda49c1d15ce66f4ca1ff43649/PyJWT-2.7.0-py3-none-any.whl", hash = "sha256:ba2b425b15ad5ef12f200dc67dd56af4e26de2331f965c5439994dad075876e1", size = 22366, upload-time = "2023-05-09T20:04:39.903Z" },
 ]
 
 [package.optional-dependencies]
@@ -5930,19 +5936,20 @@ wheels = [
 
 [[package]]
 name = "social-auth-app-django"
-version = "5.0.0"
+version = "5.4.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "django" },
     { name = "social-auth-core" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/27/3f/3bf9e031e43874def4f8bf3576c8b27e314aef493425741c35786fb9f07f/social-auth-app-django-5.0.0.tar.gz", hash = "sha256:b6e3132ce087cdd6e1707aeb1b588be41d318408fcf6395435da0bc6fe9a9795", size = 23674, upload-time = "2021-08-05T18:14:06.815Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2a/07/bb2465e4116d4761b028bd07b99087009caa81c1511c886d74c4ccece3a2/social_auth_app_django-5.4.3.tar.gz", hash = "sha256:d1f4286d5ca1e512c9b2f686e7ecb2a0128148f1a33d853b69dc07b58508362e", size = 24860, upload-time = "2025-02-13T13:07:34.557Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/08/00/fe5049b9fdcb8cd829eba30b068a311590722a91a576304b267e084aaeca/social_auth_app_django-5.0.0-py3-none-any.whl", hash = "sha256:52241a25445a010ab1c108bafff21fc5522d5c8cd0d48a92c39c7371824b065d", size = 24255, upload-time = "2021-08-05T18:14:05.798Z" },
+    { url = "https://files.pythonhosted.org/packages/e0/cd/43a25dabdf7689109b01ac866848c984594769ec3cbc5ce4c261b4895237/social_auth_app_django-5.4.3-py3-none-any.whl", hash = "sha256:db70b972faeb10ee1ec83d0dc7dbd0558d5f5830417bba317b712b10ff58d031", size = 26241, upload-time = "2025-02-13T13:07:32.787Z" },
 ]
 
 [[package]]
 name = "social-auth-core"
-version = "4.3.0"
+version = "4.7.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
@@ -5953,9 +5960,9 @@ dependencies = [
     { name = "requests" },
     { name = "requests-oauthlib" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e7/f4/b556a8134490002597bbaa9cbaa6a71546bf6ad96b5d1a513656f49cb517/social-auth-core-4.3.0.tar.gz", hash = "sha256:4686f0e43cf12954216875a32e944847bb1dc69e7cd9573d16a9003bb05ca477", size = 196813, upload-time = "2022-06-13T08:43:08.628Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/87/c0/466383c22767604c573f15aff3ea2c37aacf3c10281f31199c02ac0017ef/social_auth_core-4.7.0.tar.gz", hash = "sha256:2bba127c7b7166a81085ddb0c248d93751b3bc3cdab8569f62d9f70c6bc4ed40", size = 230894, upload-time = "2025-06-27T06:34:27.15Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/60/f9/5387e450842d785f4e100e3766bf0d2a8aa44acad619459cf7abff72a9c5/social_auth_core-4.3.0-py3-none-any.whl", hash = "sha256:1e3440d104f743b02dfe258c9d4dba5b4065abf24b2f7eb362b47054d21797df", size = 343029, upload-time = "2022-06-13T08:43:07.151Z" },
+    { url = "https://files.pythonhosted.org/packages/e3/3e/1b1ed868b840ecf5e7b02fc8ab20718ac24e184b90057815fee2ebbc107d/social_auth_core-4.7.0-py3-none-any.whl", hash = "sha256:9eef9b49c332d1a3265b37dcc698a7ace97c3fc59df2d874b51576d11d31f6a6", size = 427867, upload-time = "2025-06-27T06:34:25.715Z" },
 ]
 
 [[package]]
@@ -6687,6 +6694,18 @@ wheels = [
 ]
 
 [[package]]
+name = "types-cffi"
+version = "1.17.0.20250915"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "types-setuptools" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2a/98/ea454cea03e5f351323af6a482c65924f3c26c515efd9090dede58f2b4b6/types_cffi-1.17.0.20250915.tar.gz", hash = "sha256:4362e20368f78dabd5c56bca8004752cc890e07a71605d9e0d9e069dbaac8c06", size = 17229, upload-time = "2025-09-15T03:01:25.31Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/aa/ec/092f2b74b49ec4855cdb53050deb9699f7105b8fda6fe034c0781b8687f3/types_cffi-1.17.0.20250915-py3-none-any.whl", hash = "sha256:cef4af1116c83359c11bb4269283c50f0688e9fc1d7f0eeb390f3661546da52c", size = 20112, upload-time = "2025-09-15T03:01:24.187Z" },
+]
+
+[[package]]
 name = "types-freezegun"
 version = "1.1.10"
 source = { registry = "https://pypi.org/simple" }
@@ -6735,6 +6754,19 @@ wheels = [
 ]
 
 [[package]]
+name = "types-pyopenssl"
+version = "24.1.0.20240722"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "types-cffi" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/93/29/47a346550fd2020dac9a7a6d033ea03fccb92fa47c726056618cc889745e/types-pyOpenSSL-24.1.0.20240722.tar.gz", hash = "sha256:47913b4678a01d879f503a12044468221ed8576263c1540dcb0484ca21b08c39", size = 8458, upload-time = "2024-07-22T02:32:22.558Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/98/05/c868a850b6fbb79c26f5f299b768ee0adc1f9816d3461dcf4287916f655b/types_pyOpenSSL-24.1.0.20240722-py3-none-any.whl", hash = "sha256:6a7a5d2ec042537934cfb4c9d4deb0e16c4c6250b09358df1f083682fe6fda54", size = 7499, upload-time = "2024-07-22T02:32:21.232Z" },
+]
+
+[[package]]
 name = "types-python-dateutil"
 version = "2.9.0.20250516"
 source = { registry = "https://pypi.org/simple" }
@@ -6763,11 +6795,15 @@ wheels = [
 
 [[package]]
 name = "types-redis"
-version = "4.3.20"
+version = "4.6.0.20241004"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/b3/42/cea94d0019128bc9fdd2da0363c88ecc177230ecc9bd678bf11d7ed266df/types-redis-4.3.20.tar.gz", hash = "sha256:74ed02945470ddea2dd21447c185dabb3169e5a5328d26b25cf3547d949b8e04", size = 42201, upload-time = "2022-09-02T12:38:49.163Z" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "types-pyopenssl" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3a/95/c054d3ac940e8bac4ca216470c80c26688a0e79e09f520a942bb27da3386/types-redis-4.6.0.20241004.tar.gz", hash = "sha256:5f17d2b3f9091ab75384153bfa276619ffa1cf6a38da60e10d5e6749cc5b902e", size = 49679, upload-time = "2024-10-04T02:43:59.224Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/aa/54/f0224d2310a95031e32760be52961507ef15c73682aac5a8f6f5ad3f8d0f/types_redis-4.3.20-py3-none-any.whl", hash = "sha256:b22e0f5a18b98b6a197dd403daed52a22cb76f50e3cbd7ddc539196af52ec23e", size = 51390, upload-time = "2022-09-02T12:38:47.491Z" },
+    { url = "https://files.pythonhosted.org/packages/55/82/7d25dce10aad92d2226b269bce2f85cfd843b4477cd50245d7d40ecf8f89/types_redis-4.6.0.20241004-py3-none-any.whl", hash = "sha256:ef5da68cb827e5f606c8f9c0b49eeee4c2669d6d97122f301d3a55dc6a63f6ed", size = 58737, upload-time = "2024-10-04T02:43:57.968Z" },
 ]
 
 [[package]]
@@ -6798,6 +6834,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/42/c1/45038f259d6741c252801044e184fec4dbaeff939a58f6160d7c32bf4975/types_s3transfer-0.13.0.tar.gz", hash = "sha256:203dadcb9865c2f68fb44bc0440e1dc05b79197ba4a641c0976c26c9af75ef52", size = 14175, upload-time = "2025-05-28T02:16:07.614Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c8/5d/6bbe4bf6a79fb727945291aef88b5ecbdba857a603f1bbcf1a6be0d3f442/types_s3transfer-0.13.0-py3-none-any.whl", hash = "sha256:79c8375cbf48a64bff7654c02df1ec4b20d74f8c5672fc13e382f593ca5565b3", size = 19588, upload-time = "2025-05-28T02:16:06.709Z" },
+]
+
+[[package]]
+name = "types-setuptools"
+version = "80.9.0.20250822"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/19/bd/1e5f949b7cb740c9f0feaac430e301b8f1c5f11a81e26324299ea671a237/types_setuptools-80.9.0.20250822.tar.gz", hash = "sha256:070ea7716968ec67a84c7f7768d9952ff24d28b65b6594797a464f1b3066f965", size = 41296, upload-time = "2025-08-22T03:02:08.771Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b6/2d/475bf15c1cdc172e7a0d665b6e373ebfb1e9bf734d3f2f543d668b07a142/types_setuptools-80.9.0.20250822-py3-none-any.whl", hash = "sha256:53bf881cb9d7e46ed12c76ef76c0aaf28cfe6211d3fab12e0b83620b1a8642c3", size = 63179, upload-time = "2025-08-22T03:02:07.643Z" },
 ]
 
 [[package]]

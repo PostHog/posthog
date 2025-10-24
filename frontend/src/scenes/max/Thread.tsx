@@ -96,7 +96,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
     return (
         <div
             className={twMerge(
-                '@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-1.5 grow mx-auto',
+                '@container/thread flex flex-col items-stretch w-full max-w-180 self-center gap-1.5 grow mx-auto',
                 className
             )}
         >
@@ -970,7 +970,7 @@ function InsightSuggestionButton({ tabId }: { tabId: string }): JSX.Element {
                     }}
                     sideIcon={previousQuery ? <IconX /> : <IconRefresh />}
                     size="xsmall"
-                    tooltip={previousQuery ? "Reject Max's changes" : "Reapply Max's changes"}
+                    tooltip={previousQuery ? 'Reject changes' : 'Reapply changes'}
                 />
             )}
         </>

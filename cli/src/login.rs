@@ -17,9 +17,10 @@ pub fn login() -> Result<(), Error> {
         Text::new("Enter your project ID (the number in your posthog homepage url)").prompt()?;
 
     let token = Text::new(
-        "Enter your personal API token (see posthog.com/docs/api#private-endpoint-authentication)",
+        "Enter your personal API token",
     )
     .with_validator(token_validator)
+    .with_help_message("See posthog.com/docs/api#private-endpoint-authentication. It will need to have the 'error tracking write' scope.")
     .prompt()?;
 
     let token = Token {

@@ -30,7 +30,8 @@
 {% block content %}
 <div class="alert alert-info">
     <strong>Note:</strong> This tool triggers the Temporal workflow for analyzing actions. 
-    The analysis runs asynchronously in the background and processes all actions with bytecode.
+    Each action gets its own lightweight workflow for better reliability and observability.
+    The analysis runs asynchronously in the background and processes actions with bytecode.
     Check the Temporal UI for progress and results.
 </div>
 
@@ -79,6 +80,43 @@
                 <p class="help">{{ form.parallelism.help_text }}</p>
             {% endif %}
             {{ form.parallelism.errors }}
+        </div>
+    </fieldset>
+    
+    <fieldset class="module aligned">
+        <h2>Batch Scheduling (New)</h2>
+        
+        <div class="form-row">
+            <label for="{{ form.batch_size.id_for_label }}" class="required">
+                {{ form.batch_size.label }}:
+            </label>
+            {{ form.batch_size }}
+            {% if form.batch_size.help_text %}
+                <p class="help">{{ form.batch_size.help_text }}</p>
+            {% endif %}
+            {{ form.batch_size.errors }}
+        </div>
+        
+        <div class="form-row">
+            <label for="{{ form.batch_delay.id_for_label }}" class="required">
+                {{ form.batch_delay.label }}:
+            </label>
+            {{ form.batch_delay }}
+            {% if form.batch_delay.help_text %}
+                <p class="help">{{ form.batch_delay.help_text }}</p>
+            {% endif %}
+            {{ form.batch_delay.errors }}
+        </div>
+        
+        <div class="form-row">
+            <label for="{{ form.max_actions.id_for_label }}" class="required">
+                {{ form.max_actions.label }}:
+            </label>
+            {{ form.max_actions }}
+            {% if form.max_actions.help_text %}
+                <p class="help">{{ form.max_actions.help_text }}</p>
+            {% endif %}
+            {{ form.max_actions.errors }}
         </div>
     </fieldset>
     
