@@ -74,7 +74,7 @@ export const heatmapsSceneLogic = kea<heatmapsSceneLogicType>([
         ],
         pagination: [
             (s) => [s.filters, s.totalCount],
-            (filters, totalCount): PaginationManual => {
+            (filters: HeatmapSavedFilters, totalCount: number): PaginationManual => {
                 return {
                     controlled: true,
                     pageSize: HEATMAPS_PER_PAGE,
