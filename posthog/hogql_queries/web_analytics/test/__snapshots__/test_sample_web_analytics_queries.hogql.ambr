@@ -1,0 +1,935 @@
+# serializer version: 1
+# name: TestSampleWebAnalyticsQueries.test_web_overview_query_snapshot
+  '''
+  SELECT uniq(session_person_id) AS unique_users,
+         NULL AS previous_unique_users,
+         sum(filtered_pageview_count) AS total_filtered_pageview_count,
+         NULL AS previous_total_filtered_pageview_count,
+         uniq(session_id) AS unique_sessions,
+         NULL AS previous_unique_sessions,
+         avg(session_duration) AS avg_duration_s,
+         NULL AS previous_avg_duration_s,
+         avg(is_bounce) AS bounce_rate,
+         NULL AS previous_bounce_rate
+  FROM
+    (SELECT any(events.person_id) AS session_person_id,
+            session.session_id AS session_id,
+            min(session.$start_timestamp) AS start_timestamp,
+            any(session.$session_duration) AS session_duration,
+            countIf(or(equals(event, '$pageview'), equals(event, '$screen'))) AS filtered_pageview_count,
+            any(session.$is_bounce) AS is_bounce
+     FROM events
+     WHERE and(notEquals(events.$session_id, NULL), or(equals(event, '$pageview'), equals(event, '$screen')), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), 1)
+     GROUP BY session_id
+     HAVING or(and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false))
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_overview_with_event_filter_snapshot
+  '''
+  SELECT uniq(session_person_id) AS unique_users,
+         NULL AS previous_unique_users,
+         sum(filtered_pageview_count) AS total_filtered_pageview_count,
+         NULL AS previous_total_filtered_pageview_count,
+         uniq(session_id) AS unique_sessions,
+         NULL AS previous_unique_sessions,
+         avg(session_duration) AS avg_duration_s,
+         NULL AS previous_avg_duration_s,
+         avg(is_bounce) AS bounce_rate,
+         NULL AS previous_bounce_rate
+  FROM
+    (SELECT any(events.person_id) AS session_person_id,
+            session.session_id AS session_id,
+            min(session.$start_timestamp) AS start_timestamp,
+            any(session.$session_duration) AS session_duration,
+            countIf(or(equals(event, '$pageview'), equals(event, '$screen'))) AS filtered_pageview_count,
+            any(session.$is_bounce) AS is_bounce
+     FROM events
+     WHERE and(notEquals(events.$session_id, NULL), or(equals(event, '$pageview'), equals(event, '$screen')), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), equals(properties.$pathname, '/pricing'))
+     GROUP BY session_id
+     HAVING or(and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false))
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_overview_with_session_filter_snapshot
+  '''
+  SELECT uniq(session_person_id) AS unique_users,
+         NULL AS previous_unique_users,
+         sum(filtered_pageview_count) AS total_filtered_pageview_count,
+         NULL AS previous_total_filtered_pageview_count,
+         uniq(session_id) AS unique_sessions,
+         NULL AS previous_unique_sessions,
+         avg(session_duration) AS avg_duration_s,
+         NULL AS previous_avg_duration_s,
+         avg(is_bounce) AS bounce_rate,
+         NULL AS previous_bounce_rate
+  FROM
+    (SELECT any(events.person_id) AS session_person_id,
+            session.session_id AS session_id,
+            min(session.$start_timestamp) AS start_timestamp,
+            any(session.$session_duration) AS session_duration,
+            countIf(or(equals(event, '$pageview'), equals(event, '$screen'))) AS filtered_pageview_count,
+            any(session.$is_bounce) AS is_bounce
+     FROM events
+     WHERE and(notEquals(events.$session_id, NULL), or(equals(event, '$pageview'), equals(event, '$screen')), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), equals(session.$channel_type, 'Direct'))
+     GROUP BY session_id
+     HAVING or(and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false))
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_breakdown_browser
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(person_id) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            properties.$browser AS breakdown_value,
+            session.session_id AS session_id,
+            any(session.$is_bounce) AS is_bounce,
+            min(session.$start_timestamp) AS start_timestamp
+     FROM events
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_breakdown_city
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(person_id) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            tuple(properties.$geoip_country_code, properties.$geoip_city_name) AS breakdown_value,
+            session.session_id AS session_id,
+            any(session.$is_bounce) AS is_bounce,
+            min(session.$start_timestamp) AS start_timestamp
+     FROM events
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(tupleElement(breakdown_value, 2), NULL))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_breakdown_country
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(person_id) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            properties.$geoip_country_code AS breakdown_value,
+            session.session_id AS session_id,
+            any(session.$is_bounce) AS is_bounce,
+            min(session.$start_timestamp) AS start_timestamp
+     FROM events
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_breakdown_device_type
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(person_id) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            properties.$device_type AS breakdown_value,
+            session.session_id AS session_id,
+            any(session.$is_bounce) AS is_bounce,
+            min(session.$start_timestamp) AS start_timestamp
+     FROM events
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_breakdown_exit_click
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(person_id) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            session.$last_external_click_url AS breakdown_value,
+            session.session_id AS session_id,
+            any(session.$is_bounce) AS is_bounce,
+            min(session.$start_timestamp) AS start_timestamp
+     FROM events
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_breakdown_exit_page
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(person_id) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            session.$end_pathname AS breakdown_value,
+            session.session_id AS session_id,
+            any(session.$is_bounce) AS is_bounce,
+            min(session.$start_timestamp) AS start_timestamp
+     FROM events
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_breakdown_frustration_metrics
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(sum(rage_clicks_count), NULL) AS `context.columns.rage_clicks`,
+         tuple(sum(dead_clicks_count), NULL) AS `context.columns.dead_clicks`,
+         tuple(sum(errors_count), NULL) AS `context.columns.errors`
+  FROM
+    (SELECT any(person_id) AS filtered_person_id,
+            countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
+            events.properties.$pathname AS breakdown_value,
+            countIf(equals(events.event, '$exception')) AS errors_count,
+            countIf(equals(events.event, '$rageclick')) AS rage_clicks_count,
+            countIf(equals(events.event, '$dead_click')) AS dead_clicks_count,
+            session.session_id AS session_id,
+            min(session.$start_timestamp) AS start_timestamp
+     FROM events
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), in(events.event, tuple('$pageview', '$screen', '$rageclick', '$dead_click', '$exception')), 1, notEquals(breakdown_value, NULL))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.errors` DESC,
+           `context.columns.rage_clicks` DESC,
+           `context.columns.dead_clicks` DESC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_breakdown_initial_channel_type
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(person_id) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            session.$channel_type AS breakdown_value,
+            session.session_id AS session_id,
+            any(session.$is_bounce) AS is_bounce,
+            min(session.$start_timestamp) AS start_timestamp
+     FROM events
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, and(notEquals(breakdown_value, NULL), notEquals(breakdown_value, '')))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_breakdown_initial_page
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(person_id) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            session.$entry_pathname AS breakdown_value,
+            session.session_id AS session_id,
+            any(session.$is_bounce) AS is_bounce,
+            min(session.$start_timestamp) AS start_timestamp
+     FROM events
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_breakdown_initial_referring_domain
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(person_id) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            session.$entry_referring_domain AS breakdown_value,
+            session.session_id AS session_id,
+            any(session.$is_bounce) AS is_bounce,
+            min(session.$start_timestamp) AS start_timestamp
+     FROM events
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_breakdown_initial_utm_campaign
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(person_id) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            session.$entry_utm_campaign AS breakdown_value,
+            session.session_id AS session_id,
+            any(session.$is_bounce) AS is_bounce,
+            min(session.$start_timestamp) AS start_timestamp
+     FROM events
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, true)
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_breakdown_initial_utm_content
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(person_id) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            session.$entry_utm_content AS breakdown_value,
+            session.session_id AS session_id,
+            any(session.$is_bounce) AS is_bounce,
+            min(session.$start_timestamp) AS start_timestamp
+     FROM events
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, true)
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_breakdown_initial_utm_medium
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(person_id) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            session.$entry_utm_medium AS breakdown_value,
+            session.session_id AS session_id,
+            any(session.$is_bounce) AS is_bounce,
+            min(session.$start_timestamp) AS start_timestamp
+     FROM events
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, true)
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_breakdown_initial_utm_source
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(person_id) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            session.$entry_utm_source AS breakdown_value,
+            session.session_id AS session_id,
+            any(session.$is_bounce) AS is_bounce,
+            min(session.$start_timestamp) AS start_timestamp
+     FROM events
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, true)
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_breakdown_initial_utm_source_medium_campaign
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(person_id) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            concatWithSeparator(' / ', coalesce(session.$entry_utm_source, session.$entry_referring_domain, '(none)'), coalesce(session.$entry_utm_medium, '(none)'), coalesce(session.$entry_utm_campaign, '(none)')) AS breakdown_value,
+            session.session_id AS session_id,
+            any(session.$is_bounce) AS is_bounce,
+            min(session.$start_timestamp) AS start_timestamp
+     FROM events
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_breakdown_initial_utm_term
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(person_id) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            session.$entry_utm_term AS breakdown_value,
+            session.session_id AS session_id,
+            any(session.$is_bounce) AS is_bounce,
+            min(session.$start_timestamp) AS start_timestamp
+     FROM events
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, true)
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_breakdown_language
+  '''
+  SELECT arrayElement(splitByChar('-', assumeNotNull(breakdown_value), 2), 1) AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         arrayElement(topK(1)(arrayElement(splitByChar('-', assumeNotNull(breakdown_value), 2), 2)), 1) AS `context.columns.aggregation_value`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(person_id) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            properties.$browser_language AS breakdown_value,
+            session.session_id AS session_id,
+            any(session.$is_bounce) AS is_bounce,
+            min(session.$start_timestamp) AS start_timestamp
+     FROM events
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_breakdown_os
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(person_id) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            properties.$os AS breakdown_value,
+            session.session_id AS session_id,
+            any(session.$is_bounce) AS is_bounce,
+            min(session.$start_timestamp) AS start_timestamp
+     FROM events
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_breakdown_page
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(person_id) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            events.properties.$pathname AS breakdown_value,
+            session.session_id AS session_id,
+            any(session.$is_bounce) AS is_bounce,
+            min(session.$start_timestamp) AS start_timestamp
+     FROM events
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_breakdown_previous_page
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(person_id) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            multiIf(isNotNull(events.properties.$prev_pageview_pathname), events.properties.$prev_pageview_pathname, equals(domain(events.properties.$current_url), domain(events.properties.$referrer)), path(events.properties.$referrer), events.properties.$referrer) AS breakdown_value,
+            session.session_id AS session_id,
+            any(session.$is_bounce) AS is_bounce,
+            min(session.$start_timestamp) AS start_timestamp
+     FROM events
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_breakdown_region
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(person_id) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            tuple(properties.$geoip_country_code, properties.$geoip_subdivision_1_code, properties.$geoip_subdivision_1_name) AS breakdown_value,
+            session.session_id AS session_id,
+            any(session.$is_bounce) AS is_bounce,
+            min(session.$start_timestamp) AS start_timestamp
+     FROM events
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(tupleElement(breakdown_value, 2), NULL))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_breakdown_screen_name
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(person_id) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            events.properties.$screen_name AS breakdown_value,
+            session.session_id AS session_id,
+            any(session.$is_bounce) AS is_bounce,
+            min(session.$start_timestamp) AS start_timestamp
+     FROM events
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_breakdown_timezone
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(person_id) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            divide(minus(0, toFloat(properties.$timezone_offset)), 60) AS breakdown_value,
+            session.session_id AS session_id,
+            any(session.$is_bounce) AS is_bounce,
+            min(session.$start_timestamp) AS start_timestamp
+     FROM events
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_breakdown_viewport
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(person_id) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            tuple(properties.$viewport_width, properties.$viewport_height) AS breakdown_value,
+            session.session_id AS session_id,
+            any(session.$is_bounce) AS is_bounce,
+            min(session.$start_timestamp) AS start_timestamp
+     FROM events
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, and(notEquals(tupleElement(breakdown_value, 1), NULL), notEquals(tupleElement(breakdown_value, 2), NULL), notEquals(tupleElement(breakdown_value, 1), 0), notEquals(tupleElement(breakdown_value, 2), 0)))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_entry_paths_snapshot
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(person_id) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            session.$entry_pathname AS breakdown_value,
+            session.session_id AS session_id,
+            any(session.$is_bounce) AS is_bounce,
+            min(session.$start_timestamp) AS start_timestamp
+     FROM events
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_exit_paths_snapshot
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(person_id) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            session.$end_pathname AS breakdown_value,
+            session.session_id AS session_id,
+            any(session.$is_bounce) AS is_bounce,
+            min(session.$start_timestamp) AS start_timestamp
+     FROM events
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_paths_with_bounce_rate_snapshot
+  '''
+  SELECT counts.breakdown_value AS `context.columns.breakdown_value`,
+         tuple(counts.visitors, counts.previous_visitors) AS `context.columns.visitors`,
+         tuple(counts.views, counts.previous_views) AS `context.columns.views`,
+         tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS `context.columns.bounce_rate`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT breakdown_value,
+            uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59'))))) AS visitors,
+            uniqIf(filtered_person_id, false) AS previous_visitors,
+            sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59'))))) AS views,
+            sumIf(filtered_pageview_count, false) AS previous_views
+     FROM
+       (SELECT any(person_id) AS filtered_person_id,
+               count() AS filtered_pageview_count,
+               events.properties.$pathname AS breakdown_value,
+               session.session_id AS session_id,
+               min(session.$start_timestamp) AS start_timestamp
+        FROM events
+        WHERE and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), 1, 1, notEquals(breakdown_value, NULL))
+        GROUP BY session_id,
+                 breakdown_value)
+     GROUP BY breakdown_value) AS counts
+  LEFT JOIN
+    (SELECT breakdown_value,
+            avgIf(is_bounce, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59'))))) AS bounce_rate,
+            avgIf(is_bounce, false) AS previous_bounce_rate
+     FROM
+       (SELECT session.$entry_pathname AS breakdown_value,
+               any(session.$is_bounce) AS is_bounce,
+               session.session_id AS session_id,
+               min(session.$start_timestamp) AS start_timestamp
+        FROM events
+        WHERE and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), notEquals(breakdown_value, NULL), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), 1, 1)
+        GROUP BY session_id,
+                 breakdown_value)
+     GROUP BY breakdown_value) AS bounce ON equals(counts.breakdown_value, bounce.breakdown_value)
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_with_bounce_rate_snapshot
+  '''
+  SELECT counts.breakdown_value AS `context.columns.breakdown_value`,
+         tuple(counts.visitors, counts.previous_visitors) AS `context.columns.visitors`,
+         tuple(counts.views, counts.previous_views) AS `context.columns.views`,
+         tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS `context.columns.bounce_rate`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT breakdown_value,
+            uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59'))))) AS visitors,
+            uniqIf(filtered_person_id, false) AS previous_visitors,
+            sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59'))))) AS views,
+            sumIf(filtered_pageview_count, false) AS previous_views
+     FROM
+       (SELECT any(person_id) AS filtered_person_id,
+               count() AS filtered_pageview_count,
+               events.properties.$pathname AS breakdown_value,
+               session.session_id AS session_id,
+               min(session.$start_timestamp) AS start_timestamp
+        FROM events
+        WHERE and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), 1, 1, notEquals(breakdown_value, NULL))
+        GROUP BY session_id,
+                 breakdown_value)
+     GROUP BY breakdown_value) AS counts
+  LEFT JOIN
+    (SELECT breakdown_value,
+            avgIf(is_bounce, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59'))))) AS bounce_rate,
+            avgIf(is_bounce, false) AS previous_bounce_rate
+     FROM
+       (SELECT session.$entry_pathname AS breakdown_value,
+               any(session.$is_bounce) AS is_bounce,
+               session.session_id AS session_id,
+               min(session.$start_timestamp) AS start_timestamp
+        FROM events
+        WHERE and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), notEquals(breakdown_value, NULL), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), 1, 1)
+        GROUP BY session_id,
+                 breakdown_value)
+     GROUP BY breakdown_value) AS bounce ON equals(counts.breakdown_value, bounce.breakdown_value)
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_with_event_filter_snapshot
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(person_id) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            events.properties.$pathname AS breakdown_value,
+            session.session_id AS session_id,
+            any(session.$is_bounce) AS is_bounce,
+            min(session.$start_timestamp) AS start_timestamp
+     FROM events
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), equals(properties.$pathname, '/pricing'), notEquals(breakdown_value, NULL))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_with_session_filter_snapshot
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(person_id) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            properties.$device_type AS breakdown_value,
+            session.session_id AS session_id,
+            any(session.$is_bounce) AS is_bounce,
+            min(session.$start_timestamp) AS start_timestamp
+     FROM events
+     WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), equals(session.$channel_type, 'Direct'), notEquals(breakdown_value, NULL))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_trends_page_views_snapshot
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-01-31 23:59:59')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> equals(x, _match_date), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start
+     FROM
+       (SELECT count() AS total,
+               toStartOfDay(timestamp) AS day_start
+        FROM events AS e SAMPLE 1
+        WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59'))), equals(event, '$pageview'), notILike(toString(person.properties.email), '%@posthog.com%'))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_trends_sessions_snapshot
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-01-31 23:59:59')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> equals(x, _match_date), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start
+     FROM
+       (SELECT count(DISTINCT e.$session_id) AS total,
+               toStartOfDay(timestamp) AS day_start
+        FROM events AS e SAMPLE 1
+        WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59'))), equals(event, '$pageview'), notILike(toString(person.properties.email), '%@posthog.com%'))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_trends_unique_users_snapshot
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-01-31 23:59:59')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> equals(x, _match_date), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start
+     FROM
+       (SELECT count(DISTINCT e.person_id) AS total,
+               toStartOfDay(timestamp) AS day_start
+        FROM events AS e SAMPLE 1
+        WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59'))), equals(event, '$pageview'), notILike(toString(person.properties.email), '%@posthog.com%'))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000
+  '''
+  
+# ---
