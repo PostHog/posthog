@@ -113,11 +113,10 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
 
             writer = noop
 
-        dispatcher = AssistantDispatcher(
+        self._dispatcher = AssistantDispatcher(
             writer, node_name=self.node_name, parent_tool_call_id=self._parent_tool_call_id
         )
-        self._dispatcher = dispatcher
-        return dispatcher
+        return self._dispatcher
 
     async def _is_conversation_cancelled(self, conversation_id: UUID) -> bool:
         conversation = await self._aget_conversation(conversation_id)

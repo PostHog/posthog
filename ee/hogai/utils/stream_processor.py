@@ -40,11 +40,11 @@ class AssistantStreamProcessor:
     """Nodes that produce streaming messages."""
     _visualization_nodes: dict[MaxNodeName, type]
     """Nodes that produce visualization messages."""
-    _tool_call_id_to_message: dict[str, AssistantMessage] = {}
+    _tool_call_id_to_message: dict[str, AssistantMessage]
     """Maps tool call IDs to their parent messages for message chain tracking."""
-    _streamed_update_ids: set[str] = set()
+    _streamed_update_ids: set[str]
     """Tracks the IDs of messages that have been streamed."""
-    _chunks = AIMessageChunk(content="")
+    _chunks: AIMessageChunk
     """Tracks the current message chunk."""
 
     def process(self, event: AssistantDispatcherEvent) -> AssistantResultUnion | None:
@@ -87,42 +87,42 @@ class AssistantStreamProcessor:
         """
         self._streaming_nodes = streaming_nodes
         self._visualization_nodes = visualization_nodes
+        self._tool_call_id_to_message = {}
+        self._streamed_update_ids = set()
+        self._chunks = AIMessageChunk(content="")
 
     def _find_parent_ids(self, message: AssistantMessage) -> tuple[str | None, str | None]:
         """
-        Walk up the message chain to find the root parent's tool_call_id and message_id.
+        Walk up the message chain to find the root parent's message_id and tool_call_id.
 
-        Returns (message_id, parent_tool_call_id) for the root message in the chain.
+        Returns (root_message_id, root_tool_call_id) for the root message in the chain.
         Includes cycle detection and max depth protection.
         """
-        MAX_DEPTH = 100
-        parent_tool_call_id = message.parent_tool_call_id
-        message_id = None
+        root_tool_call_id = message.parent_tool_call_id
+        if root_tool_call_id is None:
+            return message.id, None
+
+        root_message_id = None
         visited: set[str] = set()
-        depth = 0
 
-        while parent_tool_call_id is not None:
-            depth += 1
-            if depth > MAX_DEPTH:
-                raise ValueError(f"Message chain exceeded maximum depth of {MAX_DEPTH}.")
-
-            if parent_tool_call_id in visited:
+        while root_tool_call_id is not None:
+            if root_tool_call_id in visited:
                 # Cycle detected, we skip this message
                 return None, None
 
-            visited.add(parent_tool_call_id)
-            parent_message = self._tool_call_id_to_message.get(parent_tool_call_id)
+            visited.add(root_tool_call_id)
+            parent_message = self._tool_call_id_to_message.get(root_tool_call_id)
             if parent_message is None:
                 # The parent message is not registered, we skip this message as it could come
                 # from a sub-nested graph invoked directly by a contextual tool.
                 return None, None
 
             next_parent_tool_call_id = parent_message.parent_tool_call_id
-            message_id = parent_message.id
+            root_message_id = parent_message.id
             if next_parent_tool_call_id is None:
-                return message_id, parent_tool_call_id
-            parent_tool_call_id = next_parent_tool_call_id
-        return message_id, parent_tool_call_id
+                return root_message_id, root_tool_call_id
+            root_tool_call_id = next_parent_tool_call_id
+        return root_message_id, root_tool_call_id
 
     def _register_tool_calls(self, message: AssistantMessageUnion) -> None:
         """Register any tool calls in the message for later lookup."""
