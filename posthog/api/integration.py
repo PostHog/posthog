@@ -17,7 +17,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
     ClickUpIntegration,
@@ -165,7 +165,9 @@ class IntegrationViewSet(
     serializer_class = IntegrationSerializer
 
     def safely_get_queryset(self, queryset):
-        if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
+        if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication) or isinstance(
+            self.request.successful_authenticator, OAuthAccessTokenAuthentication
+        ):
             return queryset.filter(kind="github")
         return queryset
 

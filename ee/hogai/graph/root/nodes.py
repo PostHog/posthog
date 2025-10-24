@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import Awaitable, Sequence
+from collections.abc import Awaitable, Mapping, Sequence
 from typing import TYPE_CHECKING, Literal, Optional, TypeVar, Union, cast
 from uuid import uuid4
 
@@ -35,7 +35,7 @@ from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL, ToolMessagesArtifact
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages, normalize_ai_anthropic_message
-from ee.hogai.utils.helpers import insert_messages_before_start
+from ee.hogai.utils.helpers import convert_tool_messages_to_dict
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types import (
     AssistantMessageUnion,
@@ -130,6 +130,7 @@ class RootNode(AssistantNode):
             messages_to_replace or state.messages, state.root_conversation_start_id, state.root_tool_calls_count
         )
         window_id = state.root_conversation_start_id
+        start_id = state.start_id
 
         # Summarize the conversation if it's too long.
         if await self._window_manager.should_compact_conversation(
@@ -144,12 +145,14 @@ class RootNode(AssistantNode):
             )
 
             # Insert the summary message before the last human message
-            messages_to_replace = insert_messages_before_start(
-                messages_to_replace or state.messages, [summary_message], start_id=state.start_id
+            insertion_result = self._window_manager.update_window(
+                messages_to_replace or state.messages, summary_message, start_id=start_id
             )
+            window_id = insertion_result.updated_window_start_id
+            start_id = insertion_result.updated_start_id
+            messages_to_replace = insertion_result.messages
 
-            # Update window
-            window_id = self._window_manager.find_window_boundary(messages_to_replace)
+            # Update the window
             langchain_messages = self._construct_messages(messages_to_replace, window_id, state.root_tool_calls_count)
 
         system_prompts = ChatPromptTemplate.from_messages(
@@ -174,7 +177,11 @@ class RootNode(AssistantNode):
         if messages_to_replace:
             new_messages = ReplaceMessages([*messages_to_replace, assistant_message])
 
-        return PartialAssistantState(root_conversation_start_id=window_id, messages=new_messages)
+        return PartialAssistantState(
+            messages=new_messages,
+            root_conversation_start_id=window_id,
+            start_id=start_id,
+        )
 
     async def get_reasoning_message(
         self, input: BaseState, default_message: Optional[str] = None
@@ -325,14 +332,14 @@ class RootNode(AssistantNode):
             return [*messages, LangchainHumanMessage(content=ROOT_HARD_LIMIT_REACHED_PROMPT)]
         return messages
 
-    def _get_tool_map(self, messages: Sequence[AssistantMessageUnion]) -> dict[str, AssistantToolCallMessage]:
+    def _get_tool_map(self, messages: Sequence[AssistantMessageUnion]) -> Mapping[str, AssistantToolCallMessage]:
         """Get a map of tool call IDs to tool call messages."""
-        return {message.tool_call_id: message for message in messages if isinstance(message, AssistantToolCallMessage)}
+        return convert_tool_messages_to_dict(messages)
 
     def _convert_to_langchain_messages(
         self,
         messages: Sequence[AssistantMessageUnion],
-        tool_result_messages: dict[str, AssistantToolCallMessage],
+        tool_result_messages: Mapping[str, AssistantToolCallMessage],
     ) -> list[BaseMessage]:
         """Convert a conversation window to a list of Langchain messages."""
         return convert_to_anthropic_messages(messages, tool_result_messages)
