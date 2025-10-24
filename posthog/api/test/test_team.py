@@ -1849,7 +1849,6 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
-            scopes=["*"],
             scoped_teams=[other_team_in_project.id],
         )
 
