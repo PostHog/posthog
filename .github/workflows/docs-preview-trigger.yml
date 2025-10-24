@@ -62,7 +62,7 @@ jobs:
           PR_NUMBER=${{ github.event.pull_request.number }}
           PR_REF="refs/pull/${PR_NUMBER}/head"
 
-          echo "📢 Triggering Vercel deployment for posthog.com@feat/docs-monorepo-poc (PoC)"
+          echo "📢 Triggering Vercel deployment for posthog.com@master"
           echo "   with POSTHOG_MONOREPO_REF=${PR_REF}"
 
           # Build request payload with env var for monorepo docs
@@ -72,7 +72,7 @@ jobs:
             "gitSource": {
               "type": "github",
               "repo": "PostHog/posthog.com",
-              "ref": "feat/docs-monorepo-poc"
+              "ref": "master"
             },
             "env": [
               {

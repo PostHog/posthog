@@ -7,7 +7,6 @@ on:
         paths:
             - 'cli/**'
             - '.github/workflows/ci-cli.yml'
-            - 'docs/**'
 
 jobs:
     check-lockfile:
