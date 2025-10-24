@@ -4,11 +4,13 @@ from datetime import datetime
 from typing import Optional
 
 from django.db.models import QuerySet
+from django.utils import timezone
 
 import redis.asyncio as redis
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
+from posthog.models.messaging import MessagingRecord, get_email_hash
 from posthog.sync import database_sync_to_async
 from posthog.tasks.email import NotificationSetting, should_send_notification
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -281,13 +283,23 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                 raw_digest: Optional[str] = await r.get(f"{input.digest.key}-{organization.id}")
 
                 if not raw_digest:
-                    logger.warning(f"Missing digest data for organization", organization_id=organization.id)
+                    logger.warning(
+                        f"Missing digest data for organization, skipping...", organization_id=organization.id
+                    )
                     continue
 
                 org_digest = OrganizationDigest.model_validate_json(raw_digest)
 
                 if org_digest.is_empty():
                     empty_org_digest_count += 1
+                    continue
+
+                messaging_record, created = await MessagingRecord.objects.aget_or_create(
+                    email_hash=get_email_hash(f"org_{organization.id}"), campaign_key=input.digest.key
+                )
+
+                if not created and messaging_record.sent_at:
+                    logger.info(f"Digest already sent for organization, skipping...", organization_id=organization.id)
                     continue
 
                 async for member in query_org_members(organization):
@@ -307,6 +319,10 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                         raise NotImplementedError()
 
                     sent_digest_count += 1
+
+                if not input.dry_run:
+                    messaging_record.sent_at = timezone.now()
+                    await messaging_record.asave()
 
         logger.info(
             "Finished sending weekly digest batch",
