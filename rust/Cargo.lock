@@ -4575,6 +4575,7 @@ dependencies = [
  "apache-avro",
  "axum 0.7.5",
  "base64 0.22.1",
+ "bytes",
  "capture",
  "chrono",
  "clickhouse",
@@ -4585,6 +4586,7 @@ dependencies = [
  "jsonwebtoken",
  "metrics",
  "opentelemetry-proto 0.29.0",
+ "prost 0.13.5",
  "rdkafka",
  "serde",
  "serde_derive",
@@ -4593,8 +4595,6 @@ dependencies = [
  "thiserror 2.0.16",
  "tokio",
  "tonic 0.12.3",
- "tonic-web",
- "tower 0.4.13",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -8460,26 +8460,6 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tower 0.4.13",
- "tower-layer",
- "tower-service",
- "tracing",
-]
-
-[[package]]
-name = "tonic-web"
-version = "0.12.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5299dd20801ad736dccb4a5ea0da7376e59cd98f213bf1c3d478cf53f4834b58"
-dependencies = [
- "base64 0.22.1",
- "bytes",
- "http 1.1.0",
- "http-body 1.0.0",
- "http-body-util",
- "pin-project",
- "tokio-stream",
- "tonic 0.12.3",
- "tower-http",
  "tower-layer",
  "tower-service",
  "tracing",
