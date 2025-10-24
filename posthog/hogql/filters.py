@@ -115,7 +115,7 @@ class ReplaceFilters(CloningVisitor):
             if dateTo is not None:
                 try:
                     parsed_date = isoparse(dateTo).replace(tzinfo=self.team.timezone_info)
-                    if isoparse(dateTo).tzinfo is None:
+                    if isoparse(dateTo).tzinfo is not None:
                         # Check if we have overridden the timezone, this likely indicates a bug somewhere if we have
                         # create a temporary exception just to capture it and make debugging easier
                         try:
@@ -137,7 +137,7 @@ class ReplaceFilters(CloningVisitor):
             if dateFrom is not None and dateFrom != "all":
                 try:
                     parsed_date = isoparse(dateFrom).replace(tzinfo=self.team.timezone_info)
-                    if isoparse(dateFrom).tzinfo is None:
+                    if isoparse(dateFrom).tzinfo is not None:
                         # Check if we have overridden the timezone, this likely indicates a bug somewhere if we have
                         # create a temporary exception just to capture it and make debugging easier
                         try:
@@ -176,7 +176,7 @@ class ReplaceFilters(CloningVisitor):
             if dateFrom is not None and dateFrom != "all":
                 try:
                     parsed_date = isoparse(dateFrom).replace(tzinfo=self.team.timezone_info)
-                    if isoparse(dateFrom).tzinfo is None:
+                    if isoparse(dateFrom).tzinfo is not None:
                         # Check if we have overridden the timezone, this likely indicates a bug somewhere if we have
                         # create a temporary exception just to capture it and make debugging easier
                         try:
@@ -203,7 +203,7 @@ class ReplaceFilters(CloningVisitor):
             if dateTo is not None:
                 try:
                     parsed_date = isoparse(dateTo).replace(tzinfo=self.team.timezone_info)
-                    if isoparse(dateTo).tzinfo is None:
+                    if isoparse(dateTo).tzinfo is not None:
                         # Check if we have overridden the timezone, this likely indicates a bug somewhere if we have
                         # create a temporary exception just to capture it and make debugging easier
                         try:
