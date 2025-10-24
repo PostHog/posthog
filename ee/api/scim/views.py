@@ -1,9 +1,9 @@
 from django_scim import constants
 from django_scim.filters import GroupFilterQuery, UserFilterQuery
 from rest_framework import status
-from rest_framework.decorators import api_view, authentication_classes
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
@@ -38,23 +38,15 @@ class PostHogGroupFilterQuery(GroupFilterQuery):
     attr_map = SCIM_GROUP_ATTR_MAP
 
 
-@api_view(["GET", "POST"])
-@authentication_classes([SCIMBearerTokenAuthentication])
-def scim_users_view(request: Request, domain_id: str) -> Response:
-    """
-    SCIM Users endpoint.
-    GET: List all users (with optional filter support)
-    POST: Create a new user
-    """
-    organization_domain: OrganizationDomain = request.auth
+class SCIMUsersView(APIView):
+    authentication_classes = [SCIMBearerTokenAuthentication]
 
-    if request.method == "GET":
+    def get(self, request: Request, domain_id: str) -> Response:
+        organization_domain: OrganizationDomain = request.auth
         filter_param = request.query_params.get("filter")
 
         if filter_param:
             try:
-                # Use django-scim2's UserFilterQuery.search() to parse query filters
-                # This returns a RawQuerySet, so we need to extract IDs and filter
                 raw_queryset = PostHogUserFilterQuery.search(filter_param, request)
                 filtered_users_list = list(raw_queryset)
                 user_ids = [u.id for u in filtered_users_list]
@@ -80,7 +72,8 @@ def scim_users_view(request: Request, domain_id: str) -> Response:
             }
         )
 
-    elif request.method == "POST":
+    def post(self, request: Request, domain_id: str) -> Response:
+        organization_domain: OrganizationDomain = request.auth
         try:
             scim_user = PostHogSCIMUser.from_dict(request.data, organization_domain)
             return Response(scim_user.to_dict(), status=status.HTTP_201_CREATED)
@@ -89,28 +82,27 @@ def scim_users_view(request: Request, domain_id: str) -> Response:
             return Response({"detail": "Invalid user data"}, status=status.HTTP_400_BAD_REQUEST)
 
 
-@api_view(["GET", "PUT", "PATCH", "DELETE"])
-@authentication_classes([SCIMBearerTokenAuthentication])
-def scim_user_detail_view(request: Request, domain_id: str, user_id: int) -> Response:
-    """
-    SCIM User detail endpoint.
-    GET: Retrieve a user
-    PUT: Replace a user
-    PATCH: Update a user
-    DELETE: Delete a user (remove from org)
-    """
-    organization_domain: OrganizationDomain = request.auth
+class SCIMUserDetailView(APIView):
+    authentication_classes = [SCIMBearerTokenAuthentication]
 
-    try:
-        user = User.objects.get(id=user_id)
-        scim_user = PostHogSCIMUser(user, organization_domain)
-    except User.DoesNotExist:
-        return Response({"detail": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+    def get_object(self, user_id: int) -> PostHogSCIMUser:
+        organization_domain: OrganizationDomain = self.request.auth
+        user = User.objects.filter(id=user_id).first()
+        if not user:
+            raise User.DoesNotExist()
+        return PostHogSCIMUser(user, organization_domain)
 
-    if request.method == "GET":
+    def handle_exception(self, exc):
+        if isinstance(exc, User.DoesNotExist):
+            return Response({"detail": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+        return super().handle_exception(exc)
+
+    def get(self, request: Request, domain_id: str, user_id: int) -> Response:
+        scim_user = self.get_object(user_id)
         return Response(scim_user.to_dict())
 
-    elif request.method == "PUT":
+    def put(self, request: Request, domain_id: str, user_id: int) -> Response:
+        scim_user = self.get_object(user_id)
         try:
             scim_user.put(request.data)
             return Response(scim_user.to_dict())
@@ -118,32 +110,27 @@ def scim_user_detail_view(request: Request, domain_id: str, user_id: int) -> Res
             capture_exception(e, additional_properties={"scim_operation": "replace_user", "user_id": user_id})
             return Response({"detail": "Invalid user data"}, status=status.HTTP_400_BAD_REQUEST)
 
-    elif request.method == "PATCH":
+    def patch(self, request: Request, domain_id: str, user_id: int) -> Response:
+        scim_user = self.get_object(user_id)
         try:
             operations = request.data.get("Operations", [])
-            # Use django-scim2 built-in PATCH operation handling
             scim_user.handle_operations(operations)
             return Response(scim_user.to_dict())
         except Exception as e:
             capture_exception(e, additional_properties={"scim_operation": "update_user", "user_id": user_id})
             return Response({"detail": "Failed to update user"}, status=status.HTTP_400_BAD_REQUEST)
 
-    elif request.method == "DELETE":
+    def delete(self, request: Request, domain_id: str, user_id: int) -> Response:
+        scim_user = self.get_object(user_id)
         scim_user.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-@api_view(["GET", "POST"])
-@authentication_classes([SCIMBearerTokenAuthentication])
-def scim_groups_view(request: Request, domain_id: str) -> Response:
-    """
-    SCIM Groups endpoint.
-    GET: List all groups (roles) with optional filter support
-    POST: Create a new group (role)
-    """
-    organization_domain: OrganizationDomain = request.auth
+class SCIMGroupsView(APIView):
+    authentication_classes = [SCIMBearerTokenAuthentication]
 
-    if request.method == "GET":
+    def get(self, request: Request, domain_id: str) -> Response:
+        organization_domain: OrganizationDomain = request.auth
         filter_param = request.query_params.get("filter")
 
         if filter_param:
@@ -171,7 +158,8 @@ def scim_groups_view(request: Request, domain_id: str) -> Response:
             }
         )
 
-    elif request.method == "POST":
+    def post(self, request: Request, domain_id: str) -> Response:
+        organization_domain: OrganizationDomain = request.auth
         try:
             scim_group = PostHogSCIMGroup.from_dict(request.data, organization_domain)
             return Response(scim_group.to_dict(), status=status.HTTP_201_CREATED)
@@ -180,28 +168,27 @@ def scim_groups_view(request: Request, domain_id: str) -> Response:
             return Response({"detail": "Invalid group data"}, status=status.HTTP_400_BAD_REQUEST)
 
 
-@api_view(["GET", "PUT", "PATCH", "DELETE"])
-@authentication_classes([SCIMBearerTokenAuthentication])
-def scim_group_detail_view(request: Request, domain_id: str, group_id: str) -> Response:
-    """
-    SCIM Group detail endpoint.
-    GET: Retrieve a group
-    PUT: Replace a group
-    PATCH: Update a group
-    DELETE: Delete a group
-    """
-    organization_domain: OrganizationDomain = request.auth
+class SCIMGroupDetailView(APIView):
+    authentication_classes = [SCIMBearerTokenAuthentication]
 
-    try:
-        role = Role.objects.get(id=group_id, organization=organization_domain.organization)
-        scim_group = PostHogSCIMGroup(role, organization_domain)
-    except Role.DoesNotExist:
-        return Response({"detail": "Group not found"}, status=status.HTTP_404_NOT_FOUND)
+    def get_object(self, group_id: str) -> PostHogSCIMGroup:
+        organization_domain: OrganizationDomain = self.request.auth
+        role = Role.objects.filter(id=group_id, organization=organization_domain.organization).first()
+        if not role:
+            raise Role.DoesNotExist()
+        return PostHogSCIMGroup(role, organization_domain)
 
-    if request.method == "GET":
+    def handle_exception(self, exc):
+        if isinstance(exc, Role.DoesNotExist):
+            return Response({"detail": "Group not found"}, status=status.HTTP_404_NOT_FOUND)
+        return super().handle_exception(exc)
+
+    def get(self, request: Request, domain_id: str, group_id: str) -> Response:
+        scim_group = self.get_object(group_id)
         return Response(scim_group.to_dict())
 
-    elif request.method == "PUT":
+    def put(self, request: Request, domain_id: str, group_id: str) -> Response:
+        scim_group = self.get_object(group_id)
         try:
             scim_group.put(request.data)
             return Response(scim_group.to_dict())
@@ -209,7 +196,8 @@ def scim_group_detail_view(request: Request, domain_id: str, group_id: str) -> R
             capture_exception(e, additional_properties={"scim_operation": "replace_group", "group_id": group_id})
             return Response({"detail": "Invalid group data"}, status=status.HTTP_400_BAD_REQUEST)
 
-    elif request.method == "PATCH":
+    def patch(self, request: Request, domain_id: str, group_id: str) -> Response:
+        scim_group = self.get_object(group_id)
         try:
             operations = request.data.get("Operations", [])
             scim_group.handle_operations(operations)
@@ -218,80 +206,74 @@ def scim_group_detail_view(request: Request, domain_id: str, group_id: str) -> R
             capture_exception(e, additional_properties={"scim_operation": "update_group", "group_id": group_id})
             return Response({"detail": "Failed to update group"}, status=status.HTTP_400_BAD_REQUEST)
 
-    elif request.method == "DELETE":
+    def delete(self, request: Request, domain_id: str, group_id: str) -> Response:
+        scim_group = self.get_object(group_id)
         scim_group.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-@api_view(["GET"])
-@authentication_classes([SCIMBearerTokenAuthentication])
-def scim_service_provider_config_view(request: Request, domain_id: str) -> Response:
-    """
-    SCIM Service Provider Configuration endpoint.
-    Returns capabilities of this SCIM implementation.
-    """
-    return Response(
-        {
-            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig"],
-            "documentationUri": "https://posthog.com/docs/scim",
-            "patch": {"supported": True},
-            "bulk": {"supported": False, "maxOperations": 0, "maxPayloadSize": 0},
-            "filter": {"supported": True, "maxResults": 200},
-            "changePassword": {"supported": False},
-            "sort": {"supported": False},
-            "etag": {"supported": False},
-            "authenticationSchemes": [
-                {
-                    "type": "oauthbearertoken",
-                    "name": "OAuth Bearer Token",
-                    "description": "Authentication scheme using the OAuth Bearer Token Standard",
-                    "specUri": "https://www.rfc-editor.org/rfc/rfc6750.txt",
-                    "documentationUri": "https://posthog.com/docs/settings/scim",  # TODO: Add docs for SCIM
-                }
-            ],
-        }
-    )
+class SCIMServiceProviderConfigView(APIView):
+    authentication_classes = [SCIMBearerTokenAuthentication]
+
+    def get(self, request: Request, domain_id: str) -> Response:
+        return Response(
+            {
+                "schemas": ["urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig"],
+                "documentationUri": "https://posthog.com/docs/scim",
+                "patch": {"supported": True},
+                "bulk": {"supported": False, "maxOperations": 0, "maxPayloadSize": 0},
+                "filter": {"supported": True, "maxResults": 200},
+                "changePassword": {"supported": False},
+                "sort": {"supported": False},
+                "etag": {"supported": False},
+                "authenticationSchemes": [
+                    {
+                        "type": "oauthbearertoken",
+                        "name": "OAuth Bearer Token",
+                        "description": "Authentication scheme using the OAuth Bearer Token Standard",
+                        "specUri": "https://www.rfc-editor.org/rfc/rfc6750.txt",
+                        "documentationUri": "https://posthog.com/docs/settings/scim",
+                    }
+                ],
+            }
+        )
 
 
-@api_view(["GET"])
-@authentication_classes([SCIMBearerTokenAuthentication])
-def scim_resource_types_view(request: Request, domain_id: str) -> Response:
-    """
-    SCIM Resource Types endpoint.
-    """
-    return Response(
-        {
-            "schemas": ["urn:ietf:params:scim:api:messages:2.0:ListResponse"],
-            "totalResults": 2,
-            "Resources": [
-                PostHogSCIMUser.resource_type_dict(request),
-                PostHogSCIMGroup.resource_type_dict(request),
-            ],
-        }
-    )
+class SCIMResourceTypesView(APIView):
+    authentication_classes = [SCIMBearerTokenAuthentication]
+
+    def get(self, request: Request, domain_id: str) -> Response:
+        return Response(
+            {
+                "schemas": ["urn:ietf:params:scim:api:messages:2.0:ListResponse"],
+                "totalResults": 2,
+                "Resources": [
+                    PostHogSCIMUser.resource_type_dict(request),
+                    PostHogSCIMGroup.resource_type_dict(request),
+                ],
+            }
+        )
 
 
-@api_view(["GET"])
-@authentication_classes([SCIMBearerTokenAuthentication])
-def scim_schemas_view(request: Request, domain_id: str) -> Response:
-    """
-    SCIM Schemas endpoint.
-    """
-    return Response(
-        {
-            "schemas": ["urn:ietf:params:scim:api:messages:2.0:ListResponse"],
-            "totalResults": 2,
-            "Resources": [
-                {
-                    "id": constants.SchemaURI.USER,
-                    "name": "User",
-                    "description": "User Account",
-                },
-                {
-                    "id": constants.SchemaURI.GROUP,
-                    "name": "Group",
-                    "description": "Group",
-                },
-            ],
-        }
-    )
+class SCIMSchemasView(APIView):
+    authentication_classes = [SCIMBearerTokenAuthentication]
+
+    def get(self, request: Request, domain_id: str) -> Response:
+        return Response(
+            {
+                "schemas": ["urn:ietf:params:scim:api:messages:2.0:ListResponse"],
+                "totalResults": 2,
+                "Resources": [
+                    {
+                        "id": constants.SchemaURI.USER,
+                        "name": "User",
+                        "description": "User Account",
+                    },
+                    {
+                        "id": constants.SchemaURI.GROUP,
+                        "name": "Group",
+                        "description": "Group",
+                    },
+                ],
+            }
+        )
