@@ -9,6 +9,7 @@ from django.conf import settings
 import structlog
 import temporalio
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.event.util import create_event
@@ -98,12 +99,15 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
     import openai
 
     if evaluation["evaluation_type"] != "llm_judge" or evaluation["output_type"] != "boolean":
-        raise ValueError(f"Unsupported evaluation: {evaluation['evaluation_type']}/{evaluation['output_type']}")
+        raise ApplicationError(
+            f"Unsupported evaluation: {evaluation['evaluation_type']}/{evaluation['output_type']}",
+            non_retryable=True,
+        )
 
     evaluation_config = evaluation.get("evaluation_config", {})
     prompt = evaluation_config.get("prompt")
     if not prompt:
-        raise ValueError("Missing prompt in evaluation_config")
+        raise ApplicationError("Missing prompt in evaluation_config", non_retryable=True)
 
     # Build context from event
     event_type = event_data["event"]
