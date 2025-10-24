@@ -392,7 +392,7 @@ class VercelAuthentication(authentication.BaseAuthentication):
 
         return jwt.decode(
             token,
-            key,
+            cast(Any, key),  # type: ignore[arg-type] # PyJWT 2.10+ has stricter types but accepts RSAPublicKey
             algorithms=["RS256"],
             issuer=self.VERCEL_ISSUER,
             audience=settings.VERCEL_CLIENT_INTEGRATION_ID,
