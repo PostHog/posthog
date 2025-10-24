@@ -26,7 +26,7 @@ before-all = [
     "antlr_found_ms5sum=\"$(md5sum antlr4-source.zip | cut -d' ' -f1)\"",
     'if [[ "$antlr_known_md5sum" != "$antlr_found_ms5sum" ]]; then exit 64; fi',
     "unzip antlr4-source.zip -d antlr4-source && cd antlr4-source",
-    "cmake .",
+    "cmake . -DBUILD_TESTING=OFF -DANTLR4_BUILD_TESTS=OFF",
     "DESTDIR=out make install",
     "cp -r out/usr/local/include/antlr4-runtime /usr/include/",
     "cp out/usr/local/lib64/libantlr4-runtime.so* /usr/lib64/",
