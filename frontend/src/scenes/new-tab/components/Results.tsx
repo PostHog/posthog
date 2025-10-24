@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { IconArrowRight, IconEllipsis, IconInfo, IconSparkles } from '@posthog/icons'
+import { IconArrowRight, IconEllipsis, IconInfo, IconRefresh, IconSparkles } from '@posthog/icons'
 import { LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -126,8 +126,10 @@ function Category({
         newTabSceneDataGroupedItemsFullData,
         getSectionItemLimit,
         newTabSceneDataInclude,
+        recentsLoading,
+        recents,
     } = useValues(newTabSceneLogic({ tabId }))
-    const { showMoreInSection } = useActions(newTabSceneLogic({ tabId }))
+    const { showMoreInSection, loadRecents } = useActions(newTabSceneLogic({ tabId }))
 
     return (
         <>
@@ -138,9 +140,9 @@ function Category({
                 key={category}
             >
                 <div className={cn('mb-4', { 'mb-2 @xl/main-content:min-w-[200px]': newTabSceneData })}>
-                    <div className={cn('flex items-baseline gap-2', { 'gap-0': newTabSceneData })}>
+                    <div className={cn('flex items-center gap-2', { 'gap-0': newTabSceneData })}>
                         {newTabSceneData ? (
-                            <Label intent="menu" className="px-2">
+                            <Label intent="menu" className="pl-2">
                                 {getCategoryDisplayName(category)}
                             </Label>
                         ) : (
@@ -148,7 +150,28 @@ function Category({
                                 {getCategoryDisplayName(category)}
                             </h3>
                         )}
-                        {category === 'recents' && isSearching && <Spinner size="small" />}
+                        {category === 'recents' && (
+                            <>
+                                {(isSearching || recentsLoading) && (
+                                    <ButtonPrimitive size="xs" iconOnly inert>
+                                        <Spinner size="small" className="size-3" />
+                                    </ButtonPrimitive>
+                                )}
+                                {!isSearching && !recentsLoading && (
+                                    <ListBox.Item asChild>
+                                        <ButtonPrimitive
+                                            size="xs"
+                                            iconOnly
+                                            onClick={() => loadRecents()}
+                                            className="text-tertiary hover:text-primary"
+                                            tooltip="Refresh recents"
+                                        >
+                                            <IconRefresh className="size-3" />
+                                        </ButtonPrimitive>
+                                    </ListBox.Item>
+                                )}
+                            </>
+                        )}
                         {/* Show "No results found" tag for other categories when empty and include is NOT 'all' */}
                         {newTabSceneData &&
                             !['persons', 'eventDefinitions', 'propertyDefinitions'].includes(category) &&
@@ -273,6 +296,36 @@ function Category({
                             })}
                             {newTabSceneData &&
                                 (() => {
+                                    if (category === 'recents') {
+                                        // For recents, check if there are more items available from API
+                                        const hasMore = recents.hasMore
+                                        return (
+                                            hasMore && (
+                                                <ListBox.Item
+                                                    asChild
+                                                    focusKey={`show-more-${category}`}
+                                                    index={typedItems.length}
+                                                >
+                                                    <ButtonPrimitive
+                                                        size="sm"
+                                                        onClick={() => {
+                                                            const showMoreIndex = typedItems.length
+                                                            showMoreInSection(category)
+                                                            // Focus will be maintained automatically since the operation is now instant
+                                                            setTimeout(() => {
+                                                                groupRef.current?.resumeFocus(showMoreIndex)
+                                                            }, 0)
+                                                        }}
+                                                        className="w-full text-tertiary data-[focused=true]:text-primary"
+                                                    >
+                                                        <IconArrowRight className="rotate-90" />
+                                                        Show more
+                                                    </ButtonPrimitive>
+                                                </ListBox.Item>
+                                            )
+                                        )
+                                    }
+                                    // For other categories, use the existing logic
                                     const currentLimit = getSectionItemLimit(category)
                                     const fullCount = newTabSceneDataGroupedItemsFullData[category] || 0
                                     const hasMore = fullCount > currentLimit
@@ -282,25 +335,24 @@ function Category({
                                             <ListBox.Item
                                                 asChild
                                                 focusKey={`show-all-${category}`}
-                                                index={typedItems.length} // This button is at the end of the group
+                                                index={typedItems.length}
                                             >
                                                 <ButtonPrimitive
                                                     size="sm"
                                                     onClick={() => {
-                                                        const showAllIndex = typedItems.length // The "Show all" button index
+                                                        const showAllIndex = typedItems.length
 
                                                         showMoreInSection(category)
 
                                                         // Restore focus to the item that replaces the "Show all" button
                                                         setTimeout(() => {
-                                                            // Focus the item at the same index where the "Show all" button was
                                                             groupRef.current?.resumeFocus(showAllIndex)
                                                         }, 0)
                                                     }}
                                                     className="w-full text-tertiary data-[focused=true]:text-primary"
                                                 >
-                                                    <IconArrowRight className="rotate-90" /> Show all (
-                                                    {fullCount - currentLimit} more)
+                                                    <IconArrowRight className="rotate-90" />
+                                                    Show all
                                                 </ButtonPrimitive>
                                             </ListBox.Item>
                                         )

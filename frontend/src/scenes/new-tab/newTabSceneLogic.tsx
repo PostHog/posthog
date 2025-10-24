@@ -106,6 +106,9 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         onSubmit: true,
         setSelectedCategory: (category: NEW_TAB_CATEGORY_ITEMS) => ({ category }),
         loadRecents: true,
+        loadMoreRecents: true,
+        prefetchNextRecents: true,
+        showMoreRecents: true,
         debouncedPersonSearch: (searchTerm: string) => ({ searchTerm }),
         debouncedEventDefinitionSearch: (searchTerm: string) => ({ searchTerm }),
         debouncedPropertyDefinitionSearch: (searchTerm: string) => ({ searchTerm }),
@@ -131,8 +134,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         // do nothing
                     }
                 }
-                return { results: [], hasMore: false, startTime: null, endTime: null }
-            }) as any as SearchResults,
+                return { results: [], hasMore: false, lastCount: 0, totalLoaded: 0 }
+            }) as any as SearchResults & { totalLoaded: number },
             {
                 loadRecents: async (_, breakpoint) => {
                     if (values.recentsLoading) {
@@ -151,6 +154,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         results: response.results.slice(0, PAGINATION_LIMIT),
                         hasMore: response.results.length > PAGINATION_LIMIT,
                         lastCount: Math.min(response.results.length, PAGINATION_LIMIT),
+                        totalLoaded: Math.min(response.results.length, PAGINATION_LIMIT),
                     }
                     if ('sessionStorage' in window && searchTerm === '') {
                         try {
@@ -163,6 +167,65 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         }
                     }
                     return recents
+                },
+                loadMoreRecents: async (_, breakpoint) => {
+                    const currentRecents = values.recents
+                    const searchTerm = values.search.trim()
+                    const offset = currentRecents.totalLoaded || 0
+
+                    const response = await api.fileSystem.list({
+                        search: searchTerm,
+                        limit: 5 + 1, // Load 5 more + 1 to check if there are more
+                        offset: offset,
+                        orderBy: '-last_viewed_at',
+                        notType: 'folder',
+                    })
+                    breakpoint()
+
+                    const newResults = response.results.slice(0, 5)
+                    const hasMore = response.results.length > 5
+
+                    const updatedRecents = {
+                        searchTerm,
+                        results: [...currentRecents.results, ...newResults],
+                        hasMore: hasMore,
+                        lastCount: newResults.length,
+                        totalLoaded: currentRecents.totalLoaded + newResults.length,
+                    }
+
+                    return updatedRecents
+                },
+            },
+        ],
+        recentsPrefetchedBatch: [
+            null as (SearchResults & { totalLoaded: number }) | null,
+            {
+                prefetchNextRecents: async (_, breakpoint) => {
+                    const currentRecents = values.recents
+                    const searchTerm = values.search.trim()
+                    const offset = currentRecents.totalLoaded || 0
+
+                    const response = await api.fileSystem.list({
+                        search: searchTerm,
+                        limit: 5 + 1, // Load 5 more + 1 to check if there are more
+                        offset: offset,
+                        orderBy: '-last_viewed_at',
+                        notType: 'folder',
+                    })
+                    breakpoint()
+
+                    const newResults = response.results.slice(0, 5)
+                    const hasMore = response.results.length > 5
+
+                    const prefetchedBatch = {
+                        searchTerm,
+                        results: [...currentRecents.results, ...newResults],
+                        hasMore: hasMore,
+                        lastCount: newResults.length,
+                        totalLoaded: currentRecents.totalLoaded + newResults.length,
+                    }
+
+                    return prefetchedBatch
                 },
             },
         ],
@@ -315,13 +378,33 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         sectionItemLimits: [
             {} as Record<string, number>,
             {
-                showMoreInSection: (state, { section }) => ({
-                    ...state,
-                    [section]: Infinity,
-                }),
+                showMoreInSection: (state, { section }) => {
+                    if (section === 'recents') {
+                        // For recents, don't change the limit - we'll handle pagination via API
+                        return state
+                    }
+                    // For other sections, show all
+                    return {
+                        ...state,
+                        [section]: Infinity,
+                    }
+                },
                 resetSectionLimits: () => ({}),
                 setSearch: () => ({}),
                 toggleNewTabSceneDataInclude: () => ({}),
+            },
+        ],
+        recentsExpanded: [
+            false,
+            {
+                showMoreInSection: (state, { section }) => {
+                    if (section === 'recents') {
+                        return true
+                    }
+                    return state
+                },
+                loadRecents: () => false, // Reset when loading fresh recents
+                setSearch: () => false, // Reset when search changes
             },
         ],
     }),
@@ -696,6 +779,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 s.aiSearchItems,
                 s.featureFlags,
                 s.getSectionItemLimit,
+                s.recentsExpanded,
             ],
             (
                 itemsGrid: NewTabTreeDataItem[],
@@ -706,7 +790,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 propertyDefinitionSearchItems: NewTabTreeDataItem[],
                 aiSearchItems: NewTabTreeDataItem[],
                 featureFlags: any,
-                getSectionItemLimit: (section: string) => number
+                getSectionItemLimit: (section: string) => number,
+                recentsExpanded: boolean
             ): Record<string, NewTabTreeDataItem[]> => {
                 const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
                 if (!newTabSceneData) {
@@ -775,11 +860,15 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 }
 
                 if (showAll || newTabSceneDataInclude.includes('recents')) {
-                    const limit = getSectionItemLimit('recents')
-                    grouped['recents'] = filterBySearch(itemsGrid.filter((item) => item.category === 'recents')).slice(
-                        0,
-                        limit
-                    )
+                    const recentsItems = filterBySearch(itemsGrid.filter((item) => item.category === 'recents'))
+                    if (recentsExpanded) {
+                        // Show all loaded items when expanded
+                        grouped['recents'] = recentsItems
+                    } else {
+                        // Initially show only 5 items
+                        const limit = getSectionItemLimit('recents')
+                        grouped['recents'] = recentsItems.slice(0, limit)
+                    }
                 }
 
                 // Add AI section if filter is enabled
@@ -1123,6 +1212,30 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             } catch (error) {
                 console.error('Property definition search failed:', error)
                 actions.loadPropertyDefinitionSearchResultsFailure(error as string)
+            }
+        },
+        showMoreInSection: ({ section }) => {
+            if (section === 'recents') {
+                actions.showMoreRecents()
+            }
+        },
+        showMoreRecents: () => {
+            const prefetchedBatch = values.recentsPrefetchedBatch
+            if (prefetchedBatch) {
+                // Use prefetched data instantly
+                actions.loadRecentsSuccess(prefetchedBatch)
+                // Prefetch the next batch in background
+                actions.prefetchNextRecents()
+            } else {
+                // Fallback to loading if no prefetch available
+                actions.loadMoreRecents()
+            }
+        },
+        loadRecentsSuccess: () => {
+            // Prefetch next batch when recents load successfully and we have more
+            const recents = values.recents
+            if (recents.hasMore && !values.recentsPrefetchedBatch) {
+                actions.prefetchNextRecents()
             }
         },
     })),
