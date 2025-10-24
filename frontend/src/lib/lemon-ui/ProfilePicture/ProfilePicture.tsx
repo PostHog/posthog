@@ -55,8 +55,7 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
         const identifier = email || (name?.includes('@') ? name : undefined)
         if (identifier) {
             const hash = md5(identifier.trim().toLowerCase())
-            // Use d=blank instead of d=404 to get instant responses for non-existent gravatars
-            return `https://www.gravatar.com/avatar/${hash}?s=96&d=blank`
+            return `https://www.gravatar.com/avatar/${hash}?s=96&d=404`
         }
     }, [email, hedgehogProfile, name])
 
