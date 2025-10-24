@@ -944,7 +944,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
             batch_export_id=inputs.batch_export.batch_export_id,
             data_interval_start=inputs.batch_export.data_interval_start,
             data_interval_end=inputs.batch_export.data_interval_end,
-            max_record_batch_size_bytes=1024 * 1024 * 60,  # 60MB
+            max_record_batch_size_bytes=1024 * 1024 * 2,  # 2MB
         )
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
@@ -1187,7 +1187,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
         else:
             model = inputs.batch_export.batch_export_schema
 
-        queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_REDSHIFT_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
+        queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = ProducerFromInternalStage()
         assert inputs.batch_export.batch_export_id is not None
         producer_task = await producer.start(
@@ -1466,6 +1466,9 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
                         table=table_parameters,
                     ),
                     interval=inputs.interval,
+                    # TODO: Temporarily bump start to close timeout until we speed up
+                    # Redshift inserts.
+                    override_start_to_close_timeout_seconds=60 * 60 * 24,  # 24 hours
                     maximum_retry_interval_seconds=240,
                 )
         else:

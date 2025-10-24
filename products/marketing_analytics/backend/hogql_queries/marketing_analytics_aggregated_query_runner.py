@@ -51,16 +51,14 @@ class MarketingAnalyticsAggregatedQueryRunner(
                                     chain=self.config.get_unified_conversion_field_chain(self.config.campaign_field)
                                 ),
                             ),
-                            ast.Call(
-                                name="has",
-                                args=[
-                                    ast.Field(
-                                        chain=self.config.get_campaign_cost_field_chain(self.config.source_field)
-                                    ),
-                                    ast.Field(
-                                        chain=self.config.get_unified_conversion_field_chain(self.config.source_field)
-                                    ),
-                                ],
+                            ast.CompareOperation(
+                                left=ast.Field(
+                                    chain=self.config.get_campaign_cost_field_chain(self.config.source_field)
+                                ),
+                                op=ast.CompareOperationOp.Eq,
+                                right=ast.Field(
+                                    chain=self.config.get_unified_conversion_field_chain(self.config.source_field)
+                                ),
                             ),
                         ]
                     ),
