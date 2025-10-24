@@ -742,6 +742,19 @@ class FeatureFlagSerializer(
         # We manage evaluation tags via _attempt_set_evaluation_tags below
         validated_data.pop("evaluation_tags", None)
 
+        # Check if flag is being disabled (active changing from True to False)
+        if "active" in validated_data and validated_data["active"] is False and instance.active:
+            # Check for other active flags that depend on this flag
+            dependent_flags = self._find_dependent_flags(instance)
+            if dependent_flags:
+                dependent_flag_names = [f"{flag.key} (ID: {flag.id})" for flag in dependent_flags[:5]]
+                if len(dependent_flags) > 5:
+                    dependent_flag_names.append(f"and {len(dependent_flags) - 5} more")
+                raise exceptions.ValidationError(
+                    f"Cannot disable this feature flag because other active flags depend on it: {', '.join(dependent_flag_names)}. "
+                    f"Please update or disable the dependent flags first."
+                )
+
         if "deleted" in validated_data and validated_data["deleted"] is True:
             # Check for linked early access features
             if instance.features.count() > 0:
