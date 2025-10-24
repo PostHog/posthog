@@ -137,12 +137,12 @@ class ClientErrorGroup(ExceptionGroup):
             if len(error_codes) == 1:
                 # One type of operation failed, one error.
                 error_code = error_codes.pop()
-                super().__new__(
+                return super().__new__(
                     ClientErrorGroup, f"S3 operation '{op_name}' failed with error: '{error_code}'", exceptions
                 )
             else:
                 # One type of operation failed, but with multiple errors.
-                super().__new__(
+                return super().__new__(
                     ClientErrorGroup,
                     f"S3 operation '{op_name}' failed with multiple errors: {', '.join(f"'{error_code}'" for error_code in error_codes)}",
                     exceptions,
@@ -151,7 +151,7 @@ class ClientErrorGroup(ExceptionGroup):
             # Many operations failed with multiple errors.
             pairs = ((op_name, error_code) for op_name, error_codes in ops.items() for error_code in error_codes)
 
-            super().__new__(
+            return super().__new__(
                 ClientErrorGroup,
                 f"Multiple S3 operations failed: {', '.join(f"'{op_name}' failed with error '{error_code}'" for op_name, error_code in pairs)}",
                 exceptions,
