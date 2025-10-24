@@ -32,12 +32,12 @@ export class ConditionalBranchHandler implements ActionHandler {
         )
 
         if (conditionResult.scheduledAt) {
-            return { scheduledAt: conditionResult.scheduledAt, output: { result: { conditionResult } } }
+            return { scheduledAt: conditionResult.scheduledAt, result: { conditionResult } }
         } else if (conditionResult.nextAction) {
-            return { nextAction: conditionResult.nextAction, output: { result: { conditionResult } } }
+            return { nextAction: conditionResult.nextAction, result: { conditionResult } }
         }
 
-        return { nextAction: findContinueAction(invocation), output: { result: { conditionResult } } }
+        return { nextAction: findContinueAction(invocation), result: { conditionResult } }
     }
 }
 

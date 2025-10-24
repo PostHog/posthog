@@ -333,8 +333,8 @@ export class HogFlowExecutorService {
                     hogExecutorOptions: options?.hogExecutorOptions,
                 })
 
-                if (handlerResult.output) {
-                    this.trackActionOutput(result, currentAction, handlerResult.output)
+                if (handlerResult.result) {
+                    this.trackActionResult(result, currentAction, handlerResult.result)
                 }
 
                 if (handlerResult.finished) {
@@ -487,13 +487,13 @@ export class HogFlowExecutorService {
         })
     }
 
-    private trackActionOutput(
+    private trackActionResult(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
         action: HogFlowAction,
-        output: object
+        actionResult: unknown
     ): void {
         if (action.output_variable?.key) {
-            if (!output) {
+            if (!actionResult) {
                 this.log(
                     result,
                     'warn',
@@ -503,8 +503,8 @@ export class HogFlowExecutorService {
             }
 
             result.invocation.state.variables[action.output_variable.key] = action.output_variable?.result_path
-                ? get(output, action.output_variable.result_path)
-                : output
+                ? get(actionResult, action.output_variable.result_path)
+                : actionResult
 
             // Check that result to be stored is below 1kb
             const resultSize = Buffer.byteLength(JSON.stringify(result.invocation.state.variables), 'utf8')

@@ -8,7 +8,7 @@ export interface ActionHandlerResult {
     nextAction?: HogFlowAction
     scheduledAt?: DateTime
     finished?: boolean
-    output?: unknown
+    result?: unknown
     error?: any
 }
 
