@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated on: 2025-10-23
+// Generated on: 2025-10-24
 
 export type CanonicalProvider =
     | 'default'
@@ -60,12 +60,14 @@ export type CanonicalProvider =
     | 'infermatic-bf16'
     | 'infermatic-fp8'
     | 'inflection'
+    | 'liquid'
     | 'mancer-fp16'
     | 'mancer-fp8'
     | 'mancer-int4'
     | 'meta-fp8'
     | 'minimax'
     | 'mistral'
+    | 'model-run'
     | 'moonshotai'
     | 'moonshotai-fp8'
     | 'moonshotai-turbo'
