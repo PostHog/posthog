@@ -86,8 +86,8 @@ class GeminiProvider:
 
         return results
 
-    def _prepare_config_kwargs(
-        self,
+    @staticmethod
+    def prepare_config_kwargs(
         system: str,
         temperature: float | None = None,
         max_tokens: int | None = None,
@@ -125,7 +125,7 @@ class GeminiProvider:
         """
         self.validate_model(self.model_id)
         try:
-            config_kwargs = self._prepare_config_kwargs(
+            config_kwargs = self.prepare_config_kwargs(
                 system=system, temperature=temperature, max_tokens=max_tokens, tools=tools
             )
             response = self.client.models.generate_content_stream(
@@ -174,7 +174,7 @@ class GeminiProvider:
         """
         self.validate_model(self.model_id)
         try:
-            config_kwargs = self._prepare_config_kwargs(
+            config_kwargs = self.prepare_config_kwargs(
                 system=system, temperature=temperature, max_tokens=max_tokens, tools=tools
             )
             response = self.client.models.generate_content(
@@ -193,5 +193,44 @@ class GeminiProvider:
             return
         except Exception as e:
             logger.exception(f"Unexpected error when getting response: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'error': f'Unexpected error'})}\n\n"
+            return
+
+    async def get_async_response(
+        self,
+        system: str,
+        prompt: str,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        tools: list[dict] | None = None,
+        distinct_id: str = "",
+        trace_id: str | None = None,
+        properties: dict | None = None,
+        groups: dict | None = None,
+    ) -> str:
+        """
+        Get direct string response from Gemini API for a provided string prompt (no streaming).
+        """
+        self.validate_model(self.model_id)
+        try:
+            config_kwargs = self.prepare_config_kwargs(
+                system=system, temperature=temperature, max_tokens=max_tokens, tools=tools
+            )
+            response = await self.client.aio.models.generate_content(
+                model=self.model_id,
+                contents=prompt,
+                config=GenerateContentConfig(**config_kwargs),
+                posthog_distinct_id=distinct_id,
+                posthog_trace_id=trace_id or str(uuid.uuid4()),
+                posthog_properties={**(properties or {}), "ai_product": "playground"},
+                posthog_groups=groups or {},
+            )
+            return response.text
+        except APIError as e:
+            logger.exception(f"Gemini API error when getting async response: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'error': f'Gemini API error'})}\n\n"
+            return
+        except Exception as e:
+            logger.exception(f"Unexpected error when getting async response: {e}")
             yield f"data: {json.dumps({'type': 'error', 'error': f'Unexpected error'})}\n\n"
             return

@@ -3,13 +3,15 @@ from typing import Any
 import tiktoken
 import structlog
 
+from posthog.models.team.team import Team
 from posthog.schema import LLMTrace
 
 logger = structlog.get_logger(__name__)
 
 
 class TracesSummarizerStringifier:
-    def __init__(self):
+    def __init__(self, team: Team):
+        self._team = team
         self._token_encoder = tiktoken.encoding_for_model("gpt-4o")
         self._stringified_trace_max_tokens = 5000
         # TODO: Copy stats collection from "old_stringify_trace.py"
@@ -53,7 +55,7 @@ class TracesSummarizerStringifier:
         num_tokens = len(self._token_encoder.encode(stringified_messages_str))
         if num_tokens > self._stringified_trace_max_tokens:
             logger.warning(
-                f"Trace {trace.id} stringified version is too long ({num_tokens} tokens > {self._stringified_trace_max_tokens})"
+                f"Trace {trace.id} from team {self._team.id} stringified version is too long ({num_tokens} tokens > {self._stringified_trace_max_tokens})"
                 "for summarization when summarizing LLM traces, skipping"
             )
             return None
@@ -97,13 +99,18 @@ class TracesSummarizerStringifier:
             return None
         return f"human: {message_content}"
 
-    def _stringify_message(self, message: dict[str, Any]) -> str | None:
+    def _stringify_message(self, message: dict[str, Any], trace_id: str) -> str | None:
+        message_type = message.get("type")
+        if not message_type:
+            logger.warning(
+                f"Message {message.get('id')} for trace {trace_id} from team {self._team.id} has no type, skipping"
+            )
+            return None
         try:
             # Answers
             if message.get("answer"):
                 return self._stringify_answer(message)
             # Messages
-            message_type = message["type"]
             if message_type == "ai":
                 return self._stringify_ai_message(message)
             if message_type == "human":
@@ -113,6 +120,10 @@ class TracesSummarizerStringifier:
             if message_type == "tool":  # Decide if to keep tool messages
                 return self._stringify_tool_message(message)
             # Ignore other message types
-        except Exception as e:
-            logger.exception(f"Error stringifying message ({e}):\n{message}")
+            # TODO: Decide if there's a need for other message types
+        except Exception as err:
+            logger.exception(
+                f"Error stringifying message {message_type} ({err}) for trace {trace_id} from team {self._team.id}:\n{message}",
+                error=str(err),
+            )
             return None

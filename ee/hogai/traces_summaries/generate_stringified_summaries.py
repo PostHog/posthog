@@ -1,3 +1,5 @@
+import asyncio
+import os
 import re
 import difflib
 from copy import copy
@@ -5,6 +7,9 @@ from copy import copy
 import structlog
 from rich.console import Console
 
+# from google import genai
+
+from posthog.models.team.team import Team
 from products.llm_analytics.backend.providers.gemini import GeminiProvider
 
 logger = structlog.get_logger(__name__)
@@ -27,9 +32,15 @@ console = Console()
 
 
 class TraceSummarizerGenerator:
-    def __init__(self, model_id: str = LLM_MODEL_TO_SUMMARIZE_STRINGIFIED_TRACES):
+    def __init__(self, team: Team, model_id: str = LLM_MODEL_TO_SUMMARIZE_STRINGIFIED_TRACES):
+        self._team = team
         self._model_id = model_id
         self._provider = GeminiProvider(model_id=model_id)
+
+        # TODO: Test first with the wrapper to decide if I need a separate client
+        # # Using default Google client as posthog wrapper doesn't support `aio` yet for async calls
+        # self._client = genai.Client(api_key=self._provider.get_api_key())
+
         # Remove excessive summary parts that add no value to concentrate the summary meaning programmatically
         # Parts that add no value and can't be safely removed
         self._no_value_parts = [
@@ -49,25 +60,41 @@ class TraceSummarizerGenerator:
         )
         # TODO: Copy stats collection from "old_summarize_trace.py"
 
-    def summarize_stringified_traces(self, stringified_traces: dict[str, str]) -> dict[str, str]:
+    async def summarize_stringified_traces(self, stringified_traces: dict[str, str]) -> dict[str, str]:
         """Summarize a dictionary of stringified traces."""
+        tasks = {}
+        async with asyncio.TaskGroup() as tg:
+            for trace_id, stringified_trace in stringified_traces.items():
+                tasks[trace_id] = tg.create_task(
+                    self._generate_trace_summary(trace_id=trace_id, stringified_trace=stringified_trace)
+                )
         summarized_traces: dict[str, str] = {}
-        for trace_id, stringified_trace in stringified_traces.items():
-            summarized_trace = self._generate_trace_summary(trace_id=trace_id, stringified_trace=stringified_trace)
-            summarized_traces[trace_id] = summarized_trace
+        for trace_id, task in tasks.items():
+            res: str | Exception = task.result()
+            if isinstance(res, Exception):
+                logger.exception(
+                    f"Failed to generate summary for trace {trace_id} from team {self._team.id} when summarizing traces: {res}",
+                    error=str(res),
+                )
+                continue
+            # Return only successful summaries
+            summarized_traces[trace_id] = res
         return summarized_traces
 
-    def _generate_trace_summary(self, trace_id: str, stringified_trace: str) -> str:
+    async def _generate_trace_summary(self, trace_id: str, stringified_trace: str) -> str | Exception:
         prompt = GENERATE_STRINGIFIED_TRACE_SUMMARY_PROMPT.format(stringified_trace=stringified_trace)
-        response_text = self._provider.get_response(prompt=prompt, system="")
-        # Avoid LLM returning excessive comments when no issues found
-        if "no issues found" in response_text.lower() and response_text.lower() != "no issues found":
-            logger.info(
-                f"Original 'no issues' text for trace {trace_id} (replaced with 'No issues found'): {response_text}"
-            )
-            return "No issues found"
-        cleaned_up_summary = self._clean_up_summary_before_embedding(trace_id=trace_id, summary=response_text)
-        return cleaned_up_summary
+        try:
+            response_text = await self._provider.get_async_response(prompt=prompt, system="")
+            # Avoid LLM returning excessive comments when no issues found
+            if "no issues found" in response_text.lower() and response_text.lower() != "no issues found":
+                logger.info(
+                    f"Original 'no issues' text for trace {trace_id} from team {self._team.id} (replaced with 'No issues found'): {response_text}"
+                )
+                return "No issues found"
+            cleaned_up_summary = self._clean_up_summary_before_embedding(trace_id=trace_id, summary=response_text)
+            return cleaned_up_summary
+        except Exception as err:
+            return err  # Let caller handle the error
 
     def _clean_up_summary_before_embedding(self, trace_id: str, summary: str, log_diff: bool = False) -> str:
         """Remove repetitive phrases and excessive formatting to make embeddings more accurate."""
@@ -102,12 +129,8 @@ class TraceSummarizerGenerator:
         summary = re.sub(self._proper_capitalization_regex, lambda m: m.group(1) + m.group(2).upper(), summary)
         if len(summary) / len(original_summary) <= 0.8:
             logger.warning(
-                f"Summary for trace {trace_id} is too different from the original summary "
+                f"Summary for trace {trace_id} from team {self._team.id} is too different from the original summary "
                 "(smaller 20%+ after cleanup) when summarizing traces",
-                old_length=len(original_summary),
-                new_length=len(summary),
-                original_summary=original_summary,
-                summary=summary,
             )
             # Force log diff if drastic difference
             log_diff = True
@@ -117,15 +140,9 @@ class TraceSummarizerGenerator:
         self._log_diff(trace_id=trace_id, original_summary=original_summary, summary=summary)
         return summary
 
-    @staticmethod
-    def _log_diff(trace_id: str, original_summary: str, summary: str) -> None:
-        """Helper function to log the differences between the original and cleaned up summaries."""
-        logger.info(
-            f"Summary cleaned up for trace {trace_id} when summarizing traces",
-            changes_made=original_summary != summary,
-            old_length=len(original_summary),
-            new_length=len(summary),
-        )
+    def _log_diff(self, trace_id: str, original_summary: str, summary: str) -> None:
+        """Optional helper function to log the differences between the original and cleaned up summaries."""
+        logger.info(f"Summary cleaned up for trace {trace_id} from team {self._team.id} when summarizing traces")
         logger.info(f"Original summary:\n{original_summary}")
         logger.info(f"Cleaned summary:\n{summary}")
         # Character-level diff for precise changes

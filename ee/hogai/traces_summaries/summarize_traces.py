@@ -5,6 +5,7 @@
 # TODO: 5. Clusterize embeddings, return groups/singles/and group centroids
 
 
+from ee.hogai.traces_summaries.generate_stringified_summaries import TraceSummarizerGenerator
 from posthog.schema import DateRange
 
 from posthog.models.team.team import Team
@@ -17,11 +18,14 @@ class TracesSummarizer:
     def __init__(self, team: Team):
         self._team = team
 
-    def summarize_traces_for_date_range(self, date_range: DateRange) -> list[str]:
+    async def summarize_traces_for_date_range(self, date_range: DateRange) -> list[str]:
         collector = TracesSummarizerCollector(team=self._team)
         # Collect and stringify traces in-memory
+        stringifier = TracesSummarizerStringifier(team=self._team)
         stringified_traces: dict[str, str] = {}  # trace_id -> stringified trace
         for traces_chunk in collector.collect_traces_to_analyze(date_range=date_range):
-            stringified_traces_chunk = TracesSummarizerStringifier().stringify_traces(traces_chunk)
+            stringified_traces_chunk = stringifier.stringify_traces(traces_chunk)
             stringified_traces.update(stringified_traces_chunk)
         # Summarize stringified traces
+        summary_generator = TraceSummarizerGenerator(team=self._team)
+        summarized_traces = await summary_generator.summarize_stringified_traces(stringified_traces=stringified_traces)
