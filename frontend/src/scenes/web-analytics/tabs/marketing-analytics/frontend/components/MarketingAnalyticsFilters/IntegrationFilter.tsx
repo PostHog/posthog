@@ -4,15 +4,20 @@ import { useState } from 'react'
 import { IconFilter } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDropdown } from '@posthog/lemon-ui'
 
-import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
+import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
+
+import { ExternalDataSchemaStatus } from '~/types'
+
+import { MarketingSourceStatus, marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
+import { StatusIcon } from '../settings/StatusIcon'
 
 export function IntegrationFilter(): JSX.Element {
-    const { allAvailableSources, integrationFilter } = useValues(marketingAnalyticsLogic)
+    const { allAvailableSourcesWithStatus, integrationFilter } = useValues(marketingAnalyticsLogic)
     const { setIntegrationFilter } = useActions(marketingAnalyticsLogic)
     const [showPopover, setShowPopover] = useState(false)
 
     const selectedIds = integrationFilter.integrationSourceIds || []
-    const allSourceIds = allAvailableSources.map((s) => s.id)
+    const allSourceIds = allAvailableSourcesWithStatus.map((s) => s.id)
     const isAllSelected = selectedIds.length === allSourceIds.length && allSourceIds.length > 0
     const isSomeSelected = selectedIds.length > 0 && selectedIds.length < allSourceIds.length
 
@@ -33,7 +38,7 @@ export function IntegrationFilter(): JSX.Element {
     }
 
     const formatSourceLabel = (source: { name: string; type: string; prefix?: string }): string => {
-        const prefix = source.prefix ? `${source.prefix} - ` : ''
+        const prefix = source.prefix ? `${source.prefix} - ` : 'default - '
         return `${prefix}${source.name}`
     }
 
@@ -42,13 +47,14 @@ export function IntegrationFilter(): JSX.Element {
             return 'All integrations'
         }
         if (selectedIds.length === 1) {
-            const source = allAvailableSources.find((s) => s.id === selectedIds[0])
+            const source = allAvailableSourcesWithStatus.find((s) => s.id === selectedIds[0])
             return source ? formatSourceLabel(source) : '1 integration'
         }
         return `${selectedIds.length} integrations`
     }
 
-    if (allAvailableSources.length === 0) {
+    // Don't show the filter if there are no available sources
+    if (allAvailableSourcesWithStatus.length === 0) {
         return <></>
     }
 
@@ -70,7 +76,7 @@ export function IntegrationFilter(): JSX.Element {
                         </span>
                     </LemonButton>
                     <div className="border-t border-border my-1" />
-                    {allAvailableSources.map((source) => (
+                    {allAvailableSourcesWithStatus.map((source) => (
                         <LemonButton
                             key={source.id}
                             fullWidth
@@ -83,7 +89,15 @@ export function IntegrationFilter(): JSX.Element {
                                     checked={selectedIds.includes(source.id)}
                                     className="pointer-events-none"
                                 />
-                                <span>{formatSourceLabel(source)}</span>
+                                <DataWarehouseSourceIcon type={source.name} size="xsmall" disableTooltip />
+                                <span className="flex-1">{formatSourceLabel(source)}</span>
+                                {/* We don't show the status icon for Completed sources because it would be too many statuses */}
+                                {source.status &&
+                                    source.statusMessage &&
+                                    source.status !==
+                                        (ExternalDataSchemaStatus.Completed || MarketingSourceStatus.Success) && (
+                                        <StatusIcon status={source.status} message={source.statusMessage} />
+                                    )}
                             </span>
                         </LemonButton>
                     ))}

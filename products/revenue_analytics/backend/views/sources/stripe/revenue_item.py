@@ -113,7 +113,10 @@ def build(handle: SourceHandle) -> BuiltQuery:
 
     if invoice_schema is None and charge_schema is None:
         return BuiltQuery(
-            key=f"{prefix}.no_source", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
+            key=str(source.id),  # Using source rather than table because table hasn't been found yet
+            prefix=prefix,
+            query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys())),
+            test_comments="no_schema",
         )
 
     invoice_table: DataWarehouseTable | None = None
@@ -131,7 +134,10 @@ def build(handle: SourceHandle) -> BuiltQuery:
         team = charge_table.team
     else:
         return BuiltQuery(
-            key=f"{prefix}.no_table", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
+            key=str(source.id),  # Using source rather than table because table hasn't been found
+            prefix=prefix,
+            query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys())),
+            test_comments="no_table",
         )
 
     # Build the query for invoice items with revenue recognition splitting

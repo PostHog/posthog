@@ -1085,6 +1085,13 @@
         }
     }
 
+    a:focus-visible,
+    button:focus-visible,
+    a[data-focused='true'],
+    button[data-focused='true'] {
+        outline: 2px solid var(--color-accent);
+    }
+
     body {
         font-size: 14px;
         font-weight: 400;
@@ -1767,5 +1774,42 @@
     .hogqlx-redacted:focus-visible {
         outline: 2px dashed currentColor;
         outline-offset: 2px;
+    }
+
+    .animate-logomark-jump {
+        --logomark-airtime: 0.4s;
+
+        svg {
+            overflow: visible;
+
+            // Animate each child with a staggered delay
+            > * {
+                // Times 25 because the actual animation is 4% of the keyframes (so 1/25)
+                animation: Logomark__jump calc(var(--logomark-airtime) * 25) cubic-bezier(0.6, 0, 0.2, 0.8) infinite;
+            }
+
+            @for $i from 1 through 4 {
+                > *:nth-child(#{$i}) {
+                    // Dividing by 15 just because it feels good
+                    animation-delay: calc(var(--logomark-airtime) / 15 * ($i - 1));
+                }
+            }
+        }
+
+        @keyframes Logomark__jump {
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+
+            2% {
+                transform: translateY(-10px);
+            }
+
+            4% {
+                // Only 4% so that this repeats every now and then nicely
+                transform: translateY(0);
+            }
+        }
     }
 }

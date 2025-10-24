@@ -27,7 +27,10 @@ from products.batch_exports.backend.temporal.monitoring import (
     reconcile_event_counts,
     update_batch_export_runs,
 )
-from products.batch_exports.backend.tests.temporal.utils import create_clickhouse_tables_and_views, truncate_events
+from products.batch_exports.backend.tests.temporal.utils.clickhouse import (
+    create_clickhouse_tables_and_views,
+    truncate_events,
+)
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
