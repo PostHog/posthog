@@ -21,8 +21,7 @@ import { ActivityScope, Breadcrumb, IntegrationType } from '~/types'
 
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
-import { SimilarIssue } from '../../components/SimilarIssueCard'
-import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from '../../queries'
+import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery, errorTrackingSimilarIssuesQuery } from '../../queries'
 import { ERROR_TRACKING_DETAILS_RESOLUTION } from '../../utils'
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
 
@@ -239,9 +238,19 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             },
         ],
         similarIssues: [
-            [] as SimilarIssue[],
+            [] as ErrorTrackingRelationalIssue[],
             {
-                loadSimilarIssues: async () => await api.errorTracking.getSimilarIssues(props.id),
+                loadSimilarIssues: async (refresh: boolean = false) => {
+                    const query = errorTrackingSimilarIssuesQuery({
+                        issueId: props.id,
+                        limit: 10,
+                        maxDistance: 10,
+                    })
+                    const response = await api.query(query, {
+                        refresh: refresh ? 'force_blocking' : 'blocking',
+                    })
+                    return response.results
+                },
             },
         ],
     })),

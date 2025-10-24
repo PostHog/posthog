@@ -7,10 +7,11 @@ import { LemonModalContent, LemonModalHeader } from 'lib/lemon-ui/LemonModal/Lem
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
+import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
 import { ExceptionCard } from '../../../components/ExceptionCard'
 import { issueActionsLogic } from '../../../components/IssueActions/issueActionsLogic'
-import SimilarIssueCard, { SimilarIssue } from '../../../components/SimilarIssueCard'
+import SimilarIssueCard from '../../../components/SimilarIssueCard'
 import { useErrorTagRenderer } from '../../../hooks/use-error-tag-renderer'
 import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 
@@ -18,7 +19,7 @@ export const SimilarIssueList = (): JSX.Element => {
     const { issue, similarIssues, similarIssuesLoading } = useValues(errorTrackingIssueSceneLogic)
     const { loadSimilarIssues } = useActions(errorTrackingIssueSceneLogic)
     const { mergeIssues } = useAsyncActions(issueActionsLogic)
-    const [selectedIssue, setSelectedIssue] = useState<SimilarIssue | null>(null)
+    const [selectedIssue, setSelectedIssue] = useState<ErrorTrackingRelationalIssue | null>(null)
 
     useEffect(() => {
         loadSimilarIssues()
@@ -27,7 +28,7 @@ export const SimilarIssueList = (): JSX.Element => {
     const handleMerge = async (relatedIssueId: string): Promise<void> => {
         if (issue) {
             await mergeIssues([issue.id, relatedIssueId])
-            loadSimilarIssues()
+            loadSimilarIssues(true)
         }
     }
 
@@ -37,7 +38,7 @@ export const SimilarIssueList = (): JSX.Element => {
                 <Spinner />
             ) : similarIssues.length > 0 ? (
                 <div className="flex flex-col gap-1">
-                    {similarIssues.map((relatedIssue: SimilarIssue) => {
+                    {similarIssues.map((relatedIssue: ErrorTrackingRelationalIssue) => {
                         return (
                             <SimilarIssueCard
                                 issue={relatedIssue}
@@ -62,7 +63,7 @@ export const SimilarIssueList = (): JSX.Element => {
             {/* Issue Detail Modal */}
             <LemonModal isOpen={!!selectedIssue} onClose={() => setSelectedIssue(null)} width="95%" maxWidth="1400px">
                 <LemonModalHeader>
-                    <h3>{selectedIssue?.title || 'Issue Details'}</h3>
+                    <h3>{selectedIssue?.name || 'Issue Details'}</h3>
                 </LemonModalHeader>
                 <LemonModalContent>
                     {selectedIssue && <IssueModalContent issueId={selectedIssue.id} />}
