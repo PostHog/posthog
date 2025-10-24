@@ -80,7 +80,32 @@ jobs:
         name: Trigger docs preview (PoC)
         runs-on: ubuntu-latest
         steps:
+            - name: Checkout PR branch
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event.pull_request.head.ref }}
+
+            - name: Detect changed docs files
+              id: changed-files
+              run: |
+                  # Fetch base branch to compare
+                  git fetch origin ${{ github.event.pull_request.base.ref }}
+
+                  # Get list of changed .md/.mdx files in docs/published/
+                  CHANGED_FILES=$(git diff --name-only origin/${{ github.event.pull_request.base.ref }}...HEAD -- 'docs/published/*.md' 'docs/published/*.mdx' 'docs/published/**/*.md' 'docs/published/**/*.mdx' || echo "")
+
+                  # Convert to JSON array for use in PR comment
+                  if [ -n "$CHANGED_FILES" ]; then
+                    FILES_JSON=$(echo "$CHANGED_FILES" | jq -R -s -c 'split("\n") | map(select(length > 0))')
+                    echo "files=$FILES_JSON" >> $GITHUB_OUTPUT
+                    echo "count=$(echo "$CHANGED_FILES" | wc -l | tr -d ' ')" >> $GITHUB_OUTPUT
+                  else
+                    echo "files=[]" >> $GITHUB_OUTPUT
+                    echo "count=0" >> $GITHUB_OUTPUT
+                  fi
+
             - name: Trigger Vercel build with inline env
+              id: trigger-build
               env:
                   VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
                   VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
@@ -122,12 +147,15 @@ jobs:
                   if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 201 ]; then
                     DEPLOYMENT_URL=$(echo "$BODY" | jq -r '.url // empty')
                     echo "✅ Successfully triggered Vercel preview build"
+                    echo "trigger_status=success" >> $GITHUB_OUTPUT
                     if [ -n "$DEPLOYMENT_URL" ]; then
                       echo "   Preview URL: https://${DEPLOYMENT_URL}"
+                      echo "deployment_url=https://${DEPLOYMENT_URL}" >> $GITHUB_OUTPUT
                     fi
                   else
                     echo "❌ Failed to trigger preview build (HTTP $HTTP_CODE)"
                     echo "$BODY" | jq '.' 2>/dev/null || echo "$BODY"
+                    echo "trigger_status=failed" >> $GITHUB_OUTPUT
                   fi
 
             - name: Comment on PR
@@ -136,7 +164,69 @@ jobs:
               with:
                   script: |
                       const prNumber = ${{ github.event.pull_request.number }};
-                      const message = '## 📚 Docs Preview Build (PoC)\n\n✅ Triggered Vercel deployment!\n\nCheck the **Vercel** deployment check below for preview URL.';
+                      const triggerStatus = "${{ steps.trigger-build.outputs.trigger_status }}";
+                      const deploymentUrl = "${{ steps.trigger-build.outputs.deployment_url }}";
+                      const changedFiles = ${{ steps.changed-files.outputs.files }};
+                      const fileCount = "${{ steps.changed-files.outputs.count }}";
+
+                      // Delete old preview comments
+                      const comments = await github.rest.issues.listComments({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        issue_number: prNumber
+                      });
+
+                      for (const comment of comments.data) {
+                        if (comment.user.login === 'github-actions[bot]' &&
+                            (comment.body.includes('📚 Docs Preview') || comment.body.includes('📚 Docs Preview Build'))) {
+                          await github.rest.issues.deleteComment({
+                            owner: context.repo.owner,
+                            repo: context.repo.repo,
+                            comment_id: comment.id
+                          });
+                        }
+                      }
+
+                      let message = '';
+
+                      if (triggerStatus === 'success') {
+                        // Build preview URL
+                        const baseUrl = deploymentUrl || 'https://posthog.com';
+                        const handbookBase = `${baseUrl}/handbook/engineering`;
+
+                        // Build table of changed files with preview links
+                        let filesTable = '';
+                        if (changedFiles && changedFiles.length > 0) {
+                          filesTable = '\n### Changed Documentation\n\n| File | Preview |\n|------|---------|';
+
+                          for (const file of changedFiles) {
+                            // Convert docs/published/foo/bar.md -> /handbook/engineering/foo/bar
+                            const relativePath = file.replace('docs/published/', '').replace(/\.mdx?$/, '');
+                            const previewUrl = `${handbookBase}/${relativePath}`;
+                            const fileName = file.split('/').pop();
+
+                            filesTable += `\n| \`${fileName}\` | [View →](${previewUrl}) |`;
+                          }
+                        }
+
+                        message = `## 📚 Docs Preview (PoC)
+
+**Preview URL:** ${baseUrl}
+
+${filesTable || `\n**${fileCount} docs file(s) changed** in \`docs/published/\``}
+
+### Resources
+
+- [Handbook base](${handbookBase})
+- [External docs manifest](${baseUrl}/external-docs-map.json)
+
+Preview will be ready in ~2 minutes. Check Vercel bot comment below for deployment status.`;
+                      } else {
+                        message = `## 📚 Docs Preview Build Failed (PoC)
+
+Preview build could not be triggered. Check the GitHub Action logs for details.`;
+                      }
+
                       github.rest.issues.createComment({
                         issue_number: prNumber,
                         owner: context.repo.owner,
