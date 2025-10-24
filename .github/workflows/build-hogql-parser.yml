@@ -70,7 +70,9 @@ jobs:
 
             - name: Build sdist
               if: matrix.os == 'ubuntu-22.04' # Only build the sdist once
-              run: cd common/hogql_parser && python setup.py sdist
+              run: |
+                  pip install setuptools==80.9.0
+                  cd common/hogql_parser && python setup.py sdist
 
             - name: Install cibuildwheel
               run: pip install cibuildwheel==2.16.*
