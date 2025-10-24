@@ -38,6 +38,9 @@ jobs:
                         - .github/workflows/ci-backend.yml
                         # Schema changes need to trigger Python CI to validate schema.py is regenerated
                         - 'frontend/src/queries/schema.json'
+                        # hogli CLI changes need validation
+                        - 'hogli/**'
+                        - 'bin/**'
 
     code-quality:
         needs: changes
