@@ -7,6 +7,7 @@ from ipaddress import ip_address, ip_network
 from typing import Optional, cast
 
 from django.conf import settings
+from django.contrib.auth.middleware import AuthenticationMiddleware
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.cache import cache
 from django.core.exceptions import MiddlewareNotUsed
@@ -17,6 +18,7 @@ from django.middleware.csrf import CsrfViewMiddleware
 from django.shortcuts import redirect
 from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
+from django.utils.functional import SimpleLazyObject
 
 import structlog
 from django_prometheus.middleware import Metrics
@@ -64,6 +66,16 @@ default_cookie_options = {
 }
 
 cookie_api_paths_to_ignore = {"decide", "api", "flags"}
+
+
+class OverridableAuthenticationMiddleware(AuthenticationMiddleware):
+    """This is exactly the plain Django AuthenticationMiddleware, but with support for a local dev-only login override."""
+
+    def process_request(self, request):
+        if settings.DEBUG and settings.DEBUG_LOG_IN_AS_EMAIL:
+            request.user = SimpleLazyObject(lambda: User.objects.get(email=settings.DEBUG_LOG_IN_AS_EMAIL))  # type: ignore
+            return
+        super().process_request(request)
 
 
 class AllowIPMiddleware:
@@ -162,7 +174,7 @@ class AutoProjectMiddleware:
         if request.user.is_authenticated:
             path_parts = request.path.strip("/").split("/")
             project_id_in_url = None
-            user = cast(User, request.user)
+            user = cast("User", request.user)
 
             if (
                 len(path_parts) >= 2
@@ -245,7 +257,7 @@ class AutoProjectMiddleware:
         return None
 
     def switch_team_if_needed_and_allowed(self, request: HttpRequest, target_queryset: QuerySet):
-        user = cast(User, request.user)
+        user = cast("User", request.user)
         current_team = user.team
         if current_team is not None and not target_queryset.filter(team=current_team).exists():
             actual_item = target_queryset.only("team").select_related("team").first()
@@ -253,7 +265,7 @@ class AutoProjectMiddleware:
                 self.switch_team_if_allowed(actual_item.team, request)
 
     def switch_team_if_allowed(self, new_team: Team, request: HttpRequest):
-        user = cast(User, request.user)
+        user = cast("User", request.user)
 
         if not self.can_switch_to_team(new_team, request):
             return
@@ -267,7 +279,7 @@ class AutoProjectMiddleware:
         request.switched_team = old_team_id  # type: ignore
 
     def can_switch_to_team(self, new_team: Team, request: HttpRequest):
-        user = cast(User, request.user)
+        user = cast("User", request.user)
         user_permissions = UserPermissions(user)
         user_access_control = UserAccessControl(user=user, team=new_team)
 
@@ -300,7 +312,7 @@ class CHQueries:
         route = resolve(request.path)
         route_id = f"{route.route} ({route.func.__name__})"
 
-        user = cast(User, request.user)
+        user = cast("User", request.user)
 
         with suppress(Exception):
             if request_id := structlog.get_context(self.logger).get("request_id"):
