@@ -1,6 +1,6 @@
 from collections.abc import Generator
 
-from posthog.schema import CachedTraceQueryResponse, DateRange, HogQLPropertyFilter, LLMTrace, QueryLogTags, TraceQuery
+from posthog.schema import CachedTraceQueryResponse, DateRange, HogQLPropertyFilter, LLMTrace, QueryLogTags, TracesQuery
 
 from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 from posthog.models.team.team import Team
@@ -27,13 +27,12 @@ class TracesSummarizerCollector:
             if response.hasMore is not True:
                 break
 
-    def _create_traces_query(self, offset: int, date_range: DateRange) -> TraceQuery:
-        return TraceQuery(
+    def _create_traces_query(self, offset: int, date_range: DateRange) -> TracesQuery:
+        return TracesQuery(
             dateRange=date_range,
             filterTestAccounts=False,  # Internal users are active, so don't see the reason to filter them out, for now
             limit=self._traces_per_page,
             offset=offset,
-            limit_context=self._traces_per_page,
             properties=[
                 HogQLPropertyFilter(
                     # Analyze only LangGraph traces initially

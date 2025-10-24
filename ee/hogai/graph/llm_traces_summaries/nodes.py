@@ -22,7 +22,6 @@ from ee.hogai.session_summaries.session_group.summary_notebooks import (
     create_empty_notebook_for_summary,
     update_notebook_from_summary_content,
 )
-from ee.hogai.traces_summaries.search_summaries_embeddings import EmbeddingSearcher
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantNodeName
 from ee.hogai.utils.types.composed import MaxNodeName
@@ -60,6 +59,8 @@ class LLMTracesSummarizationNode(AssistantNode):
         start_time = time.time()
         conversation_id = config.get("configurable", {}).get("thread_id", "unknown")
         llm_traces_summarization_query = state.llm_traces_summarization_query
+        if not llm_traces_summarization_query:
+            return self._create_error_response("No query provided", state)
         notebook = await create_empty_notebook_for_summary(
             user=self._user,
             team=self._team,
@@ -73,10 +74,11 @@ class LLMTracesSummarizationNode(AssistantNode):
             # Trying to generate embeddings through Olly's service
             # test_results = embedding_testing_func(text=llm_traces_summarization_query, team_id=self._team.id)
             # Search for similar traces
-            similar_documents = EmbeddingSearcher.prepare_input_data(
-                question=llm_traces_summarization_query,
-                top=5,
-            )
+            # EmbeddingSearcher.prepare_input_data(
+            #     question=llm_traces_summarization_query,
+            #     top=5,
+            # )
+            similar_documents: list[dict[str, str]] = []
             if not similar_documents:
                 return self._create_error_response("No similar traces found", state)
             notebook_content = _prepare_basic_llm_summary_notebook_content(

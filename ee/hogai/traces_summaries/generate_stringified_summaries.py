@@ -37,7 +37,7 @@ class TraceSummarizerGenerator:
         self,
         team: Team,
         model_id: str = LLM_MODEL_TO_SUMMARIZE_STRINGIFIED_TRACES,
-        summary_type: TraceSummary.TraceType = TraceSummary.TraceType.ISSUES_SEARCH,
+        summary_type: TraceSummary.TraceSummaryType = TraceSummary.TraceSummaryType.ISSUES_SEARCH,
     ):
         self._team = team
         self._summary_type = summary_type
@@ -171,7 +171,7 @@ class TraceSummarizerGenerator:
         # TODO: Should be replaced (or migrated to) later with the Clickhouse-powered solution to allow FTS
         summaries_batch_size = 500
         summaries_db = [
-            TraceSummary(team=self._team, trace_id=trace_id, summary=summary, trace_type=self._summary_types)
+            TraceSummary(team=self._team, trace_id=trace_id, summary=summary, trace_summary_type=self._summary_type)
             for trace_id, summary in summarized_traces.items()
         ]
         TraceSummary.objects.bulk_create(summaries_db, batch_size=summaries_batch_size)

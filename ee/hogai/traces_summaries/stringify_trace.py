@@ -3,8 +3,9 @@ from typing import Any
 import tiktoken
 import structlog
 
-from posthog.models.team.team import Team
 from posthog.schema import LLMTrace
+
+from posthog.models.team.team import Team
 
 logger = structlog.get_logger(__name__)
 
@@ -30,7 +31,7 @@ class TracesSummarizerStringifier:
         # TODO: Iterate full conversations (traces combined) instead of just traces, as it leads to duplicates
         messages = trace.outputState.get("messages") if trace.outputState else []
         for message in messages:
-            stringified_message = self._stringify_message(message)
+            stringified_message = self._stringify_message(message=message, trace_id=trace.id)
             # Skip empty messages
             if not stringified_message:
                 continue
@@ -87,7 +88,11 @@ class TracesSummarizerStringifier:
     @staticmethod
     def _stringify_tool_message(message: dict[str, Any]) -> str | None:
         # Keep navigation messages
-        if message.get("ui_payload") and message.get("ui_payload").get("navigate"):
+        if (
+            message.get("ui_payload")
+            and isinstance(message["ui_payload"], dict)
+            and message["ui_payload"].get("navigate")
+        ):
             return f"ai/navigation: *{message['content']}*"
         # TODO: Decide how to catch errors as they aren't marked as errors in the trace
         return None
@@ -121,6 +126,7 @@ class TracesSummarizerStringifier:
                 return self._stringify_tool_message(message)
             # Ignore other message types
             # TODO: Decide if there's a need for other message types
+            return None
         except Exception as err:
             logger.exception(
                 f"Error stringifying message {message_type} ({err}) for trace {trace_id} from team {self._team.id}:\n{message}",

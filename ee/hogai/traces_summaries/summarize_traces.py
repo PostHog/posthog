@@ -19,7 +19,7 @@ class TracesSummarizer:
     def __init__(self, team: Team):
         self._team = team
 
-    async def summarize_traces_for_date_range(self, date_range: DateRange) -> list[str]:
+    async def summarize_traces_for_date_range(self, date_range: DateRange) -> None:
         collector = TracesSummarizerCollector(team=self._team)
         # Collect and stringify traces in-memory
         stringifier = TracesSummarizerStringifier(team=self._team)
@@ -35,3 +35,5 @@ class TracesSummarizer:
         # Embed summaries
         embedder = TracesSummarizerEmbedder(team=self._team)
         embedder.embed_summaries(summarized_traces=summarized_traces)
+        # Returns nothing if everything succeeded
+        return None
