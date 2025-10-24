@@ -952,9 +952,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             ("0 not between 1 and 10", 1),
             ("11 not between 1 and 10", 1),
             ("10 not between 1 and 10", 0),
-            ("null between 1 and 10", 0),
-            ("5 between null and 10", 0),
-            ("5 between 1 and null", 0),
+            ("null between 1 and 10", None),
+            ("5 between null and 10", None),
+            ("5 between 1 and null", None),
         ]
         for expr, expected in cases:
             q = f"select {expr}"
