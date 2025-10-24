@@ -122,6 +122,7 @@ def CUSTOM_METRICS_TABLE_SIZES_VIEW():
         'gauge' AS type
     FROM system.tables
     WHERE database NOT IN ('INFORMATION_SCHEMA', 'information_schema')
+    """
 
 
 CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE = f"""
