@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
@@ -23,7 +25,17 @@ export function BreakdownSearchBar(): JSX.Element {
 
     return (
         <div className="border rounded bg-surface-primary p-3 flex gap-2 items-center">
-            <span className="text-sm font-medium">Breakdown by</span>
+            <DateFilter
+                size="small"
+                dateFrom={dateRange.date_from}
+                dateTo={dateRange.date_to}
+                fullWidth={false}
+                dateOptions={dateMapping}
+                onChange={(changedDateFrom, changedDateTo) =>
+                    setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
+                }
+                allowedRollingDateOptions={['hours', 'days', 'weeks', 'months', 'years']}
+            />
             <Popover
                 overlay={
                     <TaxonomicFilter
@@ -40,35 +52,22 @@ export function BreakdownSearchBar(): JSX.Element {
                 visible={filterOpen}
                 onClickOutside={() => setFilterOpen(false)}
             >
-                <button
-                    type="button"
-                    className="BreakdownTag BreakdownTag--small BreakdownTag--clickable"
-                    onClick={() => setFilterOpen(!filterOpen)}
-                >
+                <LemonButton size="small" type="secondary" onClick={() => setFilterOpen(!filterOpen)}>
                     <PropertyKeyInfo
                         value={selectedBreakdownPreset.property}
-                        disablePopover={filterOpen}
+                        disablePopover
                         type={TaxonomicFilterGroupType.EventProperties}
                     />
-                </button>
+                </LemonButton>
             </Popover>
             <div className="flex-1" />
-            <DateFilter
-                size="small"
-                dateFrom={dateRange.date_from}
-                dateTo={dateRange.date_to}
-                fullWidth={false}
-                dateOptions={dateMapping}
-                onChange={(changedDateFrom, changedDateTo) =>
-                    setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
-                }
-                allowedRollingDateOptions={['hours', 'days', 'weeks', 'months', 'years']}
-            />
-            <TestAccountFilter
-                size="small"
-                filters={{ filter_test_accounts: filterTestAccounts }}
-                onChange={({ filter_test_accounts }) => setFilterTestAccounts(filter_test_accounts || false)}
-            />
+            <div className="flex-shrink-0">
+                <TestAccountFilter
+                    size="small"
+                    filters={{ filter_test_accounts: filterTestAccounts }}
+                    onChange={({ filter_test_accounts }) => setFilterTestAccounts(filter_test_accounts || false)}
+                />
+            </div>
         </div>
     )
 }

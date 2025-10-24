@@ -30,8 +30,7 @@ export function BreakdownTileButton({ item }: BreakdownTileButtonProps): JSX.Ele
     const { setSelectedBreakdownPreset } = useActions(errorTrackingBreakdownsLogic)
     const { setCategory } = useActions(errorTrackingIssueSceneLogic)
 
-    const isSelected =
-        selectedBreakdownPreset.property === item.property && selectedBreakdownPreset.title === item.title
+    const isSelected = selectedBreakdownPreset.property === item.property
     const { issueId } = useValues(errorTrackingBreakdownsLogic)
 
     const query = errorTrackingIssueBreakdownQuery({
