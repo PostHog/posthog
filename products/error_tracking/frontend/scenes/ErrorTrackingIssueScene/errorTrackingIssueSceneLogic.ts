@@ -21,6 +21,7 @@ import { ActivityScope, Breadcrumb, IntegrationType } from '~/types'
 
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
+import { SimilarIssue } from '../../components/SimilarIssueCard'
 import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from '../../queries'
 import { ERROR_TRACKING_DETAILS_RESOLUTION } from '../../utils'
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
@@ -238,7 +239,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             },
         ],
         similarIssues: [
-            [],
+            [] as SimilarIssue[],
             {
                 loadSimilarIssues: async () => await api.errorTracking.getSimilarIssues(props.id),
             },
