@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { LemonTabs } from '@posthog/lemon-ui'
 
@@ -34,6 +33,7 @@ import {
 } from '../components/ResultsBreakdown'
 import { CreateExperiment } from '../create/CreateExperiment'
 import { experimentLogic } from '../experimentLogic'
+import { experimentSceneLogic } from '../experimentSceneLogic'
 import { getExperimentStatus } from '../experimentsLogic'
 import { isLegacyExperiment, isLegacyExperimentQuery, removeMetricFromOrderingArray } from '../utils'
 import { DistributionModal, DistributionTable } from './DistributionTable'
@@ -209,10 +209,11 @@ export function ExperimentView(): JSX.Element {
     const { setExperiment, updateExperimentMetrics, addSharedMetricsToExperiment, removeSharedMetricFromExperiment } =
         useActions(experimentLogic)
 
+    const { activeTabKey } = useValues(experimentSceneLogic)
+    const { setActiveTabKey } = useActions(experimentSceneLogic)
+
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
-
-    const [activeTabKey, setActiveTabKey] = useState<string>('metrics')
 
     /**
      * this is temporary, for testing purposes only.
