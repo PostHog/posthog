@@ -205,8 +205,6 @@ function Category({
                                                         buttonProps={{
                                                             size: 'sm',
                                                             hasSideActionRight: true,
-                                                            className:
-                                                                'data-[focused=true]:outline-2 data-[focused=true]:outline-accent',
                                                         }}
                                                     >
                                                         <span className="text-sm">{item.icon ?? item.name[0]}</span>
@@ -299,7 +297,7 @@ function Category({
                                                             groupRef.current?.resumeFocus(showAllIndex)
                                                         }, 0)
                                                     }}
-                                                    className="w-full text-tertiary data-[focused=true]:outline-2 data-[focused=true]:outline-accent data-[focused=true]:text-primary"
+                                                    className="w-full text-tertiary data-[focused=true]:text-primary"
                                                 >
                                                     <IconArrowRight className="rotate-90" /> Show all (
                                                     {fullCount - currentLimit} more)
@@ -318,8 +316,7 @@ function Category({
                                         to={urls.persons()}
                                         buttonProps={{
                                             size: 'sm',
-                                            className:
-                                                'w-full text-tertiary data-[focused=true]:outline-2 data-[focused=true]:outline-accent data-[focused=true]:text-primary',
+                                            className: 'w-full text-tertiary data-[focused=true]:text-primary',
                                         }}
                                     >
                                         <IconArrowRight /> See all persons
@@ -332,8 +329,7 @@ function Category({
                                         to={urls.eventDefinitions()}
                                         buttonProps={{
                                             size: 'sm',
-                                            className:
-                                                'w-full text-tertiary data-[focused=true]:outline-2 data-[focused=true]:outline-accent data-[focused=true]:text-primary',
+                                            className: 'w-full text-tertiary data-[focused=true]:text-primary',
                                         }}
                                     >
                                         <IconArrowRight /> See all events
@@ -346,8 +342,7 @@ function Category({
                                         to={urls.propertyDefinitions()}
                                         buttonProps={{
                                             size: 'sm',
-                                            className:
-                                                'w-full text-tertiary data-[focused=true]:outline-2 data-[focused=true]:outline-accent data-[focused=true]:text-primary',
+                                            className: 'w-full text-tertiary data-[focused=true]:text-primary',
                                         }}
                                     >
                                         <IconArrowRight /> See all properties
@@ -535,7 +530,7 @@ export function Results({
                                         searchInputRef.current?.focus()
                                     }}
                                     variant="panel"
-                                    className="list-none data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
+                                    className="list-none"
                                 >
                                     Clear search
                                 </ButtonPrimitive>
@@ -546,7 +541,6 @@ export function Results({
                                     size="sm"
                                     onClick={() => openSidePanel(SidePanelTab.Max)}
                                     variant="panel"
-                                    className="data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
                                 >
                                     <IconSparkles />
                                     Ask Posthog AI
