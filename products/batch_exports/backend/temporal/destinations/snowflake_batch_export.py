@@ -600,6 +600,8 @@ class SnowflakeClient:
         PURGE = TRUE
         """
 
+        self.logger.info("Copying files from table stage into table %s", table_name)
+
         # Handle cases where the Warehouse is suspended (sometimes we can recover from this)
         max_attempts = 3
         execute_copy_into = make_retryable_with_exponential_backoff(
@@ -661,6 +663,8 @@ class SnowflakeClient:
                     first_error or "NO ERROR MESSAGE",
                 )
 
+        self.logger.info("Finished copying files into destination table")
+
     async def amerge_mutable_tables(
         self,
         final_table: str,
@@ -717,7 +721,9 @@ class SnowflakeClient:
             VALUES ({values});
         """
 
+        self.logger.info("Merging stage table %s into final table %s", stage_table, final_table)
         await self.execute_async_query(merge_query, fetch_results=False, poll_interval=1.0)
+        self.logger.info("Finished merge")
 
 
 def snowflake_default_fields() -> list[BatchExportField]:

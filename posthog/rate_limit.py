@@ -348,6 +348,25 @@ class UserOrEmailRateThrottle(SimpleRateThrottle):
 
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
+    def parse_rate(self, rate):
+        """
+        Support custom duration formats like "6/20minutes"
+        """
+        if rate is None:
+            return (None, None)
+
+        num, period = rate.split("/")
+        num_requests = int(num)
+
+        if period.endswith("minutes"):
+            minutes = int(period[:-7])
+            duration = minutes * 60
+        else:
+            # Fall back to default
+            num_requests, duration = super().parse_rate(rate)  # type: ignore
+
+        return (num_requests, duration)
+
 
 class SignupIPThrottle(SimpleRateThrottle):
     """
@@ -463,6 +482,26 @@ class WebAnalyticsAPISustainedThrottle(PersonalApiKeyRateThrottle):
 class UserPasswordResetThrottle(UserOrEmailRateThrottle):
     scope = "user_password_reset"
     rate = "6/day"
+
+
+class EmailMFAThrottle(UserOrEmailRateThrottle):
+    scope = "email_mfa"
+    rate = "6/20minutes"
+
+
+class EmailMFAResendThrottle(UserOrEmailRateThrottle):
+    scope = "email_mfa_resend"
+    rate = "1/minute"
+
+    def get_cache_key(self, request, view):
+        from posthog.helpers.two_factor_session import email_mfa_verifier
+
+        user_id = email_mfa_verifier.get_pending_email_mfa_verification_user_id(request)
+        if user_id:
+            ident = hashlib.sha256(str(user_id).encode()).hexdigest()
+            return self.cache_format % {"scope": self.scope, "ident": ident}
+
+        return super().get_cache_key(request, view)
 
 
 class UserAuthenticationThrottle(UserOrEmailRateThrottle):

@@ -47,6 +47,7 @@ class TestSyntheticPlaylists(APIBaseTest):
             "synthetic-commented",
             "synthetic-shared",
             "synthetic-exported",
+            "synthetic-expiring",
         ]
         if HAS_EE:
             expected.append("synthetic-summarised")
@@ -71,6 +72,29 @@ class TestSyntheticPlaylists(APIBaseTest):
         playlist = self._get_synthetic_playlist("synthetic-watch-history")
 
         assert playlist["recordings_counts"]["collection"]["count"] == 2
+
+    def test_synthetic_playlist_pagination(self) -> None:
+        from posthog.session_recordings.synthetic_playlists import WatchedPlaylistSource
+
+        for i in range(5):
+            SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id=f"watched-session-{i}")
+
+        source = WatchedPlaylistSource()
+
+        page1 = source.get_session_ids(self.team, self.user, limit=2, offset=0)
+        page2 = source.get_session_ids(self.team, self.user, limit=2, offset=2)
+        page3 = source.get_session_ids(self.team, self.user, limit=2, offset=4)
+
+        assert len(page1) == 2
+        assert len(page2) == 2
+        assert len(page3) == 1
+
+        assert set(page1).isdisjoint(set(page2))
+        assert set(page1).isdisjoint(set(page3))
+        assert set(page2).isdisjoint(set(page3))
+
+        all_pages = page1 + page2 + page3
+        assert len(set(all_pages)) == 5
 
     def test_synthetic_playlist_commented_content(self) -> None:
         Comment.objects.create(
@@ -196,7 +220,7 @@ class TestSyntheticPlaylists(APIBaseTest):
                 type="collection",
             )
 
-        expected_synthetic_count = 5 if HAS_EE else 4
+        expected_synthetic_count = 6 if HAS_EE else 5
 
         page1_data = self._get_playlists_response("?limit=20")
         page1_synthetic_count = self._count_synthetic_playlists(page1_data["results"])
@@ -241,7 +265,7 @@ class TestSyntheticPlaylists(APIBaseTest):
             last_modified_at=base_time,
         )
 
-        expected_synthetic_count = 5 if HAS_EE else 4
+        expected_synthetic_count = 6 if HAS_EE else 5
 
         response_data = self._get_playlists_response(f"?order={order_param}")
         results = response_data["results"]

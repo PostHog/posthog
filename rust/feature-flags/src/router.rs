@@ -1,25 +1,32 @@
 use std::{future::ready, sync::Arc};
 
+use crate::api::errors::AuthenticationErrorResponse;
 use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::database_pools::DatabasePools;
 use axum::{
-    http::Method,
+    http::{Method, StatusCode},
+    response::{IntoResponse, Response},
     routing::{any, get},
-    Router,
+    Json, Router,
 };
 use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
 use common_metrics::{setup_metrics_recorder, track_metrics};
 use common_redis::Client as RedisClient;
 use health::HealthRegistry;
+use metrics::counter;
 use tower::limit::ConcurrencyLimitLayer;
+use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::{
     cors::{AllowHeaders, AllowOrigin, CorsLayer},
     trace::TraceLayer,
 };
 
 use crate::{
-    api::{endpoint, flag_definitions, rate_limiter::FlagDefinitionsRateLimiter},
+    api::{
+        endpoint, flag_definitions, flag_definitions_rate_limiter::FlagDefinitionsRateLimiter,
+        flags_rate_limiter::FlagsRateLimiter,
+    },
     cohorts::cohort_cache_manager::CohortCacheManager,
     config::{Config, TeamIdCollection},
     metrics::{
@@ -41,6 +48,7 @@ pub struct State {
     pub cookieless_manager: Arc<CookielessManager>,
     pub flag_definitions_limiter: FlagDefinitionsRateLimiter,
     pub config: Config,
+    pub flags_rate_limiter: FlagsRateLimiter,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -69,6 +77,19 @@ where
     )
     .expect("Failed to initialize flag definitions rate limiter");
 
+    // Initialize rate limiter with configuration
+    let flags_rate_limiter = FlagsRateLimiter::new(
+        *config.flags_rate_limit_enabled,
+        config.flags_bucket_replenish_rate,
+        config.flags_bucket_capacity,
+    )
+    .unwrap_or_else(|e| {
+        panic!(
+            "Invalid rate limit configuration: {e}. \
+             Check FLAGS_BUCKET_REPLENISH_RATE (must be > 0) and FLAGS_BUCKET_CAPACITY (must be > 0)"
+        )
+    });
+
     let state = State {
         redis_reader,
         redis_writer,
@@ -81,6 +102,7 @@ where
         cookieless_manager,
         flag_definitions_limiter,
         config: config.clone(),
+        flags_rate_limiter,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -98,7 +120,8 @@ where
         .route("/_liveness", get(move || ready(liveness.get_status())));
 
     // flags endpoint
-    let flags_router = Router::new()
+    // Build flags router with optional IP rate limiting
+    let mut flags_router = Router::new()
         .route("/flags", any(endpoint::flags))
         .route("/flags/", any(endpoint::flags))
         .route(
@@ -112,6 +135,38 @@ where
         .route("/decide", any(endpoint::flags))
         .route("/decide/", any(endpoint::flags))
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency));
+
+    // Apply IP-based rate limiting if enabled
+    // This provides defense-in-depth against DDoS with rotating fake tokens
+    if *config.flags_ip_rate_limit_enabled {
+        let governor_conf = if config.flags_ip_replenish_rate >= 1.0 {
+            // For rates >= 1, use per_second
+            Arc::new(
+                GovernorConfigBuilder::default()
+                    .per_second(config.flags_ip_replenish_rate as u64)
+                    .burst_size(config.flags_ip_burst_size)
+                    .error_handler(rate_limit_error_response)
+                    .finish()
+                    .expect("Invalid IP rate limit configuration"),
+            )
+        } else {
+            // For fractional rates < 1, use per_millisecond
+            // e.g., 0.1/sec = 1 per 10 seconds = 1 per 10000ms
+            let period_ms = (1000.0 / config.flags_ip_replenish_rate) as u64;
+            Arc::new(
+                GovernorConfigBuilder::default()
+                    .per_millisecond(period_ms)
+                    .burst_size(config.flags_ip_burst_size)
+                    .error_handler(rate_limit_error_response)
+                    .finish()
+                    .expect("Invalid IP rate limit configuration"),
+            )
+        };
+
+        flags_router = flags_router.layer(GovernorLayer {
+            config: governor_conf,
+        });
+    }
 
     let router = Router::new()
         .merge(status_router)
@@ -135,4 +190,22 @@ where
 
 pub async fn index() -> &'static str {
     "feature flags"
+}
+
+/// Custom error handler for IP-based rate limiting.
+/// Returns the same JSON format as token-based rate limiting for consistency.
+fn rate_limit_error_response(_err: tower_governor::GovernorError) -> Response {
+    // Track IP-based rate limit violations
+    // Note: We don't include the IP address in labels to avoid high cardinality
+    // in metrics (an attacker could create millions of unique IPs)
+    counter!("flags_ip_rate_limit_exceeded_total").increment(1);
+
+    let error_response = AuthenticationErrorResponse {
+        error_type: "validation_error".to_string(),
+        code: "rate_limit_exceeded".to_string(),
+        detail: "Rate limit exceeded".to_string(),
+        attr: None,
+    };
+
+    (StatusCode::TOO_MANY_REQUESTS, Json(error_response)).into_response()
 }

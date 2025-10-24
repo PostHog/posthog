@@ -1,11 +1,11 @@
 use crate::{
     api::{
-        errors::FlagError,
+        errors::{ClientFacingError, FlagError},
         types::{
             ConfigResponse, FlagsQueryParams, FlagsResponse, LegacyFlagsResponse, ServiceResponse,
         },
     },
-    handler::{process_request, RequestContext},
+    handler::{decoding, process_request, RequestContext},
     router,
 };
 // TODO: stream this instead
@@ -275,12 +275,22 @@ pub async fn flags(
 
     let context = RequestContext {
         request_id,
-        state,
+        state: state.clone(),
         ip,
         headers: headers.clone(),
         meta: modified_query_params,
         body,
     };
+
+    // Check rate limit before processing the request
+    // Extract token from body for rate limiting (similar to Python's middleware approach)
+    // Use IP as fallback if token extraction fails
+    let rate_limit_key = decoding::extract_token(&context.body).unwrap_or_else(|| ip.to_string());
+
+    // Check if request is rate limited
+    if !state.flags_rate_limiter.allow_request(&rate_limit_key) {
+        return Err(FlagError::ClientFacing(ClientFacingError::RateLimited));
+    }
 
     // Parse version from query params
     let query_version = context
