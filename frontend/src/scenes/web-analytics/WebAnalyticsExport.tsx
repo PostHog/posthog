@@ -242,7 +242,11 @@ function getTrendsTableData(response: TrendsQueryResponse): string[][] {
     }
 
     // Create headers: Date + each series label
-    const seriesLabels = response.results.map((series) => series.label || 'Series')
+    const seriesLabels = response.results.map((series) => {
+        const baseName = series.action?.custom_name || series.label || 'Series'
+        const compareLabel = series.compare_label
+        return compareLabel ? `${baseName} (${compareLabel})` : baseName
+    })
     const headers = ['Date', ...seriesLabels]
 
     // Create data rows: each row is a date with values from all series
