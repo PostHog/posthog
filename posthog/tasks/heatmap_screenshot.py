@@ -4,6 +4,7 @@ from celery import shared_task
 
 from posthog.exceptions_capture import capture_exception
 from posthog.heatmaps.constants import DEFAULT_TARGET_WIDTHS
+from posthog.heatmaps.url_safety import is_url_allowed, should_block_url
 from posthog.models.heatmap_saved import HeatmapSaved, HeatmapSnapshot
 from posthog.tasks.exports.image_exporter import HEIGHT_OFFSET
 from posthog.tasks.utils import CeleryQueue
@@ -84,6 +85,10 @@ def _dismiss_cookie_banners(page: Page) -> None:
         pass
 
 
+def _block_internal_requests(page: Page) -> None:
+    page.route("**/*", lambda route: route.abort() if should_block_url(route.request.url) else route.continue_())
+
+
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.EXPORTS.value,
@@ -108,6 +113,20 @@ def generate_heatmap_screenshot(screenshot_id: str) -> None:
         posthoganalytics.tag("screenshot_id", screenshot.id)
 
         try:
+            ok, err = is_url_allowed(screenshot.url)
+            if not ok:
+                screenshot.status = HeatmapSaved.Status.FAILED
+                screenshot.exception = f"SSRF blocked: {err}"
+                screenshot.save(update_fields=["status", "exception"])
+                logger.warning(
+                    "heatmap_screenshot.ssrf_blocked",
+                    screenshot_id=screenshot.id,
+                    team_id=screenshot.team_id,
+                    url=screenshot.url,
+                    reason=err,
+                )
+                return
+
             _generate_screenshots(screenshot)
 
             screenshot.status = HeatmapSaved.Status.COMPLETED
@@ -190,6 +209,7 @@ def _generate_screenshots(screenshot: HeatmapSaved) -> None:
                         ),
                     )
                     page = ctx.new_page()
+                    _block_internal_requests(page)
                     page.goto(screenshot.url, wait_until="load", timeout=120_000)
                     _dismiss_cookie_banners(page)
 
