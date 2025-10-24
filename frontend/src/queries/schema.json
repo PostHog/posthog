@@ -10353,6 +10353,22 @@
             "required": ["results"],
             "type": "object"
         },
+        "DraftSupportTicketToolOutput": {
+            "additionalProperties": false,
+            "properties": {
+                "priority": {
+                    "type": "string"
+                },
+                "summary": {
+                    "type": "string"
+                },
+                "target_area": {
+                    "type": "string"
+                }
+            },
+            "required": ["summary", "target_area", "priority"],
+            "type": "object"
+        },
         "DurationType": {
             "enum": ["duration", "active_seconds", "inactive_seconds"],
             "type": "string"
@@ -24070,9 +24086,6 @@
                     "$ref": "#/definitions/TaskExecutionMessage"
                 },
                 {
-                    "$ref": "#/definitions/SupportTicketMessage"
-                },
-                {
                     "additionalProperties": false,
                     "properties": {
                         "content": {
@@ -25475,39 +25488,6 @@
                 }
             },
             "required": ["questions"],
-            "type": "object"
-        },
-        "SupportTicketMessage": {
-            "additionalProperties": false,
-            "properties": {
-                "id": {
-                    "type": "string"
-                },
-                "ticket_data": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "priority": {
-                            "type": "string"
-                        },
-                        "summary": {
-                            "type": "string"
-                        },
-                        "target_area": {
-                            "type": "string"
-                        }
-                    },
-                    "required": ["summary", "target_area", "priority"],
-                    "type": "object"
-                },
-                "type": {
-                    "const": "ai/support_ticket",
-                    "type": "string"
-                },
-                "visible": {
-                    "type": "boolean"
-                }
-            },
-            "required": ["type", "ticket_data"],
             "type": "object"
         },
         "SurveyAnalysisQuestionGroup": {

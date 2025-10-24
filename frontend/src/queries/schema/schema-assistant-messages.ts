@@ -203,13 +203,10 @@ export interface MultiVisualizationMessage extends BaseAssistantMessage {
     commentary?: string
 }
 
-export interface SupportTicketMessage extends BaseAssistantMessage {
-    type: AssistantMessageType.SupportTicket
-    ticket_data: {
-        summary: string
-        target_area: string
-        priority: string
-    }
+export interface DraftSupportTicketToolOutput {
+    summary: string
+    target_area: string
+    priority: string
 }
 
 export type RootAssistantMessage =
@@ -222,7 +219,6 @@ export type RootAssistantMessage =
     | NotebookUpdateMessage
     | PlanningMessage
     | TaskExecutionMessage
-    | SupportTicketMessage
     | (AssistantToolCallMessage & Required<Pick<AssistantToolCallMessage, 'ui_payload'>>)
 
 export enum AssistantEventType {

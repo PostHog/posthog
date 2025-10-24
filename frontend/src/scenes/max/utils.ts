@@ -14,7 +14,6 @@ import {
     PlanningMessage,
     ReasoningMessage,
     RootAssistantMessage,
-    SupportTicketMessage,
     TaskExecutionMessage,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
@@ -82,11 +81,11 @@ export function isTaskExecutionMessage(
     return message?.type === AssistantMessageType.TaskExecution
 }
 
-export function isSupportTicketMessage(
+export function isCreateSupportTicketMessage(
     message: RootAssistantMessage | undefined | null
-): message is SupportTicketMessage {
-    return message?.type === AssistantMessageType.SupportTicket
-}
+): message is AssistantToolCallMessage & Required<Pick<AssistantToolCallMessage, 'ui_payload'>> {
+    return isAssistantToolCallMessage(message) && message.ui_payload?.create_support_ticket
+} // const isCreateSupportTicketMessage = isAssistantToolCallMessage(message) && message.ui_payload?.create_support_ticket
 
 export function castAssistantQuery(
     query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery | null

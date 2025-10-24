@@ -4,16 +4,16 @@ import { useCallback, useEffect } from 'react'
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 
-import { SupportTicketMessage } from '~/queries/schema/schema-assistant-messages'
+import { DraftSupportTicketToolOutput } from '~/queries/schema/schema-assistant-messages'
 
 interface SupportTicketFromThreadModalProps {
-    ticketData: SupportTicketMessage['ticket_data']
+    draftTicketData: DraftSupportTicketToolOutput
     onSubmitted?: (ticketId?: string) => void
     onSubmitRef?: (submitFn: () => Promise<void>) => void
 }
 
 export function SupportTicketFromThreadModal({
-    ticketData,
+    draftTicketData,
     onSubmitted,
     onSubmitRef,
 }: SupportTicketFromThreadModalProps): JSX.Element {
@@ -25,19 +25,19 @@ export function SupportTicketFromThreadModal({
 
 I've had a conversation with PostHog AI, here's the summary:
 
-> ${ticketData.summary}
+> ${draftTicketData.summary}
 
 Thanks,`
 
         resetSendSupportRequest({
             kind: 'support', // Default to support ticket
-            target_area: ticketData.target_area as any,
+            target_area: draftTicketData.target_area as any,
             severity_level:
-                ticketData.priority === 'critical'
+                draftTicketData.priority === 'critical'
                     ? 'critical'
-                    : ticketData.priority === 'high'
+                    : draftTicketData.priority === 'high'
                       ? 'high'
-                      : ticketData.priority === 'low'
+                      : draftTicketData.priority === 'low'
                         ? 'low'
                         : 'medium',
             message: formattedMessage,
@@ -45,7 +45,7 @@ Thanks,`
             email: '',
             tags: ['posthog_ai_escalated'],
         })
-    }, [ticketData, resetSendSupportRequest])
+    }, [draftTicketData, resetSendSupportRequest])
 
     const handleSubmit = useCallback(async (): Promise<void> => {
         try {

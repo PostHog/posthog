@@ -53,12 +53,12 @@ import {
     AssistantForm,
     AssistantMessage,
     AssistantToolCallMessage,
+    DraftSupportTicketToolOutput,
     FailureMessage,
     MultiVisualizationMessage,
     NotebookUpdateMessage,
     PlanningMessage,
     PlanningStepStatus,
-    SupportTicketMessage,
     TaskExecutionMessage,
     TaskExecutionStatus,
     VisualizationItem,
@@ -79,6 +79,7 @@ import {
     castAssistantQuery,
     isAssistantMessage,
     isAssistantToolCallMessage,
+    isCreateSupportTicketMessage,
     isDeepResearchReportCompletion,
     isFailureMessage,
     isHumanMessage,
@@ -86,7 +87,6 @@ import {
     isNotebookUpdateMessage,
     isPlanningMessage,
     isReasoningMessage,
-    isSupportTicketMessage,
     isTaskExecutionMessage,
     isVisualizationMessage,
 } from './utils'
@@ -282,8 +282,6 @@ function MessageGroup({ messages, isFinal: isFinalGroup, streamingActive }: Mess
                         return <PlanningAnswer key={key} message={message} />
                     } else if (isTaskExecutionMessage(message)) {
                         return <TaskExecutionAnswer key={key} message={message} />
-                    } else if (isSupportTicketMessage(message)) {
-                        return <SupportTicketAnswer key={key} message={message} />
                     }
                     return null // We currently skip other types of messages
                 })}
@@ -392,6 +390,10 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
 
         return null
     })()
+
+    if (isCreateSupportTicketMessage(message)) {
+        return <SupportTicketAnswer draftTicketData={message.ui_payload?.create_support_ticket} />
+    }
 
     return (
         <MessageTemplate
@@ -1112,10 +1114,10 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
 }
 
 interface SupportTicketAnswerProps {
-    message: SupportTicketMessage
+    draftTicketData: DraftSupportTicketToolOutput
 }
 
-function SupportTicketAnswer({ message }: SupportTicketAnswerProps): JSX.Element {
+function SupportTicketAnswer({ draftTicketData }: SupportTicketAnswerProps): JSX.Element {
     const [submissionStatus, setSubmissionStatus] = useState<'draft' | 'submitting' | 'submitted' | 'error'>('draft')
 
     const handleCreateTicket = (): void => {
@@ -1126,7 +1128,7 @@ function SupportTicketAnswer({ message }: SupportTicketAnswerProps): JSX.Element
             width: 600,
             content: (closeDialog) => (
                 <SupportTicketFromThreadModal
-                    ticketData={message.ticket_data}
+                    draftTicketData={draftTicketData}
                     onSubmitted={() => {
                         closeDialog()
                         setSubmissionStatus('submitted')
@@ -1154,49 +1156,46 @@ function SupportTicketAnswer({ message }: SupportTicketAnswerProps): JSX.Element
 
     return (
         <MessageTemplate type="ai">
-            <div className="bg-bg-light border border-border rounded-lg p-4 space-y-3">
-                <div className="flex items-center gap-2">
-                    <IconSupport className="text-primary size-4" />
-                    <h4 className="text-sm font-semibold m-0">Support ticket ready</h4>
+            <div className="flex items-center gap-2">
+                <IconSupport className="text-primary size-4" />
+                <h4 className="text-sm font-semibold m-0">Support ticket ready</h4>
+            </div>
+
+            <div className="space-y-2">
+                <p className="text-xs text-muted">
+                    Here's a draft of your support ticket. Please review and submit it to get help from PostHog support.
+                </p>
+
+                <div className="bg-bg-3000 rounded border border-border-light p-3">
+                    <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-medium text-muted">Summary</span>
+                    </div>
+                    <div className="text-sm font-medium mb-1">{draftTicketData.summary}</div>
                 </div>
 
-                <div className="space-y-2">
-                    <p className="text-xs text-muted">
-                        Here's a draft of your support ticket. Please review and submit it to get help from PostHog
-                        support.
-                    </p>
+                <div className="flex items-center gap-2 pt-2">
+                    <LemonButton
+                        type="primary"
+                        onClick={handleCreateTicket}
+                        loading={submissionStatus === 'submitting'}
+                        disabledReason={submissionStatus === 'submitted' ? 'Ticket already submitted' : undefined}
+                    >
+                        {submissionStatus === 'submitted' ? 'Ticket Submitted' : 'Review Support Ticket'}
+                    </LemonButton>
 
-                    <div className="bg-bg-3000 rounded border border-border-light p-3">
-                        <div className="flex items-center justify-between mb-2">
-                            <span className="text-xs font-medium text-muted">Summary</span>
+                    {submissionStatus === 'submitted' && (
+                        <div className="flex items-center gap-1 text-success text-xs">
+                            <IconCheck className="size-3" />
+                            <span>Successfully submitted</span>
                         </div>
-                        <div className="text-sm font-medium mb-1">{message.ticket_data.summary}</div>
-                    </div>
+                    )}
 
-                    <div className="flex items-center gap-2 pt-2">
-                        <LemonButton
-                            type="primary"
-                            onClick={handleCreateTicket}
-                            loading={submissionStatus === 'submitting'}
-                            disabledReason={submissionStatus === 'submitted' ? 'Ticket already submitted' : undefined}
-                        >
-                            {submissionStatus === 'submitted' ? 'Ticket Submitted' : 'Review Support Ticket'}
-                        </LemonButton>
-
-                        {submissionStatus === 'submitted' && (
-                            <div className="flex items-center gap-1 text-success text-xs">
-                                <IconCheck className="size-3" />
-                                <span>Successfully submitted</span>
-                            </div>
-                        )}
-
-                        {submissionStatus === 'error' && (
-                            <div className="flex items-center gap-1 text-danger text-xs">
-                                <IconWarning className="size-3" />
-                                <span>Failed to submit</span>
-                            </div>
-                        )}
-                    </div>
+                    {submissionStatus === 'error' && (
+                        <div className="flex items-center gap-1 text-danger text-xs">
+                            <IconWarning className="size-3" />
+                            <span>Failed to submit</span>
+                        </div>
+                    )}
                 </div>
             </div>
         </MessageTemplate>

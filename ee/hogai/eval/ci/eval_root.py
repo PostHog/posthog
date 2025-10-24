@@ -238,8 +238,8 @@ async def eval_root(call_root, pytestconfig):
                 expected=AssistantToolCall(
                     name="create_support_ticket",
                     args={
-                        "user_summary": "I've been trying to set up PostHog tracking for hours but my events still aren't showing up. I followed the documentation exactly but nothing works.",
-                        "suggested_area": "data_ingestion",
+                        "summary": "I've been trying to set up PostHog tracking for hours but my events still aren't showing up. I followed the documentation exactly but nothing works.",
+                        "target_area": "data_ingestion",
                         "priority": "medium",
                     },
                     id="call_support_missing_events",
@@ -250,8 +250,8 @@ async def eval_root(call_root, pytestconfig):
                 expected=AssistantToolCall(
                     name="create_support_ticket",
                     args={
-                        "user_summary": "Our entire PostHog instance is down and we can't access any data. This is a production emergency and we need immediate help.",
-                        "suggested_area": "platform_addons",
+                        "summary": "Our entire PostHog instance is down and we can't access any data. This is a production emergency and we need immediate help.",
+                        "target_area": "platform_addons",
                         "priority": "critical",
                     },
                     id="call_support_posthog_down",
@@ -262,8 +262,8 @@ async def eval_root(call_root, pytestconfig):
                 expected=AssistantToolCall(
                     name="create_support_ticket",
                     args={
-                        "user_summary": "Max AI keeps giving me wrong answers about my data and I think there's a bug in the AI system. Can you escalate this to the engineering team?",
-                        "suggested_area": "max-ai",
+                        "summary": "Max AI keeps giving me wrong answers about my data and I think there's a bug in the AI system. Can you escalate this to the engineering team?",
+                        "target_area": "max-ai",
                         "priority": "medium",
                     },
                     id="call_support_max_ai_bug",
@@ -274,8 +274,8 @@ async def eval_root(call_root, pytestconfig):
                 expected=AssistantToolCall(
                     name="create_support_ticket",
                     args={
-                        "user_summary": "I'm having some trouble with getting PostHog to work for my use case and would like to discuss a refund.",
-                        "suggested_area": "billing",
+                        "summary": "I'm having some trouble with getting PostHog to work for my use case and would like to discuss a refund.",
+                        "target_area": "billing",
                         "priority": "medium",
                     },
                     id="call_support_refund",

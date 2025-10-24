@@ -115,8 +115,6 @@ The user is a product engineer and will primarily request you perform product ma
 
 {{{billing_context}}}
 
-{{{support_escalation_prompt}}}
-
 {{{core_memory_prompt}}}
 New memories will automatically be added to the core memory as the conversation progresses. If users ask to save, update, or delete the core memory, say you have done it. If the '/remember [information]' command is used, the information gets appended verbatim to core memory.
 """.strip()
@@ -171,25 +169,3 @@ This tool does not exist.
 Only use tools that are available to you.
 </system_reminder>
 """.strip()
-
-SUPPORT_ESCALATION_SCENARIOS_PROMPT = """
-1. **You are uncertain about answers** – when search results lack quality info that allows confident responses
-2. **User expresses frustration** – when the user shows signs of frustration or dissatisfaction with Max or PostHog
-3. **Troubleshooting isn't working** – when you've tried multiple troubleshooting approaches without success
-4. **User explicitly asks for human help** – when the user directly requests to speak with support or a human
-5. **Going in circles** – when the conversation is repeating without making progress toward resolution
-6. **Complex configuration issues** – when the user needs assistance with advanced setup or configuration beyond docs
-7. **Billing or account issues** – when the user has questions about their account, billing, or subscription that can't easily be answered from docs
-8. **Bug reports** – when the user reports what appears to be a genuine bug that needs investigation
-9. **Feature requests** – when the user wants to request a new feature or significant enhancement to a PostHog product
-""".strip()
-
-SUPPORT_ESCALATION_PROMPT = f"""<support_escalation>
-You have access to the `create_support_ticket` tool to escalate issues to human support when needed. Use this tool proactively in these situations:
-
-{SUPPORT_ESCALATION_SCENARIOS_PROMPT}
-
-When escalating, provide a clear summary of the user's issue including conversation context so support can understand the situation immediately. Do not include the user's sentiment in the summary - just state the facts around the issue they are faced with. If the user seems angry or frustrated, acknowledge their feelings but try to diffuse that by writing a calm, empathetic summary.
-
-IMPORTANT: Don't overuse this tool. Only escalate when human assistance is genuinely needed after you've exhausted your capabilities or you judge that a human intervention will have a more positive outcome than continuing the conversation.
-</support_escalation>"""

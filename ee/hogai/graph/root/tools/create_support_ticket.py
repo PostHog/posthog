@@ -2,28 +2,32 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from posthog.schema import SupportTicketMessage
+from posthog.schema import DraftSupportTicketToolOutput
 
-from ee.hogai.tool import MaxTool, ToolMessagesArtifact
+from ee.hogai.tool import MaxTool
 
-from ..prompts import SUPPORT_ESCALATION_SCENARIOS_PROMPT
+SUPPORT_ESCALATION_PROMPT = f"""<support_escalation>
+You have access to the `create_support_ticket` tool to escalate issues to human support when needed.
 
-SUPPORT_TICKET_TOOL_PROMPT = f"""
-Use this tool to create a support ticket when the user needs human assistance beyond what Max can provide.
+IMPORTANT: Don't overuse this tool. Only escalate when human assistance is genuinely needed after you've exhausted your capabilities or you judge that a human intervention will have a more positive outcome than continuing the conversation.
 
-# When to use this tool
+Use this tool in these situations:
 
-Use this tool proactively in these situations:
+1. **You are uncertain about answers** – when search results lack quality info that allows confident responses
+2. **User expresses frustration** – when the user shows signs of frustration or dissatisfaction with Max or PostHog
+3. **Troubleshooting isn't working** – when you've tried multiple troubleshooting approaches without success
+4. **User explicitly asks for human help** – when the user directly requests to speak with support or a human
+5. **Going in circles** – when the conversation is repeating without making progress toward resolution
+6. **Complex configuration issues** – when the user needs assistance with advanced setup or configuration beyond docs
+7. **Billing or account issues** – only escalate to support when the user has admin access but you cannot resolve their billing/account questions, see <billing_context>
+8. **Bug reports** – when the user reports what appears to be a genuine bug that needs investigation
+9. **Feature requests** – when the user wants to request a new feature or significant enhancement to a PostHog product
 
-{SUPPORT_ESCALATION_SCENARIOS_PROMPT}
+When escalating, provide a clear summary written as if you were the user of the issue including conversation context so support can understand the situation immediately. Do not include the user's sentiment in the summary - just state the facts around the issue they are faced with. If the user seems angry or frustrated, acknowledge their feelings but try to diffuse that by writing a calm, empathetic summary.
 
-# What this tool does
+You will need to select the priority level and target area for the issue.
 
-This tool captures the conversation context and creates a support ticket with:
-- A summary of the user's issue
-- The full conversation history for context
-- Appropriate categorization and priority level
-- All relevant technical details discussed
+Note that the support team will have access to the full conversation history automatically, so you don't need to include that in the summary.
 
 # Examples of when to use
 
@@ -44,16 +48,7 @@ User: "PostHog does't support the integration I need as a data warehouse source.
 Assistant: It would be great if PostHog supported that integration in the future! Let me create a support ticket so we can raise a feature request for you!
 *Uses support ticket tool to raise a feature request*
 </example>
-
-# Guidelines
-
-- Always include a clear, concise summary of the user's main issue, writing it as if you were the user.
-- Choose appropriate target area and priority level based on the issue
-- Suggest this tool when you've genuinely exhausted other avenues for help
-- Don't overuse – only when human assistance is truly needed
-- Note: Support team will have access to the full conversation history automatically
-""".strip()
-
+</support_escalation>""".strip()
 
 TARGET_AREA_DESCRIPTIONS = {
     "experiments": "A/B testing, feature experiments, and statistical analysis",
@@ -83,13 +78,13 @@ TARGET_AREA_DESCRIPTIONS = {
 
 
 class CreateSupportTicketToolArgs(BaseModel):
-    user_summary: str = Field(
+    summary: str = Field(
         description="A clear, concise summary written on behalf of the user, describing their main issue or question (3-4 sentences max)"
     )
     # NOTE: These values must match SupportTicketTargetArea in frontend/src/lib/components/Support/supportLogic.ts
     # If you update this list, also update the frontend type definition
     # also keep in sync with the descriptions in TARGET_AREA_DESCRIPTIONS
-    suggested_area: Literal[
+    target_area: Literal[
         "experiments",
         "apps",
         "login",
@@ -126,36 +121,20 @@ class CreateSupportTicketToolArgs(BaseModel):
 
 class CreateSupportTicketTool(MaxTool):
     name: str = "create_support_ticket"
-    description: str = SUPPORT_TICKET_TOOL_PROMPT
+    description: str = SUPPORT_ESCALATION_PROMPT
     thinking_message: str = "Drafting a message to PostHog support"
-
     args_schema: type[BaseModel] = CreateSupportTicketToolArgs
 
     async def _arun_impl(
-        self, user_summary: str, suggested_area: str = "max-ai", priority: str = "medium"
-    ) -> tuple[str, ToolMessagesArtifact]:
-        """
-        Create the basis for a support ticket from a Max conversation.
-
-        This tool prepares the support ticket data and provides instructions for the frontend
-        to display the ticket creation interface to the user.
-        """
-
-        if not user_summary or not user_summary.strip():
-            # For now, let's assume the LLM won't call this without proper args
-            # If this becomes an issue, we can create an error message instead
-            raise ValueError("user_summary is required for creating a support ticket")
-
-        ticket_data = {
-            "summary": user_summary,
-            "target_area": suggested_area,
-            "priority": priority,
-        }
-
-        # Create the inline support ticket message
-        support_ticket_message = SupportTicketMessage(ticket_data=ticket_data)
+        self, summary: str, target_area: str = "max-ai", priority: str = "medium"
+    ) -> tuple[str, DraftSupportTicketToolOutput]:
+        ui_payload = DraftSupportTicketToolOutput(
+            summary=summary,
+            target_area=target_area,
+            priority=priority,
+        )
 
         return (
             "Here's a draft support ticket with a summary of your conversation. You can review and submit it below:",
-            ToolMessagesArtifact(messages=[support_ticket_message]),
+            ui_payload,
         )

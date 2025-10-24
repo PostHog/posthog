@@ -285,7 +285,7 @@ export const SUPPORT_KIND_TO_SUBJECT = {
 }
 
 // NOTE: These values must match the Literal type in ee/hogai/graph/root/tools/support_ticket.py
-// If you update this list, also update CreateSupportTicketToolArgs.suggested_area
+// If you update this list, also update CreateSupportTicketToolArgs.target_area
 export type SupportTicketTargetArea =
     | 'experiments'
     | 'apps'
@@ -721,9 +721,8 @@ export const supportLogic = kea<supportLogicType>([
                             browser: isFirefox ? 'firefox' : 'other',
                         }
                         posthog.capture('support_ticket', properties)
-                        lemonToast.success(
-                            "Got the message! If we have follow-up information for you, we'll reply via email."
-                        )
+                        lemonToast.success("Got the message! We'll reply to your ticket via email soon.")
+
                         // Only close and reset the form on success
                         actions.closeSupportForm()
                         actions.resetSendSupportRequest()
@@ -769,7 +768,7 @@ export const supportLogic = kea<supportLogicType>([
                     zendesk_ticket_link,
                 }
                 posthog.capture('support_ticket', properties)
-                lemonToast.success("Got the message! If we have follow-up information for you, we'll reply via email.")
+                lemonToast.success("Got the message! We'll reply to your ticket via email soon.")
 
                 actions.ensureZendeskOrganization()
 

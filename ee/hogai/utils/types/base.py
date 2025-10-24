@@ -32,7 +32,6 @@ from posthog.schema import (
     RevenueAnalyticsMetricsQuery,
     RevenueAnalyticsMRRQuery,
     RevenueAnalyticsTopCustomersQuery,
-    SupportTicketMessage,
     TaskExecutionItem,
     TaskExecutionMessage,
     TaskExecutionStatus,
@@ -51,7 +50,6 @@ AIMessageUnion = Union[
     PlanningMessage,
     TaskExecutionMessage,
     MultiVisualizationMessage,
-    SupportTicketMessage,
 ]
 AssistantMessageUnion = Union[HumanMessage, AIMessageUnion, NotebookUpdateMessage, ContextMessage]
 AssistantMessageOrStatusUnion = Union[AssistantMessageUnion, AssistantGenerationStatusEvent]
@@ -86,7 +84,6 @@ ASSISTANT_MESSAGE_TYPES = (
     PlanningMessage,
     TaskExecutionMessage,
     MultiVisualizationMessage,
-    SupportTicketMessage,
     ContextMessage,
 )
 
