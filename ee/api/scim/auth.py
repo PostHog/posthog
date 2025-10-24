@@ -34,12 +34,15 @@ class SCIMBearerTokenAuthentication(BaseAuthentication):
     """
 
     def authenticate(self, request: Request) -> Optional[tuple[SCIMAuthToken, OrganizationDomain]]:
+        if not request.path.startswith("/scim/"):
+            return None
+
         auth_header = request.META.get("HTTP_AUTHORIZATION", "")
 
         if not auth_header.startswith("Bearer "):
-            return None
+            raise exceptions.AuthenticationFailed("Bearer token required for SCIM endpoints")
 
-        token = auth_header[7:]  # Remove "Bearer " prefix
+        token = auth_header[7:]
 
         if not token:
             raise exceptions.AuthenticationFailed("No bearer token provided")
@@ -64,8 +67,6 @@ class SCIMBearerTokenAuthentication(BaseAuthentication):
         if not check_password(token, domain.scim_bearer_token):
             raise exceptions.AuthenticationFailed("Invalid bearer token")
 
-        # Return wrapper as user (has is_authenticated), domain as auth
-        # request.user will be SCIMAuthToken, request.auth will be the domain
         return (SCIMAuthToken(domain), domain)
 
     def _extract_domain_id_from_path(self, path: str) -> Optional[str]:

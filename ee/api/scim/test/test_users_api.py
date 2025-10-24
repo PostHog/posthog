@@ -44,6 +44,65 @@ class TestSCIMUsersAPI(APILicensedTest):
         assert "Resources" in data
         assert data["totalResults"] >= 1  # At least the test user
 
+    def test_users_list_filter_exact_match(self):
+        user_a = User.objects.create_user(
+            email="engineering@example.com",
+            password=None,
+            first_name="Engineering",
+            last_name="User",
+            is_email_verified=True,
+        )
+        OrganizationMembership.objects.create(
+            user=user_a, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        user_b = User.objects.create_user(
+            email="alex@example.com", password=None, first_name="Alex", last_name="Other", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user_b, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        # Exact match should return only engineering@example.com
+        response = self.client.get(
+            f"/scim/v2/{self.domain.id}/Users",
+            {"filter": 'userName eq "engineering@example.com"'},
+            **self.scim_headers,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["totalResults"] == 1
+        assert data["itemsPerPage"] == 1
+        assert data["Resources"][0]["userName"] == "engineering@example.com"
+
+    def test_users_list_filter_no_match_returns_empty_list(self):
+        response = self.client.get(
+            f"/scim/v2/{self.domain.id}/Users",
+            {"filter": 'userName eq "nonexistent@example.com"'},
+            **self.scim_headers,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["totalResults"] == 0
+        assert data["itemsPerPage"] == 0
+        assert data["Resources"] == []
+
+    def test_users_list_filter_unrecognized_returns_empty_list(self):
+        # Unsupported filter should not return all users; return empty set
+        response = self.client.get(
+            f"/scim/v2/{self.domain.id}/Users",
+            {"filter": 'name.givenName sw "Eng"'},
+            **self.scim_headers,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["totalResults"] == 0
+        assert data["itemsPerPage"] == 0
+        assert data["Resources"] == []
+
     def test_create_user(self):
         user_data = {
             "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],

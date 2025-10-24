@@ -1,4 +1,5 @@
 from django_scim import constants
+from django_scim.filters import UserFilterQuery
 from rest_framework import status
 from rest_framework.decorators import api_view, authentication_classes
 from rest_framework.request import Request
@@ -13,19 +14,54 @@ from ee.api.scim.group import PostHogSCIMGroup
 from ee.api.scim.user import PostHogSCIMUser
 from ee.models.rbac.role import Role
 
+SCIM_USER_ATTR_MAP = {
+    ("userName", None, None): "email",
+    ("email", None, None): "email",
+    ("emails", "value", None): "email",
+    ("name", "familyName", None): "last_name",
+    ("familyName", None, None): "last_name",
+    ("name", "givenName", None): "first_name",
+    ("givenName", None, None): "first_name",
+    ("active", None, None): "is_active",
+}
+
+
+class PostHogUserFilterQuery(UserFilterQuery):
+    attr_map = SCIM_USER_ATTR_MAP
+
 
 @api_view(["GET", "POST"])
 @authentication_classes([SCIMBearerTokenAuthentication])
 def scim_users_view(request: Request, domain_id: str) -> Response:
     """
     SCIM Users endpoint.
-    GET: List all users
+    GET: List all users (with optional filter support)
     POST: Create a new user
     """
     organization_domain: OrganizationDomain = request.auth
 
     if request.method == "GET":
-        users = PostHogSCIMUser.get_for_organization(organization_domain)
+        filter_param = request.query_params.get("filter")
+
+        if filter_param:
+            try:
+                # Use django-scim2's UserFilterQuery.search() to parse query filters
+                # This returns a RawQuerySet, so we need to extract IDs and filter
+                raw_queryset = PostHogUserFilterQuery.search(filter_param, request)
+                filtered_users_list = list(raw_queryset)
+                user_ids = [u.id for u in filtered_users_list]
+
+                queryset = User.objects.filter(
+                    id__in=user_ids, organization_membership__organization=organization_domain.organization
+                )
+
+                users = [PostHogSCIMUser(u, organization_domain) for u in queryset]
+            except Exception as e:
+                capture_exception(e, additional_properties={"scim_operation": "filter_users", "filter": filter_param})
+                users = []
+        else:
+            users = PostHogSCIMUser.get_for_organization(organization_domain)
+
         return Response(
             {
                 "schemas": ["urn:ietf:params:scim:api:messages:2.0:ListResponse"],
@@ -152,7 +188,6 @@ def scim_group_detail_view(request: Request, domain_id: str, group_id: str) -> R
     elif request.method == "PATCH":
         try:
             operations = request.data.get("Operations", [])
-            # Use django-scim2 built-in PATCH operation handling
             scim_group.handle_operations(operations)
             return Response(scim_group.to_dict())
         except Exception as e:
@@ -177,7 +212,7 @@ def scim_service_provider_config_view(request: Request, domain_id: str) -> Respo
             "documentationUri": "https://posthog.com/docs/scim",
             "patch": {"supported": True},
             "bulk": {"supported": False, "maxOperations": 0, "maxPayloadSize": 0},
-            "filter": {"supported": False, "maxResults": 0},
+            "filter": {"supported": True, "maxResults": 200},
             "changePassword": {"supported": False},
             "sort": {"supported": False},
             "etag": {"supported": False},

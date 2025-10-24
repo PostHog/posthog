@@ -20,7 +20,9 @@ class PostHogSCIMUser(SCIMUser):
 
     resource_type = "User"
 
-    # Attribute map for SCIM path parsing
+    # Attribute map for SCIM PATCH operation path parsing
+    # Maps SCIM attribute paths to SCIM JSON paths for PATCH operations
+    # NOT for database filtering - see SCIM_USER_ATTR_MAP in views.py for that
     # Each key is a tuple of (attribute, sub-attribute, schema URI)
     ATTR_MAP = {
         ("userName", None, None): "userName",
