@@ -191,7 +191,7 @@ def send_slack_message_with_integration(
             slack_integration.client.chat_postMessage(channel=message_data.channel, thread_ts=thread_ts, **thread_msg)
 
 
-async def _send_slack_message_with_retry(client, max_retries: int = 2, **kwargs):
+async def _send_slack_message_with_retry(client, max_retries: int = 3, **kwargs):
     for attempt in range(max_retries):
         try:
             return await client.chat_postMessage(**kwargs)

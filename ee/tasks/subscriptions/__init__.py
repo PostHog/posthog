@@ -28,7 +28,9 @@ from ee.tasks.subscriptions.subscription_utils import generate_assets, generate_
 logger = structlog.get_logger(__name__)
 
 # Slack errors that are user configuration issues, not system failures
-SLACK_USER_CONFIG_ERRORS = frozenset(["not_in_channel", "account_inactive", "is_archived", "channel_not_found"])
+SLACK_USER_CONFIG_ERRORS = frozenset(
+    ["not_in_channel", "account_inactive", "is_archived", "channel_not_found", "invalid_auth"]
+)
 
 # Prometheus metrics for Celery workers (web/worker pods)
 SUBSCRIPTION_QUEUED = Counter(
@@ -233,6 +235,7 @@ async def deliver_subscription_report_async(
                 subscription_id=subscription.id,
                 next_delivery_date=subscription.next_delivery_date,
                 destination=subscription.target_type,
+                is_user_config_error=is_user_config_error,
                 exc_info=True,
             )
             capture_exception(e)
