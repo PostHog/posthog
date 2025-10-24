@@ -74,8 +74,28 @@ export const toUtcOffsetFormat = (value: number): string => {
 
 // Utility function to map SQL/internal column names to UI-friendly display names
 export const getDisplayColumnName = (column: string, breakdownBy?: WebStatsBreakdown): string => {
-    // Handle breakdown columns
-    if (breakdownBy !== undefined) {
+    // Strip the "context.columns." prefix if present
+    const baseColumn = column.replace(/^context\.columns\./, '')
+
+    // Handle known metric columns first (these should always show their metric names)
+    const metricMappings: Record<string, string> = {
+        visitors: 'Visitors',
+        views: 'Views',
+        sessions: 'Sessions',
+        bounce_rate: 'Bounce Rate',
+        session_duration: 'Session Duration',
+        total_pageviews: 'Total Pageviews',
+        unique_visitors: 'Unique Visitors',
+        scroll_gt80_percentage: 'Scroll Depth >80%',
+        rage_clicks: 'Rage Clicks',
+    }
+
+    if (metricMappings[baseColumn]) {
+        return metricMappings[baseColumn]
+    }
+
+    // Handle breakdown column - only if this is the breakdown_value column and breakdownBy is defined
+    if (baseColumn === 'breakdown_value' && breakdownBy !== undefined) {
         switch (breakdownBy) {
             case WebStatsBreakdown.Page:
                 return 'Path'
@@ -128,25 +148,8 @@ export const getDisplayColumnName = (column: string, breakdownBy?: WebStatsBreak
         }
     }
 
-    // Handle known metric columns
-    const metricMappings: Record<string, string> = {
-        visitors: 'Visitors',
-        views: 'Views',
-        sessions: 'Sessions',
-        bounce_rate: 'Bounce Rate',
-        session_duration: 'Session Duration',
-        total_pageviews: 'Total Pageviews',
-        unique_visitors: 'Unique Visitors',
-        scroll_gt80_percentage: 'Scroll Depth >80%',
-        rage_clicks: 'Rage Clicks',
-    }
-
-    if (metricMappings[column]) {
-        return metricMappings[column]
-    }
-
-    // Return original column name if no mapping found
-    return column
+    // Return base column name if no mapping found
+    return baseColumn
 }
 
 type VariationCellProps = { isPercentage?: boolean; reverseColors?: boolean }
