@@ -45,11 +45,8 @@ class LLMTraceSummarizerGenerator:
         self._summary_type = summary_type
         self._model_id = model_id
         self._provider = GeminiProvider(model_id=model_id)
-
-        # TODO: Test first with the wrapper to decide if I need a separate client
         # # Using default Google client as posthog wrapper doesn't support `aio` yet for async calls
         self._client = genai.Client(api_key=self._provider.get_api_key())
-
         # Remove excessive summary parts that add no value to concentrate the summary meaning programmatically
         # Parts that add no value and can't be safely removed
         self._no_value_parts = [
@@ -67,7 +64,6 @@ class LLMTraceSummarizerGenerator:
         self._proper_capitalization_regex = (
             r"(\.\s|\n\s|\.\"\s|^)([a-z])"  # Replace lowercase letters with uppercase at the start of the sentence
         )
-        # TODO: Copy stats collection from "old_summarize_trace.py"
 
     async def summarize_stringified_traces(self, stringified_traces: dict[str, str]) -> dict[str, str]:
         """Summarize a dictionary of stringified traces."""

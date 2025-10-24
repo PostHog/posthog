@@ -15,7 +15,6 @@ class LLMTracesSummarizerStringifier:
         self._team = team
         self._token_encoder = tiktoken.encoding_for_model("gpt-4o")
         self._stringified_trace_max_tokens = 5000
-        # TODO: Copy stats collection from "old_stringify_trace.py"
 
     def stringify_traces(self, traces_chunk: list[LLMTrace]) -> dict[str, str]:
         stringified_traces: dict[str, str] = {}
