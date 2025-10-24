@@ -181,7 +181,12 @@ class SetupWizardViewSet(viewsets.ViewSet):
             trace_id = trace_id or hashlib.sha256(hash.encode()).hexdigest()
 
         else:
-            (user, _) = OAuthAccessTokenAuthentication().authenticate(request)
+            result = OAuthAccessTokenAuthentication().authenticate(request)
+
+            if not result:
+                raise AuthenticationFailed("Invalid access token.")
+
+            user, _ = result
 
             if not user:
                 raise AuthenticationFailed("Invalid access token.")
