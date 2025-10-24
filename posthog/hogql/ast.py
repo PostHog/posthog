@@ -835,33 +835,21 @@ class SelectQuery(Expr):
     def empty(
         cls,
         *,
-        columns: list[str] | None = None,
-        columns_with_type: dict[str, FieldOrTable] | None = None,
+        columns: dict[str, FieldOrTable] | None = None,
     ) -> "SelectQuery":
         """Returns an empty SelectQuery that evaluates to no rows.
 
         Creates a query that selects NULL with a WHERE clause that is always false,
         effectively returning zero rows while maintaining valid SQL syntax.
-
-        `columns_with_type` is preferred over `columns` because it allows us to specify the type of the column
-        instead of using the default `UnknownType`.
-
-        If `columns` is passed we'll override `columns_with_type` with a default `UnknownType`.
         """
 
-        if columns is None and columns_with_type is None:
-            columns = ["_"]
-
-        if columns is not None:
-            columns_with_type = {column: UnknownDatabaseField(name="dummy") for column in columns}
-
-        if columns_with_type is None:
-            columns_with_type = {"_": UnknownDatabaseField(name="dummy")}
+        if columns is None:
+            columns = {"_": UnknownDatabaseField(name="_")}
 
         return SelectQuery(
             select=[
                 Alias(alias=column, expr=Constant(value=cast(DatabaseField, field).default_value()))
-                for (column, field) in columns_with_type.items()
+                for (column, field) in columns.items()
             ],
             where=Constant(value=False),
         )
