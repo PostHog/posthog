@@ -34,7 +34,7 @@ export interface ListBoxGroupHandle {
 /** Context to expose container ref to child Items */
 interface ListBoxContextType {
     containerRef: React.RefObject<HTMLDivElement> | null
-    registerGroupItem?: (groupId: string, index: number, element: HTMLElement) => void
+    registerGroupItem?: (groupId: string, index: number, element: HTMLLIElement) => void
     unregisterGroupItem?: (groupId: string, index: number) => void
     focusGroupItem?: (groupId: string, index: number) => boolean
 }
@@ -44,7 +44,7 @@ const ListBoxContext = createContext<ListBoxContextType>({ containerRef: null })
 /** Context for ListBox.Group to track its own items */
 interface ListBoxGroupContextType {
     groupId: string
-    registerItem: (index: number, element: HTMLElement) => void
+    registerItem: (index: number, element: HTMLLIElement) => void
     unregisterItem: (index: number) => void
 }
 
@@ -304,7 +304,7 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
     }, [])
 
     // Group management functions
-    const registerGroupItem = useCallback((groupId: string, index: number, element: HTMLElement) => {
+    const registerGroupItem = useCallback((groupId: string, index: number, element: HTMLLIElement) => {
         if (!groups.current.has(groupId)) {
             groups.current.set(groupId, new Map())
         }
@@ -693,7 +693,7 @@ const ListBoxItem = forwardRef<HTMLLIElement, ListBoxItemProps>(
         }
 
         // Register with group if inside a group and index is provided
-        const elementRef = useRef<HTMLElement>(null)
+        const elementRef = useRef<HTMLLIElement>(null)
 
         useEffect(() => {
             if (groupContext && index !== undefined && elementRef.current) {
@@ -706,15 +706,15 @@ const ListBoxItem = forwardRef<HTMLLIElement, ListBoxItemProps>(
 
         // Callback ref to capture the actual DOM element
         const setElementRef = useCallback(
-            (element: HTMLElement | null) => {
-                elementRef.current = element
+            (element: HTMLLIElement | null) => {
+                ;(elementRef as React.MutableRefObject<HTMLLIElement | null>).current = element
 
                 // Also forward to the provided ref if it exists
                 if (ref) {
                     if (typeof ref === 'function') {
                         ref(element)
                     } else {
-                        ref.current = element
+                        ;(ref as React.MutableRefObject<HTMLLIElement | null>).current = element
                     }
                 }
             },
@@ -788,11 +788,11 @@ const ListBoxGroup = forwardRef<ListBoxGroupHandle, ListBoxGroupProps>(
     ({ children, groupId: providedGroupId }, ref): JSX.Element => {
         const { registerGroupItem, unregisterGroupItem, focusGroupItem } = useContext(ListBoxContext)
         const groupId = useMemo(() => providedGroupId || `group-${groupIdCounter++}`, [providedGroupId])
-        const groupItems = useRef<Map<number, HTMLElement>>(new Map())
+        const groupItems = useRef<Map<number, HTMLLIElement>>(new Map())
         const currentFocusedIndex = useRef<number | null>(null)
 
         const registerItem = useCallback(
-            (index: number, element: HTMLElement) => {
+            (index: number, element: HTMLLIElement) => {
                 groupItems.current.set(index, element)
                 registerGroupItem?.(groupId, index, element)
             },
