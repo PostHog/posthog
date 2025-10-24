@@ -76,6 +76,7 @@ export function DebugSceneQuery({ query, setQuery, queryKey }: DebugSceneQueryPr
                             queryKey={queryKey}
                             response={response}
                             setQuery={(query) => setQuery(JSON.stringify(query, null, 2))}
+                            onLoadQuery={setQuery}
                         />
                     ) : null}
                 </div>
