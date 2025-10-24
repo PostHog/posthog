@@ -1,6 +1,6 @@
 version = 1
 revision = 3
-requires-python = "==3.12.11"
+requires-python = "==3.12.12"
 
 [[package]]
 name = "aioboto3"
