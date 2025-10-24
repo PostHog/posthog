@@ -2,6 +2,8 @@
 
 Developer-focused documentation alongside code. Update docs in the same PR as your code changes.
 
+
+
 ## 📖 Two Types of Docs
 
 ### `published/` - Public on posthog.com
