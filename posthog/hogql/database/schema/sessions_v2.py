@@ -29,7 +29,7 @@ from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
     get_all_preaggregated_table_supported_properties,
 )
 from posthog.models.property_definition import PropertyType
-from posthog.models.raw_sessions.sql import (
+from posthog.models.raw_sessions.sessions_v2 import (
     RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL,
     RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER,
 )

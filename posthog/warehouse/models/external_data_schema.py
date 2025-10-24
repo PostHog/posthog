@@ -208,6 +208,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config.pop("partitioning_keys", None)
         self.sync_type_config.pop("partition_mode", None)
         # We don't reset partition_format
+        # We don't reset chunk_size_override
 
         self.save()
 

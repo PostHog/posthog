@@ -58,6 +58,7 @@ logger = structlog.get_logger(__name__)
 
 
 MAX_EXECUTION_TIME = 600
+MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 37 * 1024 * 1024 * 1024  # 37 GB
 
 
 class ExperimentQueryRunner(QueryRunner):
@@ -560,7 +561,11 @@ class ExperimentQueryRunner(QueryRunner):
             team=self.team,
             timings=self.timings,
             modifiers=create_default_modifiers_for_team(self.team),
-            settings=HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_TIME, allow_experimental_analyzer=True),
+            settings=HogQLGlobalSettings(
+                max_execution_time=MAX_EXECUTION_TIME,
+                allow_experimental_analyzer=True,
+                max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
+            ),
         )
 
         # Remove the $multiple variant only when using exclude handling

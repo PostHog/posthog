@@ -194,7 +194,7 @@ class TestTaxonomyAgentToolsNode(BaseTest):
         result = await self.node.arun(state, RunnableConfig())
 
         self.assertIsInstance(result, TaxonomyAgentState)
-        self.assertEqual(len(result.tool_progress_messages), 0)
+        self.assertEqual(len(result.tool_progress_messages), 1)
 
     @patch.object(MockTaxonomyAgentToolkit, "get_tool_input_model")
     async def test_run_final_answer(self, mock_get_tool_input):

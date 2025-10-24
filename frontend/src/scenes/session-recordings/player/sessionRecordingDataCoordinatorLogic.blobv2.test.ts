@@ -53,8 +53,6 @@ describe('sessionRecordingDataCoordinatorLogic blobby v2', () => {
                 '/api/environments/:team_id/session_recordings/:id/snapshots': async (req, res, ctx) => {
                     if (req.url.searchParams.get('source') === 'blob') {
                         throw new Error('not expecting this to be called in this test')
-                    } else if (req.url.searchParams.get('source') === 'realtime') {
-                        throw new Error('not expecting this to be called in this test')
                     } else if (req.url.searchParams.get('source') === 'blob_v2') {
                         const key = req.url.searchParams.get('blob_key')
                         const start_blob_key = req.url.searchParams.get('start_blob_key')

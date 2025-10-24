@@ -23,7 +23,6 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
     BatchExportInsertInputs,
@@ -36,42 +35,27 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
 from products.batch_exports.backend.temporal.batch_exports import (
-    FinishBatchExportRunInputs,
     OverBillingLimitError,
     StartBatchExportRunInputs,
     default_fields,
-    execute_batch_export_insert_activity,
     get_data_interval,
     start_batch_export_run,
-)
-from products.batch_exports.backend.temporal.heartbeat import (
-    BatchExportRangeHeartbeatDetails,
-    DateRange,
-    should_resume_from_activity_heartbeat,
 )
 from products.batch_exports.backend.temporal.pipeline.consumer import (
     Consumer as ConsumerFromStage,
     run_consumer_from_stage,
 )
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
-from products.batch_exports.backend.temporal.pipeline.producer import Producer as ProducerFromInternalStage
+from products.batch_exports.backend.temporal.pipeline.producer import Producer
 from products.batch_exports.backend.temporal.pipeline.transformer import ParquetStreamTransformer
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
-from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
-from products.batch_exports.backend.temporal.spmc import (
-    Consumer,
-    Producer,
-    RecordBatchQueue,
-    run_consumer,
-    wait_for_schema_or_producer,
-)
-from products.batch_exports.backend.temporal.temporary_file import BatchExportTemporaryFile, WriterFormat
+from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
+from products.batch_exports.backend.temporal.temporary_file import BatchExportTemporaryFile
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
     cast_record_batch_schema_json_columns,
     handle_non_retryable_errors,
     make_retryable_with_exponential_backoff,
-    set_status_to_running_task,
 )
 
 LOGGER = get_write_only_logger(__name__)
@@ -176,13 +160,6 @@ class SnowflakeIncompatibleSchemaError(Exception):
         super().__init__(
             f"The data being loaded into the destination table is incompatible with the schema of the destination table: {err_msg}"
         )
-
-
-@dataclasses.dataclass
-class SnowflakeHeartbeatDetails(BatchExportRangeHeartbeatDetails):
-    """The Snowflake batch export details included in every heartbeat."""
-
-    pass
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -597,8 +574,6 @@ class SnowflakeClient:
         table_name: str,
         table_stage_prefix: str,
         table_fields: list[SnowflakeField],
-        # TODO: remove this once we've migrated to the new pipeline
-        file_format: typing.Literal["Parquet", "JSONLines"],
         known_json_columns: list[str],
     ) -> None:
         """Execute a COPY query in Snowflake to load any files PUT into the table stage.
@@ -609,31 +584,23 @@ class SnowflakeClient:
             table_name: The table we are COPY-ing files into.
             table_stage_prefix: The prefix of the table stage.
             table_fields: The fields of the table.
-            file_format: The format of the files to load.
             known_json_columns: The columns that are JSON (NOTE: we can't just inspect the schema of the table fields to
                 check for VARIANT columns since not all VARIANT columns will be JSON, eg `elements`).
         """
-        if file_format == "Parquet":
-            col_names = [field[0] for field in table_fields]
-            select_fields = ", ".join(
-                f'PARSE_JSON($1:"{field}")' if field in known_json_columns else f'$1:"{field}"' for field in col_names
-            )
-            query = f"""
-            COPY INTO "{table_name}" ({', '.join(f'"{col_name}"' for col_name in col_names)})
-            FROM (
-                SELECT {select_fields} FROM '@%"{table_name}"/{table_stage_prefix}'
-            )
-            FILE_FORMAT = (TYPE = 'PARQUET')
-            PURGE = TRUE
-            """
-        else:
-            query = f"""
-            COPY INTO "{table_name}"
-            FROM '@%"{table_name}"/{table_stage_prefix}'
-            FILE_FORMAT = (TYPE = 'JSON')
-            MATCH_BY_COLUMN_NAME = CASE_SENSITIVE
-            PURGE = TRUE
-            """
+        col_names = [field[0] for field in table_fields]
+        select_fields = ", ".join(
+            f'PARSE_JSON($1:"{field}")' if field in known_json_columns else f'$1:"{field}"' for field in col_names
+        )
+        query = f"""
+        COPY INTO "{table_name}" ({", ".join(f'"{col_name}"' for col_name in col_names)})
+        FROM (
+            SELECT {select_fields} FROM '@%"{table_name}"/{table_stage_prefix}'
+        )
+        FILE_FORMAT = (TYPE = 'PARQUET')
+        PURGE = TRUE
+        """
+
+        self.logger.info("Copying files from table stage into table %s", table_name)
 
         # Handle cases where the Warehouse is suspended (sometimes we can recover from this)
         max_attempts = 3
@@ -696,6 +663,8 @@ class SnowflakeClient:
                     first_error or "NO ERROR MESSAGE",
                 )
 
+        self.logger.info("Finished copying files into destination table")
+
     async def amerge_mutable_tables(
         self,
         final_table: str,
@@ -752,7 +721,9 @@ class SnowflakeClient:
             VALUES ({values});
         """
 
+        self.logger.info("Merging stage table %s into final table %s", stage_table, final_table)
         await self.execute_async_query(merge_query, fetch_results=False, poll_interval=1.0)
+        self.logger.info("Finished merge")
 
 
 def snowflake_default_fields() -> list[BatchExportField]:
@@ -786,64 +757,6 @@ def snowflake_default_fields() -> list[BatchExportField]:
     batch_export_fields.append(set_once_field)
 
     return batch_export_fields
-
-
-class SnowflakeConsumer(Consumer):
-    def __init__(
-        self,
-        heartbeater: Heartbeater,
-        heartbeat_details: SnowflakeHeartbeatDetails,
-        data_interval_start: dt.datetime | str | None,
-        data_interval_end: dt.datetime | str,
-        writer_format: WriterFormat,
-        snowflake_client: SnowflakeClient,
-        snowflake_table: str,
-        snowflake_table_stage_prefix: str,
-    ):
-        super().__init__(
-            heartbeater=heartbeater,
-            heartbeat_details=heartbeat_details,
-            data_interval_start=data_interval_start,
-            data_interval_end=data_interval_end,
-            writer_format=writer_format,
-        )
-        self.heartbeat_details: SnowflakeHeartbeatDetails = heartbeat_details
-        self.snowflake_table = snowflake_table
-        self.snowflake_client = snowflake_client
-        self.snowflake_table_stage_prefix = snowflake_table_stage_prefix
-
-    async def flush(
-        self,
-        batch_export_file: BatchExportTemporaryFile,
-        records_since_last_flush: int,
-        bytes_since_last_flush: int,
-        flush_counter: int,
-        last_date_range: DateRange,
-        is_last: bool,
-        error: Exception | None,
-    ):
-        self.external_logger.info(
-            "Putting file %d containing %d records with size %d bytes to Snowflake table '%s' stage",
-            flush_counter,
-            records_since_last_flush,
-            bytes_since_last_flush,
-            self.snowflake_table,
-        )
-
-        await self.snowflake_client.put_file_to_snowflake_table_stage(
-            batch_export_file,
-            self.snowflake_table_stage_prefix,
-            self.snowflake_table,
-        )
-
-        self.external_logger.info(
-            "File with %d records loaded to Snowflake table '%s' stage", records_since_last_flush, self.snowflake_table
-        )
-        self.rows_exported_counter.add(records_since_last_flush)
-        self.bytes_exported_counter.add(bytes_since_last_flush)
-
-        self.heartbeat_details.records_completed += records_since_last_flush
-        self.heartbeat_details.track_done_range(last_date_range, self.data_interval_start)
 
 
 def _get_snowflake_table_settings(
@@ -905,12 +818,8 @@ def _get_snowflake_merge_config(
     return requires_merge, merge_key, update_key
 
 
-class SnowflakeConsumerFromStage(ConsumerFromStage):
+class SnowflakeConsumer(ConsumerFromStage):
     """A consumer that uploads data to Snowflake from the internal stage.
-
-    This works in a similar way to the existing SnowflakeConsumer, but uses the new pipeline interface.
-
-    It also removes the need for a temporary file, and instead uses an in-memory buffer.
 
     At the moment, it doesn't support concurrent uploads, but we can add that later to improve performance.
     """
@@ -1035,198 +944,11 @@ def get_snowflake_fields_from_record_schema(
 
 @activity.defn
 @handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
-async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> BatchExportResult:
-    """Activity streams data from ClickHouse to Snowflake.
-
-    TODO: We're using JSON here, it's not the most efficient way to do this.
-    """
-    bind_contextvars(
-        team_id=inputs.team_id,
-        destination="Snowflake",
-        data_interval_start=inputs.data_interval_start,
-        data_interval_end=inputs.data_interval_end,
-    )
-    external_logger = EXTERNAL_LOGGER.bind()
-
-    external_logger.info(
-        "Batch exporting range %s - %s to Snowflake: %s.%s.%s",
-        inputs.data_interval_start or "START",
-        inputs.data_interval_end or "END",
-        inputs.database,
-        inputs.schema,
-        inputs.table_name,
-    )
-
-    async with (
-        Heartbeater() as heartbeater,
-        set_status_to_running_task(run_id=inputs.run_id),
-    ):
-        _, details = await should_resume_from_activity_heartbeat(activity, SnowflakeHeartbeatDetails)
-        if details is None or str(inputs.team_id) in settings.BATCH_EXPORT_ORDERLESS_TEAM_IDS:
-            details = SnowflakeHeartbeatDetails()
-
-        done_ranges: list[DateRange] = details.done_ranges
-
-        model, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
-            inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema
-        )
-
-        data_interval_start = (
-            dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
-        )
-        data_interval_end = dt.datetime.fromisoformat(inputs.data_interval_end)
-        full_range = (data_interval_start, data_interval_end)
-
-        queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_SNOWFLAKE_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
-        producer = Producer(record_batch_model)
-        producer_task = await producer.start(
-            queue=queue,
-            model_name=model_name,
-            is_backfill=inputs.get_is_backfill(),
-            backfill_details=inputs.backfill_details,
-            team_id=inputs.team_id,
-            full_range=full_range,
-            done_ranges=done_ranges,
-            fields=fields,
-            filters=filters,
-            destination_default_fields=snowflake_default_fields(),
-            exclude_events=inputs.exclude_events,
-            include_events=inputs.include_events,
-            extra_query_parameters=extra_query_parameters,
-        )
-
-        record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
-        if record_batch_schema is None:
-            external_logger.info(
-                "Batch export will finish early as there is no data matching specified filters in range %s - %s",
-                inputs.data_interval_start or "START",
-                inputs.data_interval_end or "END",
-            )
-
-            return BatchExportResult(records_completed=details.records_completed)
-
-        record_batch_schema = pa.schema(
-            # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
-            # record batches have them as nullable.
-            # Until we figure it out, we set all fields to nullable. There are some fields we know
-            # are not nullable, but I'm opting for the more flexible option until we out why schemas differ
-            # between batches.
-            [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
-        )
-
-        known_variant_columns = ["properties", "people_set", "people_set_once", "person_properties"]
-
-        if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
-            table_fields = [
-                ("uuid", "STRING"),
-                ("event", "STRING"),
-                ("properties", "VARIANT"),
-                ("elements", "VARIANT"),
-                ("people_set", "VARIANT"),
-                ("people_set_once", "VARIANT"),
-                ("distinct_id", "STRING"),
-                ("team_id", "INTEGER"),
-                ("ip", "STRING"),
-                ("site_url", "STRING"),
-                ("timestamp", "TIMESTAMP"),
-            ]
-
-        else:
-            table_fields = get_snowflake_fields_from_record_schema(
-                record_batch_schema,
-                known_variant_columns=known_variant_columns,
-            )
-
-        requires_merge = False
-        merge_key = []
-        update_key = []
-        if isinstance(inputs.batch_export_model, BatchExportModel):
-            if inputs.batch_export_model.name == "persons":
-                requires_merge = True
-                merge_key = [
-                    ("team_id", "INT64"),
-                    ("distinct_id", "STRING"),
-                ]
-                update_key = ["person_version", "person_distinct_id_version"]
-
-            elif inputs.batch_export_model.name == "sessions":
-                requires_merge = True
-                merge_key = [("team_id", "INT64"), ("session_id", "STRING")]
-                update_key = [
-                    "end_timestamp",
-                ]
-
-        data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
-        stage_table_name = (
-            f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
-            if requires_merge
-            else inputs.table_name
-        )
-
-        async with SnowflakeClient.from_inputs(inputs).connect() as snow_client:
-            async with (
-                snow_client.managed_table(
-                    inputs.table_name, data_interval_end_str, table_fields, delete=False
-                ) as snow_table,
-                snow_client.managed_table(
-                    stage_table_name,
-                    data_interval_end_str,
-                    table_fields,
-                    create=requires_merge,
-                    delete=requires_merge,
-                ) as snow_stage_table,
-            ):
-                consumer = SnowflakeConsumer(
-                    heartbeater=heartbeater,
-                    heartbeat_details=details,
-                    data_interval_end=data_interval_end,
-                    data_interval_start=data_interval_start,
-                    writer_format=WriterFormat.JSONL,
-                    snowflake_client=snow_client,
-                    snowflake_table=snow_stage_table if requires_merge else snow_table,
-                    snowflake_table_stage_prefix=data_interval_end_str,
-                )
-                try:
-                    await run_consumer(
-                        consumer=consumer,
-                        queue=queue,
-                        producer_task=producer_task,
-                        schema=record_batch_schema,
-                        max_bytes=settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES,
-                        json_columns=known_variant_columns,
-                        multiple_files=True,
-                    )
-
-                # ensure we always write data to final table, even if we fail halfway through, as if we resume from
-                # a heartbeat, we can continue without losing data
-                finally:
-                    await snow_client.copy_loaded_files_to_snowflake_table(
-                        snow_stage_table if requires_merge else snow_table,
-                        data_interval_end_str,
-                        table_fields,
-                        file_format="JSONLines",
-                        known_json_columns=known_variant_columns,
-                    )
-
-                    if requires_merge:
-                        await snow_client.amerge_mutable_tables(
-                            final_table=snow_table,
-                            stage_table=snow_stage_table,
-                            update_when_matched=table_fields,
-                            merge_key=merge_key,
-                            update_key=update_key,
-                        )
-
-        return BatchExportResult(records_completed=details.records_completed)
-
-
-@activity.defn
-@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInputs) -> BatchExportResult:
     """Activity to batch export data from internal S3 stage to Snowflake.
 
-    This is a new version of the `insert_into_snowflake_activity` activity that reads data from our internal S3 stage
-    instead of ClickHouse directly, and uses concurrent uploads to improve performance.
+    This activity reads data from our internal S3 stage instead of ClickHouse directly, and uses concurrent uploads to
+    improve performance.
     """
     bind_contextvars(
         team_id=inputs.team_id,
@@ -1257,7 +979,7 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
             model = inputs.batch_export_schema
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_SNOWFLAKE_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
-        producer = ProducerFromInternalStage()
+        producer = Producer()
         assert inputs.batch_export_id is not None
         producer_task = await producer.start(
             queue=queue,
@@ -1304,7 +1026,7 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
                     delete=requires_merge,
                 ) as snow_stage_table,
             ):
-                consumer = SnowflakeConsumerFromStage(
+                consumer = SnowflakeConsumer(
                     snowflake_client=snow_client,
                     snowflake_table=snow_stage_table if requires_merge else snow_table,
                     snowflake_table_stage_prefix=data_interval_end_str,
@@ -1332,7 +1054,6 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
                     snow_stage_table if requires_merge else snow_table,
                     data_interval_end_str,
                     table_fields,
-                    file_format="Parquet",
                     known_json_columns=known_variant_columns,
                 )
 
@@ -1396,13 +1117,6 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
         except OverBillingLimitError:
             return
 
-        finish_inputs = FinishBatchExportRunInputs(
-            id=run_id,
-            batch_export_id=inputs.batch_export_id,
-            status=BatchExportRun.Status.COMPLETED,
-            team_id=inputs.team_id,
-        )
-
         insert_inputs = SnowflakeInsertInputs(
             team_id=inputs.team_id,
             user=inputs.user,
@@ -1429,19 +1143,8 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             destination_default_fields=snowflake_default_fields(),
         )
 
-        if (
-            str(inputs.team_id) in settings.BATCH_EXPORT_SNOWFLAKE_USE_STAGE_TEAM_IDS
-            or inputs.team_id % 100 < settings.BATCH_EXPORT_SNOWFLAKE_USE_INTERNAL_STAGE_ROLLOUT_PERCENTAGE
-        ):
-            await execute_batch_export_using_internal_stage(
-                insert_into_snowflake_activity_from_stage,
-                insert_inputs,
-                interval=inputs.interval,
-            )
-        else:
-            await execute_batch_export_insert_activity(
-                insert_into_snowflake_activity,
-                insert_inputs,
-                interval=inputs.interval,
-                finish_inputs=finish_inputs,
-            )
+        await execute_batch_export_using_internal_stage(
+            insert_into_snowflake_activity_from_stage,
+            insert_inputs,
+            interval=inputs.interval,
+        )

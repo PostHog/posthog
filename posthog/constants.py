@@ -326,6 +326,7 @@ VIDEO_EXPORT_TASK_QUEUE = "video-export-task-queue"
 MESSAGING_TASK_QUEUE = "messaging-task-queue"
 ANALYTICS_PLATFORM_TASK_QUEUE = "analytics-platform-task-queue"
 SESSION_REPLAY_TASK_QUEUE = "session-replay-task-queue"
+WEEKLY_DIGEST_TASK_QUEUE = "weekly-digest-task-queue"
 
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]
 
