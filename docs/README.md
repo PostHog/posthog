@@ -1,12 +1,12 @@
-# PostHog Documentation in Monorepo
+# PostHog Documentation
 
 Developer-focused documentation alongside code. Update docs in the same PR as your code changes.
 
-## 📖 Two Types of Docs
+## Structure
 
-### `published/` - Public on posthog.com
+### `published/` - Published on posthog.com
 
-Documentation that gets published to https://posthog.com when merged to master:
+Documentation published to https://posthog.com/handbook/engineering/ when merged to master:
 
 - Architecture guides
 - Contributing guides
@@ -17,155 +17,35 @@ Documentation that gets published to https://posthog.com when merged to master:
 
 ### `internal/` - GitHub-only
 
-Documentation that stays private in the repository:
+Documentation that stays in the repository:
 
-- Internal development workflows
-- Migration patterns and gotchas
+- Development workflows
+- Migration patterns
 - Team processes
 
-**When to use**: Internal knowledge that's useful for the team but not for external users.
-
-## Quick Start
-
-- **For Published Docs** - See `./published/README.md`
-- **For Internal Docs** - See `./internal/README.md`
-- **Full Migration Plan** - See `./DOCS_MIGRATION_PLAN.md`
-- **Build Guide** - See `./MONOREPO_DOCS_BUILD_GUIDE.md` (for posthog.com team)
-
-## Directory Structure
-
-```text
-docs/
-├── published/              # → Published on posthog.com
-│   ├── contributing/       # Contribution guides
-│   ├── architecture/       # How PostHog works
-│   ├── runbooks/           # Operational guides
-│   ├── engineering/        # Engineering practices
-│   └── README.md
-├── internal/               # → GitHub only (not published)
-│   ├── workflows/          # Development workflows
-│   ├── migrations/         # Migration patterns
-│   └── README.md
-├── DOCS_MIGRATION_PLAN.md  # Strategy and scope
-├── MONOREPO_DOCS_BUILD_GUIDE.md  # Setup for posthog.com
-└── README.md               # This file
-```
-
-## What's Here
-
-### Published Docs (20 files)
-
-These are automatically built and published on posthog.com:
-
-**Contributing** (4 files)
-
-- Contributing guide for developers
-- Code of conduct
-- Badge system for contributors
-- Recognition process
-
-**Architecture** (6 files)
-
-- System overview and data flow
-- Data model explanation
-- Event ingestion pipeline
-- ClickHouse setup
-- Query execution
-- Session recording ingestion
-
-**Runbooks** (2 files)
-
-- Debugging plugin server jobs
-- Managing scheduled tasks
-
-**Total for Phase 1:** 12 files published
-
-### Internal Docs (5 files)
-
-GitHub-only documentation:
-
-**Workflows**
-
-- FLOX multi-instance development
-- S3 query cache setup
-
-**Other**
-
-- Safe Django migrations guide
-- Type baseline information
+**When to use**: Knowledge useful for the team but not for external users. We're open source, so "internal" means GitHub-only rather than truly private.
 
 ## Publishing Flow
 
-```text
-Engineer commits to feature branch
-    ↓
-Push to GitHub
-    ↓
-PR created with /docs/** changes
-    ↓
-GitHub Action triggers preview build
-    ↓
-posthog.com builds from feature branch
-    ↓
-Preview URL posted to PR ✅
-    ↓
+```
+Engineer creates PR with /docs/** changes
+  ↓
+GitHub Action triggers posthog.com preview build
+  ↓
+Preview URL posted to PR
+  ↓
 Merge to master
-    ↓
-Production build includes new docs ✨
+  ↓
+Docs go live on posthog.com
 ```
 
-## For Monorepo Engineers
+## Guidelines
 
-When updating these docs:
+- All published docs must have YAML frontmatter
+- Use relative links between docs: `../contributing/index.md`
+- Docs about PostHog internals → here
+- User product docs and tutorials → posthog.com repo
 
-1. Edit files in `published/` or `internal/` as appropriate
-2. Test locally if possible
-3. Include doc updates in your feature PR
-4. Reviewers can preview on posthog.com
-5. Docs go live with code on merge
+## Setup
 
-## For posthog.com Team
-
-The build setup requires:
-
-1. Configuring gatsby to read from `/docs/published/`
-2. Adding GitHub Action to trigger preview builds
-3. Filtering out `/docs/internal/` from builds
-
-See `MONOREPO_DOCS_BUILD_GUIDE.md` for detailed setup instructions.
-
-## Next Steps
-
-This is Phase 1 of the docs migration. Testing PoC workflow with preview builds.
-
-Planned for future phases:
-
-- [ ] Verify build pipeline works with preview docs
-- [ ] Move additional engineering handbook sections
-- [ ] Move more operational runbooks
-- [ ] Document cross-repo link strategy
-- [ ] Set up redirects for deprecated posthog.com docs
-
-## FAQ
-
-**Q: Can I create docs in `/docs/internal/` even if not published?**
-A: Yes! Internal docs stay in the repo with code and are searchable on GitHub. Perfect for internal-only content.
-
-**Q: How do I test published docs locally?**
-A: Set `POSTHOG_REPO_PATH` and run posthog.com locally. See MONOREPO_DOCS_BUILD_GUIDE.md.
-
-**Q: What format should docs use?**
-A: Same as posthog.com - Markdown/MDX with YAML frontmatter. Copy from existing docs for consistency.
-
-**Q: When should I move a doc here vs keep it in posthog.com?**
-A: Docs about PostHog internals and architecture → here. User product docs and tutorials → posthog.com.
-
-**Q: How do I link between published docs?**
-A: Use relative paths: `../contributing/index.md` or `./index.md`
-
-## References
-
-- [PostHog GitHub](https://github.com/PostHog/posthog)
-- [PostHog Website](https://github.com/PostHog/posthog.com)
-- [Contributing to PostHog](./published/contributing/index.md)
-- [PostHog Architecture](./published/architecture/index.mdx)
+For posthog.com team setting up the integration, see the PRs in PostHog/posthog.com repo.
