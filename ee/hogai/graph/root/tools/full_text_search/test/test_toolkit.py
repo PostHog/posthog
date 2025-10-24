@@ -5,7 +5,7 @@ from django.conf import settings
 
 from parameterized import parameterized
 
-from ee.hogai.graph.root.tools.full_text_search.tool import ENTITY_MAP, EntitySearchToolkit
+from ee.hogai.graph.root.tools.full_text_search.tool import ENTITY_MAP, EntitySearchToolkit, FTSKind
 from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 
 
@@ -90,7 +90,7 @@ class TestEntitySearchToolkit(BaseTest):
         assert HYPERLINK_USAGE_INSTRUCTIONS in content
 
     async def test_arun_no_query(self):
-        result = await self.toolkit.execute(query=None, entity="cohort")  # type: ignore
+        result = await self.toolkit.execute(query=None, search_kind=FTSKind.COHORTS)  # type: ignore
 
         assert "No search query was provided" in result
 
@@ -115,7 +115,7 @@ class TestEntitySearchToolkit(BaseTest):
         mock_db_sync.side_effect = async_wrapper
         mock_search_entities.side_effect = side_effect_func
 
-        _ = await self.toolkit.execute(query="test query", entity="all")
+        _ = await self.toolkit.execute(query="test query", search_kind=FTSKind.ALL)
 
         mock_search_entities.assert_called_once_with(
             set(ENTITY_MAP.keys()), "test query", self.team.project_id, self.toolkit, ENTITY_MAP
@@ -125,14 +125,32 @@ class TestEntitySearchToolkit(BaseTest):
     @patch("ee.hogai.graph.root.tools.full_text_search.tool.database_sync_to_async")
     async def test_arun_with_results(self, mock_db_sync, mock_search_entities):
         all_results: list[dict] = [
-            {"type": "cohort", "result_id": "123", "extra_fields": {"name": "Test cohort"}, "rank": 0.95},
-            {"type": "dashboard", "result_id": "456", "extra_fields": {"name": "Test Dashboard"}, "rank": 0.90},
-            {"type": "action", "result_id": "101", "extra_fields": {"name": "Test Action"}, "rank": 0.80},
+            {
+                "kind": FTSKind.COHORTS,
+                "type": "cohort",
+                "result_id": "123",
+                "extra_fields": {"name": "Test cohort"},
+                "rank": 0.95,
+            },
+            {
+                "kind": FTSKind.DASHBOARDS,
+                "type": "dashboard",
+                "result_id": "456",
+                "extra_fields": {"name": "Test Dashboard"},
+                "rank": 0.90,
+            },
+            {
+                "kind": FTSKind.ACTIONS,
+                "type": "action",
+                "result_id": "101",
+                "extra_fields": {"name": "Test Action"},
+                "rank": 0.80,
+            },
         ]
 
         def side_effect_func(entities, query, project_id, view, entity_map):
             result = [result for result in all_results if result["type"] in entities]
-            return (result, {entity: len(result) for entity in entities})
+            return (result, {result["type"]: len(result) for result in result})
 
         def async_wrapper(func):
             async def inner(*args, **kwargs):
@@ -144,7 +162,7 @@ class TestEntitySearchToolkit(BaseTest):
         mock_search_entities.side_effect = side_effect_func
 
         for expected_result in all_results:
-            result = await self.toolkit.execute(query="test query", entity=expected_result["type"])
+            result = await self.toolkit.execute(query="test query", search_kind=expected_result["kind"])
             assert expected_result["type"] in result
             assert expected_result["extra_fields"]["name"] in result
             assert self.toolkit._build_url(expected_result["type"], expected_result["result_id"]) in result
@@ -155,11 +173,11 @@ class TestEntitySearchToolkit(BaseTest):
     async def test_arun_exception_handling(self, mock_capture, mock_db_sync):
         mock_db_sync.side_effect = Exception("Database error")
 
-        result = await self.toolkit.execute(query="test query", entity="dashboard")
+        result = await self.toolkit.execute(query="test query", search_kind=FTSKind.DASHBOARDS)
 
         assert "Database error" in result
 
     async def test_search_entities_invalid_entity_type(self):
-        result = await self.toolkit.execute(query="test query", entity="invalid_type")
+        result = await self.toolkit.execute(query="test query", search_kind="invalid_type")  # type: ignore
 
-        assert "Invalid entity type: invalid_type. Will not search for this entity type." in result
+        assert "Invalid entity kind: invalid_type. Will not perform search for it." in result

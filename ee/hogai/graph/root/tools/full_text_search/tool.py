@@ -16,20 +16,6 @@ from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 
 from .prompts import ENTITY_TYPE_SUMMARY_TEMPLATE, FOUND_ENTITIES_MESSAGE_TEMPLATE
 
-
-class EntityType(StrEnum):
-    INSIGHT = "insight"
-    DASHBOARD = "dashboard"
-    COHORT = "cohort"
-    ACTION = "action"
-    EXPERIMENT = "experiment"
-    FEATURE_FLAG = "feature_flag"
-    NOTEBOOK = "notebook"
-    SURVEY = "survey"
-    ERROR_TRACKING_ISSUE = "error_tracking_issue"
-    ALL = "all"
-
-
 ENTITY_MAP: dict[str, EntityConfig] = {
     "insight": {
         "klass": Insight,
@@ -46,7 +32,11 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description"],
     },
-    "feature_flag": {"klass": FeatureFlag, "search_fields": {"key": "A", "name": "C"}, "extra_fields": ["key", "name"]},
+    "feature_flag": {
+        "klass": FeatureFlag,
+        "search_fields": {"key": "A", "name": "C"},
+        "extra_fields": ["key", "name"],
+    },
     "action": {
         "klass": Action,
         "search_fields": {"name": "A", "description": "C"},
@@ -75,6 +65,32 @@ The value in search_fields corresponds to the PostgreSQL weighting i.e. A, B, C 
 """
 
 
+class FTSKind(StrEnum):
+    INSIGHTS = "insights"
+    DASHBOARDS = "dashboards"
+    COHORTS = "cohorts"
+    ACTIONS = "actions"
+    EXPERIMENTS = "experiments"
+    FEATURE_FLAGS = "feature_flags"
+    NOTEBOOKS = "notebooks"
+    SURVEYS = "surveys"
+    ERROR_TRACKING_ISSUES = "error_tracking_issues"
+    ALL = "all"
+
+
+SEARCH_KIND_TO_DATABASE_ENTITY_TYPE: dict[FTSKind, str] = {
+    FTSKind.INSIGHTS: "insight",
+    FTSKind.DASHBOARDS: "dashboard",
+    FTSKind.EXPERIMENTS: "experiment",
+    FTSKind.FEATURE_FLAGS: "feature_flag",
+    FTSKind.NOTEBOOKS: "notebook",
+    FTSKind.ACTIONS: "action",
+    FTSKind.COHORTS: "cohort",
+    FTSKind.SURVEYS: "survey",
+    FTSKind.ERROR_TRACKING_ISSUES: "error_tracking_issue",
+}
+
+
 class EntitySearchToolkit:
     MAX_ENTITY_RESULTS = 10
     MAX_CONCURRENT_SEARCHES = 10
@@ -83,18 +99,18 @@ class EntitySearchToolkit:
         self._team = team
         self._user = user
 
-    async def execute(self, query: str, entity: str) -> str:
+    async def execute(self, query: str, search_kind: FTSKind) -> str:
         """Search for entities by query and entity."""
         try:
             if not query:
                 return "No search query was provided"
 
-            if entity == EntityType.ALL:
+            if search_kind == FTSKind.ALL:
                 entity_types = set(ENTITY_MAP.keys())
-            elif entity in ENTITY_MAP:
-                entity_types = {entity}
+            elif search_kind in SEARCH_KIND_TO_DATABASE_ENTITY_TYPE:
+                entity_types = {SEARCH_KIND_TO_DATABASE_ENTITY_TYPE[search_kind]}
             else:
-                return f"Invalid entity type: {entity}. Will not search for this entity type."
+                return f"Invalid entity kind: {search_kind}. Will not perform search for it."
 
             results, counts = await database_sync_to_async(search_entities)(
                 entity_types,
@@ -116,32 +132,32 @@ class EntitySearchToolkit:
     def user_access_control(self) -> UserAccessControl:
         return UserAccessControl(user=self._user, team=self._team, organization_id=self._team.organization.id)
 
-    def _build_url(self, entity_type: EntityType, result_id: str) -> str:
+    def _build_url(self, entity_type: str, result_id: str) -> str:
         base_url = f"{settings.SITE_URL}/project/{self._team.id}"
         match entity_type:
-            case EntityType.INSIGHT:
+            case "insight":
                 return f"{base_url}/insights/{result_id}"
-            case EntityType.DASHBOARD:
+            case "dashboard":
                 return f"{base_url}/dashboard/{result_id}"
-            case EntityType.EXPERIMENT:
+            case "experiment":
                 return f"{base_url}/experiments/{result_id}"
-            case EntityType.FEATURE_FLAG:
+            case "feature_flag":
                 return f"{base_url}/feature_flags/{result_id}"
-            case EntityType.NOTEBOOK:
+            case "notebook":
                 return f"{base_url}/notebooks/{result_id}"
-            case EntityType.ACTION:
+            case "action":
                 return f"{base_url}/data-management/actions/{result_id}"
-            case EntityType.COHORT:
+            case "cohort":
                 return f"{base_url}/cohorts/{result_id}"
-            case EntityType.SURVEY:
+            case "survey":
                 return f"{base_url}/surveys/{result_id}"
-            case EntityType.ERROR_TRACKING_ISSUE:
+            case "error_tracking_issue":
                 return f"{base_url}/error_tracking/{result_id}"
             case _:
                 raise ValueError(f"Unknown entity type: {entity_type}")
 
     def _get_formatted_entity_result(self, result: dict) -> str:
-        entity_type = EntityType(result["type"])
+        entity_type = result["type"]
         result_id = result["result_id"]
         extra_fields = result.get("extra_fields", {})
 
@@ -156,7 +172,7 @@ class EntitySearchToolkit:
         return yaml.dump(result_dict, default_flow_style=False, allow_unicode=True, sort_keys=False).strip()
 
     def _format_results_for_display(
-        self, query: str, entity_types: set[str] | set[EntityType], results: list[dict], counts: dict[str, int | None]
+        self, query: str, entity_types: set[str], results: list[dict], counts: dict[str, int | None]
     ) -> str:
         content = ""
         if not results:

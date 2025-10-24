@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from posthog.models import Team, User
 
-from ee.hogai.graph.root.tools.full_text_search.tool import ENTITY_MAP, EntitySearchToolkit, EntityType
+from ee.hogai.graph.root.tools.full_text_search.tool import EntitySearchToolkit, FTSKind
 from ee.hogai.tool import MaxTool
 
 DOC_SEARCH_TOOL_PROMPT = """
@@ -45,18 +45,6 @@ Examples:
 
 If the user's question should be satisfied by using insights, do that before answering using documentation.
 """.strip()
-
-INSIGHTS_SEARCH_TOOL_PROMPT = """
-
-# Insights search
-
-Use this tool when you can assume that an insight you want to analyze was already created by the user.
-
-Examples:
-- Product-specific metrics that most likely exist.
-- Common sense metrics that are relevant to the product.
-""".strip()
-
 
 ENTITY_SEARCH_TOOL_PROMPT = """
 
@@ -103,9 +91,9 @@ URL: {url}
 
 FTS_SEARCH_FEATURE_FLAG = "hogai-insights-fts-search"
 
-ENTITIES = [f"{entity}" for entity in [EntityType.ALL, *ENTITY_MAP.keys()] if entity != EntityType.INSIGHT]
+ENTITIES = [f"{entity}" for entity in FTSKind if entity != FTSKind.INSIGHTS]
 
-SearchKind = Literal["insight", "doc", *ENTITIES]  # type: ignore
+SearchKind = Literal["insights", "docs", *ENTITIES]  # type: ignore
 
 
 class SearchToolArgs(BaseModel):
@@ -148,13 +136,13 @@ class SearchTool(MaxTool):
     @staticmethod
     def _get_fts_entities(include_insight_fts: bool) -> list[str]:
         if not include_insight_fts:
-            entities = [e for e in ENTITY_MAP.keys() if e != EntityType.INSIGHT]
+            entities = [e for e in FTSKind if e != FTSKind.INSIGHTS]
         else:
-            entities = list(ENTITY_MAP.keys())
-        return [*entities, EntityType.ALL.value]
+            entities = list(FTSKind)
+        return [*entities, FTSKind.ALL]
 
     async def _arun_impl(self, kind: SearchKind, query: str) -> tuple[str, dict[str, Any] | None]:
-        if kind == "doc":
+        if kind == "docs":
             if not settings.INKEEP_API_KEY:
                 return "This tool is not available in this environment.", None
             if self._has_docs_search_feature_flag():
@@ -164,7 +152,7 @@ class SearchTool(MaxTool):
 
         if kind in fts_entities:
             entity_search_toolkit = EntitySearchToolkit(self._team, self._user)
-            response = await entity_search_toolkit.execute(query, kind)
+            response = await entity_search_toolkit.execute(query, FTSKind(kind))
             return response, None
         # Used for routing
         return "Search tool executed", SearchToolArgs(kind=kind, query=query).model_dump()

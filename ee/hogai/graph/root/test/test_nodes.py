@@ -906,7 +906,7 @@ class TestRootNodeTools(BaseTest):
             messages=[
                 AssistantMessage(
                     content="Searching insights",
-                    tool_calls=[AssistantToolCall(id="search-123", name="search", args={"kind": "insight"})],
+                    tool_calls=[AssistantToolCall(id="search-123", name="search", args={"kind": "insights"})],
                 )
             ],
             root_tool_call_id="search-123",
@@ -964,7 +964,7 @@ class TestRootNodeTools(BaseTest):
             messages=[
                 AssistantMessage(
                     content="Searching docs",
-                    tool_calls=[AssistantToolCall(id="search-123", name="search", args={"kind": "doc"})],
+                    tool_calls=[AssistantToolCall(id="search-123", name="search", args={"kind": "docs"})],
                 )
             ],
             root_tool_call_id="search-123",
@@ -1059,7 +1059,7 @@ class TestRootNodeTools(BaseTest):
         self.assertEqual(result.search_insights_queries[1].name, "Query 2")
 
     async def test_arun_search_tool_insights_kind(self):
-        """Test search tool with kind=insight"""
+        """Test search tool with kind=insights"""
         node = RootNodeTools(self.team, self.user)
         state = AssistantState(
             messages=[
@@ -1067,7 +1067,7 @@ class TestRootNodeTools(BaseTest):
                     content="Searching insights",
                     id="test-id",
                     tool_calls=[
-                        AssistantToolCall(id="search-123", name="search", args={"query": "test", "kind": "insight"})
+                        AssistantToolCall(id="search-123", name="search", args={"query": "test", "kind": "insights"})
                     ],
                 )
             ]
@@ -1078,7 +1078,7 @@ class TestRootNodeTools(BaseTest):
             content="Search results",
             tool_call_id="search-123",
             name="search",
-            artifact={"kind": "insight", "query": "test"},
+            artifact={"kind": "insights", "query": "test"},
         )
 
         with mock_contextual_tool(mock_tool_instance):
@@ -1089,7 +1089,7 @@ class TestRootNodeTools(BaseTest):
             self.assertEqual(result.search_insights_query, "test")
 
     async def test_arun_search_tool_docs_kind(self):
-        """Test search tool with kind=doc"""
+        """Test search tool with kind=docs"""
         node = RootNodeTools(self.team, self.user)
         state = AssistantState(
             messages=[
@@ -1097,7 +1097,7 @@ class TestRootNodeTools(BaseTest):
                     content="Searching docs",
                     id="test-id",
                     tool_calls=[
-                        AssistantToolCall(id="search-123", name="search", args={"query": "test", "kind": "doc"})
+                        AssistantToolCall(id="search-123", name="search", args={"query": "test", "kind": "docs"})
                     ],
                 )
             ]
@@ -1105,7 +1105,7 @@ class TestRootNodeTools(BaseTest):
 
         mock_tool_instance = AsyncMock()
         mock_tool_instance.ainvoke.return_value = LangchainToolMessage(
-            content="Docs results", tool_call_id="search-123", name="search", artifact={"kind": "doc"}
+            content="Docs results", tool_call_id="search-123", name="search", artifact={"kind": "docs"}
         )
 
         with mock_contextual_tool(mock_tool_instance):
