@@ -120,7 +120,7 @@ class ClientErrorGroup(ExceptionGroup):
     when permissions are missing.
     """
 
-    def __new__(cls, exceptions: list[botocore.exceptions.ClientError]):
+    def __new__(cls, exceptions: collections.abc.Sequence[botocore.exceptions.ClientError]):
         ops = {}
         for err in exceptions:
             op_name = err.operation_name
@@ -1135,7 +1135,17 @@ async def upload_manifest_file(
         except* botocore.exceptions.ClientError as err_group:
             LOGGER.exception("Failed to populate manifest entries")
 
-            error_codes = {err.response.get("Error", {}).get("Code", None) for err in err_group.exceptions}
+            # ExceptionGroup.exceptions can be either ClientError or nested
+            # ExceptionGroup[ClientError]. At the moment, there isn't a good way to
+            # flatten these without a recursive function, so we keep only the top level
+            # ClientErrors. There shouldn't be any nested ExceptionGroup as the
+            # `populate_entry` task doesn't run a nested TaskGroup, so this should be
+            # good enough.
+            # There is an ongoing discussion on improving this in PEP-0785:
+            # https://peps.python.org/pep-0785/#a-leaf-exceptions-helper-function.
+            top_level_errors = (err for err in err_group.exceptions if isinstance(err, botocore.exceptions.ClientError))
+
+            error_codes = {err.response.get("Error", {}).get("Code", None) for err in top_level_errors}
             for error_code in error_codes:
                 if error_code == "AccessDenied":
                     # This reports the error to the user, we have already logged the exception above.
@@ -1149,7 +1159,7 @@ async def upload_manifest_file(
                         error_code,
                     )
 
-            raise ClientErrorGroup(err_group.exceptions)
+            raise ClientErrorGroup(top_level_errors)
 
         manifest = {"entries": entries}
 
