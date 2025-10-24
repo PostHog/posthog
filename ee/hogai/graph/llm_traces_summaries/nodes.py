@@ -8,7 +8,7 @@ from django.utils import timezone
 import structlog
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import AssistantToolCallMessage, NotebookUpdateMessage
+from posthog.schema import AssistantToolCallMessage, DateRange, NotebookUpdateMessage
 
 from products.notebooks.backend.util import (
     TipTapNode,
@@ -22,6 +22,7 @@ from ee.hogai.session_summaries.session_group.summary_notebooks import (
     create_empty_notebook_for_summary,
     update_notebook_from_summary_content,
 )
+from ee.hogai.traces_summaries.summarize_traces import TracesSummarizer
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantNodeName
 from ee.hogai.utils.types.composed import MaxNodeName
@@ -78,6 +79,11 @@ class LLMTracesSummarizationNode(AssistantNode):
             #     question=llm_traces_summarization_query,
             #     top=5,
             # )
+            trace_summarizer = TracesSummarizer(team=self._team)
+            await trace_summarizer.summarize_traces_for_date_range(
+                # Check the last day, by default? # date_from="-1dStart", date_to="-1dEnd"
+                date_range=DateRange(date_from="-30d", date_to="-1d")  # TODO: Use proper date range
+            )
             similar_documents: list[dict[str, str]] = []
             if not similar_documents:
                 return self._create_error_response("No similar traces found", state)
