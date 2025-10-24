@@ -174,6 +174,10 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                 }
                 break
             case 'ArrowLeft':
+                // Check if cursor is at the leftmost position
+                const cursorPosition = inputRef.current?.selectionStart || 0
+                const isAtLeftmostPosition = cursorPosition === 0
+
                 if (inputValue === '') {
                     e.preventDefault()
                     e.stopPropagation() // Prevent parent ListBox from handling this event
@@ -192,6 +196,13 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                             setFocusedTagIndex(-1) // -1 represents dropdown focus
                         }
                     }
+                } else if (inputValue !== '' && isAtLeftmostPosition) {
+                    // Cursor is at leftmost position with text: focus dropdown
+                    e.preventDefault()
+                    e.stopPropagation()
+                    setExpandedTags(true)
+                    setFocusedTagIndex(-1) // Focus dropdown button
+                    setShowDropdown(true)
                 }
                 break
             case 'ArrowRight':
@@ -380,7 +391,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                     className="pl-1 w-full border-none flex-1 h-full min-h-full rounded-r-lg"
                     size="lg"
                     suffix={
-                        inputValue !== '' && (
+                        (inputValue !== '' || selectedCommands.length > 0) && (
                             <ListBox.Item asChild>
                                 <ButtonPrimitive
                                     iconOnly
@@ -395,8 +406,8 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                                         onClearAll?.()
                                         inputRef.current?.focus()
                                     }}
-                                    className="rounded-xs"
-                                    aria-label="Clear input"
+                                    aria-label="Clear input and filters"
+                                    size="sm"
                                 >
                                     <IconX />
                                 </ButtonPrimitive>
