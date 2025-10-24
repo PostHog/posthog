@@ -1,9 +1,14 @@
-from .fragments import KV_FRAGMENT, MAILING_ADDRESS_FRAGMENT, MONEY_V2_FRAGMENT
+from .fragments import KV_FRAGMENT, MAILING_ADDRESS_FRAGMENT, MONEY_BAG_FRAGMENT
+
+ABANDONED_CHECKOUTS_SORTKEY = "CREATED_AT"
 
 # NOTE: 250 is the max allowable query size for line items
 ABANDONED_CHECKOUTS_QUERY = f"""
-query PaginatedAbandonedCheckouts($n: Int!, $cursor: String) {{
-    abandonedCheckouts(first: $n, after: $cursor) {{
+query PaginatedAbandonedCheckouts($pageSize: Int!, $cursor: String, $query: String) {{
+    abandonedCheckouts(
+        first: $pageSize, after: $cursor, sortKey: {ABANDONED_CHECKOUTS_SORTKEY},
+        query: $query
+    ) {{
         nodes {{
             abandonedCheckoutUrl
             billingAddress {MAILING_ADDRESS_FRAGMENT}
@@ -64,13 +69,13 @@ query PaginatedAbandonedCheckouts($n: Int!, $cursor: String) {{
             lineItems(first: 250) {{
                 nodes {{
                     customAttributes {KV_FRAGMENT}
-                    discountedTotalPriceSet {MONEY_V2_FRAGMENT}
-                    discountedTotalPriceWithCodeDiscount {MONEY_V2_FRAGMENT}
-                    discountedUnitPriceSet {MONEY_V2_FRAGMENT}
-                    discountedUnitPriceWithCodeDiscount {MONEY_V2_FRAGMENT}
+                    discountedTotalPriceSet {MONEY_BAG_FRAGMENT}
+                    discountedTotalPriceWithCodeDiscount {MONEY_BAG_FRAGMENT}
+                    discountedUnitPriceSet {MONEY_BAG_FRAGMENT}
+                    discountedUnitPriceWithCodeDiscount {MONEY_BAG_FRAGMENT}
                     id
-                    originalUnitPriceSet {MONEY_V2_FRAGMENT}
-                    originalTotalPriceSet {MONEY_V2_FRAGMENT}
+                    originalUnitPriceSet {MONEY_BAG_FRAGMENT}
+                    originalTotalPriceSet {MONEY_BAG_FRAGMENT}
                     product {{
                         id
                         vendor
@@ -87,13 +92,13 @@ query PaginatedAbandonedCheckouts($n: Int!, $cursor: String) {{
             name
             note
             shippingAddress {MAILING_ADDRESS_FRAGMENT}
-            subtotalPriceSet {MONEY_V2_FRAGMENT}
+            subtotalPriceSet {MONEY_BAG_FRAGMENT}
             taxesIncluded
-            totalDiscountSet {MONEY_V2_FRAGMENT}
-            totalDutiesSet {MONEY_V2_FRAGMENT}
-            totalLineItemsPriceSet {MONEY_V2_FRAGMENT}
-            totalPriceSet {MONEY_V2_FRAGMENT}
-            totalTaxSet {MONEY_V2_FRAGMENT}
+            totalDiscountSet {MONEY_BAG_FRAGMENT}
+            totalDutiesSet {MONEY_BAG_FRAGMENT}
+            totalLineItemsPriceSet {MONEY_BAG_FRAGMENT}
+            totalPriceSet {MONEY_BAG_FRAGMENT}
+            totalTaxSet {MONEY_BAG_FRAGMENT}
             updatedAt
         }}
         pageInfo {{

@@ -227,20 +227,22 @@ class TestEmailMFAAPI(APIBaseTest):
     @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
     def test_email_mfa_resend_throttle(self, mock_is_email_available, mock_send_email, mock_feature_enabled):
         with freeze_time("2023-01-01T10:00:00"):
-            # Trigger email MFA
+            # Trigger email MFA - this counts towards the resend throttle
             self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+            self.assertEqual(mock_send_email.call_count, 1)
 
-            # First resend succeeds
-            response = self.client.post("/api/login/email-mfa/resend/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(mock_send_email.call_count, 2)  # 1 from login + 1 from resend
-
-            # Second resend immediately after should be throttled
+            # First resend immediately after should be throttled (initial send already used the 1/minute limit)
             response = self.client.post("/api/login/email-mfa/resend/")
             self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
             self.assertIn("Request was throttled", response.json()["detail"])
 
-            # Email task should still only have been called twice (not a third time)
+            # Email task should still only have been called once (resend was blocked)
+            self.assertEqual(mock_send_email.call_count, 1)
+
+        # After 61 seconds, resend should succeed
+        with freeze_time("2023-01-01T10:01:01"):
+            response = self.client.post("/api/login/email-mfa/resend/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(mock_send_email.call_count, 2)
 
     @pytest.mark.disable_mock_email_mfa_verifier
