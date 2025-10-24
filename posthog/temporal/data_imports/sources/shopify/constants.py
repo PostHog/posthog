@@ -1,5 +1,5 @@
-from .graphql.abandoned_checkouts import ABANDONED_CHECKOUTS_QUERY
-from .graphql.articles import ARTICLES_QUERY
+from .queries.abandoned_checkouts import ABANDONED_CHECKOUTS_QUERY
+from .queries.articles import ARTICLES_QUERY
 from .utils import ShopifyGraphQLObject
 
 SHOPIFY_API_VERSION = "2025-10"
