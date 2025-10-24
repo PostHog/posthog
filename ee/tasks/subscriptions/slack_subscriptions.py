@@ -243,7 +243,7 @@ async def send_slack_message_with_integration_async(
                     thread_ts=thread_ts,
                     **thread_msg,
                 )
-            except TimeoutError:
+            except Exception:
                 logger.error(
                     "send_slack_message_with_integration_async.slack_thread_message_failed_after_retries",
                     subscription_id=subscription.id,

@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from freezegun import freeze_time
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from django.conf import settings
 
@@ -19,6 +19,7 @@ from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.instance_setting import set_instance_setting
+from posthog.models.integration import Integration
 from posthog.temporal.subscriptions.subscription_scheduling_workflow import (
     DeliverSubscriptionReportActivityInputs,
     HandleSubscriptionValueChangeWorkflow,
@@ -325,3 +326,219 @@ async def test_deliver_subscription_report_slack(
             )
 
     assert mock_send_slack.call_count == 1
+
+
+@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("ee.tasks.subscriptions.generate_assets_async")
+@patch("ee.tasks.subscriptions.send_slack_message_with_integration_async")
+@patch("ee.tasks.subscriptions.get_slack_integration_for_team")
+@pytest.mark.asyncio
+async def test_main_message_timeout_causes_temporal_retry(
+    mock_get_integration: MagicMock,
+    mock_send_slack: AsyncMock,
+    mock_gen_assets: MagicMock,
+    mock_metric_meter: MagicMock,
+    team,
+    user,
+):
+    """
+    When the main Slack message fails after all Slack-level retries,
+    Temporal should retry the entire activity based on the retry policy.
+    """
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="abc999", name="Insight")
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team, insight_id=insight.id, export_format="image/png"
+    )
+    integration = await sync_to_async(Integration.objects.create)(
+        team=team, kind="slack", sensitive_config={"access_token": "xoxb-test"}
+    )
+
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type="slack",
+        target_value="C12345|#test-channel",
+    )
+
+    async def mock_generate_assets_async(subscription):
+        return [insight], [asset]
+
+    mock_gen_assets.side_effect = mock_generate_assets_async
+    mock_get_integration.return_value = integration
+
+    # Mock send_slack_message_with_integration_async to always fail with TimeoutError
+    # This simulates main message failing after all Slack-level retries
+    mock_send_slack.side_effect = TimeoutError()
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[HandleSubscriptionValueChangeWorkflow],
+            activities=[deliver_subscription_report_activity],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=50),
+            debug_mode=True,
+        ):
+            with pytest.raises(Exception):  # Activity will fail after all retries
+                await activity_environment.client.execute_workflow(
+                    HandleSubscriptionValueChangeWorkflow.run,
+                    DeliverSubscriptionReportActivityInputs(subscription_id=subscription.id),
+                    id=str(uuid.uuid4()),
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                )
+
+    # Verify: 3 Temporal retries (mock is called once per retry)
+    assert mock_send_slack.call_count == 3
+
+
+@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("ee.tasks.subscriptions.generate_assets_async")
+@patch("ee.tasks.subscriptions.send_slack_message_with_integration_async")
+@patch("ee.tasks.subscriptions.get_slack_integration_for_team")
+@patch("posthoganalytics.feature_enabled", return_value=True)
+@pytest.mark.asyncio
+async def test_thread_message_timeout_does_not_cause_temporal_retry(
+    mock_feature: MagicMock,
+    mock_get_integration: MagicMock,
+    mock_send_slack: AsyncMock,
+    mock_gen_assets: MagicMock,
+    mock_metric_meter: MagicMock,
+    team,
+    user,
+):
+    """
+    When a thread message fails but the main message succeeds,
+    this is a partial success and should NOT cause Temporal to retry the activity.
+    """
+    from ee.tasks.subscriptions.slack_subscriptions import SlackDeliveryResult
+
+    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="Test Dashboard", created_by=user)
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="abc999", name="Insight")
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team, insight_id=insight.id, export_format="image/png"
+    )
+    asset2 = await sync_to_async(ExportedAsset.objects.create)(
+        team=team, insight_id=insight.id, export_format="image/png"
+    )
+    asset3 = await sync_to_async(ExportedAsset.objects.create)(
+        team=team, insight_id=insight.id, export_format="image/png"
+    )
+    integration = await sync_to_async(Integration.objects.create)(
+        team=team, kind="slack", sensitive_config={"access_token": "xoxb-test"}
+    )
+
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        dashboard=dashboard,
+        created_by=user,
+        target_type="slack",
+        target_value="C12345|#test-channel",
+    )
+
+    async def mock_generate_assets_async(subscription):
+        return [insight], [asset, asset2, asset3]
+
+    mock_gen_assets.side_effect = mock_generate_assets_async
+    mock_get_integration.return_value = integration
+
+    # Mock partial success: main message sent, but one thread message failed
+    mock_send_slack.return_value = SlackDeliveryResult(
+        main_message_sent=True, total_thread_messages=3, failed_thread_message_indices=[1]
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[HandleSubscriptionValueChangeWorkflow],
+            activities=[deliver_subscription_report_activity],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=50),
+            debug_mode=True,
+        ):
+            # Should NOT raise - partial success is acceptable
+            await activity_environment.client.execute_workflow(
+                HandleSubscriptionValueChangeWorkflow.run,
+                DeliverSubscriptionReportActivityInputs(subscription_id=subscription.id),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+
+    # Verify send_slack was called once (no Temporal retry for partial success)
+    assert mock_send_slack.call_count == 1
+
+
+@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("ee.tasks.subscriptions.generate_assets_async")
+@patch("ee.tasks.subscriptions.send_slack_message_with_integration_async")
+@patch("ee.tasks.subscriptions.get_slack_integration_for_team")
+@patch("posthoganalytics.feature_enabled", return_value=True)
+@pytest.mark.asyncio
+async def test_user_config_error_does_not_cause_temporal_retry(
+    mock_feature: MagicMock,
+    mock_get_integration: MagicMock,
+    mock_send_slack: AsyncMock,
+    mock_gen_assets: MagicMock,
+    mock_metric_meter: MagicMock,
+    team,
+    user,
+):
+    """
+    When a user configuration error occurs (like invalid channel),
+    Temporal should NOT retry the activity. The subscription should
+    move to the next delivery date.
+    """
+    from slack_sdk.errors import SlackApiError
+
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="abc999", name="Insight")
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team, insight_id=insight.id, export_format="image/png"
+    )
+    integration = await sync_to_async(Integration.objects.create)(
+        team=team, kind="slack", sensitive_config={"access_token": "xoxb-test"}
+    )
+
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type="slack",
+        target_value="C12345|#test-channel",
+    )
+
+    async def mock_generate_assets_async(subscription):
+        return [insight], [asset]
+
+    mock_gen_assets.side_effect = mock_generate_assets_async
+    mock_get_integration.return_value = integration
+
+    # Simulate "channel_not_found" error (user config error)
+    slack_error = SlackApiError("channel_not_found", {"error": "channel_not_found"})
+    mock_send_slack.side_effect = slack_error
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[HandleSubscriptionValueChangeWorkflow],
+            activities=[deliver_subscription_report_activity],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=50),
+            debug_mode=True,
+        ):
+            # Should NOT raise - user config errors don't trigger Temporal retry
+            await activity_environment.client.execute_workflow(
+                HandleSubscriptionValueChangeWorkflow.run,
+                DeliverSubscriptionReportActivityInputs(subscription_id=subscription.id),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+
+    # Verify only 1 attempt was made (no Temporal retries)
+    assert mock_send_slack.call_count == 1
+
+    # Verify subscription's next_delivery_date was updated
+    await sync_to_async(subscription.refresh_from_db)()
+    assert subscription.next_delivery_date is not None

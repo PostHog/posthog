@@ -239,6 +239,10 @@ async def deliver_subscription_report_async(
                 exc_info=True,
             )
             capture_exception(e)
+
+            # Re-raise system failures to let Temporal retry, but not user config errors
+            if not is_user_config_error:
+                raise
     else:
         logger.error(
             "deliver_subscription_report_async.unsupported_target",
