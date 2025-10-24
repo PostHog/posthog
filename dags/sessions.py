@@ -1,7 +1,9 @@
+from clickhouse_driver import Client
 from dagster import AssetExecutionContext, BackfillPolicy, MonthlyPartitionsDefinition, asset
 
-from posthog.clickhouse.client import sync_execute
-from posthog.models.raw_sessions.sql_v3 import RAW_SESSION_TABLE_BACKFILL_SQL_V3
+from posthog.clickhouse.cluster import get_cluster
+from posthog.git import get_git_commit_short
+from posthog.models.raw_sessions.sessions_v3 import RAW_SESSION_TABLE_BACKFILL_SQL_V3
 
 # Each partition is pretty heavy, as it's an entire month of events, so this number doesn't need to be high
 MAX_PARTITIONS_PER_RUN = 3
@@ -36,9 +38,17 @@ def sessions_v3_backfill(context: AssetExecutionContext):
     # as long as the backfill has run at least once for each partition, the data will be correct
     backfill_sql = RAW_SESSION_TABLE_BACKFILL_SQL_V3(where=where_clause)
 
-    context.log.info(f"Running backfill for {context.partition_key} (where='{where_clause}')")
+    partition_range = context.partition_key_range
+    context.log.info(
+        f"Running backfill for {partition_range.start} to {partition_range.end} (where='{where_clause}') using commit {get_git_commit_short() or 'unknown'} "
+    )
 
-    sync_execute(backfill_sql)
+    cluster = get_cluster()
+
+    def backfill_per_shard(client: Client):
+        client.execute(backfill_sql)
+
+    cluster.map_one_host_per_shard(backfill_per_shard)
 
     context.log.info(f"Successfully backfilled sessions_v3 for {context.partition_key}")
 

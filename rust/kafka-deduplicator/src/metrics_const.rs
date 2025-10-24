@@ -103,3 +103,6 @@ pub const CHECKPOINT_UPLOAD_DURATION_HISTOGRAM: &str = "checkpoint_upload_durati
 
 /// Counter for checkpoint upload outcome status
 pub const CHECKPOINT_UPLOADS_COUNTER: &str = "checkpoint_upload_status";
+
+/// Counter for checkpoint files tracked in each attempt plan tagged by action taken
+pub const CHECKPOINT_PLAN_FILE_TRACKED_COUNTER: &str = "checkpoint_plan_file_tracked";

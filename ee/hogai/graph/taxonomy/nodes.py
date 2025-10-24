@@ -172,7 +172,7 @@ class TaxonomyAgentToolsNode(
         tools_metadata: dict[str, list[tuple[TaxonomyTool, str]]] = defaultdict(list)
         invalid_tools = []
         steps = []
-
+        tool_msgs = []
         for action, _ in intermediate_steps:
             try:
                 tool_input = self._toolkit.get_tool_input_model(action)
@@ -185,6 +185,12 @@ class TaxonomyAgentToolsNode(
                     .content
                 )
                 steps.append((action, output))
+                tool_msgs.append(
+                    LangchainToolMessage(
+                        content=output,
+                        tool_call_id=action.log,
+                    )
+                )
                 invalid_tools.append(action.log)
                 continue
             else:
@@ -215,7 +221,6 @@ class TaxonomyAgentToolsNode(
 
         tool_results = await self._toolkit.handle_tools(tools_metadata)
 
-        tool_msgs = []
         for action, _ in intermediate_steps:
             if action.log in invalid_tools:
                 continue

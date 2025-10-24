@@ -1850,6 +1850,57 @@ class TestPrinter(BaseTest):
             sql,
         )
 
+    @patch("posthog.hogql.printer.get_materialized_column_for_property")
+    def test_ai_session_id_optimizations(self, mock_get_mat_col):
+        """Test that $ai_session_id gets special treatment for bloom filter index optimization"""
+
+        from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
+
+        mock_mat_col = MaterializedColumn(
+            name="mat_$ai_session_id",
+            details=MaterializedColumnDetails(
+                table_column="properties", property_name="$ai_session_id", is_disabled=False
+            ),
+            is_nullable=True,
+        )
+
+        # Basic equality comparison - no ifNull wrapping
+        mock_get_mat_col.return_value = mock_mat_col
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+
+        sql = self._select("SELECT * FROM events WHERE properties.$ai_session_id = 'session123'", context)
+
+        # Should generate: equals(mat_$ai_session_id, 'session123') without ifNull wrapper
+        # Check that the WHERE clause contains the direct equals check for $ai_session_id
+        self.assertIn("equals(events.`mat_$ai_session_id`, %(hogql_val_4)s)", sql)
+        # Verify the equals for $ai_session_id is NOT wrapped in ifNull (it appears directly in WHERE clause)
+        self.assertIn("WHERE and(equals(events.team_id,", sql)
+        self.assertIn("equals(events.`mat_$ai_session_id`, %(hogql_val_4)s))", sql)
+
+        # Verify the placeholder value (it's hogql_val_4 due to other parameters in the query)
+        self.assertEqual(context.values["hogql_val_4"], "session123")
+
+        # With materialized column - no nullIf wrapping
+        context = HogQLContext(team_id=self.team.pk)
+        sql = self._expr("properties.$ai_session_id", context)
+
+        # Should be: events.mat_$ai_session_id
+        # NOT: nullIf(nullIf(events.mat_$ai_session_id, ''), 'null')
+        self.assertEqual(sql.strip(), "events.`mat_$ai_session_id`")
+        self.assertNotIn("nullIf", sql)
+
+        # IN operations - no ifNull wrapping
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        sql = self._select("SELECT * FROM events WHERE properties.$ai_session_id IN ('session1', 'session2')", context)
+
+        # Should generate clean IN without ifNull wrapper
+        self.assertIn("in(events.`mat_$ai_session_id`, tuple(%(hogql_val_4)s, %(hogql_val_5)s))", sql)
+        self.assertNotIn("ifNull(in", sql)
+
+        # Verify the placeholder values
+        self.assertEqual(context.values["hogql_val_4"], "session1")
+        self.assertEqual(context.values["hogql_val_5"], "session2")
+
     def test_field_nullable_like(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
         context.database.events.fields["nullable_field"] = StringDatabaseField(name="nullable_field", nullable=True)  # type: ignore
@@ -2585,9 +2636,16 @@ class TestPrinter(BaseTest):
             sql == f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000"
         )
 
-    @parameterized.expand([[True], [False]])
+    @parameterized.expand(
+        [
+            ("global_joins_with_optimize", True, True),
+            ("global_joins_without_optimize", True, False),
+            ("no_global_joins_with_optimize", False, True),
+            ("no_global_joins_without_optimize", False, False),
+        ]
+    )
     @pytest.mark.usefixtures("unittest_snapshot")
-    def test_s3_tables_global_join_with_cte(self, using_global_joins):
+    def test_s3_tables_global_join_with_cte(self, name, using_global_joins, optimize_projections):
         with mock.patch("posthog.hogql.resolver.USE_GLOBAL_JOINS", using_global_joins):
             credential = DataWarehouseCredential.objects.create(
                 team=self.team, access_key="key", access_secret="secret"
@@ -2600,13 +2658,18 @@ class TestPrinter(BaseTest):
                 credential=credential,
                 columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
             )
-            printed = self._select("""
+            modifiers = HogQLQueryModifiers(optimizeProjections=optimize_projections)
+            context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+            printed = self._select(
+                """
                 WITH some_remote_table AS
                 (
                     SELECT * FROM test_table
                 )
                 SELECT event FROM events
-                JOIN some_remote_table ON events.event = toString(some_remote_table.id)""")
+                JOIN some_remote_table ON events.event = toString(some_remote_table.id)""",
+                context=context,
+            )
 
             if using_global_joins:
                 assert "GLOBAL JOIN" in printed
@@ -2705,9 +2768,16 @@ class TestPrinter(BaseTest):
 
             assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
 
-    @parameterized.expand([[True], [False]])
+    @parameterized.expand(
+        [
+            ("global_joins_with_optimize", True, True),
+            ("global_joins_without_optimize", True, False),
+            ("no_global_joins_with_optimize", False, True),
+            ("no_global_joins_without_optimize", False, False),
+        ]
+    )
     @pytest.mark.usefixtures("unittest_snapshot")
-    def test_s3_tables_global_join_anonymous_tables(self, using_global_joins):
+    def test_s3_tables_global_join_anonymous_tables(self, name, using_global_joins, optimize_projections):
         with mock.patch("posthog.hogql.resolver.USE_GLOBAL_JOINS", using_global_joins):
             credential = DataWarehouseCredential.objects.create(
                 team=self.team, access_key="key", access_secret="secret"
@@ -2721,7 +2791,10 @@ class TestPrinter(BaseTest):
                 columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
             )
 
-            printed = self._select("""
+            modifiers = HogQLQueryModifiers(optimizeProjections=optimize_projections)
+            context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+            printed = self._select(
+                """
                 select e.event, ij.remote_id
                 from events e
                 inner join (
@@ -2733,7 +2806,9 @@ class TestPrinter(BaseTest):
                             select * from test_table
                         ) rt on rt.id = p.id
                     )
-                ) as ij on e.event = ij.remote_id""")
+                ) as ij on e.event = ij.remote_id""",
+                context=context,
+            )
 
             if using_global_joins:
                 assert "GLOBAL INNER JOIN" in printed
@@ -2741,6 +2816,79 @@ class TestPrinter(BaseTest):
                 assert "GLOBAL INNER JOIN" not in printed
 
             assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
+
+    @parameterized.expand([("with_optimize_projections", True), ("without_optimize_projections", False)])
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_projection_pushdown_simple_asterisk_subquery(self, name, optimize_projections):
+        """Test that SELECT event FROM (SELECT * FROM events) prunes unused columns when optimized"""
+        modifiers = HogQLQueryModifiers(optimizeProjections=optimize_projections)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+        result = self._select("SELECT event FROM (SELECT * FROM events) AS sub", context)
+
+        assert clean_varying_query_parts(result, replace_all_numbers=False) == self.snapshot  # type: ignore
+
+    @parameterized.expand([("with_optimize_projections", True), ("without_optimize_projections", False)])
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_projection_pushdown_nested_subqueries(self, name, optimize_projections):
+        """Test projection pushdown through multiple nested subquery levels"""
+        modifiers = HogQLQueryModifiers(optimizeProjections=optimize_projections)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+        result = self._select(
+            """
+            SELECT event FROM (
+                SELECT * FROM (
+                    SELECT * FROM events
+                ) AS inner
+            ) AS outer
+            """,
+            context,
+        )
+
+        assert clean_varying_query_parts(result, replace_all_numbers=False) == self.snapshot  # type: ignore
+
+    @parameterized.expand([("with_optimize_projections", True), ("without_optimize_projections", False)])
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_projection_pushdown_preserves_where_columns(self, name, optimize_projections):
+        """Test that columns used in WHERE clauses are preserved even with optimization"""
+        modifiers = HogQLQueryModifiers(optimizeProjections=optimize_projections)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+        result = self._select(
+            """
+            SELECT event
+            FROM (SELECT * FROM events) AS sub
+            WHERE distinct_id = 'test'
+            """,
+            context,
+        )
+
+        assert clean_varying_query_parts(result, replace_all_numbers=False) == self.snapshot  # type: ignore
+
+    @parameterized.expand([("with_optimize_projections", True), ("without_optimize_projections", False)])
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_projection_pushdown_preserves_join_columns(self, name, optimize_projections):
+        """Test that columns used in JOIN conditions are preserved"""
+        modifiers = HogQLQueryModifiers(optimizeProjections=optimize_projections)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+        result = self._select(
+            """
+            SELECT e.event
+            FROM (SELECT * FROM events) AS e
+            LEFT JOIN persons ON persons.id = e.person_id
+            """,
+            context,
+        )
+
+        assert clean_varying_query_parts(result, replace_all_numbers=False) == self.snapshot  # type: ignore
+
+    @parameterized.expand([("with_optimize_projections", True), ("without_optimize_projections", False)])
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_projection_pushdown_no_asterisk_unchanged(self, name, optimize_projections):
+        """Test that queries without asterisks remain unchanged"""
+        modifiers = HogQLQueryModifiers(optimizeProjections=optimize_projections)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+        result = self._select("SELECT event FROM (SELECT event, distinct_id FROM events) AS sub", context)
+
+        assert clean_varying_query_parts(result, replace_all_numbers=False) == self.snapshot  # type: ignore
 
 
 class TestPrinted(APIBaseTest):

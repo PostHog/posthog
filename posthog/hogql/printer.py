@@ -51,6 +51,7 @@ from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
+from posthog.hogql.transforms.projection_pushdown import pushdown_projections
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
 from posthog.hogql.visitor import Visitor, clone_expr
 
@@ -149,6 +150,10 @@ def prepare_ast_for_printing(
             resolve_in_cohorts_conjoined(node, dialect, context, stack)
     with context.timings.measure("resolve_types"):
         node = resolve_types(node, context, dialect=dialect, scopes=[node.type for node in stack] if stack else None)
+
+    if context.modifiers.optimizeProjections:
+        with context.timings.measure("projection_pushdown"):
+            node = pushdown_projections(node, context)
 
     if dialect == "clickhouse":
         with context.timings.measure("resolve_property_types"):
@@ -876,13 +881,17 @@ class _Printer(Visitor[str]):
         if left in hack_sessions_timestamp or right in hack_sessions_timestamp:
             not_nullable = True
 
-        # :HACK: Prevent ifNull() wrapping for $ai_trace_id to allow bloom filter index usage
-        # The materialized column mat_$ai_trace_id has a bloom filter index for performance
+        # :HACK: Prevent ifNull() wrapping for $ai_trace_id and $ai_session_id to allow bloom filter index usage
+        # The materialized columns mat_$ai_trace_id and mat_$ai_session_id have bloom filter indexes for performance
         if (
             "mat_$ai_trace_id" in left
             or "mat_$ai_trace_id" in right
+            or "mat_$ai_session_id" in left
+            or "mat_$ai_session_id" in right
             or "$ai_trace_id" in left
             or "$ai_trace_id" in right
+            or "$ai_session_id" in left
+            or "$ai_session_id" in right
         ):
             not_nullable = True
 
@@ -1639,10 +1648,10 @@ class _Printer(Visitor[str]):
 
         materialized_property_source = self.__get_materialized_property_source_for_property_type(type)
         if materialized_property_source is not None:
-            # Special handling for $ai_trace_id to avoid nullIf wrapping for bloom filter index optimization
+            # Special handling for $ai_trace_id and $ai_session_id to avoid nullIf wrapping for bloom filter index optimization
             if (
                 len(type.chain) == 1
-                and type.chain[0] == "$ai_trace_id"
+                and type.chain[0] in ("$ai_trace_id", "$ai_session_id")
                 and isinstance(materialized_property_source, PrintableMaterializedColumn)
             ):
                 materialized_property_sql = str(materialized_property_source)
