@@ -4,6 +4,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuOpenIndicator,
     DropdownMenuTrigger,
@@ -43,48 +44,50 @@ export function SceneExportDropdownMenu({ dropdownMenuItems }: SceneExportDropdo
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" matchTriggerWidth>
-                {dropdownMenuItems.map((item, index) => {
-                    const exportFormatExtension = Object.keys(ExporterFormat)
-                        .find((key) => ExporterFormat[key as keyof typeof ExporterFormat] === item.format)
-                        ?.toLowerCase()
+                <DropdownMenuGroup>
+                    {dropdownMenuItems.map((item, index) => {
+                        const exportFormatExtension = Object.keys(ExporterFormat)
+                            .find((key) => ExporterFormat[key as keyof typeof ExporterFormat] === item.format)
+                            ?.toLowerCase()
 
-                    let target: string
-                    let exportBody: string = ''
-                    if (item.insight) {
-                        target = `insight-${item.insight}`
-                    } else if (item.dashboard) {
-                        target = `dashboard-${item.dashboard}`
-                    } else if ('path' in (item.context || {})) {
-                        target = (item.context as OnlineExportContext)?.path || 'unknown'
-                        exportBody = (item.context as OnlineExportContext)?.body || 'unknown'
-                    } else {
-                        target = 'unknown'
-                    }
+                        let target: string
+                        let exportBody: string = ''
+                        if (item.insight) {
+                            target = `insight-${item.insight}`
+                        } else if (item.dashboard) {
+                            target = `dashboard-${item.dashboard}`
+                        } else if ('path' in (item.context || {})) {
+                            target = (item.context as OnlineExportContext)?.path || 'unknown'
+                            exportBody = (item.context as OnlineExportContext)?.body || 'unknown'
+                        } else {
+                            target = 'unknown'
+                        }
 
-                    return (
-                        <DropdownMenuItem
-                            key={index}
-                            onClick={() =>
-                                void onExportClick({
-                                    export_format: item.format,
-                                    ...(item.insight && { insight: item.insight }),
-                                    ...(item.dashboard && { dashboard: item.dashboard }),
-                                    ...(item.context && { export_context: item.context }),
-                                })
-                            }
-                            data-attr={`export-button-${exportFormatExtension}`}
-                            data-ph-capture-attribute-export-target={target}
-                            data-ph-capture-attribute-export-body={
-                                exportBody.length ? JSON.stringify(exportBody) : null
-                            }
-                            asChild
-                        >
-                            <ButtonPrimitive menuItem>
-                                {item.label ? item.label : `.${exportFormatExtension}`}
-                            </ButtonPrimitive>
-                        </DropdownMenuItem>
-                    )
-                })}
+                        return (
+                            <DropdownMenuItem
+                                key={index}
+                                onClick={() =>
+                                    void onExportClick({
+                                        export_format: item.format,
+                                        ...(item.insight && { insight: item.insight }),
+                                        ...(item.dashboard && { dashboard: item.dashboard }),
+                                        ...(item.context && { export_context: item.context }),
+                                    })
+                                }
+                                data-attr={`export-button-${exportFormatExtension}`}
+                                data-ph-capture-attribute-export-target={target}
+                                data-ph-capture-attribute-export-body={
+                                    exportBody.length ? JSON.stringify(exportBody) : null
+                                }
+                                asChild
+                            >
+                                <ButtonPrimitive menuItem>
+                                    {item.label ? item.label : `.${exportFormatExtension}`}
+                                </ButtonPrimitive>
+                            </DropdownMenuItem>
+                        )
+                    })}
+                </DropdownMenuGroup>
             </DropdownMenuContent>
         </DropdownMenu>
     )

@@ -321,6 +321,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The ID of the person, depending on the person properties mode.",
             "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
         },
+        "person_mode": {
+            "label": "Person mode",
+            "description": "The person mode determined during ingestion: full (identified user with properties), propertyless (anonymous user), or force_upgrade (anonymous event linked to an already identified user). Used in usage reports.",
+            "examples": ["full", "propertyless", "force_upgrade"],
+            "system": True,
+            "ignored_in_assistant": True,
+        },
     },
     "event_properties": {
         "$session_recording_masking": {
@@ -1597,7 +1604,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$is_identified": {
             "label": "Is identified",
-            "description": "When the person was identified",
+            "description": "Client-side property set by posthog-js indicating whether the user has been previously identified on the device.",
         },
         "$initial_person_info": {
             "label": "Initial person info",
@@ -1788,13 +1795,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The number of tokens in the input prompt that was sent to the LLM API.",
             "examples": [23],
         },
-        "$ai_output": {
-            "label": "AI output (LLM)",
-            "description": "The output JSON that was received from the LLM API.",
-            "examples": [
-                '{"choices": [{"text": "Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data."}]}',
-            ],
-        },
         "$ai_output_choices": {
             "label": "AI output (LLM)",
             "description": "The output message choices JSON that was received from the LLM API.",
@@ -1886,6 +1886,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI Trace ID (LLM)",
             "description": "The trace ID of the request made to the LLM API. Used to group together multiple generations into a single trace.",
             "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"],
+        },
+        "$ai_session_id": {
+            "label": "AI Session ID (LLM)",
+            "description": "Groups related traces together in a session (e.g., a conversation or workflow). One session can contain many traces.",
+            "examples": ["session-abc-123", "conv-user-456"],
         },
         "$ai_request_url": {
             "label": "AI Request URL (LLM)",
@@ -2362,7 +2367,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"]["distinct_id"] = CORE_FILTE
 
 # copy meta properties to event_metadata
 CORE_FILTER_DEFINITIONS_BY_GROUP["event_metadata"] = {}
-for key in ["distinct_id", "timestamp", "event", "person_id"]:
+for key in ["distinct_id", "timestamp", "event", "person_id", "person_mode"]:
     CORE_FILTER_DEFINITIONS_BY_GROUP["event_metadata"][key] = CORE_FILTER_DEFINITIONS_BY_GROUP["metadata"][key]
 
 

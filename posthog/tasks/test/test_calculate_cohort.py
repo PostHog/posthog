@@ -9,6 +9,8 @@ from django.utils import timezone
 from dateutil.relativedelta import relativedelta
 
 from posthog.models.cohort import Cohort
+from posthog.models.cohort.calculation_history import CohortCalculationHistory
+from posthog.models.cohort.util import _recalculate_cohortpeople_chunked, _recalculate_cohortpeople_standard
 from posthog.models.person import Person
 from posthog.tasks.calculate_cohort import (
     COHORT_STUCK_COUNT_GAUGE,
@@ -922,5 +924,34 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             mock_chain.assert_called_once()
             mock_chain_instance.apply_async.assert_called_once()
+
+        def test_chunked_calculation_matches_standard(self) -> None:
+            for i in range(50):
+                person_factory(
+                    team_id=self.team.pk, distinct_ids=[f"person_{i}"], properties={"email": f"user{i}@example.com"}
+                )
+
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="Test Cohort",
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {"key": "email", "type": "person", "value": "@example.com", "operator": "icontains"}
+                        ],
+                    }
+                },
+            )
+
+            history_standard = CohortCalculationHistory.objects.create(team=self.team, cohort=cohort, filters={})
+            result_standard = _recalculate_cohortpeople_standard(cohort, 1, self.team, history_standard)
+
+            history_chunked = CohortCalculationHistory.objects.create(team=self.team, cohort=cohort, filters={})
+            result_chunked = _recalculate_cohortpeople_chunked(
+                cohort, 2, self.team, total_chunks=3, history=history_chunked
+            )
+
+            self.assertEqual(result_standard, result_chunked)
 
     return TestCalculateCohort

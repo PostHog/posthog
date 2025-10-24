@@ -518,4 +518,4 @@ def test_integration_is_required_for_databricks_destination_tests(
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
     response_json = response.json()
-    assert response_json["detail"] == "integration is required for Databricks batch exports"
+    assert response_json["detail"] == "Integration is required for Databricks batch exports"

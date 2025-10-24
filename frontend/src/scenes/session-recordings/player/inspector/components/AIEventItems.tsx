@@ -111,6 +111,10 @@ export function AIEventSummary({ event }: { event: Record<string, any> }): JSX.E
     const messageChain: Array<{ id: string; content: string; role: string }> = []
 
     for (const m of [...inputMessages, ...outputMessages]) {
+        if (typeof m.content !== 'string') {
+            continue
+        }
+
         const role = m.role && !m.type ? (m.role === 'user' ? 'human' : 'ai') : m.type
         const key = `${role}:${m.content}`
 

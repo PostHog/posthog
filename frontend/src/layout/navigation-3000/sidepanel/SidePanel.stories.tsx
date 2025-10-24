@@ -9,8 +9,6 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
-import sdkVersions from '~/mocks/fixtures/api/sdk_versions.json'
-import teamSdkVersions from '~/mocks/fixtures/api/team_sdk_versions.json'
 import { SidePanelTab } from '~/types'
 
 import { sidePanelStateLogic } from './sidePanelStateLogic'
@@ -40,8 +38,6 @@ const meta: Meta = {
                 '/api/projects/:id/surveys/responses_count/': { results: [] },
                 '/api/environments/:team_id/exports/': { results: [] },
                 '/api/environments/:team_id/events': { results: [] },
-                '/api/sdk_versions/': sdkVersions,
-                '/api/team_sdk_versions/': teamSdkVersions,
             },
             post: {
                 '/api/environments/:team_id/query': {},
