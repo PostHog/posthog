@@ -142,19 +142,23 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         await breakpoint(250)
                     }
                     const searchTerm = values.search.trim()
+                    const currentRecents = values.recents
+                    const currentlyExpanded = values.recentsExpanded
+                    const currentTotalLoaded = currentlyExpanded ? currentRecents.totalLoaded : PAGINATION_LIMIT
+
                     const response = await api.fileSystem.list({
                         search: searchTerm,
-                        limit: PAGINATION_LIMIT + 1,
+                        limit: currentTotalLoaded + 1, // Load current amount + 1 to check if there are more
                         orderBy: '-last_viewed_at',
                         notType: 'folder',
                     })
                     breakpoint()
                     const recents = {
                         searchTerm,
-                        results: response.results.slice(0, PAGINATION_LIMIT),
-                        hasMore: response.results.length > PAGINATION_LIMIT,
-                        lastCount: Math.min(response.results.length, PAGINATION_LIMIT),
-                        totalLoaded: Math.min(response.results.length, PAGINATION_LIMIT),
+                        results: response.results.slice(0, currentTotalLoaded),
+                        hasMore: response.results.length > currentTotalLoaded,
+                        lastCount: Math.min(response.results.length, currentTotalLoaded),
+                        totalLoaded: Math.min(response.results.length, currentTotalLoaded),
                     }
                     if ('sessionStorage' in window && searchTerm === '') {
                         try {
@@ -403,7 +407,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     }
                     return state
                 },
-                loadRecents: () => false, // Reset when loading fresh recents
                 setSearch: () => false, // Reset when search changes
             },
         ],
@@ -1234,7 +1237,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         loadRecentsSuccess: () => {
             // Prefetch next batch when recents load successfully and we have more
             const recents = values.recents
-            if (recents.hasMore && !values.recentsPrefetchedBatch) {
+            if (recents.hasMore && !values.recentsPrefetchedBatch && values.recentsExpanded) {
                 actions.prefetchNextRecents()
             }
         },
