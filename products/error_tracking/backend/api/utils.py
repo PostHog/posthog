@@ -15,7 +15,7 @@ from posthog.api.utils import action
 from posthog.models.team.team import Team
 
 from products.error_tracking.backend.hogvm_stl import RUST_HOGVM_STL
-from products.error_tracking.backend.models import ErrorTrackingIssueAssignment, ErrorTrackingSuppressionRule
+from products.error_tracking.backend.models import ErrorTrackingIssueAssignment
 
 from common.hogvm.python.operation import Operation
 
@@ -56,10 +56,6 @@ class RuleReorderingMixin:
         self.get_queryset().bulk_update(rules, ["order_key"])
 
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
-
-
-def get_suppression_rules(team: Team):
-    return list(ErrorTrackingSuppressionRule.objects.filter(team=team).values_list("filters", flat=True))
 
 
 def generate_byte_code(team: Team, props: PropertyGroupFilterValue):
