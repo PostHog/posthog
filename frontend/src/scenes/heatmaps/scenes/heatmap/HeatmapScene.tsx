@@ -4,7 +4,9 @@ import { IconBrowser } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
+import { FilmCameraHog } from 'lib/components/hedgehogs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { FilterPanel } from 'scenes/heatmaps/components/FilterPanel'
 import { HeatmapHeader } from 'scenes/heatmaps/components/HeatmapHeader'
 import { urls } from 'scenes/urls'
@@ -70,9 +72,17 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                         >
                             {generatingScreenshot ? (
                                 <div className="flex-1 flex items-center justify-center min-h-96">
-                                    <div className="text-sm text-muted">
-                                        Generating screenshots...
-                                        <Spinner />
+                                    <style>{`@keyframes hog-wobble{from{transform:rotate(0deg)}to{transform:rotate(5deg)}}`}</style>
+                                    <div className="text-sm text-center font-semibold">
+                                        <FilmCameraHog
+                                            className="w-32 h-32 mx-auto mb-2"
+                                            style={{
+                                                animation: 'hog-wobble 1.2s ease-in-out infinite alternate',
+                                                transformOrigin: '50% 50%',
+                                            }}
+                                        />
+                                        Taking screenshots of your page...
+                                        <LoadingBar />
                                     </div>
                                 </div>
                             ) : screenshotUrl ? (
