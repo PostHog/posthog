@@ -45,6 +45,41 @@ class TestSCIMGroupsAPI(APILicensedTest):
         data = response.json()
         assert "Resources" in data
 
+    def test_groups_list_filter_exact_match(self):
+        Role.objects.create(name="Engineering", organization=self.organization)
+        Role.objects.create(name="engineering", organization=self.organization)
+        Role.objects.create(name="Marketing", organization=self.organization)
+        Role.objects.create(name="Sales", organization=self.organization)
+
+        # Filter for exact match on displayName
+        response = self.client.get(
+            f"/scim/v2/{self.domain.id}/Groups",
+            {"filter": 'displayName eq "Engineering"'},
+            **self.scim_headers,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["totalResults"] == 1
+        assert data["itemsPerPage"] == 1
+        assert data["Resources"][0]["displayName"] == "Engineering"
+
+    def test_groups_list_filter_no_match_returns_empty_list(self):
+        Role.objects.create(name="Engineering", organization=self.organization)
+
+        # Filter for non-existent group
+        response = self.client.get(
+            f"/scim/v2/{self.domain.id}/Groups",
+            {"filter": 'displayName eq "NonExistent"'},
+            **self.scim_headers,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["totalResults"] == 0
+        assert data["itemsPerPage"] == 0
+        assert data["Resources"] == []
+
     def test_create_group(self):
         group_data = {
             "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],

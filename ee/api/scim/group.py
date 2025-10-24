@@ -20,7 +20,9 @@ class PostHogSCIMGroup(SCIMGroup):
 
     resource_type = "Group"
 
-    # Attribute map for SCIM path parsing
+    # Attribute map for SCIM PATCH operation path parsing
+    # Maps SCIM attribute paths to SCIM JSON paths for PATCH operations
+    # NOT for database filtering - see SCIM_GROUP_ATTR_MAP in views.py for that
     # Each key is a tuple of (attribute, sub-attribute, schema URI)
     ATTR_MAP = {
         ("displayName", None, None): "displayName",

@@ -136,7 +136,9 @@ SCIM_SERVICE_PROVIDER = {
             "name": "OAuth Bearer Token",
             "description": "Authentication scheme using the OAuth Bearer Token Standard",
             "specUri": "https://www.rfc-editor.org/rfc/rfc6750.txt",
-            "documentationUri": "https://posthog.com/docs/scim",
+            "documentationUri": "https://posthog.com/docs/settings/scim",
         }
     ],
+    # User model is already configured via AUTH_USER_MODEL = "posthog.User"
+    "GROUP_MODEL": "ee.models.rbac.role.Role",
 }

@@ -1,5 +1,5 @@
 from django_scim import constants
-from django_scim.filters import UserFilterQuery
+from django_scim.filters import GroupFilterQuery, UserFilterQuery
 from rest_framework import status
 from rest_framework.decorators import api_view, authentication_classes
 from rest_framework.request import Request
@@ -25,9 +25,17 @@ SCIM_USER_ATTR_MAP = {
     ("active", None, None): "is_active",
 }
 
+SCIM_GROUP_ATTR_MAP = {
+    ("displayName", None, None): "name",
+}
+
 
 class PostHogUserFilterQuery(UserFilterQuery):
     attr_map = SCIM_USER_ATTR_MAP
+
+
+class PostHogGroupFilterQuery(GroupFilterQuery):
+    attr_map = SCIM_GROUP_ATTR_MAP
 
 
 @api_view(["GET", "POST"])
@@ -130,13 +138,29 @@ def scim_user_detail_view(request: Request, domain_id: str, user_id: int) -> Res
 def scim_groups_view(request: Request, domain_id: str) -> Response:
     """
     SCIM Groups endpoint.
-    GET: List all groups (roles)
+    GET: List all groups (roles) with optional filter support
     POST: Create a new group (role)
     """
     organization_domain: OrganizationDomain = request.auth
 
     if request.method == "GET":
-        groups = PostHogSCIMGroup.get_for_organization(organization_domain)
+        filter_param = request.query_params.get("filter")
+
+        if filter_param:
+            try:
+                raw_queryset = PostHogGroupFilterQuery.search(filter_param, request)
+                filtered_roles_list = list(raw_queryset)
+                role_ids = [r.id for r in filtered_roles_list]
+
+                queryset = Role.objects.filter(id__in=role_ids, organization=organization_domain.organization)
+
+                groups = [PostHogSCIMGroup(role, organization_domain) for role in queryset]
+            except Exception as e:
+                capture_exception(e, additional_properties={"scim_operation": "filter_groups", "filter": filter_param})
+                groups = []
+        else:
+            groups = PostHogSCIMGroup.get_for_organization(organization_domain)
+
         return Response(
             {
                 "schemas": ["urn:ietf:params:scim:api:messages:2.0:ListResponse"],
