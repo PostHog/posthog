@@ -1,3 +1,4 @@
+import os
 import json
 import asyncio
 from datetime import UTC, datetime, timedelta
@@ -38,6 +39,12 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, input: WeeklyDigestInput) -> None:
+        if input.common.redis_host is None:
+            input.common.redis_host = os.getenv("WEEKLY_DIGEST_REDIS_HOST", "localhost")
+
+        if input.common.redis_port is None:
+            input.common.redis_port = int(os.getenv("WEEKLY_DIGEST_REDIS_PORT", "6379"))
+
         year, week, _ = datetime.now().isocalendar()
         period_end = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
         period_start = period_end - timedelta(days=7)
@@ -55,9 +62,8 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
                 common=input.common,
             ),
             parent_close_policy=workflow.ParentClosePolicy.REQUEST_CANCEL,
-            execution_timeout=timedelta(hours=3),
-            run_timeout=timedelta(hours=1),
-            task_timeout=timedelta(minutes=30),
+            execution_timeout=timedelta(hours=15),
+            run_timeout=timedelta(hours=5),
             retry_policy=common.RetryPolicy(
                 maximum_attempts=2,
                 initial_interval=timedelta(minutes=10),
@@ -72,9 +78,8 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
                 common=input.common,
             ),
             parent_close_policy=workflow.ParentClosePolicy.REQUEST_CANCEL,
-            execution_timeout=timedelta(hours=3),
-            run_timeout=timedelta(hours=1),
-            task_timeout=timedelta(minutes=30),
+            execution_timeout=timedelta(hours=15),
+            run_timeout=timedelta(hours=5),
             retry_policy=common.RetryPolicy(
                 maximum_attempts=2,
                 initial_interval=timedelta(minutes=10),
@@ -108,12 +113,12 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
                 workflow.execute_activity(
                     generator,
                     input,
-                    start_to_close_timeout=timedelta(minutes=120),
+                    start_to_close_timeout=timedelta(hours=3),
                     retry_policy=common.RetryPolicy(
                         maximum_attempts=2,
                         initial_interval=timedelta(minutes=1),
                     ),
-                    heartbeat_timeout=timedelta(minutes=5),
+                    heartbeat_timeout=timedelta(minutes=2),
                 )
                 for generator in generators
             ]
@@ -146,7 +151,7 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
                         maximum_attempts=2,
                         initial_interval=timedelta(minutes=1),
                     ),
-                    heartbeat_timeout=timedelta(minutes=5),
+                    heartbeat_timeout=timedelta(minutes=2),
                 )
                 for batch in batches
             ]
@@ -188,7 +193,7 @@ class SendWeeklyDigestWorkflow(PostHogWorkflow):
                         maximum_attempts=2,
                         initial_interval=timedelta(minutes=1),
                     ),
-                    heartbeat_timeout=timedelta(minutes=5),
+                    heartbeat_timeout=timedelta(minutes=2),
                 )
                 for batch in batches
             ]
