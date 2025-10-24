@@ -861,23 +861,6 @@ class TestRootNodeTools(BaseTest):
             self.assertTrue(interrupt_data.visible)
             self.assertEqual(interrupt_data.ui_payload, {"navigate": {"page_key": "insights"}})
 
-    def test_router_insights_search_path(self):
-        """Test router routes to insights_search when search_insights_query is set"""
-        node = RootNodeTools(self.team, self.user)
-
-        state = AssistantState(
-            messages=[
-                AssistantMessage(
-                    content="Searching insights",
-                    tool_calls=[AssistantToolCall(id="search-123", name="search", args={"kind": "insights"})],
-                )
-            ],
-            root_tool_call_id="search-123",
-            search_insights_query="test search query",
-        )
-
-        self.assertEqual(node.router(state), "insights_search")
-
     def test_router_session_summarization_path(self):
         """Test router routes to session_summarization when session_summarization_query is set"""
         node = RootNodeTools(self.team, self.user)
@@ -918,22 +901,6 @@ class TestRootNodeTools(BaseTest):
         )
 
         self.assertEqual(node.router(state), "create_dashboard")
-
-    def test_router_search_documentation_fallback(self):
-        """Test router routes to search_documentation when root_tool_call_id is set but no specific route"""
-        node = RootNodeTools(self.team, self.user)
-
-        state = AssistantState(
-            messages=[
-                AssistantMessage(
-                    content="Searching docs",
-                    tool_calls=[AssistantToolCall(id="search-123", name="search", args={"kind": "docs"})],
-                )
-            ],
-            root_tool_call_id="search-123",
-        )
-
-        self.assertEqual(node.router(state), "search_documentation")
 
     async def test_arun_session_summarization_with_all_args(self):
         """Test session_summarization tool call with all arguments"""
@@ -1020,62 +987,6 @@ class TestRootNodeTools(BaseTest):
         self.assertEqual(len(result.search_insights_queries), 2)
         self.assertEqual(result.search_insights_queries[0].name, "Query 1")
         self.assertEqual(result.search_insights_queries[1].name, "Query 2")
-
-    async def test_arun_search_tool_insights_kind(self):
-        """Test search tool with kind=insights"""
-        node = RootNodeTools(self.team, self.user)
-        state = AssistantState(
-            messages=[
-                AssistantMessage(
-                    content="Searching insights",
-                    id="test-id",
-                    tool_calls=[
-                        AssistantToolCall(id="search-123", name="search", args={"query": "test", "kind": "insights"})
-                    ],
-                )
-            ]
-        )
-
-        mock_tool_instance = AsyncMock()
-        mock_tool_instance.ainvoke.return_value = LangchainToolMessage(
-            content="Search results",
-            tool_call_id="search-123",
-            name="search",
-            artifact={"kind": "insights", "query": "test"},
-        )
-
-        with mock_contextual_tool(mock_tool_instance):
-            result = await node.arun(state, {"configurable": {"contextual_tools": {"search": {}}}})
-
-            self.assertIsInstance(result, PartialAssistantState)
-            self.assertEqual(result.root_tool_call_id, "search-123")
-            self.assertEqual(result.search_insights_query, "test")
-
-    async def test_arun_search_tool_docs_kind(self):
-        """Test search tool with kind=docs"""
-        node = RootNodeTools(self.team, self.user)
-        state = AssistantState(
-            messages=[
-                AssistantMessage(
-                    content="Searching docs",
-                    id="test-id",
-                    tool_calls=[
-                        AssistantToolCall(id="search-123", name="search", args={"query": "test", "kind": "docs"})
-                    ],
-                )
-            ]
-        )
-
-        mock_tool_instance = AsyncMock()
-        mock_tool_instance.ainvoke.return_value = LangchainToolMessage(
-            content="Docs results", tool_call_id="search-123", name="search", artifact={"kind": "docs"}
-        )
-
-        with mock_contextual_tool(mock_tool_instance):
-            result = await node.arun(state, {"configurable": {"contextual_tools": {"search": {}}}})
-
-            self.assertIsInstance(result, PartialAssistantState)
-            self.assertEqual(result.root_tool_call_id, "search-123")
 
     async def test_arun_tool_updates_state(self):
         """Test that when a tool updates its _state, the new messages are included"""

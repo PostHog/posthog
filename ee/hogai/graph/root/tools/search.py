@@ -1,10 +1,15 @@
-from typing import Any, Literal
+from typing import Annotated, Literal
 
 from django.conf import settings
 
+from langchain_core.runnables import RunnableLambda
+from langchain_core.tools import InjectedToolCallId
 from pydantic import BaseModel, Field
+from pydantic.json_schema import SkipJsonSchema
 
-from ee.hogai.tool import MaxTool
+from ee.hogai.graph.insights.nodes import InsightSearchNode, NoInsightsException
+from ee.hogai.tool import MaxSubtool, MaxTool, ToolMessagesArtifact
+from ee.hogai.utils.types.base import AssistantState, PartialAssistantState
 
 SEARCH_TOOL_PROMPT = """
 Use this tool to search docs or insights by using natural language.
@@ -54,6 +59,7 @@ SearchKind = Literal["insights"] | Literal["docs"]
 
 
 class SearchToolArgs(BaseModel):
+    tool_call_id: Annotated[str, InjectedToolCallId, SkipJsonSchema]
     kind: SearchKind = Field(description="Select the entity you want to find")
     query: str = Field(
         description="Describe what you want to find. Include as much details from the context as possible."
@@ -68,8 +74,50 @@ class SearchTool(MaxTool):
     args_schema: type[BaseModel] = SearchToolArgs
     show_tool_call_message: bool = False
 
-    async def _arun_impl(self, kind: SearchKind, query: str) -> tuple[str, dict[str, Any] | None]:
-        if kind == "docs" and not settings.INKEEP_API_KEY:
-            return "This tool is not available in this environment.", None
-        # Used for routing
-        return "Search tool executed", SearchToolArgs(kind=kind, query=query).model_dump()
+    async def _arun_impl(
+        self, kind: SearchKind, query: str, tool_call_id: str
+    ) -> tuple[str, ToolMessagesArtifact | None]:
+        match kind:
+            case "docs":
+                if not settings.INKEEP_API_KEY:
+                    return "This tool is not available in this environment.", None
+                docs_tool = InkeepDocsSearchTool(self._team, self._user, self._state, self._context_manager)
+                return await docs_tool.execute(query, tool_call_id)
+            case "insights":
+                insights_tool = InsightSearchTool(self._team, self._user, self._state, self._context_manager)
+                return await insights_tool.execute(query, tool_call_id)
+            case _:
+                raise ValueError(f"Unknown kind argument of the {self.get_name()} tool")
+
+
+class InkeepDocsSearchTool(MaxSubtool):
+    async def execute(self, query: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
+        # Avoid circular import
+        from ee.hogai.graph.inkeep_docs.nodes import InkeepDocsNode
+
+        # Init the graph
+        node = InkeepDocsNode(self._team, self._user)
+        chain: RunnableLambda[AssistantState, PartialAssistantState | None] = RunnableLambda(node)
+        copied_state = self._state.model_copy(deep=True, update={"root_tool_call_id": tool_call_id})
+        result = await chain.ainvoke(copied_state)
+        assert result is not None
+        return "", ToolMessagesArtifact(messages=result.messages)
+
+
+EMPTY_DATABASE_ERROR_MESSAGE = """
+The user doesn't have any insights created yet.
+""".strip()
+
+
+class InsightSearchTool(MaxSubtool):
+    async def execute(self, query: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
+        try:
+            node = InsightSearchNode(self._team, self._user)
+            copied_state = self._state.model_copy(
+                deep=True, update={"search_insights_query": query, "root_tool_call_id": tool_call_id}
+            )
+            chain: RunnableLambda[AssistantState, PartialAssistantState | None] = RunnableLambda(node)
+            result = await chain.ainvoke(copied_state)
+            return "", ToolMessagesArtifact(messages=result.messages) if result else None
+        except NoInsightsException:
+            return EMPTY_DATABASE_ERROR_MESSAGE, None

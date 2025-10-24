@@ -165,11 +165,12 @@ class MaxTool(AssistantContextMixin, BaseTool):
 
 
 class MaxSubtool(ABC):
-    def __init__(self, team: Team, user: User, context_manager: AssistantContextManager):
+    def __init__(self, team: Team, user: User, state: AssistantState, context_manager: AssistantContextManager):
         self._team = team
         self._user = user
+        self._state = state
         self._context_manager = context_manager
 
     @abstractmethod
-    async def execute(self, state: AssistantState) -> Any:
+    async def execute(self, *args, **kwargs) -> Any:
         pass
