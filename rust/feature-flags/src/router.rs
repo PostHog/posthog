@@ -16,7 +16,9 @@ use common_redis::Client as RedisClient;
 use health::HealthRegistry;
 use metrics::counter;
 use tower::limit::ConcurrencyLimitLayer;
-use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+use tower_governor::{
+    governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer,
+};
 use tower_http::{
     cors::{AllowHeaders, AllowOrigin, CorsLayer},
     trace::TraceLayer,
@@ -139,10 +141,13 @@ where
     // Apply IP-based rate limiting if enabled
     // This provides defense-in-depth against DDoS with rotating fake tokens
     if *config.flags_ip_rate_limit_enabled {
+        // Use SmartIpKeyExtractor to properly extract client IP from X-Forwarded-For, X-Real-IP, or Forwarded headers
+        // This prevents all requests from appearing to come from the load balancer's IP
         let governor_conf = if config.flags_ip_replenish_rate >= 1.0 {
             // For rates >= 1, use per_second
             Arc::new(
                 GovernorConfigBuilder::default()
+                    .key_extractor(SmartIpKeyExtractor)
                     .per_second(config.flags_ip_replenish_rate as u64)
                     .burst_size(config.flags_ip_burst_size)
                     .error_handler(rate_limit_error_response)
@@ -155,6 +160,7 @@ where
             let period_ms = (1000.0 / config.flags_ip_replenish_rate) as u64;
             Arc::new(
                 GovernorConfigBuilder::default()
+                    .key_extractor(SmartIpKeyExtractor)
                     .per_millisecond(period_ms)
                     .burst_size(config.flags_ip_burst_size)
                     .error_handler(rate_limit_error_response)
