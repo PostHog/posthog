@@ -44,6 +44,7 @@ The following code snippet will both disable billing and reset the table - which
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 import os
 import s3fs
+import time
 
 schema_ids = ['...'] # Schema ID of the tables you want to resync
 
@@ -66,7 +67,7 @@ for index, schema_id in enumerate(schema_ids):
         pass
     print("Starting temporal worker...")
     try:
-        os.system('python manage.py start_temporal_workflow external-data-job "{\\"team_id\\": ' + str(team_id) + ',\\"external_data_source_id\\":\\"' + str(source_id) + '\\",\\"external_data_schema_id\\":\\"' + str(schema_id) + '\\",\\"billable\\":false,\\"reset_pipeline\\":true}" --workflow-id ' + str(schema_id) + '-resync8 --task-queue data-warehouse-task-queue')
+        os.system('python manage.py start_temporal_workflow external-data-job "{\\"team_id\\": ' + str(team_id) + ',\\"external_data_source_id\\":\\"' + str(source_id) + '\\",\\"external_data_schema_id\\":\\"' + str(schema_id) + '\\",\\"billable\\":false,\\"reset_pipeline\\":true}" --workflow-id ' + str(schema_id) + '-resync-' + str(time.time()) + ' --task-queue data-warehouse-task-queue')
     except Exception as e:
         print(e)
     print(f"{index + 1}/{len(schema_ids)}")
@@ -78,6 +79,7 @@ If you want to sync a table without resetting it - then the below snippet is for
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 import os
 import s3fs
+import time
 
 schema_ids = ['...'] # Schema ID of the tables you want to resync
 
@@ -94,7 +96,7 @@ for index, schema_id in enumerate(schema_ids):
     schema_name = NamingConvention().normalize_identifier(schema.name)
     print("Starting temporal worker...")
     try:
-        os.system('python manage.py start_temporal_workflow external-data-job "{\\"team_id\\": ' + str(team_id) + ',\\"external_data_source_id\\":\\"' + str(source_id) + '\\",\\"external_data_schema_id\\":\\"' + str(schema_id) + '\\",\\"billable\\":false,\\"reset_pipeline\\":false}" --workflow-id ' + str(schema_id) + '-resync7 --task-queue data-warehouse-task-queue')
+        os.system('python manage.py start_temporal_workflow external-data-job "{\\"team_id\\": ' + str(team_id) + ',\\"external_data_source_id\\":\\"' + str(source_id) + '\\",\\"external_data_schema_id\\":\\"' + str(schema_id) + '\\",\\"billable\\":false,\\"reset_pipeline\\":false}" --workflow-id ' + str(schema_id) + '-resync-' + str(time.time()) + ' --task-queue data-warehouse-task-queue')
     except Exception as e:
         print(e)
     print(f"{index + 1}/{len(schema_ids)}")
