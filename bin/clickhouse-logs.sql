@@ -93,7 +93,6 @@ GROUP BY
 CREATE OR REPLACE TABLE kafka_logs_avro
 (
     `uuid` String,
-    `team_id` Int32,
     `trace_id` String,
     `span_id` String,
     `trace_flags` Int32,
@@ -115,7 +114,7 @@ CREATE OR REPLACE TABLE kafka_logs_avro
     `attribute_keys` Array(Nullable(String)),
     `attribute_values` Array(Nullable(String))
 )
-ENGINE = Kafka('kafka:9092', 'logs_avro', 'clickhouse-logs-avro', 'Avro')
+ENGINE = Kafka('kafka:9092', 'clickhouse_logs', 'clickhouse-logs-avro', 'Avro')
 SETTINGS
     kafka_skip_broken_messages = 100,
     kafka_security_protocol = 'PLAINTEXT',
@@ -153,7 +152,8 @@ CREATE MATERIALIZED VIEW kafka_logs_avro_mv TO logs16
     `attribute_values` Array(Nullable(String))
 )
 AS SELECT
-*
+*,
+toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) as team_id
 FROM kafka_logs_avro settings materialize_skip_indexes_on_insert = 1, distributed_background_insert_sleep_time_ms=5000, distributed_background_insert_batch=true;
 
 select 'clickhouse logs tables initialised successfully!';

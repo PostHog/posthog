@@ -15,7 +15,7 @@ export interface UseFileSystemLogViewOptions extends TrackFileSystemLogViewOptio
 }
 
 export function trackFileSystemLogView({ type, ref, enabled = true }: TrackFileSystemLogViewOptions): void {
-    if (!enabled || ref === null || ref === undefined) {
+    if (!enabled || window.IMPERSONATED_SESSION || ref === null || ref === undefined) {
         return
     }
 
