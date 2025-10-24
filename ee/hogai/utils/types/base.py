@@ -36,6 +36,7 @@ from posthog.schema import (
     RevenueAnalyticsMetricsQuery,
     RevenueAnalyticsMRRQuery,
     RevenueAnalyticsTopCustomersQuery,
+    TaskExecutionItem,
     TaskExecutionMessage,
     TaskExecutionStatus,
     TrendsQuery,
@@ -247,7 +248,11 @@ class BaseStateWithMessages(BaseState):
     """
 
 
-class BaseStateWithTaskResults(BaseState):
+class BaseStateWithTasks(BaseState):
+    tasks: Annotated[Optional[list[TaskExecutionItem]], replace] = Field(default=None)
+    """
+    Deprecated.
+    """
     task_results: Annotated[list[TaskResult], append] = Field(default=[])  # pyright: ignore[reportUndefinedVariable]
     """
     Results of tasks executed by assistants.
