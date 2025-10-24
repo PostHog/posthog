@@ -15,7 +15,7 @@ export interface EndpointSceneHeaderProps {
 export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.Element => {
     const { endpoint, endpointLoading, localQuery } = useValues(endpointSceneLogic({ tabId }))
     const { endpointName, endpointDescription, cacheAge } = useValues(endpointLogic({ tabId }))
-    const { setEndpointDescription, updateEndpoint, createEndpoint } = useActions(endpointLogic({ tabId }))
+    const { setEndpointDescription, updateEndpoint, createEndpoint, setCacheAge } = useActions(endpointLogic({ tabId }))
     const { setLocalQuery } = useActions(endpointSceneLogic({ tabId }))
 
     const isNewEndpoint = !endpoint?.name || endpoint.name === 'new-endpoint'
@@ -23,7 +23,7 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
     const hasNameChange = endpointName && endpointName !== endpoint?.name
     const hasDescriptionChange = endpointDescription !== null && endpointDescription !== endpoint?.description
     const hasQueryChange = localQuery !== null
-    const hasCacheAgeChange = cacheAge !== endpoint?.cache_age_seconds
+    const hasCacheAgeChange = cacheAge !== (endpoint?.cache_age_seconds ?? null)
     const hasChanges = hasNameChange || hasDescriptionChange || hasQueryChange || hasCacheAgeChange
 
     const handleSave = (): void => {
@@ -43,7 +43,7 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
             updateEndpoint(endpoint.name, {
                 name: endpointName || endpoint?.name,
                 description: endpointDescription || endpoint?.description,
-                cache_age_seconds: cacheAge || endpoint?.cache_age_seconds,
+                cache_age_seconds: cacheAge,
                 query: queryToSave,
             })
         }
@@ -52,6 +52,7 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
     const handleDiscardChanges = (): void => {
         if (endpoint) {
             setEndpointDescription(endpoint.description || '')
+            setCacheAge(endpoint.cache_age_seconds ?? null)
         }
         setLocalQuery(null)
     }

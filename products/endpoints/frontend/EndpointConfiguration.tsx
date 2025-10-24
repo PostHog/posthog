@@ -12,9 +12,10 @@ interface EndpointConfigurationProps {
     tabId: string
 }
 
-type CacheAgeOption = 300 | 900 | 1800 | 3600 | 10800 | 86400 | 259200
+type CacheAgeOption = number | null
 
 const CACHE_AGE_OPTIONS: { value: CacheAgeOption; label: string }[] = [
+    { value: null, label: 'Default caching behavior' },
     { value: 300, label: '5 minutes' },
     { value: 900, label: '15 minutes' },
     { value: 1800, label: '30 minutes' },
