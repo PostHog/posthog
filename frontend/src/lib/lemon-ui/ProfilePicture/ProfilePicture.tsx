@@ -62,10 +62,9 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
 
     // Defer gravatar loading until after initial render to avoid blocking table rendering
     useEffect(() => {
-        const timeoutId = setTimeout(() => {
+        queueMicrotask(() => {
             setShouldLoadGravatar(true)
-        }, 0)
-        return () => clearTimeout(timeoutId)
+        })
     }, [])
 
     const pictureComponent = (
