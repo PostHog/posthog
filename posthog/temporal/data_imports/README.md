@@ -10,7 +10,7 @@ Some jobs may look like they cause OOMs due to how they're always running when a
 
 ## Why does this happen?
 
-This happens during a deltalake merge because we have the read the whole partition from S3 (or the whole table if partitioning isn't enabled for the table) to merge data into it. If the partition has great ordering, then a lot of data can be skipped via parquet row group min/max's, but this often isn't the case, and so we often have to load the whole partition into memory. The library we use for this attempts to be clever with how it reads the data in, but it doesn't always work out in our favour.
+This happens during a deltalake merge because we have to read the whole partition from S3 (or the whole table if partitioning isn't enabled for the table) to merge data into it. If the partition has great ordering, then a lot of data can be skipped via parquet row group min/max's, but this often isn't the case, and so we often have to load the whole partition into memory. The library we use for this attempts to be clever with how it reads the data in, but it doesn't always work out in our favour.
 
 I've found that at worst case, we require roughly 20x the memory of what the compressed partition size is at rest on S3. So, if the partition is 5 GB in S3, then I'd expect to need (at worst case) roughly 100 GB memory on the pod to merge the data without fail. Our pods currently run with memory limits of 29 GB - so any partition over 1.5 GB will likely result in a OOM at some point.
 
