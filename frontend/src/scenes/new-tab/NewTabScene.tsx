@@ -19,7 +19,6 @@ import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/S
 import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/TabsPrimitive/TabsPrimitive'
@@ -28,7 +27,6 @@ import {
     NEW_TAB_CATEGORY_ITEMS,
     NEW_TAB_COMMANDS,
     NEW_TAB_COMMANDS_ITEMS,
-    NewTabTreeDataItem,
     newTabSceneLogic,
 } from 'scenes/new-tab/newTabSceneLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -43,32 +41,6 @@ import { SearchInput, SearchInputCommand, SearchInputHandle } from './components
 export const scene: SceneExport = {
     component: NewTabScene,
     logic: newTabSceneLogic,
-}
-
-export const getCategoryDisplayName = (category: string): string => {
-    const displayNames: Record<string, string> = {
-        'create-new': 'Create new',
-        apps: 'Apps',
-        'data-management': 'Data management',
-        recents: 'Recents',
-        persons: 'Persons',
-        eventDefinitions: 'Events',
-        propertyDefinitions: 'Properties',
-        askAI: 'Posthog AI',
-    }
-    return displayNames[category] || category
-}
-
-// Helper function to convert NewTabTreeDataItem to TreeDataItem for menu usage
-export function convertToTreeDataItem(item: NewTabTreeDataItem): TreeDataItem {
-    return {
-        ...item,
-        record: {
-            ...item.record,
-            href: item.href,
-            path: item.name, // Use name as path for menu compatibility
-        },
-    }
 }
 
 export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homepage' } = {}): JSX.Element {

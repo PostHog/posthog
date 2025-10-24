@@ -1,5 +1,9 @@
 # posthog-cli
 
+# 0.5.6
+
+- Adding experimental support for hermes sourcemaps
+
 # 0.5.5
 
 - When running inject command multiple times, we only update chunk ids when releases are different

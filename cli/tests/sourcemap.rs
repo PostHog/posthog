@@ -1,7 +1,9 @@
 use posthog_cli::sourcemaps::{
-    inject::inject_pairs,
-    source_pair::{read_pairs, SourceMapContent},
+    content::SourceMapContent, inject::inject_pairs, plain::inject::is_javascript_file,
+    source_pairs::SourcePair,
 };
+
+use anyhow::Result;
 
 use std::{
     fs,
@@ -25,6 +27,19 @@ fn get_case_path(relative_path: &str) -> PathBuf {
 fn assert_file_eq(base_path: &Path, path: &str, actual: impl Into<String>) {
     let expected = fs::read_to_string(base_path.join(path)).expect("Failed to read expected file");
     assert_eq!(expected, actual.into());
+}
+
+pub fn read_pairs(
+    directory: &PathBuf,
+    ignore_globs: &[String],
+    prefix: &Option<String>,
+) -> Result<Vec<SourcePair>> {
+    posthog_cli::sourcemaps::source_pairs::read_pairs(
+        directory,
+        ignore_globs,
+        is_javascript_file,
+        prefix,
+    )
 }
 
 #[test]
