@@ -15,32 +15,106 @@ jest.mock('@posthog/ee/exports', () => ({
         mobileReplay: {
             transformEventToWeb: jest.fn((event: any) => {
                 // Transform mobile FullSnapshot (wireframes) into a rrweb-like full snapshot structure
+                // Matches the real transformer structure: Document -> HTML -> [Head, Body] -> Body -> [img, ...]
                 if (event?.type === 2 && event?.data?.wireframes !== undefined) {
+                    const firstWireframe = event.data.wireframes[0]
+                    const width = firstWireframe?.width || 400
+                    const height = firstWireframe?.height || 800
                     return {
                         ...event,
                         data: {
                             node: {
+                                type: 0, // Document
                                 childNodes: [
-                                    {},
                                     {
+                                        type: 1, // DocumentType
+                                        name: 'html',
+                                        id: 2,
+                                    },
+                                    {
+                                        type: 2, // Element
+                                        tagName: 'html',
+                                        id: 3,
                                         childNodes: [
-                                            {},
                                             {
+                                                type: 2,
+                                                tagName: 'head',
+                                                id: 4,
+                                                childNodes: [],
+                                            },
+                                            {
+                                                type: 2,
+                                                tagName: 'body',
+                                                id: 5,
+                                                attributes: { 'data-rrweb-id': 5 },
                                                 childNodes: [
                                                     {
-                                                        attributes: { width: 400, height: 800 },
+                                                        type: 2,
+                                                        tagName: 'img',
+                                                        id: 100,
+                                                        attributes: {
+                                                            'data-rrweb-id': 100,
+                                                            width,
+                                                            height,
+                                                            src: 'data:image/png;base64,test',
+                                                        },
+                                                        childNodes: [],
                                                     },
                                                 ],
                                             },
                                         ],
                                     },
                                 ],
+                                id: 1,
                             },
                             initialOffset: { top: 0, left: 0 },
                             href: 'https://example.com',
                         },
                     }
                 }
+
+                // Transform mobile IncrementalSnapshot with wireframe updates into mutation format
+                if (event?.type === 3 && event?.data?.updates && Array.isArray(event.data.updates)) {
+                    const updates = event.data.updates
+                    // Check if this has wireframe data (mobile format)
+                    if (updates.some((u: any) => u.wireframe)) {
+                        // Extract dimensions from first wireframe
+                        const firstUpdate = updates.find((u: any) => u.wireframe)
+                        const wireframe = firstUpdate?.wireframe
+                        const width = wireframe?.width || 400
+                        const height = wireframe?.height || 800
+
+                        // Transform to mutation format with adds containing img nodes
+                        return {
+                            ...event,
+                            data: {
+                                source: 0, // IncrementalSource.Mutation
+                                adds: [
+                                    {
+                                        parentId: 5, // body id
+                                        nextId: null,
+                                        node: {
+                                            type: 2, // Element
+                                            tagName: 'img',
+                                            id: 100,
+                                            attributes: {
+                                                'data-rrweb-id': 100,
+                                                width,
+                                                height,
+                                                src: 'data:image/png;base64,test',
+                                            },
+                                            childNodes: [],
+                                        },
+                                    },
+                                ],
+                                removes: [],
+                                texts: [],
+                                attributes: [],
+                            },
+                        }
+                    }
+                }
+
                 return event
             }),
         },
@@ -327,6 +401,32 @@ describe('process all snapshots', () => {
 
             expect(result).toHaveLength(1)
         })
+
+        it('handles raw Snappy compressed data (LTS format)', async () => {
+            const sessionId = 'test-session'
+
+            const snapshotJson = JSON.stringify({
+                window_id: '1',
+                data: [
+                    {
+                        type: 2,
+                        timestamp: 1234567890,
+                        data: { href: 'https://example.com' },
+                    },
+                ],
+            })
+            const decompressedBytes = new TextEncoder().encode(snapshotJson + '\n')
+            const fakeRawSnappyData = new Uint8Array([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b])
+
+            mockWorkerManager.decompress.mockResolvedValue(decompressedBytes)
+
+            const result = await parseEncodedSnapshots(fakeRawSnappyData, sessionId)
+
+            expect(mockWorkerManager.decompress).toHaveBeenCalledWith(fakeRawSnappyData)
+            expect(result).toHaveLength(1)
+            expect(result[0].windowId).toBe('1')
+            expect(result[0].timestamp).toBe(1234567890)
+        })
     })
 
     describe('mobile recording detection', () => {
@@ -495,6 +595,107 @@ describe('process all snapshots', () => {
             expect(fullSnapshots[0].timestamp).toBe(1000)
         })
 
+        it('extracts dimensions from mobile snapshot when viewportForTimestamp returns undefined', async () => {
+            const sessionId = 'test-mobile-no-viewport'
+
+            const snapshotJson = JSON.stringify({
+                window_id: 'mobile-window',
+                data: [
+                    {
+                        type: 2,
+                        timestamp: 1000,
+                        data: {
+                            wireframes: [
+                                {
+                                    type: 'screenshot',
+                                    base64: 'data:image/webp;base64,test',
+                                    width: 375,
+                                    height: 667,
+                                },
+                            ],
+                            initialOffset: { top: 0, left: 0 },
+                        },
+                    },
+                ],
+            })
+
+            const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
+            expect(parsed).toHaveLength(1)
+            expect(parsed[0].type).toBe(2)
+
+            const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
+            // viewportForTimestamp returns undefined - should extract from mobile snapshot
+            const results = processAllSnapshots(
+                [{ source: 'blob_v2', blob_key: '0' } as any],
+                { [key]: { snapshots: parsed } } as any,
+                {},
+                () => undefined,
+                sessionId
+            )
+
+            expect(results.length).toBeGreaterThanOrEqual(2)
+
+            const metaEvents = results.filter((r) => r.type === 4)
+            expect(metaEvents.length).toBeGreaterThan(0)
+
+            const firstMeta = metaEvents[0]
+            expect(firstMeta.data).toEqual({
+                width: 375,
+                height: 667,
+                href: 'https://example.com', // From the mock transformer
+            })
+            expect(firstMeta.windowId).toBe('mobile-window')
+        })
+
+        it('prefers mobile snapshot dimensions over viewportForTimestamp for mobile data', async () => {
+            const sessionId = 'test-mobile-prefer-snapshot'
+
+            const snapshotJson = JSON.stringify({
+                window_id: 'mobile-window',
+                data: [
+                    {
+                        type: 2,
+                        timestamp: 1000,
+                        data: {
+                            wireframes: [
+                                {
+                                    type: 'screenshot',
+                                    base64: 'data:image/webp;base64,test',
+                                    width: 375,
+                                    height: 667,
+                                },
+                            ],
+                            initialOffset: { top: 0, left: 0 },
+                        },
+                    },
+                ],
+            })
+
+            const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
+            expect(parsed).toHaveLength(1)
+
+            const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
+            // viewportForTimestamp returns different dimensions - should use snapshot dimensions
+            const results = processAllSnapshots(
+                [{ source: 'blob_v2', blob_key: '0' } as any],
+                { [key]: { snapshots: parsed } } as any,
+                {},
+                () => ({ width: '999', height: '999', href: 'https://wrong.com' }),
+                sessionId
+            )
+
+            const metaEvents = results.filter((r) => r.type === 4)
+            expect(metaEvents.length).toBeGreaterThan(0)
+
+            // Should use dimensions from mobile snapshot, not from viewportForTimestamp
+            const firstMeta = metaEvents[0]
+            expect(firstMeta.data).toEqual({
+                width: 375,
+                height: 667,
+                href: 'https://example.com', // From the mock transformer
+            })
+        })
+
         it('does not create synthetic snapshot for web recordings', async () => {
             const sessionId = 'test-web-session'
 
@@ -623,10 +824,10 @@ describe('process all snapshots', () => {
             expect(incrementalSnapshots[1].timestamp).toBe(2000)
         })
 
-        it('preserves original event data when creating synthetic snapshot', async () => {
+        it('transforms mobile event data during parsing', async () => {
             const sessionId = 'test-mobile-session'
 
-            const originalEventData = {
+            const mobileEventData = {
                 source: 0,
                 updates: [
                     {
@@ -646,16 +847,82 @@ describe('process all snapshots', () => {
                     {
                         type: 3,
                         timestamp: 1000,
-                        data: originalEventData,
+                        data: mobileEventData,
                     },
                 ],
             })
 
             const result = await parseEncodedSnapshots([snapshotJson], sessionId)
 
-            const originalEvent = result.find((r) => r.type === 3 && r.timestamp === 1000)
-            expect(originalEvent).toBeTruthy()
-            expect(originalEvent?.data).toEqual(originalEventData)
+            const transformedEvent = result.find((r) => r.type === 3 && r.timestamp === 1000)
+            expect(transformedEvent).toBeTruthy()
+            // After transformation, wireframe updates become mutation adds with img nodes
+            expect(transformedEvent?.data).toMatchObject({
+                source: 0,
+                adds: expect.arrayContaining([
+                    expect.objectContaining({
+                        node: expect.objectContaining({
+                            tagName: 'img',
+                            attributes: expect.objectContaining({
+                                'data-rrweb-id': expect.any(Number),
+                                width: 400,
+                                height: 800,
+                            }),
+                        }),
+                    }),
+                ]),
+            })
+        })
+
+        it('synthetic full snapshot for mobile incremental includes img node for dimension extraction', async () => {
+            const sessionId = 'test-synthetic-with-img'
+
+            const snapshotJson = JSON.stringify({
+                window_id: 'mobile-window',
+                data: [
+                    {
+                        type: 3,
+                        timestamp: 1000,
+                        data: {
+                            source: 0,
+                            updates: [
+                                {
+                                    wireframe: {
+                                        type: 'screenshot',
+                                        width: 414,
+                                        height: 896,
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            })
+
+            const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
+
+            const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
+            const results = processAllSnapshots(
+                [{ source: 'blob_v2', blob_key: '0' } as any],
+                { [key]: { snapshots: parsed } } as any,
+                {},
+                () => undefined,
+                sessionId
+            )
+
+            const syntheticFull = results.find((r) => r.type === 2 && r.timestamp === 999)
+            expect(syntheticFull).toBeTruthy()
+
+            const metaEvents = results.filter((r) => r.type === 4)
+            expect(metaEvents.length).toBeGreaterThan(0)
+
+            const firstMeta = metaEvents[0]
+            expect(firstMeta.data).toEqual({
+                width: 414,
+                height: 896,
+                href: 'unknown',
+            })
+            expect(firstMeta.windowId).toBe('mobile-window')
         })
 
         it('handles edge cases gracefully', async () => {

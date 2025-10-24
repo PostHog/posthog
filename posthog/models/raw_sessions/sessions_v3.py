@@ -254,7 +254,7 @@ PROPERTIES = f"""
         ]) AS Array(String)) as ad_ids_set"""
 
 
-def RAW_SESSION_TABLE_MV_SELECT_SQL_V3(where="TRUE"):
+def RAW_SESSION_TABLE_MV_SELECT_SQL_V3(source_table, where="TRUE"):
     return """
 WITH
     {PROPERTIES},
@@ -265,9 +265,9 @@ SELECT
     team_id,
     `$session_id_uuid` AS session_id_v7,
 
-    initializeAggregation('argMaxState', sharded_events.distinct_id, timestamp) as distinct_id,
+    initializeAggregation('argMaxState', source_table.distinct_id, timestamp) as distinct_id,
     initializeAggregation('argMaxState', person_id, timestamp) as person_id,
-    initializeAggregation('groupUniqArrayState', sharded_events.distinct_id) as distinct_ids,
+    initializeAggregation('groupUniqArrayState', source_table.distinct_id) as distinct_ids,
 
     timestamp AS min_timestamp,
     timestamp AS max_timestamp,
@@ -328,11 +328,11 @@ SELECT
 
     --flags
     initializeAggregation('groupUniqArrayMapState', properties_group_feature_flags) as flag_values
-FROM {database}.sharded_events
+FROM {source_table} AS source_table
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
 AND {where}
     """.format(
-        database=settings.CLICKHOUSE_DATABASE,
+        source_table=source_table,
         where=where,
         PROPERTIES=PROPERTIES,
     )
@@ -348,20 +348,25 @@ AS
         table_name=f"{TABLE_BASE_NAME_V3}_mv",
         target_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
         database=settings.CLICKHOUSE_DATABASE,
-        select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(where),
+        select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(
+            where=where,
+            # use sharded_events, this means that the mv MUST be created on every data node
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_events",
+        ),
     )
 
 
-RAW_SESSION_TABLE_UPDATE_SQL_V3 = (
-    lambda: """
+def RAW_SESSION_TABLE_MV_UPDATE_SQL_V3(where="TRUE"):
+    return """
 ALTER TABLE {table_name}
 MODIFY QUERY
 {select_sql}
 """.format(
         table_name=f"{TABLE_BASE_NAME_V3}_mv",
-        select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(),
+        select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(
+            where=where, source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_events"
+        ),
     )
-)
 
 
 def RAW_SESSION_TABLE_BACKFILL_SQL_V3(where="TRUE"):
@@ -371,7 +376,11 @@ INSERT INTO {database}.{writable_table}
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
         writable_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
-        select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(where=where),
+        select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(
+            where=where,
+            # use sharded_events for the source table, this means that the backfill MUST run on every shard
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_events",
+        ),
     )
 
 
