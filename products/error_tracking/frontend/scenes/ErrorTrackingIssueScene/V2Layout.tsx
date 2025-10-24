@@ -28,6 +28,7 @@ import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBread
 import { SidePanelTab } from '~/types'
 
 import { BreakdownChart } from '../../components/Breakdowns/BreakdownChart'
+import { BreakdownSearchBar } from '../../components/Breakdowns/BreakdownSearchBar'
 import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { ErrorFilters } from '../../components/IssueFilters'
@@ -120,7 +121,10 @@ const CategoryContent = (): JSX.Element => {
     const tagRenderer = useErrorTagRenderer()
 
     return category === 'breakdowns' ? (
-        <BreakdownChart />
+        <div className="flex flex-col gap-4">
+            <BreakdownSearchBar />
+            <BreakdownChart />
+        </div>
     ) : exceptionsCategory === 'exception' ? (
         <ExceptionCard
             issue={issue ?? undefined}
