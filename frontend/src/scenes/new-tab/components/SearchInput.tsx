@@ -17,6 +17,8 @@ import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { TextInputPrimitive, textInputVariants } from 'lib/ui/TextInputPrimitive/TextInputPrimitive'
 import { cn } from 'lib/utils/css-classes'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+
 export interface SearchInputCommand<T = string> {
     value: T
     displayName: string
@@ -31,6 +33,7 @@ interface SearchInputProps<T = string> {
     selectedCommands?: SearchInputCommand<T>[]
     onSelectedCommandsChange?: (commands: SearchInputCommand<T>[]) => void
     activeCommands?: T[]
+    onClearAll?: () => void
 }
 
 export interface SearchInputHandle {
@@ -48,6 +51,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
         selectedCommands = [],
         onSelectedCommandsChange,
         activeCommands = [],
+        onClearAll,
     }: SearchInputProps<T>,
     ref: React.Ref<SearchInputHandle>
 ) {
@@ -266,6 +270,12 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                             className={`ml-[calc(var(--button-padding-x-sm)+1px)] font-mono text-tertiary ${focusedTagIndex === -1 ? 'ring-2 ring-accent' : ''}`}
                             iconOnly
                             size="sm"
+                            tooltip={
+                                <>
+                                    Click to show commands/filters, or type <KeyboardShortcut forwardslash />
+                                </>
+                            }
+                            tooltipPlacement="bottom"
                         >
                             /
                         </ButtonPrimitive>
@@ -376,6 +386,13 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                                     iconOnly
                                     onClick={() => {
                                         setInputValue('')
+                                        onChange?.('')
+                                        // Reset all tag states
+                                        setExpandedTags(false)
+                                        setFocusedTagIndex(null)
+                                        setShowDropdown(false)
+                                        // Clear all filters if handler is provided
+                                        onClearAll?.()
                                         inputRef.current?.focus()
                                     }}
                                     className="rounded-xs"

@@ -132,6 +132,13 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                     // Refresh data after toggle
                                     refreshDataAfterToggle()
                                 }}
+                                onClearAll={() => {
+                                    // Clear all filters by removing all items from newTabSceneDataInclude
+                                    newTabSceneDataInclude.forEach((command) => {
+                                        toggleNewTabSceneDataInclude(command)
+                                    })
+                                    refreshDataAfterToggle()
+                                }}
                             />
                         )}
 
@@ -248,7 +255,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                             >
                                 {/* TODO: Remove this once we're done testing */}
                                 {newTabSceneData && (
-                                    <div className="col-span-full border border-primary border-px rounded-md p-2">
+                                    <div className="col-span-full border border-primary border-px rounded-md p-2 mb-2">
                                         <p className="flex flex-col items-center @md/main-content:flex-row gap-1 m-0 text-sm text-tertiary">
                                             <IconInfo className="size-4 text-accent" /> You're trying out the new tab UX
                                             with the flag:{' '}
