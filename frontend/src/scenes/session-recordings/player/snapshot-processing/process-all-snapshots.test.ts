@@ -874,6 +874,57 @@ describe('process all snapshots', () => {
             })
         })
 
+        it('synthetic full snapshot for mobile incremental includes img node for dimension extraction', async () => {
+            const sessionId = 'test-synthetic-with-img'
+
+            const snapshotJson = JSON.stringify({
+                window_id: 'mobile-window',
+                data: [
+                    {
+                        type: 3,
+                        timestamp: 1000,
+                        data: {
+                            source: 0,
+                            updates: [
+                                {
+                                    wireframe: {
+                                        type: 'screenshot',
+                                        width: 414,
+                                        height: 896,
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            })
+
+            const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
+
+            const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
+            const results = processAllSnapshots(
+                [{ source: 'blob_v2', blob_key: '0' } as any],
+                { [key]: { snapshots: parsed } } as any,
+                {},
+                () => undefined,
+                sessionId
+            )
+
+            const syntheticFull = results.find((r) => r.type === 2 && r.timestamp === 999)
+            expect(syntheticFull).toBeTruthy()
+
+            const metaEvents = results.filter((r) => r.type === 4)
+            expect(metaEvents.length).toBeGreaterThan(0)
+
+            const firstMeta = metaEvents[0]
+            expect(firstMeta.data).toEqual({
+                width: 414,
+                height: 896,
+                href: 'unknown',
+            })
+            expect(firstMeta.windowId).toBe('mobile-window')
+        })
+
         it('handles edge cases gracefully', async () => {
             const sessionId = 'test-edge-cases'
 

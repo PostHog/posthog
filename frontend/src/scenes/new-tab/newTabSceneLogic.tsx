@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import { IconApps, IconArrowRight, IconDatabase, IconHogQL, IconPerson, IconSparkles, IconToggle } from '@posthog/icons'
+import { IconApps, IconArrowRight, IconDatabase, IconHogQL, IconPerson, IconSparkles } from '@posthog/icons'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -459,12 +459,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         id: `event-definition-${eventDef.id}`,
                         name: eventDef.name,
                         category: 'eventDefinitions' as NEW_TAB_CATEGORY_ITEMS,
-                        href: `events://${eventDef.name}`,
-                        icon: <IconToggle />,
+                        href: urls.eventDefinition(eventDef.id),
+                        icon: <IconApps />,
                         record: {
                             type: 'event-definition',
                             path: `Event: ${eventDef.name}`,
-                            href: `events://${eventDef.name}`,
+                            href: urls.eventDefinition(eventDef.id),
                         },
                     }
                     return item
@@ -480,12 +480,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         id: `property-definition-${propDef.id}`,
                         name: propDef.name,
                         category: 'propertyDefinitions' as NEW_TAB_CATEGORY_ITEMS,
-                        href: `properties://${propDef.name}`,
+                        href: urls.propertyDefinition(propDef.id),
                         icon: <IconApps />,
                         record: {
                             type: 'property-definition',
                             path: `Property: ${propDef.name}`,
-                            href: `properties://${propDef.name}`,
+                            href: urls.propertyDefinition(propDef.id),
                         },
                     }
                     return item

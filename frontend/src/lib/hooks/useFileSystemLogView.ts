@@ -2,21 +2,28 @@ import { DependencyList, useEffect } from 'react'
 
 import api from 'lib/api'
 
-type FileSystemLogViewType = 'experiment' | 'feature_flag' | 'insight' | 'dashboard'
+type FileSystemLogViewType = 'experiment' | 'feature_flag' | 'insight' | 'dashboard' | 'scene'
 
-export interface UseFileSystemLogViewOptions {
+interface TrackFileSystemLogViewOptions {
     type: FileSystemLogViewType
     ref: string | number | null | undefined
     enabled?: boolean
+}
+
+export interface UseFileSystemLogViewOptions extends TrackFileSystemLogViewOptions {
     deps: DependencyList
 }
 
-export function useFileSystemLogView({ type, ref, enabled = true, deps }: UseFileSystemLogViewOptions): void {
-    useEffect(() => {
-        if (!enabled || ref === null || ref === undefined) {
-            return
-        }
+export function trackFileSystemLogView({ type, ref, enabled = true }: TrackFileSystemLogViewOptions): void {
+    if (!enabled || ref === null || ref === undefined) {
+        return
+    }
 
-        void api.fileSystemLogView.create({ type, ref: String(ref) })
+    void api.fileSystemLogView.create({ type, ref: String(ref) })
+}
+
+export function useFileSystemLogView({ deps, ...options }: UseFileSystemLogViewOptions): void {
+    useEffect(() => {
+        trackFileSystemLogView(options)
     }, deps)
 }
