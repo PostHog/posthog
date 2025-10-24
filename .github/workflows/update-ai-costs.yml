@@ -4,7 +4,7 @@ on:
     workflow_dispatch: # Allow manual triggering
 
 permissions:
-    contents: write
+    contents: read
     pull-requests: write
 
 jobs:
@@ -16,7 +16,6 @@ jobs:
               uses: actions/checkout@v4
               with:
                   token: ${{ secrets.POSTHOG_BOT_PAT }}
-                  fetch-depth: 0
 
             - name: Install pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
