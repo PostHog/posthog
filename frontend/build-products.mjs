@@ -39,6 +39,8 @@ export function buildProductManifests() {
     const treeItemsProducts = {}
 
     const visitManifests = (sourceFile) => {
+        const manifestSceneKeys = []
+        const manifestTreeItems = []
         ts.forEachChild(sourceFile, function walk(node) {
             if (ts.isPropertyAssignment(node) && ts.isObjectLiteralExpression(node.initializer)) {
                 const { text: name } = node.name
@@ -52,6 +54,10 @@ export function buildProductManifests() {
                     node.initializer.properties.forEach((p) => list.push(cloneNode(p)))
                 } else if (name === 'scenes') {
                     node.initializer.properties.forEach((prop) => {
+                        const sceneName = prop.name?.text ?? prop.name?.escapedText
+                        if (sceneName && !manifestSceneKeys.includes(sceneName)) {
+                            manifestSceneKeys.push(sceneName)
+                        }
                         const imp = keepOnlyImport(prop, sourceFile.fileName)
                         if (imp) {
                             scenes.push(imp)
@@ -69,6 +75,7 @@ export function buildProductManifests() {
                 ts.isArrayLiteralExpression(node.initializer) &&
                 ['treeItemsNew', 'treeItemsProducts', 'treeItemsMetadata', 'treeItemsGames'].includes(node.name.text)
             ) {
+                const shouldAnnotate = node.name.text !== 'treeItemsGames'
                 const dict =
                     node.name.text === 'treeItemsNew'
                         ? treeItemsNew
@@ -84,12 +91,32 @@ export function buildProductManifests() {
                     const pathProp = el.properties.find((p) => p.name?.text === 'path')
                     const thePath = pathProp?.initializer?.text
                     if (thePath) {
-                        dict[thePath] = cloneNode(el)
+                        const cloned = cloneNode(el)
+                        if (shouldAnnotate) {
+                            manifestTreeItems.push(cloned)
+                        }
+                        dict[thePath] = cloned
                     }
                 })
             } else {
                 ts.forEachChild(node, walk)
             }
+        })
+
+        const makeSceneKeysProp = () =>
+            ts.factory.createPropertyAssignment(
+                ts.factory.createIdentifier('sceneKeys'),
+                ts.factory.createArrayLiteralExpression(
+                    manifestSceneKeys.map((key) => ts.factory.createStringLiteral(key))
+                )
+            )
+
+        manifestTreeItems.forEach((item) => {
+            if (item.properties.some((p) => p.name?.text === 'sceneKeys')) {
+                return
+            }
+            const props = [...item.properties, makeSceneKeysProp()]
+            item.properties = ts.factory.createNodeArray(props)
         })
     }
 
