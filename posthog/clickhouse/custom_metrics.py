@@ -109,6 +109,8 @@ def CUSTOM_METRICS_SERVER_CRASH_VIEW():
 
 def CUSTOM_METRICS_TABLE_SIZES_VIEW():
     return f"""
+    CREATE OR REPLACE VIEW custom_metrics_table_sizes
+    AS
     SELECT
         'ClickHouseCustomMetric_TableTotalBytes' AS name,
         map('instance', hostname(),
@@ -120,7 +122,6 @@ def CUSTOM_METRICS_TABLE_SIZES_VIEW():
         'gauge' AS type
     FROM system.tables
     WHERE database NOT IN ('INFORMATION_SCHEMA', 'information_schema')
-"""
 
 
 CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE = f"""
