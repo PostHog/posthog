@@ -192,39 +192,35 @@ jobs:
                       if (triggerStatus === 'success') {
                         // Build preview URL
                         const baseUrl = deploymentUrl || 'https://posthog.com';
-                        const handbookBase = `${baseUrl}/handbook/engineering`;
+                        const handbookBase = baseUrl + '/handbook/engineering';
 
                         // Build table of changed files with preview links
-                        let filesTable = '';
+                        let filesSection = '';
                         if (changedFiles && changedFiles.length > 0) {
-                          filesTable = '\n### Changed Documentation\n\n| File | Preview |\n|------|---------|';
+                          filesSection = '\n### Changed Documentation\n\n| File | Preview |\n|------|---------|';
 
                           for (const file of changedFiles) {
                             // Convert docs/published/foo/bar.md -> /handbook/engineering/foo/bar
                             const relativePath = file.replace('docs/published/', '').replace(/\.mdx?$/, '');
-                            const previewUrl = `${handbookBase}/${relativePath}`;
+                            const previewUrl = handbookBase + '/' + relativePath;
                             const fileName = file.split('/').pop();
 
-                            filesTable += `\n| \`${fileName}\` | [View →](${previewUrl}) |`;
+                            filesSection += '\n| `' + fileName + '` | [View →](' + previewUrl + ') |';
                           }
+                        } else {
+                          filesSection = '\n**' + fileCount + ' docs file(s) changed** in `docs/published/`';
                         }
 
-                        message = `## 📚 Docs Preview (PoC)
-
-**Preview URL:** ${baseUrl}
-
-${filesTable || `\n**${fileCount} docs file(s) changed** in \`docs/published/\``}
-
-### Resources
-
-- [Handbook base](${handbookBase})
-- [External docs manifest](${baseUrl}/external-docs-map.json)
-
-Preview will be ready in ~2 minutes. Check Vercel bot comment below for deployment status.`;
+                        message = '## 📚 Docs Preview (PoC)\n\n' +
+                                  '**Preview URL:** ' + baseUrl + '\n' +
+                                  filesSection + '\n\n' +
+                                  '### Resources\n\n' +
+                                  '- [Handbook base](' + handbookBase + ')\n' +
+                                  '- [External docs manifest](' + baseUrl + '/external-docs-map.json)\n\n' +
+                                  'Preview will be ready in ~2 minutes. Check Vercel bot comment below for deployment status.';
                       } else {
-                        message = `## 📚 Docs Preview Build Failed (PoC)
-
-Preview build could not be triggered. Check the GitHub Action logs for details.`;
+                        message = '## 📚 Docs Preview Build Failed (PoC)\n\n' +
+                                  'Preview build could not be triggered. Check the GitHub Action logs for details.';
                       }
 
                       github.rest.issues.createComment({
