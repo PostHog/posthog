@@ -493,10 +493,10 @@ class SnowflakeClient:
                 # Get the final query status to provide context in the error message
                 final_status = await self.get_query_status(query_id, throw_if_error=False)
                 self.logger.warning(
-                    "Query '%s' timed out after %.2fs with status '%s'",
-                    query_id,
+                    "Query timed out after %.2fs with status '%s'",
                     timeout,
                     final_status.name if final_status else "UNKNOWN",
+                    query_id=query_id,
                 )
 
                 # Cancel the query in Snowflake to prevent it from continuing to run
@@ -513,20 +513,20 @@ class SnowflakeClient:
 
         query_execution_time = time.monotonic() - query_start_time
         self.logger.debug(
-            "Async query '%s' finished with status '%s' in %.2fs", query_id, query_status, query_execution_time
+            "Async query finished with status '%s' in %.2fs", query_status, query_execution_time, query_id=query_id
         )
 
         if fetch_results is False:
             return None
 
-        self.logger.debug("Fetching query results for query '%s'", query_id)
+        self.logger.debug("Fetching query results", query_id=query_id)
 
         with self.connection.cursor() as cursor:
             await asyncio.to_thread(cursor.get_results_from_sfqid, query_id)
             results = await asyncio.to_thread(cursor.fetchall)
             description = cursor.description
 
-        self.logger.debug("Finished fetching query results for %s", query)
+        self.logger.debug("Finished fetching query results", query_id=query_id)
 
         return results, description
 
