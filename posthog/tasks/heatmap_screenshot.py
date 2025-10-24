@@ -1,5 +1,3 @@
-from django.db import transaction
-
 import structlog
 import posthoganalytics
 from celery import shared_task
@@ -94,7 +92,6 @@ def _dismiss_cookie_banners(page: Page) -> None:
     retry_backoff_max=60,
     max_retries=3,
 )
-@transaction.atomic
 def generate_heatmap_screenshot(screenshot_id: str) -> None:
     """
     Generate a screenshot of a website for heatmap purposes.
