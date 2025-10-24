@@ -23,14 +23,11 @@ import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { projectLogic } from 'scenes/projectLogic'
-import { Scene } from 'scenes/sceneTypes'
-import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
 import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -56,8 +53,6 @@ import {
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AccessControlLevel,
-    ActivityScope,
-    Breadcrumb,
     BreakdownAttributionType,
     BreakdownType,
     CohortType,
@@ -70,7 +65,6 @@ import {
     InsightType,
     MultivariateFlagVariant,
     ProductKey,
-    ProjectTreeRef,
     PropertyMathType,
     TrendExperimentVariant,
 } from '~/types'
@@ -99,7 +93,7 @@ import {
     transformFiltersForWinningVariant,
 } from './utils'
 
-const NEW_EXPERIMENT: Experiment = {
+export const NEW_EXPERIMENT: Experiment = {
     id: 'new',
     name: '',
     type: 'product',
@@ -1539,41 +1533,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 )
             },
         ],
-        breadcrumbs: [
-            (s) => [s.experiment, s.experimentId],
-            (experiment, experimentId): Breadcrumb[] => {
-                return [
-                    {
-                        key: Scene.Experiments,
-                        name: sceneConfigurations[Scene.Experiments].name || 'Experiments',
-                        path: urls.experiments(),
-                        iconType: sceneConfigurations[Scene.Experiments].iconType || 'default_icon_type',
-                    },
-                    {
-                        key: [Scene.Experiment, experimentId],
-                        name: experiment?.name || 'New Experiment',
-                        iconType: sceneConfigurations[Scene.Experiment].iconType || 'default_icon_type',
-                    },
-                ]
-            },
-        ],
-        [SIDE_PANEL_CONTEXT_KEY]: [
-            (s) => [s.experimentId],
-            (experimentId: Experiment['id']): SidePanelSceneContext | null => {
-                return experimentId && experimentId !== 'new'
-                    ? {
-                          activity_scope: ActivityScope.EXPERIMENT,
-                          activity_item_id: `${experimentId}`,
-                      }
-                    : null
-            },
-        ],
-        projectTreeRef: [
-            () => [(_, props: ExperimentLogicProps) => props.experimentId],
-            (experimentId): ProjectTreeRef => {
-                return { type: 'experiment', ref: experimentId === 'new' ? null : String(experimentId) }
-            },
-        ],
+        // Scene-level selectors (breadcrumbs, SIDE_PANEL_CONTEXT_KEY, projectTreeRef) moved to experimentSceneLogic.tsx
         variants: [
             (s) => [s.experiment],
             (experiment): MultivariateFlagVariant[] => {
@@ -2086,35 +2046,5 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         },
     })),
-    urlToAction(({ actions, values }) => ({
-        '/experiments/:id': ({ id }, query, __, currentLocation, previousLocation) => {
-            const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
-
-            actions.setEditExperiment(false)
-
-            if (id && didPathChange) {
-                const parsedId = id === 'new' ? 'new' : parseInt(id)
-                if (parsedId === 'new') {
-                    actions.resetExperiment({
-                        ...NEW_EXPERIMENT,
-                        metrics: query.metric ? [query.metric] : [],
-                        name: query.name ?? '',
-                    })
-                }
-                if (parsedId !== 'new' && parsedId === values.experimentId) {
-                    actions.loadExperiment()
-                    if (values.isExperimentRunning) {
-                        actions.loadExposures()
-                    }
-                }
-            }
-        },
-        '/experiments/:id/:formMode': ({ id }, _, __, currentLocation, previousLocation) => {
-            const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
-
-            if (id && didPathChange) {
-                actions.loadExperiment()
-            }
-        },
-    })),
+    // URL routing moved to experimentSceneLogic.tsx
 ])
