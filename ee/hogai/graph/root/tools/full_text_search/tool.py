@@ -83,6 +83,35 @@ class EntitySearchToolkit:
         self._team = team
         self._user = user
 
+    async def execute(self, query: str, entity: str) -> str:
+        """Search for entities by query and entity."""
+        try:
+            if not query:
+                return "No search query was provided"
+
+            if entity == EntityType.ALL:
+                entity_types = set(ENTITY_MAP.keys())
+            elif entity in ENTITY_MAP:
+                entity_types = {entity}
+            else:
+                return f"Invalid entity type: {entity}. Will not search for this entity type."
+
+            results, counts = await database_sync_to_async(search_entities)(
+                entity_types,
+                query,
+                self._team.project_id,
+                self,  # type: ignore
+                ENTITY_MAP,
+            )
+
+            content = self._format_results_for_display(query, entity_types, results, counts)
+            return content
+
+        except Exception as e:
+            capture_exception(e, distinct_id=self._user.distinct_id)
+
+            return f"Error searching entities: {str(e)}"
+
     @property
     def user_access_control(self) -> UserAccessControl:
         return UserAccessControl(user=self._user, team=self._team, organization_id=self._team.organization.id)
@@ -154,32 +183,3 @@ class EntitySearchToolkit:
                 )
             content += f"\n\n{HYPERLINK_USAGE_INSTRUCTIONS}"
         return content
-
-    async def execute(self, query: str, entity: str) -> str:
-        """Search for entities by query and entity."""
-        try:
-            if not query:
-                return "No search query was provided"
-
-            if entity == EntityType.ALL:
-                entity_types = set(ENTITY_MAP.keys())
-            elif entity in ENTITY_MAP:
-                entity_types = {entity}
-            else:
-                return f"Invalid entity type: {entity}. Will not search for this entity type."
-
-            results, counts = await database_sync_to_async(search_entities)(
-                entity_types,
-                query,
-                self._team.project_id,
-                self,  # type: ignore
-                ENTITY_MAP,
-            )
-
-            content = self._format_results_for_display(query, entity_types, results, counts)
-            return content
-
-        except Exception as e:
-            capture_exception(e, distinct_id=self._user.distinct_id)
-
-            return f"Error searching entities: {str(e)}"

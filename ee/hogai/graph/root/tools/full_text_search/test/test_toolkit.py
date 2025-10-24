@@ -1,4 +1,4 @@
-import pytest
+from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
 from django.conf import settings
@@ -9,9 +9,9 @@ from ee.hogai.graph.root.tools.full_text_search.tool import ENTITY_MAP, EntitySe
 from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 
 
-class TestEntitySearchToolkit:
-    @pytest.fixture(autouse=True)
-    def setup_method(self):
+class TestEntitySearchToolkit(BaseTest):
+    def setUp(self):
+        super().setUp()
         self.team = Mock()
         self.team.id = 123
         self.team.project_id = 456
@@ -89,13 +89,11 @@ class TestEntitySearchToolkit:
         assert "Dashboard: 1" in content
         assert HYPERLINK_USAGE_INSTRUCTIONS in content
 
-    @pytest.mark.asyncio
     async def test_arun_no_query(self):
         result = await self.toolkit.execute(query=None, entity="cohort")  # type: ignore
 
         assert "No search query was provided" in result
 
-    @pytest.mark.asyncio
     @patch("ee.hogai.graph.root.tools.full_text_search.tool.search_entities")
     @patch("ee.hogai.graph.root.tools.full_text_search.tool.database_sync_to_async")
     async def test_search_no_entity_types(self, mock_db_sync, mock_search_entities):
@@ -123,7 +121,6 @@ class TestEntitySearchToolkit:
             set(ENTITY_MAP.keys()), "test query", self.team.project_id, self.toolkit, ENTITY_MAP
         )
 
-    @pytest.mark.asyncio
     @patch("ee.hogai.graph.root.tools.full_text_search.tool.search_entities")
     @patch("ee.hogai.graph.root.tools.full_text_search.tool.database_sync_to_async")
     async def test_arun_with_results(self, mock_db_sync, mock_search_entities):
@@ -153,7 +150,6 @@ class TestEntitySearchToolkit:
             assert self.toolkit._build_url(expected_result["type"], expected_result["result_id"]) in result
             assert HYPERLINK_USAGE_INSTRUCTIONS in result
 
-    @pytest.mark.asyncio
     @patch("ee.hogai.graph.root.tools.full_text_search.tool.database_sync_to_async")
     @patch("ee.hogai.graph.root.tools.full_text_search.tool.capture_exception")
     async def test_arun_exception_handling(self, mock_capture, mock_db_sync):
@@ -163,7 +159,6 @@ class TestEntitySearchToolkit:
 
         assert "Database error" in result
 
-    @pytest.mark.asyncio
     async def test_search_entities_invalid_entity_type(self):
         result = await self.toolkit.execute(query="test query", entity="invalid_type")
 

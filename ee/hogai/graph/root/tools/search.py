@@ -5,7 +5,6 @@ from django.conf import settings
 import posthoganalytics
 from langchain_core.output_parsers import SimpleJsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
@@ -13,7 +12,6 @@ from posthog.models import Team, User
 
 from ee.hogai.graph.root.tools.full_text_search.tool import ENTITY_MAP, EntitySearchToolkit, EntityType
 from ee.hogai.tool import MaxTool
-from ee.hogai.utils.types import AssistantState
 
 DOC_SEARCH_TOOL_PROMPT = """
 # Documentation search
@@ -68,10 +66,12 @@ Use this tool to find PostHog entities using full-text search.
 Full-text search is a more powerful way to find entities than natural language search. It relies on the PostgreSQL full-text search capabilities.
 So the query used in this tool should be a natural language query that is optimized for full-text search, consider tokenizing of the query and using synonyms.
 If you want to search for all entities, you should use `all`.
+""".strip()
 
-The supported PostHog entity types are:
-{fts_entities}
-
+SEARCH_TOOL_PROMPT = """
+Use this tool to search docs, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, error tracking issues, and surveys in PostHog
+{DOC_SEARCH_TOOL_PROMPT}
+{ENTITY_SEARCH_TOOL_PROMPT}
 """.strip()
 
 DOCS_SEARCH_RESULTS_TEMPLATE = """Found {count} relevant documentation page(s):
@@ -140,7 +140,7 @@ class InkeepResponse(BaseModel):
 class SearchTool(MaxTool):
     name: Literal["search"] = "search"
     thinking_message: str = "Searching for information"
-    description: str = ""
+    description: str = SEARCH_TOOL_PROMPT
     context_prompt_template: str = "Searches documentation, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, error tracking issues, and surveys in PostHog"
     args_schema: type[BaseModel] = SearchToolArgs
     show_tool_call_message: bool = False
@@ -153,38 +153,6 @@ class SearchTool(MaxTool):
             entities = list(ENTITY_MAP.keys())
         return [*entities, EntityType.ALL.value]
 
-    @staticmethod
-    def _build_search_prompt(include_insight_fts: bool) -> str:
-        fts_entities = SearchTool._get_fts_entities(include_insight_fts)
-        entity_list = "\n".join([f"- {entity_name}" for entity_name in fts_entities])
-
-        return f"""
-            Use this tool to search docs, insights, and PostHog entities by using natural language.
-            {DOC_SEARCH_TOOL_PROMPT}
-            {INSIGHTS_SEARCH_TOOL_PROMPT if not include_insight_fts else ""}
-            {ENTITY_SEARCH_TOOL_PROMPT.format(fts_entities=entity_list)}
-        """.strip()
-
-    @classmethod
-    async def create_tool_class(
-        cls,
-        *,
-        team: Team,
-        user: User,
-        state: AssistantState | None = None,
-        config: RunnableConfig | None = None,
-    ) -> "SearchTool":
-        # Check feature flag before creating instance
-        has_insight_fts = posthoganalytics.feature_enabled(
-            FTS_SEARCH_FEATURE_FLAG,
-            str(user.distinct_id),
-            groups={"organization": str(team.organization_id)},
-            group_properties={"organization": {"id": str(team.organization_id)}},
-            send_feature_flag_events=False,
-        )
-        description = SearchTool._build_search_prompt(has_insight_fts)
-        return cls(team=team, user=user, state=state, config=config, description=description)
-
     async def _arun_impl(self, kind: SearchKind, query: str) -> tuple[str, dict[str, Any] | None]:
         if kind == "doc":
             if not settings.INKEEP_API_KEY:
@@ -192,7 +160,7 @@ class SearchTool(MaxTool):
             if self._has_docs_search_feature_flag():
                 return await self._search_docs(query), None
 
-        fts_entities = SearchTool._get_fts_entities(self._has_fts_search_feature_flag())
+        fts_entities = SearchTool._get_fts_entities(SearchTool._has_fts_search_feature_flag(self._user, self._team))
 
         if kind in fts_entities:
             entity_search_toolkit = EntitySearchToolkit(self._team, self._user)
@@ -210,12 +178,13 @@ class SearchTool(MaxTool):
             send_feature_flag_events=False,
         )
 
-    def _has_fts_search_feature_flag(self) -> bool:
+    @staticmethod
+    def _has_fts_search_feature_flag(user: User, team: Team) -> bool:
         return posthoganalytics.feature_enabled(
             FTS_SEARCH_FEATURE_FLAG,
-            str(self._user.distinct_id),
-            groups={"organization": str(self._team.organization_id)},
-            group_properties={"organization": {"id": str(self._team.organization_id)}},
+            str(user.distinct_id),
+            groups={"organization": str(team.organization_id)},
+            group_properties={"organization": {"id": str(team.organization_id)}},
             send_feature_flag_events=False,
         )
 
