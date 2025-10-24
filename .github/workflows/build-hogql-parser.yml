@@ -63,12 +63,16 @@ jobs:
                 include:
                     - os: macos-13
                       cibw_archs_macos: x86_64
+                      MACOSX_DEPLOYMENT_TARGET: 13
                     - os: macos-14
                       cibw_archs_macos: arm64
+                      MACOSX_DEPLOYMENT_TARGET: 14
                     - os: ubuntu-22.04
                       cibw_archs_linux: x86_64
+                      MACOSX_DEPLOYMENT_TARGET: ''
                     - os: buildjet-2vcpu-ubuntu-2204-arm
                       cibw_archs_linux: aarch64
+                      MACOSX_DEPLOYMENT_TARGET: ''
 
         steps:
             - uses: actions/checkout@v4
@@ -91,7 +95,7 @@ jobs:
               env:
                   CIBW_ARCHS_MACOS: ${{ matrix.cibw_archs_macos }}
                   CIBW_ARCHS_LINUX: ${{ matrix.cibw_archs_linux }}
-                  MACOSX_DEPLOYMENT_TARGET: '13' # A modern target allows us to use C++20
+                  MACOSX_DEPLOYMENT_TARGET: ${{ matrix.MACOSX_DEPLOYMENT_TARGET }}
 
             - name: Upload wheels artifact
               uses: actions/upload-artifact@v4
