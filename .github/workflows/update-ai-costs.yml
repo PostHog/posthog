@@ -27,9 +27,11 @@ jobs:
                   cache: 'pnpm'
 
             - name: Install dependencies
+              env:
+                  HUSKY: 0
               run: |
                   cd plugin-server
-                  pnpm install --frozen-lockfile
+                  pnpm install --frozen-lockfile --ignore-scripts
 
             - name: Update AI costs
               run: |
