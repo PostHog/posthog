@@ -12,9 +12,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AttributionSettings } from './AttributionSettings'
 import { CampaignNameMappingsConfiguration } from './CampaignNameMappingsConfiguration'
 import { ConversionGoalsConfiguration } from './ConversionGoalsConfiguration'
-import { NativeExternalDataSourceConfiguration } from './NativeExternalDataSourceConfiguration'
-import { NonNativeExternalDataSourceConfiguration } from './NonNativeExternalDataSourceConfiguration'
-import { SelfManagedExternalDataSourceConfiguration } from './SelfManagedExternalDataSourceConfiguration'
+import { ExternalDataSourceConfiguration } from './ExternalDataSourceConfiguration'
 
 export function MarketingAnalyticsSettings({
     hideTitle = false,
@@ -34,33 +32,31 @@ export function MarketingAnalyticsSettings({
                     }}
                 />
             )}
+            <ExternalDataSourceConfiguration />
+            <SceneDivider />
+            <ConversionGoalsConfiguration />
+            <SceneDivider />
+            <AttributionSettings />
+            <SceneDivider />
             {!hideBaseCurrency && (
                 <>
                     <SceneDivider />
                     <BaseCurrency />
                 </>
             )}
-            <SceneDivider />
-            <AttributionSettings />
-            <SceneDivider />
-            <ConversionGoalsConfiguration />
-            <SceneDivider />
-            <NativeExternalDataSourceConfiguration />
-            <SceneDivider />
-            <NonNativeExternalDataSourceConfiguration />
-            <SceneDivider />
-            <SelfManagedExternalDataSourceConfiguration />
-            <SceneDivider />
             <FlaggedFeature flag="advance-marketing-analytics-settings">
-                <LemonCollapse
-                    panels={[
-                        {
-                            key: 'advanced-marketing-settings',
-                            header: 'Advanced marketing settings',
-                            content: <CampaignNameMappingsConfiguration />,
-                        },
-                    ]}
-                />
+                <>
+                    <SceneDivider />
+                    <LemonCollapse
+                        panels={[
+                            {
+                                key: 'advanced-marketing-settings',
+                                header: 'Advanced marketing settings',
+                                content: <CampaignNameMappingsConfiguration />,
+                            },
+                        ]}
+                    />
+                </>
             </FlaggedFeature>
         </SceneContent>
     )

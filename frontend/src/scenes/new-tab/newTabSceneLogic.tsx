@@ -67,6 +67,7 @@ export interface NewTabTreeDataItem extends TreeDataItem {
     category: NEW_TAB_CATEGORY_ITEMS
     href?: string
     flag?: string
+    lastViewedAt?: string | null
 }
 
 export interface NewTabCategoryItem {
@@ -139,9 +140,9 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     }
                     const searchTerm = values.search.trim()
                     const response = await api.fileSystem.list({
-                        search: '"name:' + searchTerm + '"',
+                        search: searchTerm,
                         limit: PAGINATION_LIMIT + 1,
-                        orderBy: '-created_at',
+                        orderBy: '-last_viewed_at',
                         notType: 'folder',
                     })
                     breakpoint()
@@ -342,6 +343,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             (featureFlags): NewTabCategoryItem[] => {
                 const categories: NewTabCategoryItem[] = [
                     { key: 'all', label: 'All' },
+                    { key: 'recents', label: 'Recents' },
                     {
                         key: 'create-new',
                         label: 'Create new',
@@ -351,7 +353,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         key: 'data-management',
                         label: 'Data management',
                     },
-                    { key: 'recents', label: 'Recents' },
                 ]
                 if (featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]) {
                     categories.push({
@@ -414,6 +415,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         name: name || item.path,
                         category: 'recents',
                         href: item.href || '#',
+                        lastViewedAt: item.last_viewed_at ?? null,
                         icon: getIconForFileSystemItem({
                             type: item.type,
                             iconType: item.type as any,
@@ -611,6 +613,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                 const allItems: NewTabTreeDataItem[] = [
                     ...(newTabSceneData ? aiSearchItems : []),
+                    ...projectTreeSearchItems,
                     {
                         id: 'new-sql-query',
                         name: 'New SQL query',
@@ -624,7 +627,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     ...products,
                     ...data,
                     ...newDataItems,
-                    ...projectTreeSearchItems,
                     {
                         id: 'new-hog-program',
                         name: 'New Hog program',
@@ -899,7 +901,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 const showAll = newTabSceneDataInclude.includes('all')
 
                 // Add sections in a useful order
-                const mainSections = ['create-new', 'apps', 'data-management', 'recents']
+                const mainSections = ['recents', 'create-new', 'apps', 'data-management']
                 mainSections.forEach((section) => {
                     if (showAll || newTabSceneDataInclude.includes(section as NEW_TAB_COMMANDS)) {
                         orderedSections.push(section)

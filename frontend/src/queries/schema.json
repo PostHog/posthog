@@ -13243,6 +13243,10 @@
                     "description": "Unique UUID for tree entry",
                     "type": "string"
                 },
+                "last_viewed_at": {
+                    "description": "Timestamp when the file system entry was last viewed",
+                    "type": ["string", "null"]
+                },
                 "meta": {
                     "description": "Metadata",
                     "type": "object"
@@ -13385,6 +13389,10 @@
                 },
                 "id": {
                     "type": "string"
+                },
+                "last_viewed_at": {
+                    "description": "Timestamp when the file system entry was last viewed",
+                    "type": ["string", "null"]
                 },
                 "meta": {
                     "description": "Metadata",

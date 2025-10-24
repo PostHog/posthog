@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any, Optional, cast
 
 from django.contrib.auth.models import AnonymousUser
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import Q, QuerySet
 from django.utils.timezone import now
 
@@ -18,7 +18,9 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import RecordingsQuery
 
 from posthog.api.documentation import extend_schema
+from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.mixins import FileSystemViewSetMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -344,7 +346,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
 
 
 class SessionRecordingPlaylistViewSet(
-    TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet
+    FileSystemViewSetMixin, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet
 ):
     scope_object = "session_recording_playlist"
     queryset = SessionRecordingPlaylist.objects.all()
@@ -719,11 +721,21 @@ class SessionRecordingPlaylistViewSet(
         if user.is_anonymous:
             raise ValidationError("Only authenticated users can mark a playlist as viewed.")
 
+        viewed_at = now()
+
         # only create if it doesn't exist
         try:
-            SessionRecordingPlaylistViewed.objects.create(user=user, playlist=playlist, team=team)
+            with transaction.atomic():
+                SessionRecordingPlaylistViewed.objects.create(
+                    user=user,
+                    playlist=playlist,
+                    team=team,
+                    viewed_at=viewed_at,
+                )
         except IntegrityError:
             # that's okay... if the viewed at clashes then we're ok skipping creation
             pass
+
+        log_api_file_system_view(request, playlist, viewed_at=viewed_at)
 
         return response.Response({"success": True})

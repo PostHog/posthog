@@ -10,7 +10,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0890_add_campaign_name_mappings"),
+        ("posthog", "0891_file_system_view_log"),
     ]
 
     operations = [

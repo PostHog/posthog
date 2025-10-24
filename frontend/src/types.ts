@@ -1112,9 +1112,6 @@ export type SessionRecordingSnapshotParams = (
           start_blob_key?: string
           end_blob_key?: string
       }
-    | {
-          source: 'realtime'
-      }
 ) & {
     decompress?: boolean
 }
