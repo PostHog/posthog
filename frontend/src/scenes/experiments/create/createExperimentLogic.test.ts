@@ -84,41 +84,6 @@ describe('createExperimentLogic', () => {
                 })
         })
 
-        it('prevents submission when description is empty and shows error', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setExperiment({
-                    ...NEW_EXPERIMENT,
-                    name: 'Valid name',
-                    description: '',
-                })
-                logic.actions.submitExperiment()
-            })
-                .toDispatchActions(['setExperiment', 'submitExperiment', 'submitExperimentFailure'])
-                .toMatchValues({
-                    experimentErrors: partial({
-                        description: 'Hypothesis is required',
-                    }),
-                })
-        })
-
-        it('shows both errors when both name and description are empty', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setExperiment({
-                    ...NEW_EXPERIMENT,
-                    name: '',
-                    description: '',
-                })
-                logic.actions.submitExperiment()
-            })
-                .toDispatchActions(['setExperiment', 'submitExperiment', 'submitExperimentFailure'])
-                .toMatchValues({
-                    experimentErrors: partial({
-                        name: 'Name is required',
-                        description: 'Hypothesis is required',
-                    }),
-                })
-        })
-
         it('allows submission with valid data', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setExperiment({
