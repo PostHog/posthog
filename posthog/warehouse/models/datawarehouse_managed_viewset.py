@@ -21,6 +21,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from posthog.warehouse.types import DataWarehouseManagedViewSetKind
 
 logger = structlog.get_logger(__name__)
 
@@ -33,11 +34,8 @@ class ExpectedView:
 
 
 class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
-    class Kind(models.TextChoices):
-        REVENUE_ANALYTICS = "revenue_analytics", "Revenue Analytics"
-
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
-    kind = models.CharField(max_length=64, choices=Kind.choices)
+    kind = models.CharField(max_length=64, choices=DataWarehouseManagedViewSetKind.choices)
 
     class Meta:
         constraints = [
@@ -63,7 +61,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         from posthog.warehouse.data_load.saved_query_service import sync_saved_query_workflow
 
         expected_views: list[ExpectedView] = []
-        if self.kind == self.Kind.REVENUE_ANALYTICS:
+        if self.kind == DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS:
             expected_views = self._get_expected_views_for_revenue_analytics()
         else:
             raise ValueError(f"Unsupported viewset kind: {self.kind}")
@@ -88,10 +86,12 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 )
 
                 # Always update query and columns, even for existing objects
+                # This guarantees that the saved query will be re-materialized with the most recent query and columns
                 if not created:
                     saved_query.query = view.query
                     saved_query.columns = view.columns
-                    saved_query.save(update_fields=["query", "columns"])
+                    saved_query.status = DataWarehouseSavedQuery.Status.MODIFIED
+                    saved_query.save(update_fields=["query", "columns", "status"])
 
                 if created:
                     views_created += 1
@@ -219,7 +219,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         # If the types here prove to be wrong, we can easily run the following script to update the types:
         # ```python
         # from posthog.warehouse.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
-        # for viewset in DataWarehouseManagedViewSet.objects.():
+        # for viewset in DataWarehouseManagedViewSet.objects.iterator():
         #     viewset.sync_views()
         # ```
 

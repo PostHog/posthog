@@ -1,6 +1,6 @@
 from collections.abc import Iterable
 from datetime import datetime, timedelta
-from typing import Optional, Union
+from typing import Optional, Union, cast
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
@@ -16,6 +16,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.database.models import SavedQuery
 from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.query_runner import AR, QueryRunnerWithHogQLContext
@@ -24,7 +25,7 @@ from posthog.models import User
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.warehouse.models import ExternalDataSchema
-from posthog.warehouse.types import ExternalDataSourceType
+from posthog.warehouse.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 from products.revenue_analytics.backend.views import (
     RevenueAnalyticsBaseView,
@@ -34,7 +35,10 @@ from products.revenue_analytics.backend.views import (
     RevenueAnalyticsRevenueItemView,
     RevenueAnalyticsSubscriptionView,
 )
-from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
+from products.revenue_analytics.backend.views.schemas import (
+    SCHEMAS as VIEW_SCHEMAS,
+    Schema as RevenueAnalyticsSchema,
+)
 
 # This is the placeholder that we use for the breakdown_by field when the breakdown is not present
 NO_BREAKDOWN_PLACEHOLDER = "<none>"
@@ -302,18 +306,22 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
 
         return initial_join
 
-    def revenue_subqueries(
-        self,
-        ViewKind: Optional[type[RevenueAnalyticsBaseView]] = None,
-        union: bool = False,
-    ) -> Iterable[RevenueAnalyticsBaseView]:
+    def revenue_subqueries(self, schema: RevenueAnalyticsSchema) -> Iterable[SavedQuery]:
         for view_name in self.database.get_view_names():
-            view = self.database.get_table(view_name)
-            if isinstance(view, RevenueAnalyticsBaseView):
-                if ViewKind is None:
-                    yield view
-                elif isinstance(view, ViewKind) and view.union_all == union:
-                    yield view
+            # Ignore the `.all.` queries and match on the suffix
+            # To be extra sure we aren't including user-defined queries we also assert they're managed by the Revenue Analytics managed viewset (if flag is enabled)
+            if ".all." not in view_name and (
+                view_name.endswith(schema.source_suffix) or view_name.endswith(schema.events_suffix)
+            ):
+                # Handle both the old way (`RevenueAnalyticsBaseView`) and the feature-flagged way (`SavedQuery` via managed viewsets)
+                # Once the `managed-viewsets` feature flag is fully rolled out we can remove the first check
+                table = self.database.get_table(view_name)
+                if isinstance(table, RevenueAnalyticsBaseView):
+                    yield table
+                else:
+                    table = cast(SavedQuery, table)
+                    if table.managed_viewset_kind == DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS:
+                        yield table
 
     @cached_property
     def query_date_range(self):
