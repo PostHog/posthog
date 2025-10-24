@@ -21,6 +21,7 @@ class LLMTracesSummarizer:
         self._team = team
 
     async def summarize_traces_for_date_range(self, date_range: DateRange) -> None:
+        """Get, stringify, summarize, embed and store summaries for all traces in the date range."""
         collector = LLMTracesSummarizerCollector(team=self._team)
         # Collect and stringify traces in-memory
         stringifier = LLMTracesSummarizerStringifier(team=self._team)
@@ -50,3 +51,7 @@ class LLMTracesSummarizer:
         embedder.embed_summaries(summarized_traces=summarized_traces)
         # Returns nothing if everything succeeded
         return None
+
+    def find_top_similar_traces_for_query(self, query: str, top: int, date_range: DateRange) -> list[dict[str, str]]:
+        """Search all summarized traces for the query and return the top similar traces."""
+        
