@@ -465,9 +465,9 @@ def _recalculate_cohortpeople_for_team_hogql(cohort: Cohort, pending_version: in
     )
 
     try:
-        chunk_size = _get_cohort_chunking_config(team.uuid, team.organization.id)
+        estimated_size = cohort.count if cohort.count else 0
+        chunk_size = _get_cohort_chunking_config(cohort, team.uuid, team.organization.id, estimated_size)
         if chunk_size is not None:
-            estimated_size = cohort.count if cohort.count else 0
             total_chunks = math.ceil(estimated_size / chunk_size)
             result = _recalculate_cohortpeople_chunked(cohort, pending_version, team, total_chunks, history)
         else:
@@ -898,7 +898,9 @@ def sort_cohorts_topologically(cohort_ids: set[int], seen_cohorts_cache: dict[in
     return sorted_cohort_ids
 
 
-def _get_cohort_chunking_config(team_uuid: uuid.UUID, organization_id: int) -> int | None:
+def _get_cohort_chunking_config(
+    cohort: Cohort, team_uuid: uuid.UUID, organization_id: int, estimated_size: int
+) -> int | None:
     """
     Get chunk size from feature flag, or None if chunking is disabled.
 
@@ -907,13 +909,20 @@ def _get_cohort_chunking_config(team_uuid: uuid.UUID, organization_id: int) -> i
     to indicate chunking should not be used.
 
     Args:
+        cohort: The cohort being calculated
         team_uuid: UUID of the team
         organization_id: ID of the organization
 
     Returns:
         Optional[int]: chunk_size if chunking enabled (defaults to TARGET_CHUNK_SIZE),
-                       None if chunking is disabled
+                       None if chunking is disabled or cohort is static or has zero estimated size
     """
+    if cohort.is_static:
+        return None
+
+    if estimated_size == 0:
+        return None
+
     try:
         config_json = posthoganalytics.get_feature_flag_payload(
             "cohort-calculation-chunked",
