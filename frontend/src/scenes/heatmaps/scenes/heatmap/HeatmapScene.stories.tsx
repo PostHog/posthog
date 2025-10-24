@@ -38,7 +38,7 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/environments/:team_id/saved/hm_gen/': generatingSaved,
-                '/api/environments/:team_id/heatmap_screenshots/:id/content': (_req, res, ctx) =>
+                '/api/environments/:team_id/heatmap_screenshots/:id/content/': (_req, res, ctx) =>
                     res(ctx.status(202), ctx.json(generatingSaved)),
             },
         }),
