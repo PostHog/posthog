@@ -356,6 +356,8 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(methods=["GET"], detail=True)
     def content(self, request: request.Request, *args: Any, **kwargs: Any) -> HttpResponse:
         screenshot = self.get_object()
+        if screenshot.deleted:
+            return response.Response(status=status.HTTP_404_NOT_FOUND)
 
         # Pick requested width or default
         try:
@@ -434,8 +436,6 @@ class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         status_param = request.query_params.get("status")
         search = request.query_params.get("search")
         created_by_param = request.query_params.get("created_by")
-        date_from = request.query_params.get("date_from")
-        date_to = request.query_params.get("date_to")
         order = request.query_params.get("order")
 
         if type_param:
@@ -447,18 +447,6 @@ class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if created_by_param:
             try:
                 qs = qs.filter(created_by_id=int(created_by_param))
-            except Exception:
-                pass
-        if date_from:
-            try:
-                dt_from, _, _ = relative_date_parse_with_delta_mapping(date_from, self.team.timezone_info)
-                qs = qs.filter(created_at__gte=dt_from)
-            except Exception:
-                pass
-        if date_to:
-            try:
-                dt_to, _, _ = relative_date_parse_with_delta_mapping(date_to, self.team.timezone_info)
-                qs = qs.filter(created_at__lte=dt_to)
             except Exception:
                 pass
         if order:
@@ -516,5 +504,7 @@ class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         obj = self.get_object()
-        obj.delete()
+        if not obj.deleted:
+            obj.deleted = True
+            obj.save(update_fields=["deleted", "updated_at"])
         return response.Response(status=status.HTTP_204_NO_CONTENT)
