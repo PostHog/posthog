@@ -148,14 +148,11 @@ fn upload_to_s3(presigned_url: PresignedUrl, data: &[u8]) -> Result<()> {
                 }
             }
             Result::Err(e) => {
-                last_err = Some(anyhow!("Failed to upload chunk: {e}"));
+                last_err = Some(anyhow!("Failed to upload chunk: {e:?}"));
             }
         }
         if attempt < 3 {
-            warn!(
-                "Upload attempt {} failed, retrying in {:?}...",
-                attempt, delay
-            );
+            warn!("Upload attempt {attempt} failed, retrying in {delay:?}...",);
             std::thread::sleep(delay);
             delay *= 2;
         }

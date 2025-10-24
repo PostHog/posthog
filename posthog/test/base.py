@@ -53,6 +53,7 @@ from posthog.clickhouse.query_log_archive import (
     QUERY_LOG_ARCHIVE_NEW_TABLE_SQL,
 )
 from posthog.cloud_utils import TEST_clear_instance_license_cache
+from posthog.helpers.two_factor_session import email_mfa_token_generator
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
 from posthog.models.behavioral_cohorts.sql import (
     BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL,
@@ -747,6 +748,16 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
         user = User.objects.create_user(email="testuser@example.com", first_name="Test", password="password")
         organization.members.add(user)
         return user
+
+    def complete_email_mfa(self, email: str, user: Optional[Any] = None):
+        if user is None:
+            user = User.objects.get(email=email)
+
+        token = email_mfa_token_generator.make_token(user)
+
+        response = self.client.post("/api/login/email-mfa/", {"email": email, "token": token})
+
+        return response
 
     def assertEntityResponseEqual(self, response1, response2, remove=("action", "label", "persons_urls", "filter")):
         stripped_response1 = stripResponse(response1, remove=remove)
