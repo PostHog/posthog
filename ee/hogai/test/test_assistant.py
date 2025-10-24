@@ -1369,12 +1369,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_root(
                 {
-                    "search_documentation": AssistantNodeName.INKEEP_DOCS,
                     "root": AssistantNodeName.ROOT,
                     "end": AssistantNodeName.END,
                 }
             )
-            .add_inkeep_docs()
             .compile()
         )
 

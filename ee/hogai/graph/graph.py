@@ -11,8 +11,6 @@ from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 
 from .dashboards.nodes import DashboardCreationNode
-from .inkeep_docs.nodes import InkeepDocsNode
-from .insights.nodes import InsightSearchNode
 from .memory.nodes import (
     MemoryCollectorNode,
     MemoryCollectorToolsNode,
@@ -45,10 +43,8 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         tools_node: AssistantNodeName = AssistantNodeName.ROOT_TOOLS,
     ):
         path_map = path_map or {
-            "search_documentation": AssistantNodeName.INKEEP_DOCS,
             "root": AssistantNodeName.ROOT,
             "end": AssistantNodeName.END,
-            "insights_search": AssistantNodeName.INSIGHTS_SEARCH,
             "session_summarization": AssistantNodeName.SESSION_SUMMARIZATION,
             "create_dashboard": AssistantNodeName.DASHBOARD_CREATION,
         }
@@ -139,36 +135,6 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         self._graph.add_edge(AssistantNodeName.MEMORY_COLLECTOR_TOOLS, AssistantNodeName.MEMORY_COLLECTOR)
         return self
 
-    def add_inkeep_docs(self, path_map: Optional[dict[Hashable, AssistantNodeName]] = None):
-        """Add the Inkeep docs search node to the graph."""
-        path_map = path_map or {
-            "end": AssistantNodeName.END,
-            "root": AssistantNodeName.ROOT,
-        }
-        inkeep_docs_node = InkeepDocsNode(self._team, self._user)
-        self.add_node(AssistantNodeName.INKEEP_DOCS, inkeep_docs_node)
-        self._graph.add_conditional_edges(
-            AssistantNodeName.INKEEP_DOCS,
-            inkeep_docs_node.router,
-            path_map=cast(dict[Hashable, str], path_map),
-        )
-        return self
-
-    def add_insights_search(self, end_node: AssistantNodeName = AssistantNodeName.END):
-        path_map = {
-            "end": end_node,
-            "root": AssistantNodeName.ROOT,
-        }
-
-        insights_search_node = InsightSearchNode(self._team, self._user)
-        self.add_node(AssistantNodeName.INSIGHTS_SEARCH, insights_search_node)
-        self._graph.add_conditional_edges(
-            AssistantNodeName.INSIGHTS_SEARCH,
-            insights_search_node.router,
-            path_map=cast(dict[Hashable, str], path_map),
-        )
-        return self
-
     def add_session_summarization(self, end_node: AssistantNodeName = AssistantNodeName.END):
         session_summarization_node = SessionSummarizationNode(self._team, self._user)
         self.add_node(AssistantNodeName.SESSION_SUMMARIZATION, session_summarization_node)
@@ -189,8 +155,6 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             .add_memory_collector()
             .add_memory_collector_tools()
             .add_root()
-            .add_inkeep_docs()
-            .add_insights_search()
             .add_session_summarization()
             .add_dashboard_creation()
             .compile(checkpointer=checkpointer)

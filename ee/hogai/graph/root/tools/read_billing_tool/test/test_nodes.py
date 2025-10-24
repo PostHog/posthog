@@ -30,13 +30,16 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
 
     def setUp(self):
         super().setUp()
-        self.tool = ReadBillingTool(self.team, self.user, AssistantContextManager(self.team, self.user, {}))
-        self.tool_call_id = str(uuid4())
-        self.state = AssistantState(messages=[], root_tool_call_id=self.tool_call_id)
+        self.tool = ReadBillingTool(
+            self.team,
+            self.user,
+            AssistantState(messages=[], root_tool_call_id=str(uuid4())),
+            AssistantContextManager(self.team, self.user, {}),
+        )
 
     async def test_run_with_no_billing_context(self):
         with patch.object(self.tool._context_manager, "get_billing_context", return_value=None):
-            result = await self.tool.execute(self.state)
+            result = await self.tool.execute()
             self.assertEqual(result, "No billing information available")
 
     async def test_run_with_billing_context(self):
@@ -52,7 +55,7 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
             patch.object(self.tool._context_manager, "get_billing_context", return_value=billing_context),
             patch.object(self.tool, "_format_billing_context", return_value="Formatted Context"),
         ):
-            result = await self.tool.execute(self.state)
+            result = await self.tool.execute()
             self.assertEqual(result, "Formatted Context")
 
     async def test_format_billing_context(self):

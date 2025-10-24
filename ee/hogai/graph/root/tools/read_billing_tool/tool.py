@@ -33,11 +33,11 @@ USAGE_TYPES = [
 
 
 class ReadBillingTool(MaxSubtool):
-    def __init__(self, team: Team, user: User, context_manager: AssistantContextManager):
-        super().__init__(team, user, context_manager)
+    def __init__(self, team: Team, user: User, state: AssistantState, context_manager: AssistantContextManager):
+        super().__init__(team, user, state, context_manager)
         self._teams_map: dict[int, str] = {}
 
-    async def execute(self, state: AssistantState) -> str:
+    async def execute(self) -> str:
         billing_context = self._context_manager.get_billing_context()
         if not billing_context:
             return "No billing information available"
