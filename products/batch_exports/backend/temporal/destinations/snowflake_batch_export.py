@@ -17,6 +17,7 @@ import snowflake.connector
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from snowflake.connector.connection import SnowflakeConnection
+from snowflake.connector.constants import QueryStatus
 from snowflake.connector.cursor import ResultMetadata
 from snowflake.connector.errors import InterfaceError, OperationalError
 from structlog.contextvars import bind_contextvars
@@ -412,6 +413,26 @@ class SnowflakeClient:
         await self.execute_async_query(f'USE DATABASE "{self.database}"', fetch_results=False)
         await self.execute_async_query(f'USE SCHEMA "{self.schema}"', fetch_results=False)
 
+    async def get_query_status(self, query_id: str, throw_if_error: bool = True) -> QueryStatus:
+        """Get the status of a query.
+
+        Snowflake does a blocking HTTP request, so we send it to a thread to avoid blocking the event loop.
+        """
+        if throw_if_error:
+            return await asyncio.to_thread(self.connection.get_query_status_throw_if_error, query_id)
+        else:
+            return await asyncio.to_thread(self.connection.get_query_status, query_id)
+
+    async def abort_query(self, query_id: str) -> None:
+        """Abort a query."""
+        try:
+            with self.connection.cursor() as cursor:
+                abort_success = await asyncio.to_thread(cursor.abort_query, query_id)
+                if not abort_success:
+                    self.logger.warning("Failed to abort query '%s'", query_id)
+        except Exception as e:
+            self.logger.warning("Error while aborting query '%s': %s", query_id, e)
+
     async def execute_async_query(
         self,
         query: str,
@@ -458,20 +479,23 @@ class SnowflakeClient:
 
         self.logger.debug("Waiting for results of query with ID '%s'", query_id)
 
-        # Snowflake does a blocking HTTP request, so we send it to a thread.
-        query_status = await asyncio.to_thread(self.connection.get_query_status_throw_if_error, query_id)
+        query_status: QueryStatus = await self.get_query_status(query_id, throw_if_error=True)
 
         while self.connection.is_still_running(query_status):
             # Check if we've exceeded the timeout
             if timeout is not None and (time.time() - query_start_time) > timeout:
                 # Get the final query status to provide context in the error message
-                final_status = await asyncio.to_thread(self.connection.get_query_status, query_id)
+                final_status = await self.get_query_status(query_id, throw_if_error=False)
                 self.logger.warning(
                     "Query '%s' timed out after %.2fs with status '%s'",
                     query_id,
                     timeout,
                     final_status.name if final_status else "UNKNOWN",
                 )
+
+                # Cancel the query in Snowflake to prevent it from continuing to run
+                await self.abort_query(query_id)
+
                 raise SnowflakeQueryTimeoutError(
                     operation="Query",
                     timeout=timeout,
@@ -479,7 +503,7 @@ class SnowflakeClient:
                     query_status=final_status.name if final_status else "UNKNOWN",
                 )
 
-            query_status = await asyncio.to_thread(self.connection.get_query_status_throw_if_error, query_id)
+            query_status = await self.get_query_status(query_id, throw_if_error=True)
             await asyncio.sleep(poll_interval)
 
         query_execution_time = time.time() - query_start_time
