@@ -1,6 +1,7 @@
-import { actions, connect, kea, key, path, props, selectors } from 'kea'
-import { urlToAction } from 'kea-router'
+import { actions, connect, kea, path, props, selectors } from 'kea'
 
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
@@ -11,10 +12,14 @@ import { ActivityScope, Breadcrumb, Experiment, ProjectTreeRef } from '~/types'
 import { type ExperimentLogicProps, NEW_EXPERIMENT, experimentLogic } from './experimentLogic'
 import type { experimentSceneLogicType } from './experimentSceneLogicType'
 
+export interface ExperimentSceneLogicProps extends ExperimentLogicProps {
+    tabId?: string
+}
+
 export const experimentSceneLogic = kea<experimentSceneLogicType>([
-    props({} as ExperimentLogicProps),
-    key((props) => props.experimentId || 'new'),
-    path((key) => ['scenes', 'experiments', 'experimentSceneLogic', key]),
+    props({} as ExperimentSceneLogicProps),
+    path(['scenes', 'experiments', 'experimentSceneLogic']),
+    tabAwareScene(),
     connect((props: ExperimentLogicProps) => ({
         values: [experimentLogic(props), ['experiment', 'experimentMissing', 'isExperimentRunning']],
         actions: [experimentLogic(props), ['loadExperiment', 'loadExposures', 'setEditExperiment', 'resetExperiment']],
@@ -67,7 +72,7 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
             },
         ],
     }),
-    urlToAction(({ actions, values }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         '/experiments/:id': ({ id }, query, __, currentLocation, previousLocation) => {
             const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
 

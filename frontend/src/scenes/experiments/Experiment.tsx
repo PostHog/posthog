@@ -10,14 +10,15 @@ import { ExperimentForm } from './ExperimentForm'
 import { ExperimentView } from './ExperimentView/ExperimentView'
 import { CreateExperiment } from './create/CreateExperiment'
 import { type ExperimentLogicProps, FORM_MODES, experimentLogic } from './experimentLogic'
-import { experimentSceneLogic } from './experimentSceneLogic'
+import { type ExperimentSceneLogicProps, experimentSceneLogic } from './experimentSceneLogic'
 
-export const scene: SceneExport<ExperimentLogicProps> = {
+export const scene: SceneExport<ExperimentSceneLogicProps> = {
     component: Experiment,
     logic: experimentSceneLogic,
     paramsToProps: ({ params: { id, formMode } }) => ({
         experimentId: id === 'new' ? 'new' : parseInt(id, 10),
         formMode: formMode || (id === 'new' ? FORM_MODES.create : FORM_MODES.update),
+        // tabId is automatically added by sceneLogic
     }),
 }
 
