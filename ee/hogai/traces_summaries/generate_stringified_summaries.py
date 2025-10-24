@@ -101,6 +101,14 @@ class TraceSummarizerGenerator:
         # Replace the symbols after dot + space, newline + space, or start + space with uppercase if they are lowercase
         summary = re.sub(self._proper_capitalization_regex, lambda m: m.group(1) + m.group(2).upper(), summary)
         if len(summary) / len(original_summary) <= 0.8:
+            logger.warning(
+                f"Summary for trace {trace_id} is too different from the original summary "
+                "(smaller 20%+ after cleanup) when summarizing traces",
+                old_length=len(original_summary),
+                new_length=len(summary),
+                original_summary=original_summary,
+                summary=summary,
+            )
             # Force log diff if drastic difference
             log_diff = True
         if summary == original_summary or not log_diff:
@@ -112,7 +120,7 @@ class TraceSummarizerGenerator:
     @staticmethod
     def _log_diff(trace_id: str, original_summary: str, summary: str) -> None:
         """Helper function to log the differences between the original and cleaned up summaries."""
-        logger.warning(
+        logger.info(
             f"Summary cleaned up for trace {trace_id} when summarizing traces",
             changes_made=original_summary != summary,
             old_length=len(original_summary),
