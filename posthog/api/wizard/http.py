@@ -153,7 +153,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
 
         hash = request.headers.get("X-PostHog-Wizard-Hash")
         fixture_generation = request.headers.get("X-PostHog-Wizard-Fixture-Generation")
-        trace_id = request.headers.get("X-PostHog-Trace-Id")
+        trace_id = None
 
         if hash:
             key = f"{SETUP_WIZARD_CACHE_PREFIX}{hash}"
@@ -187,6 +187,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 raise AuthenticationFailed("Invalid access token.")
 
             distinct_id = user.distinct_id
+
+            trace_id = request.headers.get("X-PostHog-Trace-Id") or hashlib.sha256(distinct_id.encode()).hexdigest()
 
         posthog_client = posthoganalytics.default_client
 
