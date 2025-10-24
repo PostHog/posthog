@@ -28,6 +28,7 @@ from posthog.temporal.weekly_digest.queries import (
     queryset_to_list,
 )
 from posthog.temporal.weekly_digest.types import (
+    CommonInput,
     DashboardList,
     DigestResourceType,
     EventDefinitionList,
@@ -41,6 +42,11 @@ from posthog.temporal.weekly_digest.types import (
     SurveyList,
     TeamDigest,
 )
+
+
+def _redis_url(common: CommonInput) -> str:
+    return f"redis://{common.redis_host}:{common.redis_port}?decode_responses=true"
+
 
 LOGGER = get_write_only_logger()
 
@@ -61,9 +67,7 @@ async def generate_digest_data_lookup(
         resource_count = 0
         team_count = 0
 
-        async with redis.from_url(
-            f"redis://{input.common.redis_host}:{input.common.redis_port}?decode_responses=true"
-        ) as r:
+        async with redis.from_url(_redis_url(input.common)) as r:
             db_query: QuerySet = query_func(input.digest.period_start, input.digest.period_end)
             async for team in query_teams_for_digest():
                 digest_data = resource_type(await queryset_to_list(db_query.filter(team_id=team.id)))
@@ -162,9 +166,7 @@ async def generate_user_notification_lookup(input: GenerateDigestDataInput) -> N
         team_count = 0
         user_count = 0
 
-        async with redis.from_url(
-            f"redis://{input.common.redis_host}:{input.common.redis_port}?decode_responses=true"
-        ) as r:
+        async with redis.from_url(_redis_url(input.common)) as r:
             async for team in query_teams_for_digest():
                 team_count += 1
                 async for user in await database_sync_to_async(team.all_users_with_access)():
@@ -195,9 +197,7 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
         organization_count = 0
         team_count = 0
 
-        async with redis.from_url(
-            f"redis://{input.common.redis_host}:{input.common.redis_port}?decode_responses=true"
-        ) as r:
+        async with redis.from_url(_redis_url(input.common)) as r:
             batch_start, batch_end = input.batch
             async for organization in query_orgs_for_digest()[batch_start:batch_end]:
                 organization_count += 1
@@ -266,9 +266,7 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
         empty_org_digest_count = 0
         empty_user_digest_count = 0
 
-        async with redis.from_url(
-            f"redis://{input.common.redis_host}:{input.common.redis_port}?decode_responses=true"
-        ) as r:
+        async with redis.from_url(_redis_url(input.common)) as r:
             batch_start, batch_end = input.batch
             async for organization in query_orgs_for_digest()[batch_start:batch_end]:
                 raw_digest: Optional[str] = await r.get(f"{input.digest.key}-{organization.id}")
