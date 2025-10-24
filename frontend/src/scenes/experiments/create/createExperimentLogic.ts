@@ -21,6 +21,10 @@ import { generateFeatureFlagKey } from './VariantsPanelCreateFeatureFlag'
 import type { createExperimentLogicType } from './createExperimentLogicType'
 import { variantsPanelLogic } from './variantsPanelLogic'
 
+/**
+ * TODO: we need to give new/linked feature flag the same treatment as shared metrics.
+ * feature flag context? like metrics context?
+ */
 export type CreateExperimentLogicProps = Partial<{
     experiment: Experiment
 }>

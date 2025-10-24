@@ -147,7 +147,7 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
                             },
                             {
                                 key: 'experiment-metrics',
-                                header: <MetricsPanelHeader experiment={experiment} />,
+                                header: <MetricsPanelHeader experiment={experiment} sharedMetrics={sharedMetrics} />,
                                 content: (
                                     <MetricsPanel
                                         experiment={experiment}
@@ -177,6 +177,10 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
                                                     [context.orderingField]: (
                                                         experiment[context.orderingField] ?? []
                                                     ).filter((uuid) => uuid !== metric.uuid),
+                                                    saved_metrics: (experiment.saved_metrics ?? []).filter(
+                                                        (savedMetric) =>
+                                                            savedMetric.saved_metric !== metric.sharedMetricId
+                                                    ),
                                                 })
                                                 setSharedMetrics({
                                                     ...sharedMetrics,
