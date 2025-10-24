@@ -19,16 +19,13 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import {
+    AssistantMessage,
     AssistantMessageType,
     MultiVisualizationMessage,
     NotebookUpdateMessage,
-    PlanningMessage,
-    PlanningStepStatus,
-    TaskExecutionMessage,
-    TaskExecutionStatus,
 } from '~/queries/schema/schema-assistant-messages'
 import { FunnelsQuery, TrendsQuery } from '~/queries/schema/schema-general'
-import { InsightShortId } from '~/types'
+import { ConversationStatus, ConversationType, InsightShortId } from '~/types'
 
 import { MaxInstance, MaxInstanceProps } from './Max'
 import conversationList from './__mocks__/conversationList.json'
@@ -768,28 +765,45 @@ export const NotebookUpdateComponent: StoryFn = () => {
 }
 
 export const PlanningComponent: StoryFn = () => {
-    const planningMessage: PlanningMessage = {
-        type: AssistantMessageType.Planning,
-        steps: [
+    // Planning is now derived from AssistantMessage with todo_write tool call
+    const planningMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content: "I'll create a comprehensive analysis plan for you.",
+        id: 'planning-msg-1',
+        tool_calls: [
             {
-                description: 'Analyze user engagement metrics',
-                status: PlanningStepStatus.Completed,
-            },
-            {
-                description: 'Create conversion funnel visualization',
-                status: PlanningStepStatus.Completed,
-            },
-            {
-                description: 'Generate retention cohort analysis',
-                status: PlanningStepStatus.InProgress,
-            },
-            {
-                description: 'Compile comprehensive report',
-                status: PlanningStepStatus.Pending,
-            },
-            {
-                description: 'Export data to dashboard',
-                status: PlanningStepStatus.Pending,
+                id: 'todo_1',
+                name: 'todo_write',
+                type: 'tool_call',
+                args: {
+                    todos: [
+                        {
+                            content: 'Analyze user engagement metrics',
+                            status: 'completed',
+                            activeForm: 'Analyzing user engagement metrics',
+                        },
+                        {
+                            content: 'Create conversion funnel visualization',
+                            status: 'completed',
+                            activeForm: 'Creating conversion funnel visualization',
+                        },
+                        {
+                            content: 'Generate retention cohort analysis',
+                            status: 'in_progress',
+                            activeForm: 'Generating retention cohort analysis',
+                        },
+                        {
+                            content: 'Compile comprehensive report',
+                            status: 'pending',
+                            activeForm: 'Compiling comprehensive report',
+                        },
+                        {
+                            content: 'Export data to dashboard',
+                            status: 'pending',
+                            activeForm: 'Exporting data to dashboard',
+                        },
+                    ],
+                },
             },
         ],
     }
@@ -836,47 +850,19 @@ export const PlanningComponent: StoryFn = () => {
     return <Template />
 }
 
-export const TaskExecutionComponent: StoryFn = () => {
-    const taskExecutionMessage: TaskExecutionMessage = {
-        type: AssistantMessageType.TaskExecution,
-        tasks: [
-            {
-                id: 'task_1',
-                description: 'Loading user data',
-                prompt: 'Fetching last 30 days of user activity',
-                status: TaskExecutionStatus.Completed,
-                task_type: 'create_insight',
-            },
-            {
-                id: 'task_2',
-                description: 'Analyzing engagement patterns',
-                prompt: 'Identifying peak usage times and user segments',
-                status: TaskExecutionStatus.Completed,
-                task_type: 'create_insight',
-            },
-            {
-                id: 'task_3',
-                description: 'Calculating conversion rates',
-                prompt: 'Processing funnel metrics across key paths',
-                status: TaskExecutionStatus.InProgress,
-                progress_text: 'Exploring data',
-                task_type: 'create_insight',
-            },
-            {
-                id: 'task_4',
-                description: 'Building visualizations',
-                prompt: 'Creating charts and graphs for insights',
-                status: TaskExecutionStatus.Pending,
-                task_type: 'create_insight',
-            },
-            {
-                id: 'task_5',
-                description: 'Generating report',
-                prompt: 'Compiling findings into readable format',
-                status: TaskExecutionStatus.Pending,
-                task_type: 'create_insight',
-            },
-        ],
+export const ReasoningComponent: StoryFn = () => {
+    // Reasoning is now derived from AssistantMessage with meta.thinking
+    const reasoningMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content: '',
+        id: 'reasoning-msg-1',
+        meta: {
+            thinking: [
+                {
+                    thinking: '*Analyzing user behavior patterns...*',
+                },
+            ],
+        },
     }
 
     useStorybookMocks({
@@ -888,9 +874,9 @@ export const TaskExecutionComponent: StoryFn = () => {
                             'event: conversation',
                             `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
                             'event: message',
-                            `data: ${JSON.stringify({ ...humanMessage, content: 'Execute analysis tasks' })}`,
+                            `data: ${JSON.stringify({ ...humanMessage, content: 'Analyze user engagement' })}`,
                             'event: message',
-                            `data: ${JSON.stringify(taskExecutionMessage)}`,
+                            `data: ${JSON.stringify(reasoningMessage)}`,
                         ])
                     )
                 ),
@@ -906,7 +892,7 @@ export const TaskExecutionComponent: StoryFn = () => {
         if (dataProcessingAccepted) {
             setTimeout(() => {
                 setConversationId(CONVERSATION_ID)
-                askMax('Execute analysis tasks')
+                askMax('Analyze user engagement')
             }, 0)
         }
     }, [dataProcessingAccepted, setConversationId, askMax])
@@ -918,46 +904,231 @@ export const TaskExecutionComponent: StoryFn = () => {
     return <Template />
 }
 
-export const TaskExecutionWithFailure: StoryFn = () => {
-    const taskExecutionMessage: TaskExecutionMessage = {
-        type: AssistantMessageType.TaskExecution,
-        tasks: [
+export const TaskExecutionComponent: StoryFn = () => {
+    // Task execution is now derived from AssistantMessage with regular tool calls
+    const taskExecutionMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content: 'Executing analysis tasks...',
+        id: 'task-exec-msg-1',
+        tool_calls: [
             {
                 id: 'task_1',
-                description: 'Loading user data',
-                prompt: 'Fetching last 30 days of user activity',
-                status: TaskExecutionStatus.Completed,
-                task_type: 'create_insight',
+                name: 'create_and_query_insight',
+                type: 'tool_call',
+                args: {},
             },
             {
                 id: 'task_2',
-                description: 'Analyzing engagement patterns',
-                prompt: 'Identifying peak usage times and user segments',
-                status: TaskExecutionStatus.Completed,
-                task_type: 'create_insight',
+                name: 'create_and_query_insight',
+                type: 'tool_call',
+                args: {
+                    commentary: 'Identifying peak usage times and user segments',
+                },
             },
             {
                 id: 'task_3',
-                description: 'Calculating conversion rates',
-                prompt: 'Processing funnel metrics across key paths',
-                status: TaskExecutionStatus.Failed,
-                task_type: 'create_insight',
+                name: 'search',
+                type: 'tool_call',
+                args: {
+                    kind: 'insights',
+                },
             },
             {
                 id: 'task_4',
-                description: 'Building visualizations',
-                prompt: 'Creating charts and graphs for insights',
-                status: TaskExecutionStatus.Pending,
-                task_type: 'create_insight',
+                name: 'search',
+                type: 'tool_call',
+                args: {
+                    kind: 'docs',
+                },
             },
             {
                 id: 'task_5',
-                description: 'Generating report',
-                prompt: 'Compiling findings into readable format',
-                status: TaskExecutionStatus.Pending,
-                task_type: 'create_insight',
+                name: 'create_and_query_insight',
+                type: 'tool_call',
+                args: {},
             },
         ],
+        meta: {
+            thinking: [
+                {
+                    thinking: 'Analyzing user engagement metrics...',
+                },
+            ],
+        },
+    }
+
+    // Tool call completion messages for the first two tasks
+    const toolCallCompletion1 = {
+        type: AssistantMessageType.ToolCall,
+        tool_call_id: 'task_1',
+        content: 'Successfully loaded user data for the last 30 days',
+        id: 'tool-completion-1',
+    }
+
+    const toolCallCompletion2 = {
+        type: AssistantMessageType.ToolCall,
+        tool_call_id: 'task_2',
+        content: 'Engagement pattern analysis completed',
+        id: 'tool-completion-2',
+    }
+
+    const updateMessages = [
+        {
+            type: AssistantMessageType.Update,
+            parent_tool_call_id: 'task_3',
+            content: 'Fetching last 30 days of user activity',
+            id: 'task-exec-msg-1-1',
+        },
+        {
+            type: AssistantMessageType.Update,
+            parent_tool_call_id: 'task_3',
+            content: 'Data loaded successfully',
+            id: 'task-exec-msg-1-1',
+        },
+        {
+            type: AssistantMessageType.Update,
+            parent_tool_call_id: 'task_4',
+            content: 'Processing funnel metrics across key paths',
+            id: 'task-exec-msg-1-1',
+        },
+        {
+            type: AssistantMessageType.Update,
+            parent_tool_call_id: 'task_5',
+            content: 'Exploring data...',
+            id: 'task-exec-msg-1-1',
+        },
+    ]
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: 'in_progress' })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({ ...humanMessage, content: 'Execute analysis tasks' })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(taskExecutionMessage)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallCompletion1)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallCompletion2)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(updateMessages[0])}`,
+                            'event: message',
+                            `data: ${JSON.stringify(updateMessages[1])}`,
+                            'event: message',
+                            `data: ${JSON.stringify(updateMessages[2])}`,
+                            'event: message',
+                            `data: ${JSON.stringify(updateMessages[3])}`,
+                        ])
+                    )
+                ),
+            '/api/environments/:team_id/conversations/in_progress/': (_req, _res, ctx) => [ctx.delay('infinite')],
+        },
+    })
+
+    const MOCK_IN_PROGRESS_CONVERSATION = {
+        id: 'in_progress',
+        status: ConversationStatus.InProgress,
+        title: 'Executing tasks',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        type: ConversationType.Assistant,
+        messages: [],
+    }
+    const { setConversationId } = useActions(maxLogic)
+    const threadLogic = maxThreadLogic({ conversationId: 'in_progress', conversation: MOCK_IN_PROGRESS_CONVERSATION })
+    const { askMax, setConversation } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId('in_progress')
+                askMax('Execute analysis tasks')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax, setConversation])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+TaskExecutionComponent.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const TaskExecutionWithFailure: StoryFn = () => {
+    // Task execution with failure - tool calls with failed status
+    const taskExecutionMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content: 'Executing analysis with some failures...',
+        id: 'task-exec-fail-msg-1',
+        tool_calls: [
+            {
+                id: 'task_1',
+                name: 'search',
+                type: 'tool_call',
+                args: {
+                    kind: 'insights',
+                },
+            },
+            {
+                id: 'task_2',
+                name: 'search',
+                type: 'tool_call',
+                args: {
+                    kind: 'insights',
+                },
+            },
+            {
+                id: 'task_3',
+                name: 'create_and_query_insight',
+                type: 'tool_call',
+                args: {},
+            },
+            {
+                id: 'task_4',
+                name: 'create_and_query_insight',
+                type: 'tool_call',
+                args: {},
+            },
+            {
+                id: 'task_5',
+                name: 'create_and_query_insight',
+                type: 'tool_call',
+                args: {},
+            },
+        ],
+    }
+
+    // Tool call completion messages - task 1 and 2 complete, task 3 fails
+    const toolCallCompletion1 = {
+        type: AssistantMessageType.ToolCall,
+        tool_call_id: 'task_1',
+        content: 'Successfully loaded user data',
+        id: 'tool-completion-fail-1',
+    }
+
+    const toolCallCompletion2 = {
+        type: AssistantMessageType.ToolCall,
+        tool_call_id: 'task_2',
+        content: 'Engagement patterns analyzed',
+        id: 'tool-completion-fail-2',
+    }
+
+    const toolCallCompletion3 = {
+        type: AssistantMessageType.ToolCall,
+        tool_call_id: 'task_3',
+        content: 'Failed to calculate conversion rates due to insufficient data',
+        id: 'tool-completion-fail-3',
     }
 
     useStorybookMocks({
@@ -975,6 +1146,12 @@ export const TaskExecutionWithFailure: StoryFn = () => {
                             })}`,
                             'event: message',
                             `data: ${JSON.stringify(taskExecutionMessage)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallCompletion1)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallCompletion2)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallCompletion3)}`,
                         ])
                     )
                 ),
