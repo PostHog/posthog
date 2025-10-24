@@ -146,6 +146,11 @@ jobs:
                   token: ${{ secrets.POSTHOG_BOT_PAT }}
                   ref: ${{ github.event.pull_request.head.ref }}
 
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: 3.12.11
+
             - name: Install uv
               id: setup-uv
               uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
