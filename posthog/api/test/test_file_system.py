@@ -3,6 +3,7 @@ from uuid import uuid4
 
 import unittest
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
@@ -258,6 +259,17 @@ class TestLogApiFileSystemView(APIBaseTest):
 
         assert FileSystemViewLog.objects.count() == expected_count
 
+    def test_log_api_file_system_view_skips_for_impersonated_session(self) -> None:
+        FileSystemViewLog.objects.all().delete()
+        request = self.factory.get("/api/test/")
+        request.user = self.user
+        request.COOKIES[settings.SESSION_COOKIE_NAME] = "session-key"
+
+        with patch("posthog.api.file_system.file_system_logging.is_impersonated_session", return_value=True):
+            log_api_file_system_view(request, self.action)
+
+        assert FileSystemViewLog.objects.count() == 0
+
 
 class TestFileSystemViewSetLogging(APIBaseTest):
     def setUp(self) -> None:
@@ -326,3 +338,22 @@ class TestFileSystemLogViewEndpoint(APIBaseTest):
         log_entry = FileSystemViewLog.objects.get()
         assert log_entry.type == representation.type
         assert log_entry.ref == str(representation.ref)
+
+    def test_log_view_endpoint_rejects_impersonated_session(self) -> None:
+        FileSystemViewLog.objects.all().delete()
+
+        obj, _ = _create_feature_flag_case(self)  # type: ignore
+        representation = obj.get_file_system_representation()
+
+        with (
+            patch("posthog.api.file_system.file_system.is_impersonated_session", return_value=True),
+            patch("posthog.api.file_system.file_system.log_api_file_system_view") as mock_logger,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/file_system/log_view/",
+                {"type": representation.type, "ref": str(representation.ref)},
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_logger.assert_not_called()
+        assert FileSystemViewLog.objects.count() == 0
