@@ -26,7 +26,7 @@ export function SearchHints({ focusSearchInput, tabId, handleAskAi }: SearchHint
                 <ListBox.Item asChild>
                     <ButtonPrimitive
                         size="xxs"
-                        className="text-xs data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
+                        className="text-xs"
                         onClick={() => {
                             setSearch('New SQL query')
                             focusSearchInput()
@@ -39,7 +39,7 @@ export function SearchHints({ focusSearchInput, tabId, handleAskAi }: SearchHint
                 <ListBox.Item asChild>
                     <ButtonPrimitive
                         size="xxs"
-                        className="text-xs data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
+                        className="text-xs"
                         onClick={() => {
                             setSearch('Experiment')
                             focusSearchInput()
@@ -56,7 +56,7 @@ export function SearchHints({ focusSearchInput, tabId, handleAskAi }: SearchHint
                         <ButtonPrimitive
                             size="xxs"
                             onClick={() => handleAskAi(search)}
-                            className="text-xs data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
+                            className="text-xs"
                             tooltip="Hit enter to open Posthog AI"
                         >
                             <IconSparkles className="size-4" />

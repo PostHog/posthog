@@ -222,6 +222,20 @@ def mock_two_factor_sso_enforcement_check(request, mocker):
     mocker.patch("posthog.helpers.two_factor_session.is_sso_authentication_backend", return_value=False)
 
 
+@pytest.fixture(autouse=True)
+def mock_email_mfa_verifier(request, mocker):
+    """
+    Mock the EmailMFAVerifier.should_send_email_mfa_verification method to return False for all tests.
+    Can be disabled by using @pytest.mark.disable_mock_email_mfa_verifier decorator.
+    """
+    if "disable_mock_email_mfa_verifier" in request.keywords:
+        return
+
+    mocker.patch(
+        "posthog.helpers.two_factor_session.EmailMFAVerifier.should_send_email_mfa_verification", return_value=False
+    )
+
+
 def pytest_sessionstart():
     """
     A bit of a hack to get django/py-test to do table truncation between test runs for the Persons tables that are

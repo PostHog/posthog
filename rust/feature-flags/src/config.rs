@@ -220,6 +220,30 @@ pub struct Config {
     #[envconfig(default = "true")]
     pub test_before_acquire: FlexBool,
 
+    // PostgreSQL statement_timeout for non-persons reader queries (milliseconds)
+    // - Set to 0 to use database default (typically unlimited)
+    // - Non-persons readers may run longer analytical queries
+    // - Default: 5000ms (5 seconds)
+    // - This timeout is enforced server-side and properly kills queries
+    #[envconfig(default = "5000")]
+    pub non_persons_reader_statement_timeout_ms: u64,
+
+    // PostgreSQL statement_timeout for persons reader queries (milliseconds)
+    // - Set to 0 to use database default (typically unlimited)
+    // - Persons readers may run longer analytical queries
+    // - Default: 5000ms (5 seconds)
+    // - This timeout is enforced server-side and properly kills queries
+    #[envconfig(default = "5000")]
+    pub persons_reader_statement_timeout_ms: u64,
+
+    // PostgreSQL statement_timeout for writer database queries (milliseconds)
+    // - Set to 0 to use database default (typically unlimited)
+    // - Writers should be fast transactional operations
+    // - Default: 10000ms (10 seconds)
+    // - This timeout is enforced server-side and properly kills queries
+    #[envconfig(default = "10000")]
+    pub writer_statement_timeout_ms: u64,
+
     // How often to report database pool metrics (seconds)
     // - Decrease for more granular monitoring (e.g., 10-15)
     // - Increase to reduce metric volume (e.g., 60-120)
@@ -329,6 +353,36 @@ pub struct Config {
 
     #[envconfig(from = "OTEL_LOG_LEVEL", default = "info")]
     pub otel_log_level: Level,
+
+    // Rate limiting configuration for /flags endpoint (token-based)
+    // Enable/disable token-based rate limiting (defaults to off to match /decide)
+    #[envconfig(from = "FLAGS_RATE_LIMIT_ENABLED", default = "false")]
+    pub flags_rate_limit_enabled: FlexBool,
+
+    // Token bucket capacity (maximum burst size)
+    // Matches Python's DecideRateThrottle default of 500
+    #[envconfig(from = "FLAGS_BUCKET_CAPACITY", default = "500")]
+    pub flags_bucket_capacity: u32,
+
+    // Token bucket replenish rate (tokens per second)
+    // Matches Python's DecideRateThrottle default of 10.0
+    #[envconfig(from = "FLAGS_BUCKET_REPLENISH_RATE", default = "10.0")]
+    pub flags_bucket_replenish_rate: f64,
+
+    // IP-based rate limiting configuration
+    // Provides defense-in-depth against DDoS attacks with rotating fake tokens
+    // This limits ALL requests per IP address, regardless of token validity
+    #[envconfig(from = "FLAGS_IP_RATE_LIMIT_ENABLED", default = "false")]
+    pub flags_ip_rate_limit_enabled: FlexBool,
+
+    // IP rate limit burst size (maximum requests per IP in a burst)
+    #[envconfig(from = "FLAGS_IP_BURST_SIZE", default = "1000")]
+    pub flags_ip_burst_size: u32,
+
+    // IP rate limit replenish rate (requests per second per IP)
+    // Set higher than token bucket rate to account for multiple users behind same IP
+    #[envconfig(from = "FLAGS_IP_REPLENISH_RATE", default = "50.0")]
+    pub flags_ip_replenish_rate: f64,
 }
 
 impl Config {
@@ -352,6 +406,9 @@ impl Config {
             max_lifetime_secs: 1800,
             max_lifetime_jitter_secs: 1800,
             test_before_acquire: FlexBool(true),
+            non_persons_reader_statement_timeout_ms: 5000,
+            persons_reader_statement_timeout_ms: 5000,
+            writer_statement_timeout_ms: 5000,
             db_monitor_interval_secs: 30,
             db_pool_warn_utilization: 0.8,
             billing_limiter_cache_ttl_secs: 5,
@@ -384,6 +441,12 @@ impl Config {
             object_storage_bucket: "posthog".to_string(),
             object_storage_region: "us-east-1".to_string(),
             object_storage_endpoint: "".to_string(),
+            flags_rate_limit_enabled: FlexBool(false),
+            flags_bucket_capacity: 500,
+            flags_bucket_replenish_rate: 10.0,
+            flags_ip_rate_limit_enabled: FlexBool(false),
+            flags_ip_burst_size: 500,
+            flags_ip_replenish_rate: 100.0,
         }
     }
 

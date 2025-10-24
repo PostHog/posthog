@@ -1,12 +1,11 @@
-use anyhow::{anyhow, bail, Ok, Result};
-use std::path::PathBuf;
+use anyhow::{anyhow, bail, Result};
+use std::path::{Path, PathBuf};
 use tracing::info;
-use uuid;
+use walkdir::DirEntry;
 
 use crate::{
-    api::releases::ReleaseBuilder,
-    invocation_context::context,
-    sourcemaps::source_pair::{read_pairs, SourcePair},
+    api::releases::{Release, ReleaseBuilder},
+    sourcemaps::source_pairs::{read_pairs, SourcePair},
     utils::git::get_git_info,
 };
 
@@ -33,13 +32,12 @@ pub struct InjectArgs {
     pub project: Option<String>,
 
     /// The version of the project - this can be a version number, semantic version, or a git commit hash. Required
-    /// to have the uploaded chunks associated with a specific release. Overrides release information set during
-    /// injection. Strongly prefer setting release information during injection.
+    /// to have the uploaded chunks associated with a specific release.
     #[arg(long)]
     pub version: Option<String>,
 }
 
-pub fn inject(args: &InjectArgs) -> Result<()> {
+pub fn inject_impl(args: &InjectArgs, matcher: impl Fn(&DirEntry) -> bool) -> Result<()> {
     let InjectArgs {
         directory,
         public_path_prefix,
@@ -47,8 +45,6 @@ pub fn inject(args: &InjectArgs) -> Result<()> {
         project,
         version,
     } = args;
-
-    context().capture_command_invoked("sourcemap_inject");
 
     let directory = directory.canonicalize().map_err(|e| {
         anyhow!(
@@ -59,36 +55,15 @@ pub fn inject(args: &InjectArgs) -> Result<()> {
     })?;
 
     info!("Processing directory: {}", directory.display());
-    let mut pairs = read_pairs(&directory, ignore, public_path_prefix)?;
+    let mut pairs = read_pairs(&directory, ignore, matcher, public_path_prefix)?;
     if pairs.is_empty() {
         bail!("No source files found");
     }
     info!("Found {} pairs", pairs.len());
 
-    // We need to fetch or create a release if: the user specified one, any pair is missing one, or the user
-    // forced release overriding
-    let needs_release =
-        project.is_some() || version.is_some() || pairs.iter().any(|p| !p.has_release_id());
-
-    let mut created_release = None;
-    if needs_release {
-        let mut builder = get_git_info(Some(directory))?
-            .map(ReleaseBuilder::init_from_git)
-            .unwrap_or_default();
-
-        if let Some(project) = project {
-            builder.with_project(project);
-        }
-        if let Some(version) = version {
-            builder.with_version(version);
-        }
-
-        if builder.can_create() {
-            created_release = Some(builder.fetch_or_create()?);
-        }
-    }
-
-    let created_release_id = created_release.as_ref().map(|r| r.id.to_string());
+    let created_release_id = get_release_for_pairs(&directory, project, version, &pairs)?
+        .as_ref()
+        .map(|r| r.id.to_string());
 
     pairs = inject_pairs(pairs, created_release_id)?;
 
@@ -120,4 +95,36 @@ pub fn inject_pairs(
     }
 
     Ok(pairs)
+}
+
+pub fn get_release_for_pairs<'a>(
+    directory: &Path,
+    project: &Option<String>,
+    version: &Option<String>,
+    pairs: impl IntoIterator<Item = &'a SourcePair>,
+) -> Result<Option<Release>> {
+    // We need to fetch or create a release if: the user specified one, any pair is missing one, or the user
+    // forced release overriding
+    let needs_release =
+        project.is_some() || version.is_some() || pairs.into_iter().any(|p| !p.has_release_id());
+
+    let mut created_release = None;
+    if needs_release {
+        let mut builder = get_git_info(Some(directory.to_path_buf()))?
+            .map(ReleaseBuilder::init_from_git)
+            .unwrap_or_default();
+
+        if let Some(project) = project {
+            builder.with_project(project);
+        }
+        if let Some(version) = version {
+            builder.with_version(version);
+        }
+
+        if builder.can_create() {
+            created_release = Some(builder.fetch_or_create()?);
+        }
+    }
+
+    Ok(created_release)
 }
