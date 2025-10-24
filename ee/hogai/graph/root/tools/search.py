@@ -34,7 +34,7 @@ Examples:
 - Needs help understanding PostHog concepts
 - Has questions about SDK integration or instrumentation
     - e.g. `posthog.capture('event')`, `posthog.captureException(err)`,
-    `posthog.identify(userId)`, `capture({{ ... }})` not working, etc.
+    `posthog.identify(userId)`, `capture({ ... })` not working, etc.
 - Troubleshooting missing or unexpected data
     - e.g. "Events aren't arriving", "Why don't I see errors on the dashboard?"
 - Wants to know more about PostHog the company
@@ -56,8 +56,8 @@ So the query used in this tool should be a natural language query that is optimi
 If you want to search for all entities, you should use `all`.
 """.strip()
 
-SEARCH_TOOL_PROMPT = """
-Use this tool to search docs, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, error tracking issues, and surveys in PostHog
+SEARCH_TOOL_PROMPT = f"""
+Use this tool to search docs, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, error tracking issues, and surveys in PostHog.
 {DOC_SEARCH_TOOL_PROMPT}
 {ENTITY_SEARCH_TOOL_PROMPT}
 """.strip()
