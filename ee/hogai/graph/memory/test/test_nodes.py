@@ -4,7 +4,6 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
-from django.test import override_settings
 from django.utils import timezone
 
 from langchain_core.messages import (
@@ -14,7 +13,7 @@ from langchain_core.messages import (
 from langchain_core.runnables import RunnableLambda
 from langgraph.errors import NodeInterrupt
 
-from posthog.schema import AssistantMessage, EventTaxonomyItem, HumanMessage
+from posthog.schema import AssistantMessage, ContextMessage, EventTaxonomyItem, HumanMessage
 
 from ee.hogai.graph.memory import prompts
 from ee.hogai.graph.memory.nodes import (
@@ -33,7 +32,6 @@ from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models import CoreMemory
 
 
-@override_settings(IN_UNIT_TESTING=True)
 class TestMemoryInitializerContextMixin(ClickhouseTestMixin, BaseTest):
     def get_mixin(self):
         class Mixin(MemoryInitializerContextMixin):
@@ -125,7 +123,6 @@ class TestMemoryInitializerContextMixin(ClickhouseTestMixin, BaseTest):
         )
 
 
-@override_settings(IN_UNIT_TESTING=True)
 class TestMemoryOnboardingNode(ClickhouseTestMixin, BaseTest):
     def _set_up_pageview_events(self):
         _create_person(
@@ -225,7 +222,6 @@ class TestMemoryOnboardingNode(ClickhouseTestMixin, BaseTest):
         self.assertIsNotNone(core_memory.scraping_started_at)
 
 
-@override_settings(IN_UNIT_TESTING=True)
 class TestMemoryInitializerNode(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
@@ -352,7 +348,6 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(result, "continue")
 
 
-@override_settings(IN_UNIT_TESTING=True)
 class TestMemoryInitializerInterruptNode(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
@@ -378,7 +373,6 @@ class TestMemoryInitializerInterruptNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(interrupt_message.meta.form.options[1].value, prompts.SCRAPING_REJECTION_MESSAGE)
 
 
-@override_settings(IN_UNIT_TESTING=True)
 class TestMemoryOnboardingEnquiryNode(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
@@ -532,16 +526,15 @@ class TestMemoryOnboardingEnquiryNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(core_memory.initial_text, "Question: What is your target market?\nAnswer:")
 
 
-@override_settings(IN_UNIT_TESTING=True)
 class TestMemoryEnquiryInterruptNode(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
         self.core_memory = CoreMemory.objects.create(team=self.team)
         self.node = MemoryOnboardingEnquiryInterruptNode(team=self.team, user=self.user)
 
-    def test_run(self):
+    async def test_run(self):
         with self.assertRaises(NodeInterrupt) as e:
-            self.node.run(
+            await self.node.arun(
                 AssistantState(
                     messages=[AssistantMessage(content="What is your name?"), HumanMessage(content="Hello")],
                     onboarding_question="What is your target market?",
@@ -552,7 +545,7 @@ class TestMemoryEnquiryInterruptNode(ClickhouseTestMixin, BaseTest):
         self.assertIsInstance(e.exception.args[0][0].value, AssistantMessage)
         self.assertEqual(e.exception.args[0][0].value.content, "What is your target market?")
 
-        new_state = self.node.run(
+        new_state = await self.node.arun(
             AssistantState(
                 messages=[AssistantMessage(content="What is your target market?"), HumanMessage(content="Hello")],
                 onboarding_question="What is your target market?",
@@ -562,7 +555,6 @@ class TestMemoryEnquiryInterruptNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(new_state, PartialAssistantState(onboarding_question=None))
 
 
-@override_settings(IN_UNIT_TESTING=True)
 class TestMemoryOnboardingFinalizeNode(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
@@ -576,9 +568,9 @@ class TestMemoryOnboardingFinalizeNode(ClickhouseTestMixin, BaseTest):
             self.core_memory.save()
             new_state = self.node.run(AssistantState(messages=[]), {})
             self.assertEqual(len(new_state.messages), 1)
-            self.assertEqual(
-                cast(AssistantMessage, new_state.messages[0]).content, prompts.SCRAPING_MEMORY_SAVED_MESSAGE
-            )
+            self.assertIsInstance(new_state.messages[0], ContextMessage)
+            self.assertEqual(new_state.messages[0].id, new_state.root_conversation_start_id)
+            self.assertEqual(new_state.messages[0].id, new_state.start_id)
             self.core_memory.refresh_from_db()
             self.assertEqual(self.core_memory.text, "Compressed memory about enterprise product")
 
@@ -608,14 +600,11 @@ Additional context: Our system also handles nested configurations like {"feature
             new_state = self.node.run(AssistantState(messages=[]), {})
 
             self.assertEqual(len(new_state.messages), 1)
-            self.assertEqual(
-                cast(AssistantMessage, new_state.messages[0]).content, prompts.SCRAPING_MEMORY_SAVED_MESSAGE
-            )
+            self.assertIsInstance(new_state.messages[0], ContextMessage)
             self.core_memory.refresh_from_db()
             self.assertEqual(self.core_memory.text, "Company uses structured JSON for event tracking")
 
 
-@override_settings(IN_UNIT_TESTING=True)
 class TestMemoryCollectorNode(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
@@ -778,6 +767,84 @@ class TestMemoryCollectorNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(history[6].content, "Memory appended.")
         self.assertEqual(history[7].content, "Analyzing target audience: enterprise customers.")
         self.assertEqual(history[8].content, "Memory appended.")
+
+    def test_check_tool_messages_are_valid_all_matching(self):
+        """All tool calls have corresponding tool messages"""
+        messages = [
+            LangchainAIMessage(
+                content="Test",
+                tool_calls=[
+                    {"id": "1", "name": "core_memory_append", "args": {}},
+                    {"id": "2", "name": "core_memory_replace", "args": {}},
+                ],
+            ),
+            LangchainToolMessage(content="Done", tool_call_id="1"),
+            LangchainToolMessage(content="Done", tool_call_id="2"),
+        ]
+        self.assertTrue(self.node._check_tool_messages_are_valid(messages))
+
+    def test_check_tool_messages_are_valid_missing_tool_message(self):
+        """Tool call exists but no corresponding tool message"""
+        messages = [
+            LangchainAIMessage(
+                content="Test",
+                tool_calls=[
+                    {"id": "1", "name": "core_memory_append", "args": {}},
+                    {"id": "2", "name": "core_memory_replace", "args": {}},
+                ],
+            ),
+            LangchainToolMessage(content="Done", tool_call_id="1"),
+        ]
+        self.assertFalse(self.node._check_tool_messages_are_valid(messages))
+
+    def test_check_tool_messages_are_valid_extra_tool_message(self):
+        """Tool message exists but no corresponding tool call"""
+        messages = [
+            LangchainAIMessage(
+                content="Test",
+                tool_calls=[{"id": "1", "name": "core_memory_append", "args": {}}],
+            ),
+            LangchainToolMessage(content="Done", tool_call_id="1"),
+            LangchainToolMessage(content="Extra", tool_call_id="2"),
+        ]
+        self.assertFalse(self.node._check_tool_messages_are_valid(messages))
+
+    def test_check_tool_messages_are_valid_empty_messages(self):
+        """Empty messages list"""
+        self.assertTrue(self.node._check_tool_messages_are_valid([]))
+
+    def test_check_tool_messages_are_valid_no_tool_calls(self):
+        """Messages without any tool calls"""
+        messages = [
+            LangchainAIMessage(content="Test", tool_calls=[]),
+            LangchainAIMessage(content="Test 2", tool_calls=[]),
+        ]
+        self.assertTrue(self.node._check_tool_messages_are_valid(messages))
+
+    def test_skips_to_tools_if_has_incomplete_tool_calls(self):
+        """If there are incomplete tool calls, skip the node."""
+        state = AssistantState(
+            messages=[
+                HumanMessage(content="We use a subscription model", id="0"),
+            ],
+            memory_collection_messages=[
+                LangchainAIMessage(
+                    content="Analyzing business model: subscription-based pricing.",
+                    tool_calls=[
+                        {
+                            "id": "1",
+                            "name": "core_memory_append",
+                            "args": {"memory_content": "New memory fragment."},
+                        }
+                    ],
+                ),
+            ],
+            start_id="0",
+        )
+
+        new_state = self.node.run(state, {})
+        self.assertIsNone(new_state)
+        self.assertEqual(self.node.router(state), "tools")
 
 
 class TestMemoryCollectorToolsNode(BaseTest):

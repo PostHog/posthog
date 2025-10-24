@@ -11,7 +11,14 @@ from unittest.mock import patch
 from django.test import override_settings
 from django.utils import timezone
 
-from posthog.schema import DateRange, EventPropertyFilter, HogQLFilters, QueryTiming, SessionPropertyFilter
+from posthog.schema import (
+    DateRange,
+    EventPropertyFilter,
+    HogQLFilters,
+    HogQLQueryModifiers,
+    QueryTiming,
+    SessionPropertyFilter,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
@@ -934,6 +941,26 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             ]
         self.assertEqual(response.results, expected)
 
+    def test_between_operators(self):
+        cases = [
+            ("5 between 1 and 10", 1),
+            ("1 between 1 and 10", 1),
+            ("10 between 1 and 10", 1),
+            ("0 between 1 and 10", 0),
+            ("11 between 1 and 10", 0),
+            ("5 not between 1 and 10", 0),
+            ("0 not between 1 and 10", 1),
+            ("11 not between 1 and 10", 1),
+            ("10 not between 1 and 10", 0),
+            ("null between 1 and 10", 0),
+            ("5 between null and 10", 0),
+            ("5 between 1 and null", 0),
+        ]
+        for expr, expected in cases:
+            q = f"select {expr}"
+            response = execute_hogql_query(q, team=self.team)
+            self.assertEqual(response.results, [(expected,)], [q, response.clickhouse])
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_with_pivot_table_1_level(self):
         with freeze_time("2020-01-10"):
@@ -1728,3 +1755,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         response = execute_hogql_query(query, team=self.team)
         self.assertEqual(response.results, [(Decimal(amount),)])
+
+    def test_metadata_handles_lazy_joins(self):
+        query = "SELECT events.session.id from events"
+        response = execute_hogql_query(query, team=self.team, modifiers=HogQLQueryModifiers(debug=True))
+        assert response and response.metadata and response.metadata.ch_table_names
+        assert any("sessions" in name for name in response.metadata.ch_table_names)

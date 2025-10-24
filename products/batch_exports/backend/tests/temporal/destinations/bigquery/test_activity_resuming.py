@@ -29,7 +29,7 @@ from products.batch_exports.backend.tests.temporal.destinations.bigquery.utils i
     SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS,
     assert_clickhouse_records_in_bigquery,
 )
-from products.batch_exports.backend.tests.temporal.utils import FlakyClickHouseClient
+from products.batch_exports.backend.tests.temporal.utils.clickhouse import FlakyClickHouseClient
 
 pytestmark = [
     SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS,

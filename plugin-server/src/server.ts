@@ -28,6 +28,7 @@ import {
 import { IngestionConsumer } from './ingestion/ingestion-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { onShutdown } from './lifecycle'
+import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
 import { startAsyncWebhooksHandlerConsumer } from './main/ingestion-queues/on-event-handler-consumer'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
@@ -277,6 +278,14 @@ export class PluginServer {
             if (capabilities.cdpCohortMembership) {
                 serviceLoaders.push(async () => {
                     const consumer = new CdpCohortMembershipConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
+            if (capabilities.logsIngestion) {
+                serviceLoaders.push(async () => {
+                    const consumer = new LogsIngestionConsumer(hub)
                     await consumer.start()
                     return consumer.service
                 })
