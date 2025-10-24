@@ -7,6 +7,24 @@ on:
     pull_request:
 
 jobs:
+    # Check that uv version can download the Python version in pyproject.toml
+    check-uv-python-compatibility:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        name: Check uv and Python version compatibility
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: 3.12.11
+
+            - name: Check uv and Python version compatibility
+              shell: bash
+              run: |
+                  python3 bin/check_uv_python_compatibility.py
+
     # Job to decide if we should run python ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
@@ -36,6 +54,7 @@ jobs:
                         - .github/workflows/ci-python.yml
                         - .github/workflows/ci-dagster.yml
                         - .github/workflows/ci-backend.yml
+                        - bin/check_uv_python_compatibility.py
                         # Schema changes need to trigger Python CI to validate schema.py is regenerated
                         - 'frontend/src/queries/schema.json'
 
