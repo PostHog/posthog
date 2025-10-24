@@ -132,6 +132,12 @@ jobs:
                   name: wheels-macos-13
                   path: dist
 
+            - name: Download wheels from macos-14
+              uses: actions/download-artifact@v4
+              with:
+                  name: wheels-macos-14
+                  path: dist
+
             - name: Publish package to PyPI
               uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # release/v1
 
@@ -145,6 +151,7 @@ jobs:
               env:
                   RETRIES: 20
               run: |
+                  brew install uv
                   # In case the version is not available yet, try up to $RETRIES times
                   for i in {1..$RETRIES}; do
                       if uv add hogql-parser==$(python common/hogql_parser/setup.py --version); then
