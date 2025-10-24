@@ -9,6 +9,7 @@ from django.db import models
 from django.db.models import Q
 
 import chdb
+import structlog
 
 from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
 
@@ -178,6 +179,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             context=placeholder_context,
             table_size_mib=self.size_in_s3_mib,
         )
+        logger = structlog.get_logger(__name__)
         try:
             # chdb hangs in CI during tests
             if TEST:
@@ -193,7 +195,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             reader = csv.reader(StringIO(str(chdb_result)))
             result = [tuple(row) for row in reader]
         except Exception as chdb_error:
-            capture_exception(chdb_error)
+            if "Unsupported DeltaLake type: timestamp_ntz" in str(chdb_error).casefold():
+                logger.debug(chdb_error)
+            else:
+                capture_exception(chdb_error)
 
             tag_queries(team_id=self.team.pk, table_id=self.id, warehouse_query=True)
 

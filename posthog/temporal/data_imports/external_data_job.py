@@ -229,10 +229,7 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
             raw_error=inputs.latest_error or inputs.internal_error,
         )
 
-        if latest_error and "Unsupported DeltaLake type: timestamp_ntz" in latest_error.casefold():
-            logger.debug(latest_error)
-        else:
-            logger.exception(latest_error)
+        logger.exception(latest_error)
     except Exception:
         latest_error = inputs.latest_error
 
