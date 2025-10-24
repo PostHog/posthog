@@ -221,6 +221,7 @@ export const defaultMocks: Mocks = {
         'api/projects/:team_id/notebooks/recording_comments': EMPTY_PAGINATED_RESPONSE,
         '/api/sdk_versions/': sdkVersions,
         '/api/team_sdk_versions/': teamSdkVersions,
+        '/api/environments/:team_id/file_system/log_view/': {},
     },
     post: {
         'https://us.i.posthog.com/e/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
