@@ -1,14 +1,12 @@
-from typing import Annotated, Literal
+from typing import Literal
 
 from django.conf import settings
 
 from langchain_core.runnables import RunnableLambda
-from langchain_core.tools import InjectedToolCallId
 from pydantic import BaseModel, Field
-from pydantic.json_schema import SkipJsonSchema
 
 from ee.hogai.graph.insights.nodes import InsightSearchNode, NoInsightsException
-from ee.hogai.tool import MaxSubtool, MaxTool, ToolMessagesArtifact
+from ee.hogai.tool import MaxSubtool, MaxTool, MaxToolArgs, ToolMessagesArtifact
 from ee.hogai.utils.types.base import AssistantState, PartialAssistantState
 
 SEARCH_TOOL_PROMPT = """
@@ -58,8 +56,7 @@ Examples:
 SearchKind = Literal["insights"] | Literal["docs"]
 
 
-class SearchToolArgs(BaseModel):
-    tool_call_id: Annotated[str, InjectedToolCallId, SkipJsonSchema]
+class SearchToolArgs(MaxToolArgs):
     kind: SearchKind = Field(description="Select the entity you want to find")
     query: str = Field(
         description="Describe what you want to find. Include as much details from the context as possible."
