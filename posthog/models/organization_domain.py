@@ -143,8 +143,7 @@ class OrganizationDomain(UUIDTModel):
     saml_x509_cert = models.TextField(blank=True, null=True)
 
     class Meta:
-        verbose_name = "OrganizationDomain"
-        verbose_name_plural = "OrganizationDomains"
+        verbose_name = "domain"
 
     @property
     def is_verified(self) -> bool:
