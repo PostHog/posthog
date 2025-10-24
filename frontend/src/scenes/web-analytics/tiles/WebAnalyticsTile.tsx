@@ -49,6 +49,7 @@ import { NewActionButton } from 'products/actions/frontend/components/NewActionB
 import { ErrorTrackingButton } from '../CrossSellButtons/ErrorTrackingButton'
 import { HeatmapButton } from '../CrossSellButtons/HeatmapButton'
 import { ReplayButton } from '../CrossSellButtons/ReplayButton'
+import { WebAnalyticsExport } from '../WebAnalyticsExport'
 import { pageReportsLogic } from '../pageReportsLogic'
 import { MarketingAnalyticsTable } from '../tabs/marketing-analytics/frontend/components/MarketingAnalyticsTable/MarketingAnalyticsTable'
 import { marketingAnalyticsLogic } from '../tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
@@ -614,7 +615,12 @@ export const WebStatsTableTile = ({
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
-            {control != null && <div className="flex flex-row items-center justify-end m-2 mr-4">{control}</div>}
+            {(control != null || query) && (
+                <div className="flex flex-row items-center justify-end gap-2 m-2 mr-4">
+                    {control}
+                    <WebAnalyticsExport query={query} insightProps={insightProps} />
+                </div>
+            )}
             <Query
                 uniqueKey="WebAnalytics.WebStatsTableTile"
                 attachTo={attachTo}
@@ -701,7 +707,7 @@ export const WebGoalsTile = ({
 
     return (
         <div className="border rounded bg-surface-primary flex-1">
-            <div className="flex flex-row-reverse p-2">
+            <div className="flex flex-row-reverse gap-2 p-2">
                 <LemonButton
                     to={urls.actions()}
                     onClick={() => {
@@ -717,6 +723,7 @@ export const WebGoalsTile = ({
                 >
                     Manage actions
                 </LemonButton>
+                <WebAnalyticsExport query={query} insightProps={insightProps} />
             </div>
             <Query
                 attachTo={attachTo}
@@ -740,8 +747,8 @@ export const WebExternalClicksTile = ({
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
-            {!isPageReportsPage && (
-                <div className="flex flex-row items-center justify-end m-2 mr-4">
+            <div className="flex flex-row items-center justify-end gap-2 m-2 mr-4">
+                {!isPageReportsPage && (
                     <div className="flex flex-row items-center deprecated-space-x-2">
                         <LemonSwitch
                             label="Strip query parameters"
@@ -750,8 +757,9 @@ export const WebExternalClicksTile = ({
                             className="h-full"
                         />
                     </div>
-                </div>
-            )}
+                )}
+                <WebAnalyticsExport query={query} insightProps={insightProps} />
+            </div>
             <Query
                 attachTo={attachTo}
                 query={query}
