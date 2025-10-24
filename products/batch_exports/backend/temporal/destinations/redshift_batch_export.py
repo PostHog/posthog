@@ -1293,6 +1293,12 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
         )
 
+        # Redshift recommends files should be between 1MB-1GB, and that we
+        # should aim for files to be equally distributed across cluster slices.
+        # We don't know the number of slices in our user's cluster, so I've chosen
+        # some nice round somewhere in the range (100MB).
+        # TODO: Maybe derive this from user's input?
+        max_file_size_mb = 100
         consumer = ConcurrentS3Consumer(
             bucket=inputs.copy.s3_bucket.name,
             region_name=inputs.copy.s3_bucket.region_name,
@@ -1305,7 +1311,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             encryption=None,
             aws_access_key_id=inputs.copy.s3_bucket.credentials.aws_access_key_id,
             aws_secret_access_key=inputs.copy.s3_bucket.credentials.aws_secret_access_key,
-            max_file_size_mb=1024,
+            max_file_size_mb=max_file_size_mb,
             part_size=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
             max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
         )
@@ -1340,7 +1346,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             producer_task=producer_task,
             transformer=transformer,
             schema=record_batch_schema,
-            max_file_size_bytes=1 * 1024 * 1024,
+            max_file_size_bytes=max_file_size_mb * 1024**2,
             json_columns=table_schemas.super_columns,
         )
 
