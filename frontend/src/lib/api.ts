@@ -13,6 +13,7 @@ import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagem
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+import { SessionSummaryContent } from 'scenes/session-recordings/player/player-meta/types'
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
@@ -488,6 +489,10 @@ export class ApiRequest {
 
     public fileSystemDetail(id: NonNullable<FileSystemEntry['id']>, teamId?: TeamType['id']): ApiRequest {
         return this.fileSystem(teamId).addPathComponent(id)
+    }
+
+    public fileSystemLogView(teamId?: TeamType['id']): ApiRequest {
+        return this.fileSystem(teamId).addPathComponent('log_view')
     }
 
     public fileSystemMove(id: NonNullable<FileSystemEntry['id']>, teamId?: TeamType['id']): ApiRequest {
@@ -1053,6 +1058,12 @@ export class ApiRequest {
 
     public errorTrackingSymbolSet(id: ErrorTrackingSymbolSet['id']): ApiRequest {
         return this.errorTrackingSymbolSets().addPathComponent(id)
+    }
+
+    public gitProviderFileLinks(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId)
+            .addPathComponent('error_tracking')
+            .addPathComponent('git-provider-file-links')
     }
 
     public errorTrackingStackFrames(): ApiRequest {
@@ -1802,6 +1813,12 @@ const api = {
         },
         async count(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemCount> {
             return await new ApiRequest().fileSystemCount(id).create()
+        },
+    },
+
+    fileSystemLogView: {
+        async create(data: { ref?: string; type?: string }): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystemLogView().create({ data })
         },
     },
 
@@ -3052,6 +3069,21 @@ const api = {
         },
     },
 
+    gitProviderFileLinks: {
+        async resolveGithub(
+            owner: string,
+            repository: string,
+            codeSample: string,
+            fileName: string
+        ): Promise<{ found: boolean; url?: string }> {
+            return await new ApiRequest()
+                .gitProviderFileLinks()
+                .withAction('resolve_github')
+                .withQueryString({ owner, repository, code_sample: codeSample, file_name: fileName })
+                .get()
+        },
+    },
+
     recordings: {
         async list(params: RecordingsQuery): Promise<RecordingsQueryResponse> {
             return await new ApiRequest().recordings().withQueryString(toParams(params)).get()
@@ -3561,6 +3593,18 @@ const api = {
                 queryParams['date_to'] = dateTo
             }
             return await apiRequest.get()
+        },
+        async duplicateToProjects(
+            surveyId: Survey['id'],
+            targetTeamIds: TeamType['id'][]
+        ): Promise<{
+            created_surveys: Array<{ team_id: number; survey_id: string; name: string }>
+            count: number
+        }> {
+            return await new ApiRequest()
+                .survey(surveyId)
+                .withAction('duplicate_to_projects')
+                .create({ data: { target_team_ids: targetTeamIds } })
         },
     },
 
@@ -4471,6 +4515,15 @@ const api = {
     sessionSummaries: {
         async create(data: { session_ids: string[]; focus_area?: string }): Promise<SessionSummaryResponse> {
             return await new ApiRequest().sessionSummary().withAction('create_session_summaries').create({ data })
+        },
+        async createIndividual(data: {
+            session_ids: string[]
+            focus_area?: string
+        }): Promise<Record<string, SessionSummaryContent>> {
+            return await new ApiRequest()
+                .sessionSummary()
+                .withAction('create_session_summaries_individually')
+                .create({ data })
         },
     },
 

@@ -4172,13 +4172,14 @@
          read_rows,
          read_bytes,
          written_rows,
-         memory_usage
+         memory_usage,
+  exception
   FROM query_log_archive
   WHERE lc_cohort_id = 99999
     AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
-    AND type = 'QueryFinish'
-    AND query_kind = 'Insert'
+    AND type IN ('QueryFinish',
+                 'ExceptionWhileProcessing')
     AND event_date >= 'today'
     AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
@@ -4341,13 +4342,14 @@
          read_rows,
          read_bytes,
          written_rows,
-         memory_usage
+         memory_usage,
+  exception
   FROM query_log_archive
   WHERE lc_cohort_id = 99999
     AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
-    AND type = 'QueryFinish'
-    AND query_kind = 'Insert'
+    AND type IN ('QueryFinish',
+                 'ExceptionWhileProcessing')
     AND event_date >= 'today'
     AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
@@ -4510,13 +4512,14 @@
          read_rows,
          read_bytes,
          written_rows,
-         memory_usage
+         memory_usage,
+  exception
   FROM query_log_archive
   WHERE lc_cohort_id = 99999
     AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
-    AND type = 'QueryFinish'
-    AND query_kind = 'Insert'
+    AND type IN ('QueryFinish',
+                 'ExceptionWhileProcessing')
     AND event_date >= 'today'
     AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
@@ -4679,13 +4682,14 @@
          read_rows,
          read_bytes,
          written_rows,
-         memory_usage
+         memory_usage,
+  exception
   FROM query_log_archive
   WHERE lc_cohort_id = 99999
     AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
-    AND type = 'QueryFinish'
-    AND query_kind = 'Insert'
+    AND type IN ('QueryFinish',
+                 'ExceptionWhileProcessing')
     AND event_date >= 'today'
     AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
@@ -11565,13 +11569,14 @@
          read_rows,
          read_bytes,
          written_rows,
-         memory_usage
+         memory_usage,
+  exception
   FROM query_log_archive
   WHERE lc_cohort_id = 99999
     AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
-    AND type = 'QueryFinish'
-    AND query_kind = 'Insert'
+    AND type IN ('QueryFinish',
+                 'ExceptionWhileProcessing')
     AND event_date >= 'today'
     AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
@@ -11734,13 +11739,14 @@
          read_rows,
          read_bytes,
          written_rows,
-         memory_usage
+         memory_usage,
+  exception
   FROM query_log_archive
   WHERE lc_cohort_id = 99999
     AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
-    AND type = 'QueryFinish'
-    AND query_kind = 'Insert'
+    AND type IN ('QueryFinish',
+                 'ExceptionWhileProcessing')
     AND event_date >= 'today'
     AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
@@ -11903,13 +11909,14 @@
          read_rows,
          read_bytes,
          written_rows,
-         memory_usage
+         memory_usage,
+  exception
   FROM query_log_archive
   WHERE lc_cohort_id = 99999
     AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
-    AND type = 'QueryFinish'
-    AND query_kind = 'Insert'
+    AND type IN ('QueryFinish',
+                 'ExceptionWhileProcessing')
     AND event_date >= 'today'
     AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
@@ -12072,13 +12079,14 @@
          read_rows,
          read_bytes,
          written_rows,
-         memory_usage
+         memory_usage,
+  exception
   FROM query_log_archive
   WHERE lc_cohort_id = 99999
     AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
-    AND type = 'QueryFinish'
-    AND query_kind = 'Insert'
+    AND type IN ('QueryFinish',
+                 'ExceptionWhileProcessing')
     AND event_date >= 'today'
     AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC

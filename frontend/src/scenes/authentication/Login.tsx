@@ -60,13 +60,21 @@ export const scene: SceneExport = {
 }
 
 export function Login(): JSX.Element {
-    const { precheck } = useActions(loginLogic)
-    const { precheckResponse, precheckResponseLoading, login, isLoginSubmitting, generalError, signupUrl } =
-        useValues(loginLogic)
+    const { precheck, resendEmailMFA, clearGeneralError } = useActions(loginLogic)
+    const {
+        precheckResponse,
+        precheckResponseLoading,
+        login,
+        isLoginSubmitting,
+        generalError,
+        signupUrl,
+        resendResponseLoading,
+    } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
 
     const passwordInputRef = useRef<HTMLInputElement>(null)
     const isPasswordHidden = precheckResponse.status === 'pending' || precheckResponse.sso_enforcement
+    const isEmailVerificationSent = generalError?.code === 'email_verification_sent'
 
     useEffect(() => {
         if (!isPasswordHidden) {
@@ -90,7 +98,7 @@ export function Login(): JSX.Element {
             <div className="deprecated-space-y-4">
                 <h2>Log in</h2>
                 {generalError && (
-                    <LemonBanner type="error">
+                    <LemonBanner type={generalError.code === 'email_verification_sent' ? 'warning' : 'error'}>
                         {generalError.detail || ERROR_MESSAGES[generalError.code] || (
                             <>
                                 Could not complete your login.
@@ -100,78 +108,96 @@ export function Login(): JSX.Element {
                         )}
                     </LemonBanner>
                 )}
-                <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="deprecated-space-y-4">
-                    <RegionSelect />
-                    <LemonField name="email" label="Email">
-                        <LemonInput
-                            className="ph-ignore-input"
-                            autoFocus
-                            data-attr="login-email"
-                            placeholder="email@yourcompany.com"
-                            type="email"
-                            onBlur={() => precheck({ email: login.email })}
-                            onPressEnter={(e) => {
-                                precheck({ email: login.email })
-                                if (isPasswordHidden) {
-                                    e.preventDefault() // Don't trigger submission if password field is still hidden
-                                    passwordInputRef.current?.focus()
-                                }
-                            }}
-                        />
-                    </LemonField>
-                    <div className={clsx('PasswordWrapper', isPasswordHidden && 'zero-height')}>
-                        <LemonField
-                            name="password"
-                            label={
-                                <div className="flex flex-1 items-center justify-between gap-2">
-                                    <span>Password</span>
-                                    <Link
-                                        to={[urls.passwordReset(), { email: login.email }]}
-                                        data-attr="forgot-password"
-                                    >
-                                        Forgot your password?
-                                    </Link>
-                                </div>
-                            }
-                        >
-                            <LemonInput
-                                type="password"
-                                inputRef={passwordInputRef}
-                                className="ph-ignore-input"
-                                data-attr="password"
-                                placeholder="••••••••••"
-                                autoComplete="current-password"
-                            />
-                        </LemonField>
-                    </div>
-
-                    {/* Show regular login button if SSO is not enforced */}
-                    {!precheckResponse.sso_enforcement && (
+                {isEmailVerificationSent ? (
+                    <div className="deprecated-space-y-4">
                         <LemonButton
-                            type="primary"
-                            status="alt"
-                            htmlType="submit"
-                            data-attr="password-login"
+                            type="secondary"
                             fullWidth
                             center
-                            loading={isLoginSubmitting || precheckResponseLoading}
                             size="large"
+                            loading={resendResponseLoading}
+                            onClick={() => resendEmailMFA(null)}
                         >
-                            Log in
+                            Resend verification email
                         </LemonButton>
-                    )}
+                        <LemonButton type="tertiary" fullWidth center size="large" onClick={() => clearGeneralError()}>
+                            Back to login
+                        </LemonButton>
+                    </div>
+                ) : (
+                    <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="deprecated-space-y-4">
+                        <RegionSelect />
+                        <LemonField name="email" label="Email">
+                            <LemonInput
+                                className="ph-ignore-input"
+                                autoFocus
+                                data-attr="login-email"
+                                placeholder="email@yourcompany.com"
+                                type="email"
+                                onBlur={() => precheck({ email: login.email })}
+                                onPressEnter={(e) => {
+                                    precheck({ email: login.email })
+                                    if (isPasswordHidden) {
+                                        e.preventDefault() // Don't trigger submission if password field is still hidden
+                                        passwordInputRef.current?.focus()
+                                    }
+                                }}
+                            />
+                        </LemonField>
+                        <div className={clsx('PasswordWrapper', isPasswordHidden && 'zero-height')}>
+                            <LemonField
+                                name="password"
+                                label={
+                                    <div className="flex flex-1 items-center justify-between gap-2">
+                                        <span>Password</span>
+                                        <Link
+                                            to={[urls.passwordReset(), { email: login.email }]}
+                                            data-attr="forgot-password"
+                                        >
+                                            Forgot your password?
+                                        </Link>
+                                    </div>
+                                }
+                            >
+                                <LemonInput
+                                    type="password"
+                                    inputRef={passwordInputRef}
+                                    className="ph-ignore-input"
+                                    data-attr="password"
+                                    placeholder="••••••••••"
+                                    autoComplete="current-password"
+                                />
+                            </LemonField>
+                        </div>
 
-                    {/* Show enforced SSO button if required */}
-                    {precheckResponse.sso_enforcement && (
-                        <SSOEnforcedLoginButton provider={precheckResponse.sso_enforcement} email={login.email} />
-                    )}
+                        {/* Show regular login button if SSO is not enforced */}
+                        {!precheckResponse.sso_enforcement && (
+                            <LemonButton
+                                type="primary"
+                                status="alt"
+                                htmlType="submit"
+                                data-attr="password-login"
+                                fullWidth
+                                center
+                                loading={isLoginSubmitting || precheckResponseLoading}
+                                size="large"
+                            >
+                                Log in
+                            </LemonButton>
+                        )}
 
-                    {/* Show optional SAML SSO button if available */}
-                    {precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
-                        <SSOEnforcedLoginButton provider="saml" email={login.email} />
-                    )}
-                </Form>
-                {preflight?.cloud && (
+                        {/* Show enforced SSO button if required */}
+                        {precheckResponse.sso_enforcement && (
+                            <SSOEnforcedLoginButton provider={precheckResponse.sso_enforcement} email={login.email} />
+                        )}
+
+                        {/* Show optional SAML SSO button if available */}
+                        {precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
+                            <SSOEnforcedLoginButton provider="saml" email={login.email} />
+                        )}
+                    </Form>
+                )}
+                {!isEmailVerificationSent && preflight?.cloud && (
                     <div className="text-center mt-4">
                         Don't have an account?{' '}
                         <Link to={signupUrl} data-attr="signup" className="font-bold">
@@ -179,7 +205,7 @@ export function Login(): JSX.Element {
                         </Link>
                     </div>
                 )}
-                {!precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
+                {!isEmailVerificationSent && !precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
                     <SocialLoginButtons caption="Or log in with" topDivider />
                 )}
             </div>

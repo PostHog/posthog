@@ -1,3 +1,4 @@
+pub mod ai_endpoint;
 pub mod api;
 pub mod config;
 pub mod limiters;
