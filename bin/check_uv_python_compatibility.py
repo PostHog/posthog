@@ -6,6 +6,15 @@ the Python version specified in pyproject.toml.
 
 uv uses python-build-standalone for Python versions, and older uv versions
 may not support newer Python patch versions.
+
+This script is run in CI (see .github/workflows/ci-python.yml) to catch
+incompatibilities early. When pyproject.toml's requires-python is updated,
+or when workflow files change their uv version, this check will verify
+compatibility.
+
+Exit codes:
+    0: All uv versions are compatible
+    1: Incompatible uv/Python version found or error occurred
 """
 
 import re
@@ -68,6 +77,12 @@ def check_uv_python_compatibility(uv_version: str, python_version: str) -> bool:
     - uv 0.8.4+ supports Python 3.12.9+
     - uv 0.8.12+ supports Python 3.12.10+
     - uv 0.8.19+ supports Python 3.12.11+
+    
+    To update these mappings when a new Python version is released:
+    1. Check uv release notes: https://github.com/astral-sh/uv/releases
+    2. Look for mentions of updated Python version support
+    3. Add a new condition below following the existing pattern
+    4. Test with: python3 bin/check_uv_python_compatibility.py
     
     This is a conservative check - if we're unsure, we'll warn but not fail.
     """
