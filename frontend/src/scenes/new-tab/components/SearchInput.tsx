@@ -143,12 +143,10 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
         switch (e.key) {
             case '/':
                 if (!showDropdown && inputValue === '') {
-                    // Only prevent default and show dropdown if input is empty (first character)
+                    // Only prevent default and show dropdown if input is empty
                     e.preventDefault()
                     setFilteredCommands(commands)
                     setShowDropdown(true)
-                    setInputValue('/')
-                    onChange?.('/')
                     return
                 }
                 // If input already has content, let the '/' be typed normally
