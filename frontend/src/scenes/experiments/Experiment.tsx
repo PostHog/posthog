@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -22,7 +22,7 @@ export const scene: SceneExport<ExperimentLogicProps> = {
 }
 
 export function Experiment(): JSX.Element {
-    const { formMode, experimentMissing, experimentId } = useValues(experimentLogic)
+    const { formMode, experimentMissing, experimentId } = useValues(experimentSceneLogic)
     const { currentTeamId } = useValues(teamLogic)
     const isCreateFormEnabled = useFeatureFlag('EXPERIMENTS_CREATE_FORM', 'test')
 
@@ -37,13 +37,24 @@ export function Experiment(): JSX.Element {
         return <NotFound object="experiment" />
     }
 
+    // Bind experimentLogic with props so all child components get the correct instance
+    const logicProps: ExperimentLogicProps = { experimentId, formMode }
+
     if (isCreateFormEnabled && formMode === FORM_MODES.create) {
-        return <CreateExperiment />
+        return (
+            <BindLogic logic={experimentLogic} props={logicProps}>
+                <CreateExperiment />
+            </BindLogic>
+        )
     }
 
-    return ([FORM_MODES.create, FORM_MODES.duplicate] as string[]).includes(formMode) ? (
-        <ExperimentForm />
-    ) : (
-        <ExperimentView />
+    return (
+        <BindLogic logic={experimentLogic} props={logicProps}>
+            {formMode && ([FORM_MODES.create, FORM_MODES.duplicate] as string[]).includes(formMode) ? (
+                <ExperimentForm />
+            ) : (
+                <ExperimentView />
+            )}
+        </BindLogic>
     )
 }

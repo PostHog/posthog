@@ -1,4 +1,4 @@
-import { actions, connect, kea, path, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, selectors } from 'kea'
 import { urlToAction } from 'kea-router'
 
 import { Scene } from 'scenes/sceneTypes'
@@ -8,19 +8,29 @@ import { urls } from 'scenes/urls'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { ActivityScope, Breadcrumb, Experiment, ProjectTreeRef } from '~/types'
 
-import { NEW_EXPERIMENT, experimentLogic } from './experimentLogic'
+import { type ExperimentLogicProps, NEW_EXPERIMENT, experimentLogic } from './experimentLogic'
 import type { experimentSceneLogicType } from './experimentSceneLogicType'
 
 export const experimentSceneLogic = kea<experimentSceneLogicType>([
-    path(['scenes', 'experiments', 'experimentSceneLogic']),
-    connect(() => ({
-        values: [experimentLogic, ['experiment', 'experimentId', 'experimentMissing', 'isExperimentRunning']],
-        actions: [experimentLogic, ['loadExperiment', 'loadExposures', 'setEditExperiment', 'resetExperiment']],
+    props({} as ExperimentLogicProps),
+    key((props) => props.experimentId || 'new'),
+    path((key) => ['scenes', 'experiments', 'experimentSceneLogic', key]),
+    connect((props: ExperimentLogicProps) => ({
+        values: [experimentLogic(props), ['experiment', 'experimentMissing', 'isExperimentRunning']],
+        actions: [experimentLogic(props), ['loadExperiment', 'loadExposures', 'setEditExperiment', 'resetExperiment']],
     })),
     actions({
         // Actions are delegated to experimentLogic
     }),
     selectors({
+        experimentId: [
+            () => [(_, props) => props.experimentId ?? 'new'],
+            (experimentId: Experiment['id']): Experiment['id'] => experimentId,
+        ],
+        formMode: [
+            () => [(_, props) => props.formMode],
+            (formMode: ExperimentLogicProps['formMode']): ExperimentLogicProps['formMode'] => formMode,
+        ],
         breadcrumbs: [
             (s) => [s.experiment, s.experimentId],
             (experiment: Experiment, experimentId: Experiment['id']): Breadcrumb[] => {
@@ -71,8 +81,7 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                         metrics: query.metric ? [query.metric] : [],
                         name: query.name ?? '',
                     })
-                }
-                if (parsedId !== 'new' && String(parsedId) === String(values.experimentId)) {
+                } else {
                     actions.loadExperiment()
                     if (values.isExperimentRunning) {
                         actions.loadExposures()
