@@ -140,6 +140,8 @@ Successfully migrated from custom clone script to simpler `gatsby-source-git` pl
 
 1. Triggers Vercel deployment on posthog.com@source-git branch
 2. Passes `GATSBY_POSTHOG_BRANCH` env var to control which monorepo branch to pull docs from
-3. Posts enhanced PR comments with file table and preview links
+3. Posts clean PR comments with preview URL
 
 Much simpler implementation - thanks to PR #13375!
+
+Testing path fix for /handbook/engineering routing.
