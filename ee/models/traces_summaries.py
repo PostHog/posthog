@@ -1,14 +1,13 @@
 from django.db import models
 
 from posthog.models.team.team import Team
-from posthog.models.user import User
 from posthog.models.utils import UUIDTModel
 
 
 class TraceSummary(UUIDTModel):
     class Meta:
         indexes = [
-            models.Index(fields=["ref_trace_id"]),
+            models.Index(fields=["team", "trace_id"]),
         ]
 
     class TraceType(models.TextChoices):
@@ -18,7 +17,6 @@ class TraceSummary(UUIDTModel):
 
         ISSUES_SEARCH = "issues_search"
 
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True, null=True)
     updated_at = models.DateTimeField(auto_now=True, null=True)

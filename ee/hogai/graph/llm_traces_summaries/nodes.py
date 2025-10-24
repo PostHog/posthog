@@ -1,4 +1,3 @@
-from datetime import datetime
 import json
 import time
 from typing import Any
@@ -9,10 +8,8 @@ from django.utils import timezone
 import structlog
 from langchain_core.runnables import RunnableConfig
 
-from posthog.models.event.util import format_clickhouse_timestamp
-from posthog.schema import AssistantToolCallMessage, EmbeddingModelName, NotebookUpdateMessage
+from posthog.schema import AssistantToolCallMessage, NotebookUpdateMessage
 
-from posthog.utils import cast_timestamp_or_now
 from products.notebooks.backend.util import (
     TipTapNode,
     create_heading_with_text,
@@ -74,8 +71,7 @@ class LLMTracesSummarizationNode(AssistantNode):
         # )
         try:
             # Trying to generate embeddings through Olly's service
-            test_results = embedding_testing_func(text=llm_traces_summarization_query, team_id=self._team.id)
-
+            # test_results = embedding_testing_func(text=llm_traces_summarization_query, team_id=self._team.id)
             # Search for similar traces
             similar_documents = EmbeddingSearcher.prepare_input_data(
                 question=llm_traces_summarization_query,
@@ -182,24 +178,3 @@ def _prepare_initial_notebook_state(query: str):
     # Initial content
     content.append(create_paragraph_with_content([create_text_content("📖 Reading through traces intensively...")]))
     return {"type": "doc", "content": content}
-
-
-def embedding_testing_func(text: str, team_id: int):
-    from posthog.kafka_client.client import KafkaProducer
-
-    kafka_topic = "document_embeddings_input"
-    producer = KafkaProducer()
-    timestamp_clickhouse = timezone.now().isoformat()
-    trace_id = "the-best-trace-id-ever"
-    payload = {
-        "team_id": team_id,
-        "product": "llm-analytics",
-        "document_type": "trace-summary",
-        "rendering": "issues-search",
-        "document_id": trace_id,
-        "timestamp": timestamp_clickhouse,
-        "content": text,
-        "models": [EmbeddingModelName.TEXT_EMBEDDING_3_LARGE_3072.value],
-    }
-    producer.produce(topic=kafka_topic, data=payload)
-    print("")

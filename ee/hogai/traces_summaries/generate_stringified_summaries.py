@@ -1,16 +1,17 @@
-import asyncio
-import os
 import re
+import asyncio
 import difflib
 from copy import copy
 
 import structlog
 from rich.console import Console
 
-# from google import genai
-
 from posthog.models.team.team import Team
+
 from products.llm_analytics.backend.providers.gemini import GeminiProvider
+
+# from google import genai
+from ee.models.traces_summaries import TraceSummary
 
 logger = structlog.get_logger(__name__)
 
@@ -32,8 +33,14 @@ console = Console()
 
 
 class TraceSummarizerGenerator:
-    def __init__(self, team: Team, model_id: str = LLM_MODEL_TO_SUMMARIZE_STRINGIFIED_TRACES):
+    def __init__(
+        self,
+        team: Team,
+        model_id: str = LLM_MODEL_TO_SUMMARIZE_STRINGIFIED_TRACES,
+        summary_type: TraceSummary.TraceType = TraceSummary.TraceType.ISSUES_SEARCH,
+    ):
         self._team = team
+        self._summary_type = summary_type
         self._model_id = model_id
         self._provider = GeminiProvider(model_id=model_id)
 
@@ -157,3 +164,14 @@ class TraceSummarizerGenerator:
                 console.print(f"[red]Removed: '{original_summary[i1:i2]}'[/red]")
                 console.print(f"[green]Added: '{summary[j1:j2]}'[/green]")
         console.print("=" * 50 + "\n")
+
+    def store_summaries_in_db(self, summarized_traces: dict[str, str]):
+        # Store summaries in the database should be part of the embedding process
+        # Temporary PSQL solution to test end-to-end summarization pipeline
+        # TODO: Should be replaced (or migrated to) later with the Clickhouse-powered solution to allow FTS
+        summaries_batch_size = 500
+        summaries_db = [
+            TraceSummary(team=self._team, trace_id=trace_id, summary=summary, trace_type=self._summary_types)
+            for trace_id, summary in summarized_traces.items()
+        ]
+        TraceSummary.objects.bulk_create(summaries_db, batch_size=summaries_batch_size)
