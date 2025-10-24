@@ -78,6 +78,10 @@ from posthog.queries.util import correct_result_for_sampling, get_earliest_times
 from posthog.utils import multisort
 from posthog.warehouse.models.util import get_view_or_table_by_name
 
+# All the data inserted by mistake or with wrong format falls in 1970 or before.
+# Filter out these events when calculating trends for "All time" period
+TRENDS_EARLIEST_TIMESTAMP = "1980-01-01"
+
 
 class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     query: TrendsQuery
@@ -672,7 +676,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
     @cached_property
     def _earliest_timestamp(self) -> datetime:
-        return get_earliest_timestamp(self.team.id)
+        return get_earliest_timestamp(self.team.id, since=TRENDS_EARLIEST_TIMESTAMP)
 
     @cached_property
     def query_date_range(self):
