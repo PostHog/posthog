@@ -7,7 +7,7 @@ from posthog.hogql.query import execute_hogql_query
 class TestExplainCSPReport(BaseTest):
     def test_explain_csp_report(self):
         response = execute_hogql_query(
-            "select explain_csp_report({'violated_directive': 'script-src', 'original_policy': 'script-src https://example.com'})",
+            "select explainCSPReport({'violated_directive': 'script-src', 'original_policy': 'script-src https://example.com'})",
             self.team,
             pretty=False,
         )
@@ -38,5 +38,5 @@ class TestExplainCSPReport(BaseTest):
 
     def test_explain_csp_report_no_properties_error(self):
         with self.assertRaises(QueryError) as e:
-            execute_hogql_query(f"SELECT explain_csp_report()", self.team)
-        self.assertEqual(str(e.exception), "Function 'explain_csp_report' expects 1 argument, found 0")
+            execute_hogql_query(f"SELECT explainCSPReport()", self.team)
+        self.assertEqual(str(e.exception), "Function 'explainCSPReport' expects 1 argument, found 0")
