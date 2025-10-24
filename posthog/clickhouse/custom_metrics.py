@@ -20,6 +20,9 @@ def CUSTOM_METRICS_VIEW(include_counters: bool = False, include_server_crash: bo
     UNION ALL
     SELECT * REPLACE (toFloat64(value) as value)
     FROM custom_metrics_events_recent_lag
+    UNION ALL
+    SELECT * REPLACE (toFloat64(value) as value)
+    FROM custom_metrics_table_sizes
     """
     if include_counters:
         statement += "UNION ALL SELECT * FROM custom_metrics_counters\n"
@@ -102,6 +105,22 @@ def CUSTOM_METRICS_SERVER_CRASH_VIEW():
     WHERE event_date = today()
     GROUP BY hostname()
     """
+
+
+def CUSTOM_METRICS_TABLE_SIZES_VIEW():
+    return f"""
+    SELECT
+        'ClickHouseCustomMetric_TableTotalBytes' AS name,
+        map('instance', hostname(),
+            'database', database,
+            'table', table
+        ) AS labels,
+        total_bytes AS value,
+        'Size of a database table on a given node (need a sum for sharded)' AS help,
+        'gauge' AS type
+    FROM system.tables
+    WHERE database NOT IN ('INFORMATION_SCHEMA', 'information_schema')
+"""
 
 
 CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE = f"""
