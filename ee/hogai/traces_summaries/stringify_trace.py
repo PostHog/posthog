@@ -31,7 +31,7 @@ class TracesSummarizerStringifier:
         # TODO: Iterate full conversations (traces combined) instead of just traces, as it leads to duplicates
         messages = trace.outputState.get("messages") if trace.outputState else []
         for message in messages:
-            stringified_message = self._stringify_message(message=message, trace_id=trace.id)
+            stringified_message = self.stringify_message(message=message, trace_id=trace.id)
             # Skip empty messages
             if not stringified_message:
                 continue
@@ -43,7 +43,9 @@ class TracesSummarizerStringifier:
         if not stringified_messages:
             return None
         # If human didn't respond to any AI messages (no interaction), skip the trace
-        no_interaction_found = True
+        # no_interaction_found = True
+        # TODO: Change back to "True" after testing
+        no_interaction_found = False
         for i, message in enumerate(stringified_messages):
             if message.startswith("human") and i > 0 and stringified_messages[i - 1].startswith("ai"):
                 no_interaction_found = False
@@ -104,7 +106,7 @@ class TracesSummarizerStringifier:
             return None
         return f"human: {message_content}"
 
-    def _stringify_message(self, message: dict[str, Any], trace_id: str) -> str | None:
+    def stringify_message(self, message: dict[str, Any], trace_id: str) -> str | None:
         message_type = message.get("type")
         if not message_type:
             logger.warning(
