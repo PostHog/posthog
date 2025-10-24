@@ -562,6 +562,8 @@ class RootNodeTools(AssistantNode):
         last_message = state.messages[-1]
 
         if isinstance(last_message, AssistantToolCallMessage):
+            if last_message.ui_payload and "create_support_ticket" in last_message.ui_payload:
+                return "end"
             return "root"  # Let the root either proceed or finish, since it now can see the tool call result
         if isinstance(last_message, AssistantMessage) and state.root_tool_call_id:
             tool_calls = getattr(last_message, "tool_calls", None)
