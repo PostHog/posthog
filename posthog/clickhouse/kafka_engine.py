@@ -39,10 +39,21 @@ KAFKA_COLUMNS_WITH_PARTITION = """
 KAFKA_TIMESTAMP_MS_COLUMN = "_timestamp_ms DateTime64"
 
 
-def kafka_engine(topic: str, kafka_host: str | None = None, group="group1", serialization="JSONEachRow", use_named_collection: bool = True) -> str:
+def kafka_engine(
+    topic: str,
+    kafka_host: str | None = None,
+    group="group1",
+    serialization="JSONEachRow",
+    use_named_collection: bool = True,
+) -> str:
     if use_named_collection:
         assert kafka_host is None, "Can't set kafka_host when using named collection"
-        return KAFKA_NAMED_COLLECTION_ENGINE.format(named_collection_name=settings.CLICKHOUSE_KAFKA_NAMED_COLLECTION, topic=topic, group=group, serialization=serialization)
+        return KAFKA_NAMED_COLLECTION_ENGINE.format(
+            named_collection_name=settings.CLICKHOUSE_KAFKA_NAMED_COLLECTION,
+            topic=topic,
+            group=group,
+            serialization=serialization,
+        )
 
     if kafka_host is None:
         kafka_host = ",".join(settings.KAFKA_HOSTS_FOR_CLICKHOUSE)
