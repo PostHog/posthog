@@ -3668,6 +3668,7 @@ export enum DashboardPlacement {
     Export = 'export', // When the dashboard is being exported (alike to being printed)
     Person = 'person', // When the dashboard is being viewed on a person page
     Group = 'group', // When the dashboard is being viewed on a group page
+    LLMAnalytics = 'llm-analytics', // When embedded on the LLM Analytics page
 }
 
 // Default mode is null

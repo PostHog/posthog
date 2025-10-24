@@ -14,7 +14,7 @@ import pydantic_core
 import posthoganalytics
 from asgiref.sync import sync_to_async
 from opentelemetry import trace
-from rest_framework import exceptions, serializers, viewsets
+from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -858,6 +858,52 @@ class DashboardsViewSet(
             raise
 
         return Response(DashboardSerializer(dashboard, context=self.get_serializer_context()).data)
+
+    @action(methods=["POST"], detail=False)
+    def create_llm_analytics_default(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Creates default LLM Analytics dashboard if one doesn't exist.
+        Uses transaction to prevent race conditions.
+        Returns 409 if dashboard already exists (lost race condition).
+        """
+        from django.db import transaction
+        from posthog.models.team import Team
+
+        with transaction.atomic():
+            # Lock the team row to prevent race conditions
+            Team.objects.select_for_update().filter(id=self.team_id).first()
+
+            # Check if LLM Analytics dashboard exists
+            existing = Dashboard.objects.filter(
+                team=self.team, deleted=False, tagged_items__tag__name="llm-analytics"
+            ).first()
+
+            if existing:
+                return Response(
+                    {"error": "LLM Analytics dashboard already exists", "dashboard_id": existing.id},
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            # Import template
+            from products.llm_analytics.backend.dashboard_templates import get_llm_analytics_default_template
+
+            # Create from template
+            template = get_llm_analytics_default_template()
+            dashboard = Dashboard.objects.create(
+                team_id=self.team_id,
+                name="LLM Analytics",
+                description=template.dashboard_description or "",
+                filters={**(template.dashboard_filters or {}), "__template_version": 1},
+                created_by=cast(User, request.user),
+            )
+
+            # create_from_template will automatically add tags from the template
+            create_from_template(dashboard, template, cast(User, request.user))
+
+            return Response(
+                DashboardSerializer(dashboard, context=self.get_serializer_context()).data,
+                status=status.HTTP_201_CREATED,
+            )
 
 
 class LegacyDashboardsViewSet(DashboardsViewSet):

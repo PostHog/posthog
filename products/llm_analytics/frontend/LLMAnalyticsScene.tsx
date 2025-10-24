@@ -2,11 +2,12 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconArchive, IconCopy, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
+import { IconArchive, IconCopy, IconPencil, IconPlus, IconPlusSmall, IconSearch, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
     LemonInput,
+    LemonSelect,
     LemonSwitch,
     LemonTab,
     LemonTable,
@@ -28,6 +29,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDuration, objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -42,7 +44,7 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
-import { EventType } from '~/types'
+import { DashboardPlacement, EventType } from '~/types'
 
 import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
@@ -130,10 +132,76 @@ const IngestionStatusCheck = (): JSX.Element | null => {
 }
 
 function LLMAnalyticsDashboard(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { selectedDashboardId, availableDashboards, availableDashboardsLoading } = useValues(llmAnalyticsLogic)
+    const { selectDashboard, createNewDashboard } = useActions(llmAnalyticsLogic)
+
+    // FIXME: Remove before shipping, this is for dev testing
+    const urlParams = new URLSearchParams(window.location.search)
+    const urlOverride = urlParams.get('customizable_dashboard')
+    const useCustomizableDashboard =
+        urlOverride !== null
+            ? urlOverride === 'true' || urlOverride === '1'
+            : featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD]
+
     return (
         <div className="@container/dashboard">
             <Filters />
-            <Tiles />
+
+            {useCustomizableDashboard ? (
+                <>
+                    {availableDashboardsLoading ? (
+                        <div className="text-center p-8">
+                            <Spinner />
+                        </div>
+                    ) : !selectedDashboardId ? (
+                        <div className="text-center p-8">
+                            <Spinner textClassName="text-muted-alt">Setting up your dashboard...</Spinner>
+                        </div>
+                    ) : (
+                        <>
+                            {availableDashboards.length > 1 && (
+                                <div className="flex items-center gap-2 mb-4">
+                                    <span className="text-sm font-medium">Dashboard:</span>
+                                    <LemonSelect
+                                        value={selectedDashboardId}
+                                        onChange={selectDashboard}
+                                        options={[
+                                            ...availableDashboards.map((d) => ({
+                                                value: d.id,
+                                                label: d.name,
+                                            })),
+                                            {
+                                                value: 'create_new' as const,
+                                                label: (
+                                                    <div className="flex items-center gap-2">
+                                                        <IconPlusSmall />
+                                                        Create from template
+                                                    </div>
+                                                ),
+                                            },
+                                        ]}
+                                        className="min-w-48"
+                                    />
+                                    <LemonButton
+                                        icon={<IconPencil />}
+                                        onClick={() => router.actions.push(urls.dashboard(selectedDashboardId))}
+                                        size="small"
+                                        tooltip="Edit dashboard"
+                                    />
+                                </div>
+                            )}
+
+                            <Dashboard
+                                id={selectedDashboardId.toString()}
+                                placement={DashboardPlacement.LLMAnalytics}
+                            />
+                        </>
+                    )}
+                </>
+            ) : (
+                <Tiles />
+            )}
         </div>
     )
 }

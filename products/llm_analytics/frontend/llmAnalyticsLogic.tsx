@@ -86,7 +86,9 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'llmAnalyticsLogic']),
     props({} as LLMAnalyticsLogicProps),
     key((props: LLMAnalyticsLogicProps) => props?.personId || 'llmAnalyticsScene'),
-    connect(() => ({ values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']] })),
+    connect(() => ({
+        values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled'], featureFlagLogic, ['featureFlags']],
+    })),
 
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
@@ -101,6 +103,9 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         toggleGenerationExpanded: (uuid: string, traceId: string) => ({ uuid, traceId }),
         setLoadedTrace: (traceId: string, trace: LLMTrace) => ({ traceId, trace }),
         clearExpandedGenerations: true,
+        loadLLMDashboards: true,
+        selectDashboard: (dashboardId: number | string | null) => ({ dashboardId }),
+        createNewDashboard: true,
     }),
 
     reducers({
@@ -209,9 +214,24 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 setShouldFilterTestAccounts: () => ({}),
             },
         ],
+
+        selectedDashboardId: [
+            null as number | null,
+            { persist: true, prefix: 'llma_' },
+            {
+                selectDashboard: (_, { dashboardId }) => (typeof dashboardId === 'number' ? dashboardId : null),
+                loadLLMDashboardsSuccess: (state, { availableDashboards }) => {
+                    // If no dashboard selected yet, auto-select first
+                    if (!state && availableDashboards.length > 0) {
+                        return availableDashboards[0].id
+                    }
+                    return state
+                },
+            },
+        ],
     }),
 
-    loaders({
+    loaders(({ values }) => ({
         hasSentAiGenerationEvent: {
             __default: undefined as boolean | undefined,
             loadAIEventDefinition: async (): Promise<boolean> => {
@@ -229,7 +249,24 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 return false
             },
         },
-    }),
+
+        availableDashboards: [
+            [] as Array<{ id: number; name: string; description: string }>,
+            {
+                loadLLMDashboards: async () => {
+                    const response = await api.dashboards.list({
+                        tags: 'llm-analytics',
+                    })
+                    const dashboards = response.results || []
+                    return dashboards.map((d) => ({
+                        id: d.id,
+                        name: d.name,
+                        description: d.description || '',
+                    }))
+                },
+            },
+        ],
+    })),
 
     listeners(({ actions, values }) => ({
         toggleGenerationExpanded: async ({ uuid, traceId }) => {
@@ -256,6 +293,43 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 } catch (error) {
                     console.error('Failed to load trace:', error)
                 }
+            }
+        },
+
+        loadLLMDashboardsSuccess: async ({ availableDashboards }, breakpoint) => {
+            // If no dashboards exist, create default from template
+            if (availableDashboards.length === 0) {
+                try {
+                    // Attempt to create default dashboard
+                    const dashboard = await api.dashboards.createLLMAnalyticsDefault()
+                    actions.selectDashboard(dashboard.id)
+                } catch (error: any) {
+                    if (error.status === 409) {
+                        // Lost race condition, another tab created it
+                        // Retry loading dashboards to pick it up
+                        await breakpoint(100)
+                        actions.loadLLMDashboards()
+                    } else {
+                        console.error('Failed to create default LLM Analytics dashboard:', error)
+                    }
+                }
+            } else if (!values.selectedDashboardId) {
+                // Dashboards exist, auto-select first if none selected
+                actions.selectDashboard(availableDashboards[0].id)
+            }
+        },
+
+        createNewDashboard: () => {
+            // Navigate to dashboard creation with LLM Analytics template pre-selected
+            router.actions.push(urls.dashboards(), {
+                fromTemplate: 'LLM Analytics Default',
+                tags: 'llm-analytics',
+            })
+        },
+
+        selectDashboard: ({ dashboardId }) => {
+            if (dashboardId === 'create_new') {
+                actions.createNewDashboard()
             }
         },
     })),
@@ -916,8 +990,20 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         ],
     })),
 
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values }) => {
         actions.loadAIEventDefinition()
+
+        // FIXME: Remove before shipping, this is for dev testing
+        const urlParams = new URLSearchParams(window.location.search)
+        const urlOverride = urlParams.get('customizable_dashboard')
+        const useCustomizableDashboard =
+            urlOverride !== null
+                ? urlOverride === 'true' || urlOverride === '1'
+                : values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD]
+
+        if (useCustomizableDashboard) {
+            actions.loadLLMDashboards()
+        }
     }),
 
     listeners(({ actions, values }) => ({
