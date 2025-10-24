@@ -104,7 +104,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
 
     let conn_acquisition_start = Instant::now();
     let conn_result =
-        get_connection_with_metrics(&reader, "persons_reader", "write_hash_key_override").await;
+        get_connection_with_metrics(&reader, "persons_reader", "fetch_person_properties").await;
     let conn_acquisition_duration = conn_acquisition_start.elapsed();
 
     let mut conn = match conn_result {
