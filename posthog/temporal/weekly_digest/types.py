@@ -1,4 +1,3 @@
-import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, TypeAlias
@@ -7,48 +6,48 @@ from uuid import UUID
 from pydantic import BaseModel, RootModel
 
 
-@dataclass(frozen=True)
+@dataclass
 class CommonInput:
     redis_ttl: int = 3600 * 24 * 3  # 3 days
-    redis_host: str = os.getenv("WEEKLY_DIGEST_REDIS_HOST", "localhost")
-    redis_port: int = int(os.getenv("WEEKLY_DIGEST_REDIS_PORT", "6379"))
+    redis_host: str | None = None
+    redis_port: int | None = None
     batch_size: int = 100
 
 
-@dataclass(frozen=True)
+@dataclass
 class Digest:
     key: str
     period_start: datetime
     period_end: datetime
 
 
-@dataclass(frozen=True)
+@dataclass
 class WeeklyDigestInput:
     dry_run: bool
     common: CommonInput = field(default_factory=CommonInput)
 
 
-@dataclass(frozen=True)
+@dataclass
 class GenerateDigestDataInput:
     digest: Digest
     common: CommonInput
 
 
-@dataclass(frozen=True)
+@dataclass
 class GenerateOrganizationDigestInput:
     batch: tuple[int, int]
     digest: Digest
     common: CommonInput
 
 
-@dataclass(frozen=True)
+@dataclass
 class SendWeeklyDigestInput:
     dry_run: bool
     digest: Digest
     common: CommonInput
 
 
-@dataclass(frozen=True)
+@dataclass
 class SendWeeklyDigestBatchInput:
     batch: tuple[int, int]
     dry_run: bool
