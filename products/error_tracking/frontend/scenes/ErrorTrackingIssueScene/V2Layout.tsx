@@ -27,6 +27,7 @@ import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogi
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { SidePanelTab } from '~/types'
 
+import { BreakdownChart } from '../../components/Breakdowns/BreakdownChart'
 import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { ErrorFilters } from '../../components/IssueFilters'
@@ -120,7 +121,7 @@ const CategoryContent = (): JSX.Element => {
     const tagRenderer = useErrorTagRenderer()
 
     return category === 'breakdowns' ? (
-        <div className="bg-accent-3000 h-[500px] flex justify-center items-center">Breakdowns go here</div>
+        <BreakdownChart />
     ) : exceptionsCategory === 'exception' ? (
         <ExceptionCard
             issue={issue ?? undefined}

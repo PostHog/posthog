@@ -11,6 +11,7 @@ import { InsightQueryNode } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator } from '~/types'
 
 import { errorTrackingIssueBreakdownQuery } from '../../queries'
+import { errorTrackingIssueSceneLogic } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { breakdownFiltersLogic } from './breakdownFiltersLogic'
 import { BreakdownSinglePropertyStat, breakdownPreviewLogic } from './breakdownPreviewLogic'
 import { BreakdownPreset, errorTrackingBreakdownsLogic } from './errorTrackingBreakdownsLogic'
@@ -27,6 +28,7 @@ export function BreakdownTileButton({ item }: BreakdownTileButtonProps): JSX.Ele
     const { dateRange, filterTestAccounts } = useValues(breakdownFiltersLogic)
     const { selectedBreakdownPreset } = useValues(errorTrackingBreakdownsLogic)
     const { setSelectedBreakdownPreset } = useActions(errorTrackingBreakdownsLogic)
+    const { setCategory } = useActions(errorTrackingIssueSceneLogic)
 
     const isSelected = selectedBreakdownPreset.property === item.property
     const { issueId } = useValues(errorTrackingBreakdownsLogic)
@@ -41,7 +43,10 @@ export function BreakdownTileButton({ item }: BreakdownTileButtonProps): JSX.Ele
 
     return (
         <button
-            onClick={() => setSelectedBreakdownPreset(item)}
+            onClick={() => {
+                setSelectedBreakdownPreset(item)
+                setCategory('breakdowns')
+            }}
             className={cn(
                 'w-full px-2.5 py-2 text-left transition-all cursor-pointer border-l-[3px]',
                 isSelected ? 'border-l-brand-yellow' : 'border-l-transparent'
