@@ -9,6 +9,9 @@ class TraceSummary(UUIDTModel):
         indexes = [
             models.Index(fields=["team", "trace_id"]),
         ]
+        constraints = [
+            models.UniqueConstraint(fields=["team", "trace_id", "trace_summary_type"], name="unique_trace_summary"),
+        ]
 
     class TraceSummaryType(models.TextChoices):
         """
