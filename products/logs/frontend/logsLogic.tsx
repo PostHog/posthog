@@ -226,18 +226,7 @@ export const logsLogic = kea<logsLogicType>([
                             limit: 99,
                             offset: values.logs.length,
                             orderBy: values.orderBy,
-                            dateRange: {
-                                // convert to naive timezone in the project's timezone which is what the backend requires
-                                date_from: dayjs(values.dateRange.date_from).isValid()
-                                    ? dayjs(values.dateRange.date_from)
-                                          .tz(values.timezone)
-                                          .format('YYYY-MM-DD HH:mm:ss')
-                                    : values.dateRange.date_from,
-                                date_to: dayjs(values.dateRange.date_to).isValid()
-                                    ? dayjs(values.dateRange.date_to).tz(values.timezone).format('YYYY-MM-DD HH:mm:ss')
-                                    : values.dateRange.date_to,
-                                explicitDate: values.dateRange.explicitDate,
-                            },
+                            dateRange: values.projectDateRange,
                             searchTerm: values.searchTerm,
                             filterGroup: values.filterGroup as PropertyGroupFilter,
                             severityLevels: values.severityLevels,
@@ -267,18 +256,7 @@ export const logsLogic = kea<logsLogicType>([
                     const response = await api.logs.sparkline({
                         query: {
                             orderBy: values.orderBy,
-                            dateRange: {
-                                // convert to naive timezone in the project's timezone which is what the backend requires
-                                date_from: dayjs(values.dateRange.date_from).isValid()
-                                    ? dayjs(values.dateRange.date_from)
-                                          .tz(values.timezone)
-                                          .format('YYYY-MM-DD HH:mm:ss')
-                                    : values.dateRange.date_from,
-                                date_to: dayjs(values.dateRange.date_to).isValid()
-                                    ? dayjs(values.dateRange.date_to).tz(values.timezone).format('YYYY-MM-DD HH:mm:ss')
-                                    : values.dateRange.date_to,
-                                explicitDate: values.dateRange.explicitDate,
-                            },
+                            dateRange: values.projectDateRange,
                             searchTerm: values.searchTerm,
                             filterGroup: values.filterGroup as PropertyGroupFilter,
                             severityLevels: values.severityLevels,
@@ -294,6 +272,19 @@ export const logsLogic = kea<logsLogicType>([
     })),
 
     selectors(() => ({
+        // convert the dateRange to be in the project's timezone
+        projectDateRange: [
+            (s) => [s.dateRange, s.timezone],
+            (dateRange, timezone) => ({
+                date_from: dayjs(dateRange.date_from).isValid()
+                    ? dayjs(dateRange.date_from).tz(timezone).format('YYYY-MM-DD HH:mm:ss')
+                    : dateRange.date_from,
+                date_to: dayjs(dateRange.date_to).isValid()
+                    ? dayjs(dateRange.date_to).tz(timezone).format('YYYY-MM-DD HH:mm:ss')
+                    : dateRange.date_to,
+                explicitDate: dateRange.explicitDate,
+            }),
+        ],
         sparklineData: [
             (s) => [s.sparkline],
             (sparkline) => {
