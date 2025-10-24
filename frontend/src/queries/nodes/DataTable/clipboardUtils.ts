@@ -7,7 +7,7 @@ import { asDisplay } from 'scenes/persons/person-utils'
 import { getDisplayColumnName } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode } from '~/queries/schema/schema-general'
+import { DataTableNode, WebTrendsMetric, WebTrendsQueryResponse } from '~/queries/schema/schema-general'
 import {
     isEventsQuery,
     isHogQLQuery,
@@ -251,6 +251,47 @@ export const getJsonTableData = (
     return []
 }
 
+const webTrendsMetricDisplayNames: Record<WebTrendsMetric, string> = {
+    [WebTrendsMetric.UNIQUE_USERS]: 'Visitors',
+    [WebTrendsMetric.PAGE_VIEWS]: 'Views',
+    [WebTrendsMetric.SESSIONS]: 'Sessions',
+    [WebTrendsMetric.BOUNCES]: 'Bounces',
+    [WebTrendsMetric.SESSION_DURATION]: 'Session duration',
+    [WebTrendsMetric.TOTAL_SESSIONS]: 'Total sessions',
+}
+
+export const getWebTrendsTableData = (response: WebTrendsQueryResponse): string[][] => {
+    if (!response.results || response.results.length === 0) {
+        return []
+    }
+
+    const allMetricsSet = new Set<WebTrendsMetric>()
+    response.results.forEach((item) => {
+        Object.keys(item.metrics).forEach((metric) => allMetricsSet.add(metric as WebTrendsMetric))
+    })
+
+    const orderedMetrics = Array.from(allMetricsSet).sort()
+
+    if (orderedMetrics.length === 0) {
+        return []
+    }
+
+    const displayHeaders = ['Date', ...orderedMetrics.map((m) => webTrendsMetricDisplayNames[m] || m)]
+
+    const dataRows = response.results.map((item) => {
+        const row = [
+            item.bucket,
+            ...orderedMetrics.map((metric) => {
+                const value = item.metrics[metric]
+                return value != null ? String(value) : ''
+            }),
+        ]
+        return row
+    })
+
+    return [displayHeaders, ...dataRows]
+}
+
 export function copyTableToCsv(
     dataTableRows: DataTableRow[],
     columns: string[],
@@ -288,6 +329,55 @@ export function copyTableToExcel(
 ): void {
     try {
         const tableData = getCsvTableData(dataTableRows, columns, query, preferredColumnOrder)
+
+        const tsv = Papa.unparse(tableData, { delimiter: '\t' })
+
+        void copyToClipboard(tsv, 'table')
+    } catch {
+        lemonToast.error('Copy failed!')
+    }
+}
+
+export function copyWebTrendsToCsv(response: WebTrendsQueryResponse): void {
+    try {
+        const tableData = getWebTrendsTableData(response)
+
+        const csv = Papa.unparse(tableData)
+
+        void copyToClipboard(csv, 'table')
+    } catch {
+        lemonToast.error('Copy failed!')
+    }
+}
+
+export function copyWebTrendsToJson(response: WebTrendsQueryResponse): void {
+    try {
+        const tableData = getWebTrendsTableData(response)
+
+        const headers = tableData[0]
+        const rows = tableData.slice(1)
+
+        const jsonData = rows.map((row) => {
+            return headers.reduce(
+                (acc, header, index) => {
+                    acc[header] = row[index]
+                    return acc
+                },
+                {} as Record<string, any>
+            )
+        })
+
+        const json = JSON.stringify(jsonData, null, 4)
+
+        void copyToClipboard(json, 'table')
+    } catch {
+        lemonToast.error('Copy failed!')
+    }
+}
+
+export function copyWebTrendsToExcel(response: WebTrendsQueryResponse): void {
+    try {
+        const tableData = getWebTrendsTableData(response)
 
         const tsv = Papa.unparse(tableData, { delimiter: '\t' })
 

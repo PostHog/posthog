@@ -3,11 +3,27 @@ import { useValues } from 'kea'
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
-import { copyTableToCsv, copyTableToExcel, copyTableToJson } from '~/queries/nodes/DataTable/clipboardUtils'
-import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { DataTableNode, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
+import {
+    copyTableToCsv,
+    copyTableToExcel,
+    copyTableToJson,
+    copyWebTrendsToCsv,
+    copyWebTrendsToExcel,
+    copyWebTrendsToJson,
+} from '~/queries/nodes/DataTable/clipboardUtils'
+import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
+import {
+    DataTableNode,
+    InsightVizNode,
+    NodeKind,
+    QuerySchema,
+    WebStatsTableQueryResponse,
+    WebTrendsQueryResponse,
+} from '~/queries/schema/schema-general'
+import { isWebTrendsQuery } from '~/queries/utils'
 import { ExporterFormat, InsightLogicProps } from '~/types'
+
+import { insightDataLogic } from '../insights/insightDataLogic'
 
 interface WebAnalyticsExportProps {
     query: QuerySchema
@@ -15,59 +31,73 @@ interface WebAnalyticsExportProps {
 }
 
 export function WebAnalyticsExport({ query, insightProps }: WebAnalyticsExportProps): JSX.Element | null {
-    const vizKey = insightVizDataNodeKey(insightProps)
+    const builtInsightDataLogic = insightDataLogic(insightProps)
+    const { insightDataRaw } = useValues(builtInsightDataLogic)
 
-    // Construct the props for dataTableLogic
-    const dataTableLogicProps = {
-        vizKey,
-        dataKey: vizKey,
-        query:
-            query.kind === NodeKind.DataTableNode
-                ? query
-                : ({
-                      kind: NodeKind.DataTableNode,
-                      source: { kind: NodeKind.HogQLQuery, query: '' },
-                  } as DataTableNode),
+    const isTableQuery = query.kind === NodeKind.DataTableNode
+    const isInsightVizQuery =
+        query.kind === NodeKind.InsightVizNode && isWebTrendsQuery((query as InsightVizNode).source)
+
+    if (!isTableQuery && !isInsightVizQuery) {
+        return null
     }
 
-    // Always call useValues to comply with hooks rules
-    const builtLogic = dataTableLogic(dataTableLogicProps)
-    const { dataTableRows, columnsInResponse, queryWithDefaults } = useValues(builtLogic)
+    if (!insightDataRaw) {
+        return null
+    }
 
-    // Check if logic is mounted and we have exportable data
-    const isMounted = dataTableLogic.isMounted(dataTableLogicProps)
-    const hasData = isMounted && dataTableRows && dataTableRows.length > 0
+    let hasData = false
+    if (isTableQuery) {
+        const tableResponse = insightDataRaw as WebStatsTableQueryResponse
+        hasData = tableResponse.results && tableResponse.results.length > 0
+    } else if (isInsightVizQuery) {
+        const trendsResponse = insightDataRaw as WebTrendsQueryResponse
+        hasData = trendsResponse.results && trendsResponse.results.length > 0
+    }
 
     if (!hasData) {
         return null
     }
 
-    // Helper to create a DataTableNode for clipboard utils
-    const createDataTableQuery = (): DataTableNode => {
-        // Use the queryWithDefaults if available, otherwise construct from the passed query
-        if (queryWithDefaults) {
-            return queryWithDefaults
-        }
-        return dataTableLogicProps.query
-    }
-
     const handleCopy = (format: ExporterFormat): void => {
-        if (!dataTableRows || !columnsInResponse) {
-            return
-        }
+        if (isTableQuery) {
+            const tableResponse = insightDataRaw as WebStatsTableQueryResponse
+            const columns = (tableResponse.columns as string[]) || []
+            const dataTableRows: DataTableRow[] = tableResponse.results.map((result) => ({
+                result: result as Record<string, any> | any[],
+            }))
 
-        const dataTableQuery = createDataTableQuery()
+            if (!dataTableRows.length || !columns.length) {
+                return
+            }
 
-        switch (format) {
-            case ExporterFormat.CSV:
-                copyTableToCsv(dataTableRows, columnsInResponse, dataTableQuery, columnsInResponse)
-                break
-            case ExporterFormat.JSON:
-                copyTableToJson(dataTableRows, columnsInResponse, dataTableQuery)
-                break
-            case ExporterFormat.XLSX:
-                copyTableToExcel(dataTableRows, columnsInResponse, dataTableQuery, columnsInResponse)
-                break
+            const dataTableQuery = query as DataTableNode
+
+            switch (format) {
+                case ExporterFormat.CSV:
+                    copyTableToCsv(dataTableRows, columns, dataTableQuery, columns)
+                    break
+                case ExporterFormat.JSON:
+                    copyTableToJson(dataTableRows, columns, dataTableQuery)
+                    break
+                case ExporterFormat.XLSX:
+                    copyTableToExcel(dataTableRows, columns, dataTableQuery, columns)
+                    break
+            }
+        } else if (isInsightVizQuery) {
+            const trendsResponse = insightDataRaw as WebTrendsQueryResponse
+
+            switch (format) {
+                case ExporterFormat.CSV:
+                    copyWebTrendsToCsv(trendsResponse)
+                    break
+                case ExporterFormat.JSON:
+                    copyWebTrendsToJson(trendsResponse)
+                    break
+                case ExporterFormat.XLSX:
+                    copyWebTrendsToExcel(trendsResponse)
+                    break
+            }
         }
     }
 
