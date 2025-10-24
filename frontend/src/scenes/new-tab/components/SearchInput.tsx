@@ -9,9 +9,10 @@ import {
     DropdownMenuContent,
     DropdownMenuGroup,
     DropdownMenuItem,
-    DropdownMenuOpenIndicator,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { Label } from 'lib/ui/Label/Label'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { TextInputPrimitive, textInputVariants } from 'lib/ui/TextInputPrimitive/TextInputPrimitive'
 import { cn } from 'lib/utils/css-classes'
@@ -53,7 +54,6 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
     const [inputValue, setInputValue] = useState(value)
     const [showDropdown, setShowDropdown] = useState(false)
     const [filteredCommands, setFilteredCommands] = useState<SearchInputCommand<T>[]>(commands)
-    const [focusedIndex, setFocusedIndex] = useState(0)
     const inputRef = useRef<HTMLInputElement>(null)
     const [focusedTagIndex, setFocusedTagIndex] = useState<number | null>(null)
 
@@ -92,13 +92,11 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
             // Show all commands when slash is typed as first character
             setFilteredCommands(commands)
             setShowDropdown(true)
-            setFocusedIndex(0)
         } else if (showDropdown && newValue.startsWith('/') && newValue.length > 1) {
             // Filter commands when typing after the initial slash
             const searchTerm = newValue.substring(1).toLowerCase()
             const filtered = commands.filter((cmd) => cmd.displayName.toLowerCase().includes(searchTerm))
             setFilteredCommands(filtered)
-            setFocusedIndex(0)
         } else if (showDropdown && !newValue.startsWith('/')) {
             // Hide dropdown if user removes the initial slash
             setShowDropdown(false)
@@ -106,8 +104,9 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
     }
 
     const selectCommand = (command: SearchInputCommand<T>): void => {
-        const newSelectedCommands = selectedCommands.some((cmd) => cmd.value === command.value)
-            ? selectedCommands
+        const isSelected = selectedCommands.some((cmd) => cmd.value === command.value)
+        const newSelectedCommands = isSelected
+            ? selectedCommands.filter((cmd) => cmd.value !== command.value)
             : [...selectedCommands, command]
 
         onSelectedCommandsChange?.(newSelectedCommands)
@@ -135,7 +134,6 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                     e.preventDefault()
                     setFilteredCommands(commands)
                     setShowDropdown(true)
-                    setFocusedIndex(0)
                     setInputValue('/')
                     onChange?.('/')
                     return
@@ -153,7 +151,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                         variant: 'default',
                         size: 'lg',
                     }),
-                    'flex gap-0 focus-within:border-secondary p-0 items-center h-8'
+                    'flex gap-1 focus-within:border-secondary items-center h-8 rounded-lg'
                 )}
             >
                 <DropdownMenu
@@ -170,9 +168,13 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                         }}
                     >
                         <DropdownMenuTrigger asChild>
-                            <ButtonPrimitive className="h-full rounded-r-none text-primary data-[focused=true]:outline-2 data-[focused=true]:outline-accent">
-                                Filters
-                                <DropdownMenuOpenIndicator />
+                            <ButtonPrimitive
+                                variant="outline"
+                                className="ml-1 font-mono text-tertiary"
+                                iconOnly
+                                size="sm"
+                            >
+                                /
                             </ButtonPrimitive>
                         </DropdownMenuTrigger>
                     </ListBox.Item>
@@ -190,35 +192,34 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                         }}
                     >
                         <DropdownMenuGroup>
-                            {filteredCommands.map((command, index) => {
+                            <Label intent="menu" className="px-2">
+                                Filters
+                            </Label>
+                            <DropdownMenuSeparator />
+                            {filteredCommands.map((command) => {
                                 const isActive = activeCommands.includes(command.value)
-                                const isFocused = index === focusedIndex
                                 return (
                                     <DropdownMenuItem asChild>
                                         <ButtonPrimitive
                                             key={command.value as string}
-                                            className={`group ${
-                                                isFocused ? 'command-input-focused' : ''
-                                            } flex items-center text-left`}
+                                            className="group flex items-center text-left"
                                             onClick={() => selectCommand(command)}
-                                            active={isFocused}
                                             fullWidth
                                             menuItem
                                         >
-                                            <div className="flex items-center justify-center w-8">
+                                            <div className="flex items-center justify-center">
                                                 <IconCheck
                                                     className={cn(
                                                         'hidden size-4 group-hover:block group-hover:opacity-10',
                                                         {
-                                                            'block opacity-10': isFocused && !isActive,
-                                                            'block text-success': isActive,
-                                                            'group-hover:opacity-100': isActive && !isFocused,
+                                                            'opacity-10': !isActive,
+                                                            'block text-success group-hover:opacity-100': isActive,
                                                         }
                                                     )}
                                                 />
                                                 <IconBlank
                                                     className={cn('hidden size-4 group-hover:hidden', {
-                                                        block: !isFocused && !isActive,
+                                                        block: !isActive,
                                                     })}
                                                 />
                                             </div>
@@ -232,9 +233,23 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                     </DropdownMenuContent>
                 </DropdownMenu>
 
-                <label className="h-full flex items-center py-1" htmlFor="command-input">
-                    <hr className="h-full w-px bg-border-primary relative right-px" />
-                </label>
+                {selectedCommands.length === 0
+                    ? null
+                    : selectedCommands.map((command) => (
+                          <ButtonPrimitive
+                              key={command.value as string}
+                              className="text-primary"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                  selectCommand(command)
+                                  setShowDropdown(false)
+                              }}
+                          >
+                              {command.displayName}
+                              <IconX className="size-3 ml-1" />
+                          </ButtonPrimitive>
+                      ))}
 
                 {/* Input Field */}
                 <TextInputPrimitive
@@ -246,7 +261,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                     placeholder={placeholder}
                     autoFocus
                     autoComplete="off"
-                    className="pl-2 w-full border-none flex-1 h-full min-h-full"
+                    className="pl-1 w-full border-none flex-1 h-full min-h-full"
                     size="lg"
                     suffix={
                         inputValue !== '' && (
@@ -257,7 +272,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                                         setInputValue('')
                                         inputRef.current?.focus()
                                     }}
-                                    className="data-[focused=true]:outline-2 data-[focused=true]:outline-accent rounded-xs"
+                                    className="rounded-xs"
                                     aria-label="Clear input"
                                 >
                                     <IconX />

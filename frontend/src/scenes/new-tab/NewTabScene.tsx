@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 
 import {
     IconApps,
@@ -47,17 +47,9 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
     const commandInputRef = useRef<SearchInputHandle>(null)
     const listboxRef = useRef<ListBoxHandle>(null)
     const inputRef = useRef<HTMLInputElement>(null)
-    const {
-        filteredItemsGrid,
-        search,
-        categories,
-        selectedCategory,
-        newTabSceneDataIncludePersons,
-        newTabSceneDataIncludeEventDefinitions,
-        newTabSceneDataIncludePropertyDefinitions,
-        newTabSceneDataInclude,
-        isSearching,
-    } = useValues(newTabSceneLogic({ tabId }))
+    const { filteredItemsGrid, search, categories, selectedCategory, newTabSceneDataInclude, isSearching } = useValues(
+        newTabSceneLogic({ tabId })
+    )
     const { mobileLayout } = useValues(navigationLogic)
     const { setSearch, setSelectedCategory, toggleNewTabSceneDataInclude, refreshDataAfterToggle } = useActions(
         newTabSceneLogic({ tabId })
@@ -69,9 +61,6 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
     const isAIAvailable = useFeatureFlag('ARTIFICIAL_HOG')
     const showAiFeature = newTabSceneData && isAIAvailable
 
-    // State for selected commands (tags)
-    const [selectedCommands, setSelectedCommands] = useState<SearchInputCommand<NEW_TAB_COMMANDS>[]>([])
-
     const focusSearchInput = (): void => {
         commandInputRef.current?.focus()
     }
@@ -81,20 +70,17 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
         router.actions.push(urls.max(undefined, nextQuestion))
     }
 
-    // Determine active commands based on current state
-    const activeCommands: NEW_TAB_COMMANDS[] = []
-    if (newTabSceneDataInclude.length > 0) {
-        activeCommands.push(...newTabSceneDataInclude)
-    }
-    if (newTabSceneDataIncludePersons) {
-        activeCommands.push('persons')
-    }
-    if (newTabSceneDataIncludeEventDefinitions) {
-        activeCommands.push('eventDefinitions')
-    }
-    if (newTabSceneDataIncludePropertyDefinitions) {
-        activeCommands.push('propertyDefinitions')
-    }
+    // The active commands are just the items in newTabSceneDataInclude
+    const activeCommands: NEW_TAB_COMMANDS[] = newTabSceneDataInclude
+
+    // Convert active commands to selected commands for the SearchInput
+    // Filter out 'all' since that represents the default state (no specific filters)
+    const selectedCommands: SearchInputCommand<NEW_TAB_COMMANDS>[] = activeCommands
+        .filter((commandValue) => commandValue !== 'all')
+        .map((commandValue) => {
+            const commandInfo = NEW_TAB_COMMANDS_ITEMS.find((cmd) => cmd.value === commandValue)
+            return commandInfo || { value: commandValue, displayName: commandValue }
+        })
 
     return (
         <>
@@ -137,12 +123,9 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                         setSearch(value)
                                     }
                                 }}
-                                placeholder="Search or type / to see commands..."
+                                placeholder="Search or ask an AI question"
                                 activeCommands={activeCommands}
                                 selectedCommands={selectedCommands}
-                                onSelectedCommandsChange={(commands) =>
-                                    setSelectedCommands(commands as SearchInputCommand<NEW_TAB_COMMANDS>[])
-                                }
                                 onCommandSelect={(command) => {
                                     if (command.value === 'all') {
                                         // Check if "all" is currently selected
@@ -246,7 +229,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                                                     refreshDataAfterToggle()
                                                                     focusSearchInput()
                                                                 }}
-                                                                className="text-xs data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
+                                                                className="text-xs"
                                                                 tooltip={
                                                                     <span>
                                                                         Remove{' '}
@@ -298,7 +281,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                                             refreshDataAfterToggle()
                                                             focusSearchInput()
                                                         }}
-                                                        className="text-xs data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
+                                                        className="text-xs"
                                                         tooltip="Clear all filters"
                                                     >
                                                         <IconX className="size-4" />
