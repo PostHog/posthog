@@ -478,12 +478,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         id: `property-definition-${propDef.id}`,
                         name: propDef.name,
                         category: 'propertyDefinitions' as NEW_TAB_CATEGORY_ITEMS,
-                        href: `properties://${propDef.name}`,
+                        href: urls.propertyDefinition(propDef.id),
                         icon: <IconApps />,
                         record: {
                             type: 'property-definition',
                             path: `Property: ${propDef.name}`,
-                            href: `properties://${propDef.name}`,
+                            href: urls.propertyDefinition(propDef.id),
                         },
                     }
                     return item
