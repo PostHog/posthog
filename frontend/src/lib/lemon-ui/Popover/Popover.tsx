@@ -142,7 +142,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                       flip({
                           fallbackPlacements,
                           fallbackStrategy: 'bestFit',
-                          padding: 8, // Much smaller padding requirement
+                          padding: 20,
                       }),
                   ]
                 : []),
