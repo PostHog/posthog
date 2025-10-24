@@ -49,3 +49,40 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Generating: Story = {}
+
+const iframeSaved = {
+    id: 101,
+    short_id: 'hm_iframe',
+    name: 'Iframe example.com',
+    url: 'https://example.com',
+    data_url: 'https://example.com',
+    target_widths: [],
+    type: 'iframe',
+    status: 'completed',
+    has_content: false,
+    snapshots: [],
+    deleted: false,
+    created_by: { id: 1, uuid: 'user-1', distinct_id: 'd1', first_name: 'Alice', email: 'alice@ph.com' },
+    created_at: '2024-01-03T00:00:00Z',
+    updated_at: '2024-01-03T00:00:00Z',
+    exception: null,
+}
+
+export const IframeExample: Story = {
+    parameters: {
+        pageUrl: urls.heatmap('hm_iframe'),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/saved/hm_iframe/': iframeSaved,
+            },
+        }),
+    ],
+}
+
+export const New: Story = {
+    parameters: {
+        pageUrl: urls.heatmap('new'),
+    },
+}
