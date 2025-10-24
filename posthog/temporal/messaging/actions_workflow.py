@@ -114,14 +114,31 @@ def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActionsRes
                     END as status
                 FROM
                 (
-                    SELECT team_id, person_id -- TODO: Pending to do person merging in this step, but let's ignore that for now
-                    FROM prefiltered_events
-                    WHERE
-                        team_id = %(team_id)s
-                        AND condition = toString(%(action_id)s)
-                        AND date >= now() - toIntervalDay(%(days)s)
-                    GROUP BY team_id, person_id
-                    HAVING count() >= %(min_matches)s -- TODO: We could test the performance of uniq here (instead of count) to deduplicate if needed.
+                    SELECT
+                        team_id,
+                        person_id
+                    FROM
+                    (
+                        SELECT team_id, distinct_id
+                        FROM prefiltered_events
+                        WHERE
+                            team_id = %(team_id)s
+                            AND condition = toString(%(action_id)s)
+                            AND date >= now() - toIntervalDay(%(days)s)
+                    ) AS pfe
+                    INNER JOIN
+                    (
+                        SELECT
+                            distinct_id,
+                            argMax(person_id, version) as person_id
+                        FROM person_distinct_id2
+                        WHERE team_id = %(team_id)s
+                        GROUP BY distinct_id
+                    ) AS pdi2 ON pdi2.distinct_id = pfe.distinct_id
+                    GROUP BY
+                        team_id,
+                        person_id
+                    HAVING count() >= %(min_matches)s
                 ) bcm
                 FULL OUTER JOIN
                 (
