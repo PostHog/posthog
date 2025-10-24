@@ -1906,7 +1906,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         access_token = OAuthAccessToken.objects.create(
             application=oauth_app,
             user=self.user,
-            token="test_oauth_token",
+            token="pha_test_oauth_token",
             scope="*",
             expires=timezone.now() + timedelta(hours=1),
             scoped_teams=[other_team_in_project.id],
@@ -1943,7 +1943,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         access_token = OAuthAccessToken.objects.create(
             application=oauth_app,
             user=self.user,
-            token="test_oauth_token",
+            token="pha_test_oauth_token",
             scope="*",
             expires=timezone.now() + timedelta(hours=1),
             scoped_organizations=[str(other_org.id)],
