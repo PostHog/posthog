@@ -4,13 +4,14 @@ import difflib
 from copy import copy
 
 import structlog
+from google import genai
+from google.genai.types import GenerateContentConfig
 from rich.console import Console
 
 from posthog.models.team.team import Team
 
 from products.llm_analytics.backend.providers.gemini import GeminiProvider
 
-# from google import genai
 from ee.models.traces_summaries import TraceSummary
 
 logger = structlog.get_logger(__name__)
@@ -46,7 +47,7 @@ class TraceSummarizerGenerator:
 
         # TODO: Test first with the wrapper to decide if I need a separate client
         # # Using default Google client as posthog wrapper doesn't support `aio` yet for async calls
-        # self._client = genai.Client(api_key=self._provider.get_api_key())
+        self._client = genai.Client(api_key=self._provider.get_api_key())
 
         # Remove excessive summary parts that add no value to concentrate the summary meaning programmatically
         # Parts that add no value and can't be safely removed
@@ -70,8 +71,17 @@ class TraceSummarizerGenerator:
     async def summarize_stringified_traces(self, stringified_traces: dict[str, str]) -> dict[str, str]:
         """Summarize a dictionary of stringified traces."""
         tasks = {}
+        # Check which traces already have summaries to avoid re-generating them
+        existing_trace_ids = set(
+            TraceSummary.objects.filter(
+                team=self._team, trace_summary_type=self._summary_type, trace_id__in=list(stringified_traces.keys())
+            ).values_list("trace_id", flat=True)
+        )
         async with asyncio.TaskGroup() as tg:
             for trace_id, stringified_trace in stringified_traces.items():
+                if trace_id in existing_trace_ids:
+                    # Avoid re-generating summaries that already exist for this team + trace + type
+                    continue
                 tasks[trace_id] = tg.create_task(
                     self._generate_trace_summary(trace_id=trace_id, stringified_trace=stringified_trace)
                 )
@@ -88,17 +98,38 @@ class TraceSummarizerGenerator:
             summarized_traces[trace_id] = res
         return summarized_traces
 
+    def store_summaries_in_db(self, summarized_traces: dict[str, str]):
+        # Store summaries in the database should be part of the embedding process
+        # Temporary PSQL solution to test end-to-end summarization pipeline
+        # TODO: Should be replaced (or migrated to) later with the Clickhouse-powered solution to allow FTS
+        summaries_batch_size = 500
+        summaries_for_db = [
+            TraceSummary(team=self._team, trace_id=trace_id, summary=summary, trace_summary_type=self._summary_type)
+            for trace_id, summary in summarized_traces.items()
+        ]
+        # Ignore already processed traces summaries, if they get to this stage
+        TraceSummary.objects.bulk_create(summaries_for_db, batch_size=summaries_batch_size, ignore_conflicts=True)
+
     async def _generate_trace_summary(self, trace_id: str, stringified_trace: str) -> str | Exception:
         prompt = GENERATE_STRINGIFIED_TRACE_SUMMARY_PROMPT.format(stringified_trace=stringified_trace)
         try:
-            response_text = await self._provider.get_async_response(prompt=prompt, system="")
+            # response_text = await self._provider.get_async_response(prompt=prompt, system="")
+            self._provider.validate_model(self._model_id)
+            config_kwargs = self._provider.prepare_config_kwargs(system="")
+            response = await self._client.aio.models.generate_content(
+                model=self._model_id,
+                contents=prompt,
+                config=GenerateContentConfig(**config_kwargs),
+            )
             # Avoid LLM returning excessive comments when no issues found
-            if "no issues found" in response_text.lower() and response_text.lower() != "no issues found":
+            if "no issues found" in response.text.lower() and response.text.lower() != "no issues found":
                 logger.info(
-                    f"Original 'no issues' text for trace {trace_id} from team {self._team.id} (replaced with 'No issues found'): {response_text}"
+                    f"Original 'no issues' text for trace {trace_id} from team {self._team.id} (replaced with 'No issues found'): {response.text}"
                 )
                 return "No issues found"
-            cleaned_up_summary = self._clean_up_summary_before_embedding(trace_id=trace_id, summary=response_text)
+            if response.text.lower() == "no issues found":
+                return "No issues found"
+            cleaned_up_summary = self._clean_up_summary_before_embedding(trace_id=trace_id, summary=response.text)
             return cleaned_up_summary
         except Exception as err:
             return err  # Let caller handle the error
@@ -108,7 +139,7 @@ class TraceSummarizerGenerator:
         original_summary = copy(summary)
         # Remove parts that don't add value
         for part in self._no_value_parts:
-            summary = summary.replace(part, " ")
+            summary = summary.replace(f" {part} ", " ")
         # Remove excessive prefixes
         for prefix in self._excessive_prefixes:
             while True:
@@ -164,14 +195,3 @@ class TraceSummarizerGenerator:
                 console.print(f"[red]Removed: '{original_summary[i1:i2]}'[/red]")
                 console.print(f"[green]Added: '{summary[j1:j2]}'[/green]")
         console.print("=" * 50 + "\n")
-
-    def store_summaries_in_db(self, summarized_traces: dict[str, str]):
-        # Store summaries in the database should be part of the embedding process
-        # Temporary PSQL solution to test end-to-end summarization pipeline
-        # TODO: Should be replaced (or migrated to) later with the Clickhouse-powered solution to allow FTS
-        summaries_batch_size = 500
-        summaries_db = [
-            TraceSummary(team=self._team, trace_id=trace_id, summary=summary, trace_summary_type=self._summary_type)
-            for trace_id, summary in summarized_traces.items()
-        ]
-        TraceSummary.objects.bulk_create(summaries_db, batch_size=summaries_batch_size)
