@@ -468,7 +468,7 @@ def _recalculate_cohortpeople_for_team_hogql(cohort: Cohort, pending_version: in
         estimated_size = cohort.count if cohort.count else 0
         chunk_size = _get_cohort_chunking_config(cohort, team.uuid, team.organization.id, estimated_size)
         if chunk_size is not None:
-            total_chunks = math.ceil(estimated_size / chunk_size)
+            total_chunks = max(math.ceil(estimated_size / chunk_size), 1)
             result = _recalculate_cohortpeople_chunked(cohort, pending_version, team, total_chunks, history)
         else:
             result = _recalculate_cohortpeople_standard(cohort, pending_version, team, history)
