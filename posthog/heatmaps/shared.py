@@ -2,6 +2,10 @@ import socket
 import ipaddress
 import urllib.parse as urlparse
 
+# Shared constants
+DEFAULT_TARGET_WIDTHS = [320, 375, 425, 768, 1024, 1440, 1920]
+
+# URL safety helpers
 DISALLOWED_SCHEMES = {"file", "ftp", "gopher", "ws", "wss", "data", "javascript"}
 METADATA_HOSTS = {"169.254.169.254", "metadata.google.internal"}
 

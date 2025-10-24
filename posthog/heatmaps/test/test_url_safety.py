@@ -2,7 +2,7 @@ import ipaddress
 
 import pytest
 
-from posthog.heatmaps import url_safety as us
+from posthog.heatmaps import shared as us
 
 
 class TestUrlSafety:

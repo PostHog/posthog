@@ -21,8 +21,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import TemporaryTokenAuthentication
-from posthog.heatmaps.constants import DEFAULT_TARGET_WIDTHS
-from posthog.heatmaps.url_safety import is_url_allowed
+from posthog.heatmaps.shared import DEFAULT_TARGET_WIDTHS, is_url_allowed
 from posthog.models import User
 from posthog.models.heatmap_saved import HeatmapSaved
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle

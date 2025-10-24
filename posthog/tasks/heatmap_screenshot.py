@@ -3,8 +3,7 @@ import posthoganalytics
 from celery import shared_task
 
 from posthog.exceptions_capture import capture_exception
-from posthog.heatmaps.constants import DEFAULT_TARGET_WIDTHS
-from posthog.heatmaps.url_safety import is_url_allowed, should_block_url
+from posthog.heatmaps.shared import DEFAULT_TARGET_WIDTHS, is_url_allowed, should_block_url
 from posthog.models.heatmap_saved import HeatmapSaved, HeatmapSnapshot
 from posthog.tasks.exports.image_exporter import HEIGHT_OFFSET
 from posthog.tasks.utils import CeleryQueue
