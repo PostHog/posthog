@@ -9,14 +9,16 @@ from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.constants import MESSAGING_TASK_QUEUE
 from posthog.temporal.common.client import async_connect
-from posthog.temporal.messaging.actions_workflow_coordinator import ActionsCoordinatorWorkflowInputs
+from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
+    RealtimeCohortCalculationCoordinatorWorkflowInputs,
+)
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
 
 
 class Command(BaseCommand):
-    help = "Run actions workflow coordinator to process each action in its own workflow"
+    help = "Run realtime cohort calculation coordinator to process actions in parallel"
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -35,70 +37,60 @@ class Command(BaseCommand):
             "--parallelism",
             type=int,
             default=10,
-            help="Legacy parameter - no longer used (each action gets its own workflow)",
+            help="Number of parallel child workflows to spawn (default: 10)",
         )
         parser.add_argument(
-            "--batch-size",
+            "--workflows-per-batch",
             type=int,
-            default=1000,
-            help="Number of workflows to start per batch to avoid spikes (default: 1000)",
+            default=5,
+            help="Number of workflows to start per batch for jittered scheduling (default: 5)",
         )
         parser.add_argument(
-            "--batch-delay",
+            "--batch-delay-minutes",
             type=int,
-            default=60,
-            help="Delay between batches in seconds (default: 60)",
-        )
-        parser.add_argument(
-            "--max-actions",
-            type=int,
-            default=0,
-            help="Maximum number of actions to process, 0 for all (default: 0)",
+            default=5,
+            help="Delay between batches in minutes (default: 5)",
         )
 
     def handle(self, *args, **options):
         days = options.get("days", 30)
         min_matches = options.get("min_matches", 3)
         parallelism = options.get("parallelism", 10)
-        batch_size = options.get("batch_size", 1000)
-        batch_delay = options.get("batch_delay", 60)
-        max_actions = options.get("max_actions", 0)
+        workflows_per_batch = options.get("workflows_per_batch", 5)
+        batch_delay_minutes = options.get("batch_delay_minutes", 5)
 
         logger.info(
-            "Starting actions processing coordinator",
+            "Starting realtime cohort calculation coordinator",
             days=days,
             min_matches=min_matches,
-            batch_size=batch_size,
-            batch_delay=batch_delay,
-            max_actions=max_actions,
+            parallelism=parallelism,
+            workflows_per_batch=workflows_per_batch,
+            batch_delay_minutes=batch_delay_minutes,
         )
 
         self.run_temporal_workflow(
             days=days,
             min_matches=min_matches,
             parallelism=parallelism,
-            batch_size=batch_size,
-            batch_delay=batch_delay,
-            max_actions=max_actions,
+            workflows_per_batch=workflows_per_batch,
+            batch_delay_minutes=batch_delay_minutes,
         )
 
         logger.info(
-            "Coordinator workflow scheduled individual action workflows",
+            "Coordinator workflow scheduled child workflows",
+            parallelism=parallelism,
         )
 
-        self.stdout.write("Coordinator workflow scheduled individual action workflows")
-        self.stdout.write(
-            "Individual action workflows are running in the background. Check Temporal UI for progress and results."
-        )
+        self.stdout.write(f"Coordinator workflow scheduled {parallelism} child workflows")
+        self.stdout.write("Child workflows are running in the background. Check Temporal UI for progress and results.")
 
     def run_temporal_workflow(
         self,
         days: int,
         min_matches: int,
         parallelism: int,
-        batch_size: int,
-        batch_delay: int,
-        max_actions: int,
+        workflows_per_batch: int,
+        batch_delay_minutes: int,
     ) -> None:
         """Run the Temporal workflow for parallel processing."""
 
@@ -107,31 +99,30 @@ class Command(BaseCommand):
             client = await async_connect()
 
             # Create coordinator workflow inputs
-            inputs = ActionsCoordinatorWorkflowInputs(
+            inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
                 days=days,
                 min_matches=min_matches,
                 parallelism=parallelism,
-                batch_size=batch_size,
-                batch_delay_seconds=batch_delay,
-                max_actions=max_actions,
+                workflows_per_batch=workflows_per_batch,
+                batch_delay_minutes=batch_delay_minutes,
             )
 
             # Generate unique workflow ID
-            workflow_id = f"actions-coordinator-{int(time.time())}"
+            workflow_id = f"realtime-cohort-calculation-coordinator-{int(time.time())}"
 
             logger.info(f"Starting Temporal coordinator workflow: {workflow_id}")
 
             try:
-                # Execute the coordinator workflow (no result expected)
-                await client.execute_workflow(
-                    "actions-coordinator",
+                # Start the coordinator workflow (fire-and-forget)
+                await client.start_workflow(
+                    "realtime-cohort-calculation-coordinator",
                     inputs,
                     id=workflow_id,
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                     task_queue=MESSAGING_TASK_QUEUE,
                 )
 
-                logger.info(f"Workflow {workflow_id} completed successfully")
+                logger.info(f"Workflow {workflow_id} started successfully")
 
             except Exception as e:
                 logger.exception(f"Workflow execution failed: {e}")
