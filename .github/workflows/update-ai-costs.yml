@@ -38,6 +38,11 @@ jobs:
                   cd plugin-server
                   pnpm update-ai-costs
 
+            - name: Format generated files
+              run: |
+                  cd plugin-server
+                  pnpm prettier --write src/ingestion/ai-costs/providers/canonical-providers.ts src/ingestion/ai-costs/providers/llm-costs.json
+
             - name: Check for changes
               id: check-changes
               run: |
