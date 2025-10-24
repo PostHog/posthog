@@ -3,7 +3,7 @@ import './ProfilePicture.scss'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import md5 from 'md5'
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 
 import { HedgehogBuddyProfile } from 'lib/components/HedgehogBuddy/HedgehogBuddyRender'
 import { fullName, inStorybookTestRunner } from 'lib/utils'
@@ -13,7 +13,6 @@ import { MinimalHedgehogConfig, UserBasicType } from '~/types'
 
 import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
 import { IconRobot } from '../icons'
-import { profilePictureLogic } from './profilePictureLogic'
 
 export interface ProfilePictureProps {
     user?:
@@ -28,14 +27,16 @@ export interface ProfilePictureProps {
     title?: string
     index?: number
     type?: 'person' | 'bot' | 'system'
+    /** Optional prop to control when gravatar loading starts. If not provided, loading is deferred automatically. */
+    loading?: boolean
 }
 
 export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePictureProps>(function ProfilePicture(
-    { user, name, size = 'lg', showName, className, index, title, type = 'person' },
+    { user, name, size = 'lg', showName, className, index, title, type = 'person', loading },
     ref
 ) {
     const { user: currentUser } = useValues(userLogic)
-    const { gravatarsReady } = useValues(profilePictureLogic)
+    const [shouldLoadGravatarInternal, setShouldLoadGravatarInternal] = useState(false)
     const [gravatarLoaded, setGravatarLoaded] = useState<boolean | undefined>()
 
     let email = user?.email
@@ -61,6 +62,19 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
         }
     }, [email, hedgehogProfile, name])
 
+    // Defer gravatar loading to prevent blocking initial render (especially in tables)
+    // Only use internal state if loading prop not provided
+    useEffect(() => {
+        if (loading === undefined) {
+            queueMicrotask(() => {
+                setShouldLoadGravatarInternal(true)
+            })
+        }
+    }, [loading])
+
+    // Use loading prop if provided, otherwise fall back to internal state
+    const shouldLoadGravatar = loading !== undefined ? loading : shouldLoadGravatarInternal
+
     const pictureComponent = (
         <span className={clsx('ProfilePicture', size, className)} ref={ref}>
             {hedgehogProfile ? (
@@ -83,7 +97,7 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
                     </>
                 )
             )}
-            {gravatarUrl && gravatarsReady && gravatarLoaded === true ? (
+            {gravatarUrl && shouldLoadGravatar && gravatarLoaded === true ? (
                 <img
                     className="absolute top-0 left-0 w-full h-full rounded-full"
                     src={gravatarUrl}
@@ -94,7 +108,7 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
                     onLoad={() => setGravatarLoaded(true)}
                 />
             ) : null}
-            {gravatarUrl && gravatarsReady && gravatarLoaded === undefined ? (
+            {gravatarUrl && shouldLoadGravatar && gravatarLoaded === undefined ? (
                 <img
                     className="hidden"
                     src={gravatarUrl}
