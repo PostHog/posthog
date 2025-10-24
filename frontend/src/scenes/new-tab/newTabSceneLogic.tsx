@@ -10,6 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import {
@@ -334,6 +335,21 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         ],
     }),
     selectors(({ actions }) => ({
+        sceneLogViewsByRef: [
+            (s) => [s.sceneLogViews],
+            (sceneLogViews): Record<string, string> => {
+                return sceneLogViews.reduce(
+                    (acc, { ref, viewed_at }) => {
+                        const current = acc[ref]
+                        if (!current || Date.parse(viewed_at) > Date.parse(current)) {
+                            acc[ref] = viewed_at
+                        }
+                        return acc
+                    },
+                    {} as Record<string, string>
+                )
+            },
+        ],
         newTabSceneDataIncludePersons: [
             (s) => [s.newTabSceneDataInclude],
             (include): boolean => include.includes('persons'),
@@ -547,12 +563,97 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             (sectionItemLimits: Record<string, number>) => (section: string) => sectionItemLimits[section] || 5,
         ],
         itemsGrid: [
-            (s) => [s.featureFlags, s.projectTreeSearchItems, s.aiSearchItems],
+            (s) => [s.featureFlags, s.projectTreeSearchItems, s.aiSearchItems, s.sceneLogViewsByRef],
             (
                 featureFlags: any,
                 projectTreeSearchItems: NewTabTreeDataItem[],
-                aiSearchItems: NewTabTreeDataItem[]
+                aiSearchItems: NewTabTreeDataItem[],
+                sceneLogViewsByRef: Record<string, string>
             ): NewTabTreeDataItem[] => {
+                const registerSceneKey = (map: Map<string, string>, key?: string | null, sceneKey?: string): void => {
+                    if (!key || !sceneKey || map.has(key)) {
+                        return
+                    }
+                    map.set(key, sceneKey)
+                }
+
+                const sceneKeyByType = new Map<string, string>()
+
+                const getSceneKeyForFs = (fs: FileSystemImport): string | null => {
+                    if (fs.sceneKey) {
+                        return fs.sceneKey
+                    }
+                    if (fs.type) {
+                        const direct = sceneKeyByType.get(fs.type)
+                        if (direct) {
+                            return direct
+                        }
+                        const baseType = fs.type.split('/')?.[0]
+                        if (baseType) {
+                            const base = sceneKeyByType.get(baseType)
+                            if (base) {
+                                return base
+                            }
+                        }
+                    }
+                    if ('iconType' in fs && fs.iconType) {
+                        const fromIcon = sceneKeyByType.get(fs.iconType as string)
+                        if (fromIcon) {
+                            return fromIcon
+                        }
+                    }
+                    return null
+                }
+
+                const getLastViewedAt = (sceneKey?: string | null): string | null =>
+                    sceneKey ? (sceneLogViewsByRef[sceneKey] ?? null) : null
+
+                const sortByLastViewedAt = (items: NewTabTreeDataItem[]): NewTabTreeDataItem[] =>
+                    items
+                        .map((item, originalIndex) => ({ item, originalIndex }))
+                        .toSorted((a, b) => {
+                            const parseTime = (value: string | null | undefined): number => {
+                                if (!value) {
+                                    return 0
+                                }
+                                const parsed = Date.parse(value)
+                                return Number.isFinite(parsed) ? parsed : 0
+                            }
+                            const diff = parseTime(b.item.lastViewedAt) - parseTime(a.item.lastViewedAt)
+                            if (diff !== 0) {
+                                return diff
+                            }
+                            return a.originalIndex - b.originalIndex
+                        })
+                        .map(({ item }) => item)
+
+                const defaultProducts = getDefaultTreeProducts()
+                const defaultData = getDefaultTreeData()
+
+                defaultProducts.forEach((fs) => {
+                    if (fs.sceneKey) {
+                        registerSceneKey(sceneKeyByType, fs.type, fs.sceneKey)
+                        if (fs.type?.includes('/')) {
+                            registerSceneKey(sceneKeyByType, fs.type.split('/')[0], fs.sceneKey)
+                        }
+                        if ('iconType' in fs) {
+                            registerSceneKey(sceneKeyByType, fs.iconType as string | undefined, fs.sceneKey)
+                        }
+                    }
+                })
+
+                defaultData.forEach((fs) => {
+                    if (fs.sceneKey) {
+                        registerSceneKey(sceneKeyByType, fs.type, fs.sceneKey)
+                        if (fs.type?.includes('/')) {
+                            registerSceneKey(sceneKeyByType, fs.type.split('/')[0], fs.sceneKey)
+                        }
+                        if ('iconType' in fs) {
+                            registerSceneKey(sceneKeyByType, fs.iconType as string | undefined, fs.sceneKey)
+                        }
+                    }
+                })
+
                 const newInsightItems = getDefaultTreeNew()
                     .filter(({ path }) => path.startsWith('Insight/'))
                     .map((fs, index) => ({
@@ -563,6 +664,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         flag: fs.flag,
                         icon: getIconForFileSystemItem(fs),
                         record: fs,
+                        lastViewedAt: getLastViewedAt(getSceneKeyForFs(fs)),
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
@@ -576,6 +678,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         flag: fs.flag,
                         icon: getIconForFileSystemItem(fs),
                         record: fs,
+                        lastViewedAt: getLastViewedAt(getSceneKeyForFs(fs)),
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
@@ -589,10 +692,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         flag: fs.flag,
                         icon: getIconForFileSystemItem(fs),
                         record: fs,
+                        lastViewedAt: getLastViewedAt(getSceneKeyForFs(fs)),
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
-                const products = [...getDefaultTreeProducts(), ...getDefaultTreePersons()]
+                const products = [...defaultProducts, ...getDefaultTreePersons()]
                     .map((fs, index) => ({
                         id: `product-${index}`,
                         name: fs.path,
@@ -601,11 +705,14 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         flag: fs.flag,
                         icon: getIconForFileSystemItem(fs),
                         record: fs,
+                        lastViewedAt: getLastViewedAt(getSceneKeyForFs(fs)),
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
                     .toSorted((a, b) => a.name.localeCompare(b.name))
 
-                const data = getDefaultTreeData()
+                const sortedProducts = sortByLastViewedAt(products)
+
+                const data = defaultData
                     .map((fs, index) => ({
                         id: `data-${index}`,
                         name: fs.path,
@@ -614,8 +721,15 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         flag: fs.flag,
                         icon: getIconForFileSystemItem(fs),
                         record: fs,
+                        lastViewedAt: getLastViewedAt(getSceneKeyForFs(fs)),
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
+
+                const sortedData = sortByLastViewedAt(data)
+
+                const sortedNewInsightItems = sortByLastViewedAt(newInsightItems)
+                const sortedNewDataItems = sortByLastViewedAt(newDataItems)
+                const sortedNewOtherItems = sortByLastViewedAt(newOtherItems)
 
                 const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
 
@@ -629,12 +743,13 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         icon: <IconDatabase />,
                         href: '/sql',
                         record: { type: 'query', path: 'New SQL query' },
+                        lastViewedAt: getLastViewedAt(Scene.SQLEditor),
                     },
-                    ...newInsightItems,
-                    ...newOtherItems,
-                    ...products,
-                    ...data,
-                    ...newDataItems,
+                    ...sortedNewInsightItems,
+                    ...sortedNewOtherItems,
+                    ...sortedProducts,
+                    ...sortedData,
+                    ...sortedNewDataItems,
                     {
                         id: 'new-hog-program',
                         name: 'New Hog program',
@@ -642,6 +757,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         icon: <IconHogQL />,
                         href: '/debug/hog',
                         record: { type: 'hog', path: 'New Hog program' },
+                        lastViewedAt: getLastViewedAt(Scene.DebugHog),
                     },
                 ]
                 return allItems
