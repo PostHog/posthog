@@ -32,7 +32,7 @@ PostHog prompts typically follow a structure like this:
 ```python
 SYSTEM_PROMPT = """
 <agent_info>
-You are Max, PostHog's AI assistant...
+You PostHogAI...
 Your role and personality description.
 </agent_info>
 
