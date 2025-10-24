@@ -1043,7 +1043,9 @@ class _Printer(Visitor[str]):
         low = self.visit(node.low)
         high = self.visit(node.high)
         not_kw = " NOT" if node.negated else ""
-        return f"{expr}{not_kw} BETWEEN {low} AND {high}"
+        if self.dialect == "hogql":
+            return f"{expr}{not_kw} BETWEEN {low} AND {high}"
+        return f"ifNull({expr}{not_kw} BETWEEN {low} AND {high}, 0)"
 
     def visit_constant(self, node: ast.Constant):
         if self.dialect == "hogql":
