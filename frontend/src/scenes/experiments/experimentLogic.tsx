@@ -1533,7 +1533,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 )
             },
         ],
-        // Scene-level selectors (breadcrumbs, SIDE_PANEL_CONTEXT_KEY, projectTreeRef) moved to experimentSceneLogic.tsx
         variants: [
             (s) => [s.experiment],
             (experiment): MultivariateFlagVariant[] => {
@@ -2046,5 +2045,4 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         },
     })),
-    // URL routing moved to experimentSceneLogic.tsx
 ])
