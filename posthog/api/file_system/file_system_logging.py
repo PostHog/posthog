@@ -40,7 +40,7 @@ def log_api_file_system_view(
     if not _has_session_cookie(request):
         return
 
-    if is_impersonated_session(request) or getattr(user, "is_impersonated", False):
+    if is_impersonated_session(request):
         return
 
     resolved = resolve_representation(obj, team_id=team_id)

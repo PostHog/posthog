@@ -342,7 +342,7 @@ class TestFileSystemLogViewEndpoint(APIBaseTest):
     def test_log_view_endpoint_rejects_impersonated_session(self) -> None:
         FileSystemViewLog.objects.all().delete()
 
-        obj, _ = _create_feature_flag_case(self)
+        obj, _ = _create_feature_flag_case(self)  # type: ignore
         representation = obj.get_file_system_representation()
 
         with (

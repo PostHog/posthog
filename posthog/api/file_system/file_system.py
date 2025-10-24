@@ -500,7 +500,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["POST"], detail=False, url_path="log_view")
     def log_view(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        if is_impersonated_session(request) or getattr(request.user, "is_impersonated", False):
+        if is_impersonated_session(request):
             return Response(
                 {"detail": "Impersonated sessions cannot log file system views."},
                 status=status.HTTP_403_FORBIDDEN,
