@@ -156,6 +156,7 @@ class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
             include=["reasoning.encrypted_content"],
             team=self._team,
             user=self._user,
+            output_version="responses/v1",
         ).bind_tools(
             [
                 retrieve_event_properties,
