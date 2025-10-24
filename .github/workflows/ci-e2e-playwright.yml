@@ -313,7 +313,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v5
               with:
-                  python-version: 3.12.11
+                  python-version: 3.12.12
                   token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Install uv

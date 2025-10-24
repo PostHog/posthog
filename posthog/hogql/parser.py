@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Literal, cast
+from typing import Literal, Optional, cast
 
 from antlr4 import CommonTokenStream, InputStream, ParserRuleContext, ParseTreeVisitor
 from antlr4.error.ErrorListener import ErrorListener
@@ -74,8 +74,8 @@ RULE_TO_HISTOGRAM: dict[Literal["expr", "order_expr", "select", "full_template_s
 
 def parse_string_template(
     string: str,
-    placeholders: dict[str, ast.Expr] | None = None,
-    timings: HogQLTimings | None = None,
+    placeholders: Optional[dict[str, ast.Expr]] = None,
+    timings: Optional[HogQLTimings] = None,
     *,
     backend: Literal["python", "cpp"] = "cpp",
 ) -> ast.Call:
@@ -93,9 +93,9 @@ def parse_string_template(
 
 def parse_expr(
     expr: str,
-    placeholders: dict[str, ast.Expr] | None = None,
-    start: int | None = 0,
-    timings: HogQLTimings | None = None,
+    placeholders: Optional[dict[str, ast.Expr]] = None,
+    start: Optional[int] = 0,
+    timings: Optional[HogQLTimings] = None,
     *,
     backend: Literal["python", "cpp"] = "cpp",
 ) -> ast.Expr:
@@ -114,8 +114,8 @@ def parse_expr(
 
 def parse_order_expr(
     order_expr: str,
-    placeholders: dict[str, ast.Expr] | None = None,
-    timings: HogQLTimings | None = None,
+    placeholders: Optional[dict[str, ast.Expr]] = None,
+    timings: Optional[HogQLTimings] = None,
     *,
     backend: Literal["python", "cpp"] = "cpp",
 ) -> ast.OrderExpr:
@@ -132,8 +132,8 @@ def parse_order_expr(
 
 def parse_select(
     statement: str,
-    placeholders: dict[str, ast.Expr] | None = None,
-    timings: HogQLTimings | None = None,
+    placeholders: Optional[dict[str, ast.Expr]] = None,
+    timings: Optional[HogQLTimings] = None,
     *,
     backend: Literal["python", "cpp"] = "cpp",
 ) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -153,7 +153,7 @@ def parse_select(
 
 def parse_program(
     source: str,
-    timings: HogQLTimings | None = None,
+    timings: Optional[HogQLTimings] = None,
     *,
     backend: Literal["python", "cpp"] = "cpp",
 ) -> ast.Program:
@@ -198,7 +198,7 @@ class HogQLErrorListener(ErrorListener):
 
 
 class HogQLParseTreeConverter(ParseTreeVisitor):
-    def __init__(self, start: int | None = 0):
+    def __init__(self, start: Optional[int] = 0):
         super().__init__()
         self.start = start
 
@@ -914,26 +914,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.ArrayAccess(array=object, property=property, nullish=True)
 
     def visitColumnExprBetween(self, ctx: HogQLParser.ColumnExprBetweenContext):
-        # x [NOT] BETWEEN y AND z  =>
-        #   (x >= y AND x <= z) or, when NOT present: (x < y OR x > z)
-        x = self.visit(ctx.columnExpr(0))
-        low = self.visit(ctx.columnExpr(1))
-        high = self.visit(ctx.columnExpr(2))
-
-        if ctx.NOT():
-            return ast.Or(
-                exprs=[
-                    ast.CompareOperation(left=x, right=low, op=ast.CompareOperationOp.Lt),
-                    ast.CompareOperation(left=x, right=high, op=ast.CompareOperationOp.Gt),
-                ]
-            )
-
-        return ast.And(
-            exprs=[
-                ast.CompareOperation(left=x, right=low, op=ast.CompareOperationOp.GtEq),
-                ast.CompareOperation(left=x, right=high, op=ast.CompareOperationOp.LtEq),
-            ]
-        )
+        raise NotImplementedError(f"Unsupported node: ColumnExprBetween")
 
     def visitColumnExprParens(self, ctx: HogQLParser.ColumnExprParensContext):
         return self.visit(ctx.columnExpr())
