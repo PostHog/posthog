@@ -121,9 +121,9 @@ describe('createExperimentLogic', () => {
                     description: 'Test hypothesis',
                 })
                 logic.actions.submitExperiment()
-            }).toDispatchActions(['submitExperiment', 'createExperimentSuccess'])
-
-            await new Promise((resolve) => setTimeout(resolve, 10))
+            })
+                .toDispatchActions(['submitExperiment', 'createExperimentSuccess'])
+                .toFinishAllListeners()
 
             expect(refreshTreeItem).toHaveBeenCalledWith('experiment', '123')
             expect(refreshTreeItem).toHaveBeenCalledWith('feature_flag', '456')
@@ -137,9 +137,9 @@ describe('createExperimentLogic', () => {
                     description: 'Test hypothesis',
                 })
                 logic.actions.submitExperiment()
-            }).toDispatchActions(['submitExperiment', 'createExperimentSuccess'])
-
-            await new Promise((resolve) => setTimeout(resolve, 10))
+            })
+                .toDispatchActions(['submitExperiment', 'createExperimentSuccess'])
+                .toFinishAllListeners()
 
             expect(routerPushSpy).toHaveBeenCalledWith('/experiments/123')
         })
@@ -154,9 +154,9 @@ describe('createExperimentLogic', () => {
                     description: 'Test hypothesis',
                 })
                 logic.actions.submitExperiment()
-            }).toDispatchActions(['submitExperiment', 'createExperimentSuccess'])
-
-            await new Promise((resolve) => setTimeout(resolve, 10))
+            })
+                .toDispatchActions(['submitExperiment', 'createExperimentSuccess'])
+                .toFinishAllListeners()
 
             expect(lemonToast.success).toHaveBeenCalledWith(
                 'Experiment created successfully!',
