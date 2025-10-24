@@ -1,9 +1,7 @@
 import json
-import asyncio
 import argparse
 from pathlib import Path
 
-from asgiref.sync import async_to_sync
 import httpx
 import numpy as np
 import structlog
@@ -50,9 +48,7 @@ class EmbeddingSearcher:
             input_trace_id_to_embeddings_mapping[trace_id] = embedding
         # Generate embedding for the search request
         input_search_request_str = question
-        input_search_request_embedding = get_embeddings_for_search_request(
-            search_request_str=input_search_request_str
-        )
+        input_search_request_embedding = get_embeddings_for_search_request(search_request_str=input_search_request_str)
         input_search_request_embedding_np = np.array(input_search_request_embedding)
         similar_documents = cls.find_top_similar_documents(
             search_request_embedding_np=input_search_request_embedding_np,

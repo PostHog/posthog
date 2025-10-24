@@ -18,11 +18,11 @@ from products.notebooks.backend.util import (
 )
 
 from ee.hogai.graph.base import AssistantNode
+from ee.hogai.llm_traces_summaries.summarize_traces import LLMTracesSummarizer
 from ee.hogai.session_summaries.session_group.summary_notebooks import (
     create_empty_notebook_for_summary,
     update_notebook_from_summary_content,
 )
-from ee.hogai.traces_summaries.summarize_traces import TracesSummarizer
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantNodeName
 from ee.hogai.utils.types.composed import MaxNodeName
@@ -79,7 +79,7 @@ class LLMTracesSummarizationNode(AssistantNode):
             #     question=llm_traces_summarization_query,
             #     top=5,
             # )
-            trace_summarizer = TracesSummarizer(team=self._team)
+            trace_summarizer = LLMTracesSummarizer(team=self._team)
             await trace_summarizer.summarize_traces_for_date_range(
                 # Check the last day, by default? # date_from="-1dStart", date_to="-1dEnd"
                 date_range=DateRange(date_from="-30d", date_to="-1d")  # TODO: Use proper date range

@@ -1,9 +1,11 @@
 import json
 from pathlib import Path
 from typing import Any
-import structlog
 
+import structlog
 from explain_clusters import ClusterizedSuggestion, ExplainedClusterizedSuggestionsGroup
+
+logger = structlog.get_logger(__name__)
 
 
 def _calculate_confidence(avg_distance: float) -> str:
@@ -33,7 +35,10 @@ def _list_trace_ids(suggestions: list[ClusterizedSuggestion], example_summary_tr
             if suggestion["trace_id"] == example_summary_trace_id:
                 continue
             selected_trace_ids.append(suggestion["trace_id"])
-        return ",".join([f'`{x}`' for x in selected_trace_ids]) + f", and {len(suggestions) - 1 - len(selected_trace_ids)} more..."
+        return (
+            ",".join([f"`{x}`" for x in selected_trace_ids])
+            + f", and {len(suggestions) - 1 - len(selected_trace_ids)} more..."
+        )
 
 
 def _pick_summary_for_example(suggestions: list[ClusterizedSuggestion], cluster_label: str) -> tuple[str, str] | None:
@@ -70,7 +75,6 @@ def _organize_issues_section(
             continue
         example_summary, example_summary_trace_id = example_summary_data
         # Ignore malformed traces
-        print(cluster.name)
         if cluster.name.strip() in malformed_traces:
             continue
         issues_mentioned += 1

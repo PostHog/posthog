@@ -8,7 +8,7 @@ from posthog.models.team.team import Team
 DOCUMENT_EMBEDDINGS_TOPIC = "document_embeddings_input"
 
 
-class TracesSummarizerEmbedder:
+class LLMTracesSummarizerEmbedder:
     def __init__(
         self, team: Team, trace_summary_model: EmbeddingModelName = EmbeddingModelName.TEXT_EMBEDDING_3_LARGE_3072
     ):

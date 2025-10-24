@@ -4,7 +4,7 @@ from posthog.hogql_queries.ai.traces_query_runner import TracesQueryRunner
 from posthog.models.team.team import Team
 
 
-class TracesSummarizerCollector:
+class LLMTracesSummarizerCollector:
     def __init__(self, team: Team):
         self._team = team
         # Should be large enough to go fast, and small enough to avoid any memory issues

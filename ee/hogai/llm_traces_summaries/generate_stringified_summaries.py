@@ -12,7 +12,7 @@ from posthog.models.team.team import Team
 
 from products.llm_analytics.backend.providers.gemini import GeminiProvider
 
-from ee.models.traces_summaries import TraceSummary
+from ee.models.llm_traces_summaries import LLMTraceSummary
 
 logger = structlog.get_logger(__name__)
 
@@ -33,12 +33,12 @@ GENERATE_STRINGIFIED_TRACE_SUMMARY_PROMPT = """
 console = Console()
 
 
-class TraceSummarizerGenerator:
+class LLMTraceSummarizerGenerator:
     def __init__(
         self,
         team: Team,
         model_id: str = LLM_MODEL_TO_SUMMARIZE_STRINGIFIED_TRACES,
-        summary_type: TraceSummary.TraceSummaryType = TraceSummary.TraceSummaryType.ISSUES_SEARCH,
+        summary_type: LLMTraceSummary.LLMTraceSummaryType = LLMTraceSummary.LLMTraceSummaryType.ISSUES_SEARCH,
     ):
         self._team = team
         self._summary_type = summary_type
@@ -73,7 +73,7 @@ class TraceSummarizerGenerator:
         tasks = {}
         # Check which traces already have summaries to avoid re-generating them
         existing_trace_ids = set(
-            TraceSummary.objects.filter(
+            LLMTraceSummary.objects.filter(
                 team=self._team, trace_summary_type=self._summary_type, trace_id__in=list(stringified_traces.keys())
             ).values_list("trace_id", flat=True)
         )
@@ -104,11 +104,11 @@ class TraceSummarizerGenerator:
         # TODO: Should be replaced (or migrated to) later with the Clickhouse-powered solution to allow FTS
         summaries_batch_size = 500
         summaries_for_db = [
-            TraceSummary(team=self._team, trace_id=trace_id, summary=summary, trace_summary_type=self._summary_type)
+            LLMTraceSummary(team=self._team, trace_id=trace_id, summary=summary, trace_summary_type=self._summary_type)
             for trace_id, summary in summarized_traces.items()
         ]
         # Ignore already processed traces summaries, if they get to this stage
-        TraceSummary.objects.bulk_create(summaries_for_db, batch_size=summaries_batch_size, ignore_conflicts=True)
+        LLMTraceSummary.objects.bulk_create(summaries_for_db, batch_size=summaries_batch_size, ignore_conflicts=True)
 
     async def _generate_trace_summary(self, trace_id: str, stringified_trace: str) -> str | Exception:
         prompt = GENERATE_STRINGIFIED_TRACE_SUMMARY_PROMPT.format(stringified_trace=stringified_trace)

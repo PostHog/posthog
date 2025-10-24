@@ -10,7 +10,7 @@ from posthog.models.team.team import Team
 logger = structlog.get_logger(__name__)
 
 
-class TracesSummarizerStringifier:
+class LLMTracesSummarizerStringifier:
     def __init__(self, team: Team):
         self._team = team
         self._token_encoder = tiktoken.encoding_for_model("gpt-4o")
