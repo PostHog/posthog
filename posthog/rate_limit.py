@@ -505,7 +505,7 @@ class SetupWizardQueryRateThrottle(SimpleRateThrottle):
 
         authorization_header = request.headers.get("Authorization")
 
-        value = (hash or authorization_header).strip() or self.get_ident(request)
+        value = (hash or authorization_header or "").strip() or self.get_ident(request)
 
         sha_hash = hashlib.sha256(value.encode()).hexdigest()
 
