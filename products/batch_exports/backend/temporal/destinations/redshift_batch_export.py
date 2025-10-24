@@ -144,7 +144,7 @@ class ClientErrorGroup(ExceptionGroup):
                 # One type of operation failed, but with multiple errors.
                 super().__new__(
                     ClientErrorGroup,
-                    f"S3 operation '{op_name}' failed with multiple errors: {', '.join(f"'{error_code}'" for error_code in error_code)}",
+                    f"S3 operation '{op_name}' failed with multiple errors: {', '.join(f"'{error_code}'" for error_code in error_codes)}",
                     exceptions,
                 )
         else:
