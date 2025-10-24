@@ -3,7 +3,7 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
-import { IconDatabase, IconDocument, IconPlug, IconPlus } from '@posthog/icons'
+import { IconBolt, IconDatabase, IconDocument, IconPlug, IconPlus } from '@posthog/icons'
 import { LemonMenuItem } from '@posthog/lemon-ui'
 import { Spinner } from '@posthog/lemon-ui'
 
@@ -161,6 +161,7 @@ const createViewNode = (
 ): TreeDataItem => {
     const viewChildren: TreeDataItem[] = []
     const isMaterializedView = view.is_materialized === true
+    const isManagedViewsetView = view.managed_viewset_kind !== null
     const isManagedView = 'type' in view && view.type === 'managed_view'
 
     Object.values(view.columns).forEach((column: DatabaseSchemaField) => {
@@ -173,7 +174,13 @@ const createViewNode = (
         id: viewId,
         name: view.name,
         type: 'node',
-        icon: isManagedView || isMaterializedView ? <IconDatabase /> : <IconDocument />,
+        icon: isManagedViewsetView ? (
+            <IconBolt />
+        ) : isManagedView || isMaterializedView ? (
+            <IconDatabase />
+        ) : (
+            <IconDocument />
+        ),
         record: {
             type: 'view',
             view: view,
@@ -665,7 +672,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     searchResults.push(createTopLevelFolderNode('views', viewsChildren, true))
                 }
 
-                if (managedViewsChildren.length > 0) {
+                if (managedViewsChildren.length > 0 && !featureFlags[FEATURE_FLAGS.MANAGED_VIEWSETS]) {
                     expandedIds.push('search-managed-views')
                     searchResults.push(createTopLevelFolderNode('managed-views', managedViewsChildren, true))
                 }
@@ -774,6 +781,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         disableSelect: true,
                         type: 'loading-indicator',
                     })
+
                     managedViewsChildren.push({
                         id: 'managed-views-loading/',
                         name: 'Loading...',
@@ -890,7 +898,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                           ]
                         : []),
                     createTopLevelFolderNode('views', viewsChildren),
-                    createTopLevelFolderNode('managed-views', managedViewsChildren),
+                    ...(featureFlags[FEATURE_FLAGS.MANAGED_VIEWSETS]
+                        ? []
+                        : [createTopLevelFolderNode('managed-views', managedViewsChildren)]),
                 ]
             },
         ],

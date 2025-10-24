@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from posthog.schema import (
     CachedRevenueAnalyticsMRRQueryResponse,
+    DatabaseSchemaManagedViewTableKind,
     HogQLQueryResponse,
     ResolvedDateRangeResponse,
     RevenueAnalyticsMRRQuery,
@@ -19,11 +20,8 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 
-from products.revenue_analytics.backend.views import (
-    RevenueAnalyticsBaseView,
-    RevenueAnalyticsRevenueItemView,
-    RevenueAnalyticsSubscriptionView,
-)
+from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView, RevenueAnalyticsRevenueItemView
+from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 
@@ -49,7 +47,9 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
     cached_response: CachedRevenueAnalyticsMRRQueryResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        subqueries = list(self.revenue_subqueries(RevenueAnalyticsRevenueItemView))
+        subqueries = list(
+            self.revenue_subqueries(VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM])
+        )
         if not subqueries:
             columns = ["breakdown_by", "period_start", "amount"]
             return ast.SelectQuery.empty(columns={key: UnknownDatabaseField(name=key) for key in columns})
@@ -358,7 +358,9 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
             ),
         ]
 
-        subscription_views = self.revenue_subqueries(RevenueAnalyticsSubscriptionView)
+        subscription_views = self.revenue_subqueries(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_SUBSCRIPTION]
+        )
         subscription_view = next(
             (subscription_view for subscription_view in subscription_views if subscription_view.prefix == view.prefix),
             None,

@@ -19,6 +19,8 @@ from posthog.schema import (
 )
 
 from posthog.models.utils import uuid7
+from posthog.warehouse.models import DataWarehouseManagedViewSet
+from posthog.warehouse.types import DataWarehouseManagedViewSetKind
 
 from products.revenue_analytics.backend.hogql_queries.revenue_example_events_query_runner import (
     RevenueExampleEventsQueryRunner,
@@ -51,6 +53,12 @@ REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT_REVENUE_CURRENCY_PROPERTY = [
 @snapshot_clickhouse_queries
 class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     QUERY_TIMESTAMP = "2025-01-29"
+
+    def _create_managed_viewsets(self):
+        viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
+            team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
+        )
+        viewset.sync_views()
 
     def _create_events(self, data, event="$pageview"):
         person_result = []
@@ -137,6 +145,29 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert results[0][1] == "purchase"
         assert results[0][2] == 42
         assert results[0][3] == 42  # No conversion because assumed to not be in smallest unit
+
+    def test_single_event_with_managed_viewsets_ff(self):
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            self._create_managed_viewsets()
+
+            s11 = str(uuid7("2023-12-02"))
+
+            self._create_events(
+                [
+                    ("p1", [("2023-12-02", s11, 42)]),
+                ],
+                event="purchase",
+            )
+
+            self.team.revenue_analytics_config.events = [REVENUE_ANALYTICS_CONFIG_EVENT_PURCHASE.model_dump()]
+            self.team.revenue_analytics_config.save()
+
+            results = self._run_revenue_example_events_query().results
+
+            assert len(results) == 1
+            assert results[0][1] == "purchase"
+            assert results[0][2] == 42
+            assert results[0][3] == 42  # No conversion because assumed to not be in smallest unit
 
     def test_single_event_with_smallest_unit_divider(self):
         s11 = str(uuid7("2023-12-02"))

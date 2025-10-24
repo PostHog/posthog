@@ -252,6 +252,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
             name=self.name,
             query=self.query["query"],
             fields=fields,
+            managed_viewset_kind=self.managed_viewset.kind if self.managed_viewset else None,
         )
 
 

@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db.models import Prefetch, Q
 
+import posthoganalytics
 from opentelemetry import trace
 from pydantic import BaseModel, ConfigDict
 
@@ -118,8 +119,6 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.table import DataWarehouseTable, DataWarehouseTableColumns
-
-from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -515,14 +514,17 @@ class Database(BaseModel):
         modifiers: Optional[HogQLQueryModifiers] = None,
         timings: Optional[HogQLTimings] = None,
     ) -> "Database":
-        from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
-        from posthog.hogql.query import create_default_modifiers_for_team
-
-        from posthog.models import Team
-        from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseSavedQuery
-
         if timings is None:
             timings = HogQLTimings()
+
+        with timings.measure("imports"):
+            from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+            from posthog.hogql.query import create_default_modifiers_for_team
+
+            from posthog.models import Team
+            from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseSavedQuery
+
+            from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
 
         with timings.measure("team"):
             if team_id is None and team is None:
@@ -540,6 +542,25 @@ class Database(BaseModel):
             # Set team_id for the create_hogql_database tracing span
             span = trace.get_current_span()
             span.set_attribute("team_id", team.pk)
+
+        with timings.measure("feature_flags"):
+            is_managed_viewset_enabled = posthoganalytics.feature_enabled(
+                "managed-viewsets",
+                str(team.uuid),
+                groups={
+                    "organization": str(team.organization_id),
+                    "project": str(team.id),
+                },
+                group_properties={
+                    "organization": {
+                        "id": str(team.organization_id),
+                    },
+                    "project": {
+                        "id": str(team.id),
+                    },
+                },
+                send_feature_flag_events=False,
+            )
 
         with timings.measure("database"):
             database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
@@ -655,24 +676,32 @@ class Database(BaseModel):
 
         with timings.measure("data_warehouse_saved_query"):
             with timings.measure("select"):
-                saved_queries = list(
+                queryset = (
                     DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
-                    .filter(managed_viewset__isnull=True)  # Ignore managed views for now
                     .exclude(deleted=True)
-                    .select_related("table", "table__credential")
+                    .select_related("table", "table__credential", "managed_viewset")
                 )
+                if not is_managed_viewset_enabled:
+                    queryset = queryset.filter(managed_viewset__isnull=True)
+
+                saved_queries = list(queryset)
 
             for saved_query in saved_queries:
                 with timings.measure(f"saved_query_{saved_query.name}"):
                     views.add_child(
-                        TableNode(name=saved_query.name, table=saved_query.hogql_definition(modifiers)),
+                        TableNode.create_nested_for_chain(
+                            saved_query.name.split("."),
+                            table=saved_query.hogql_definition(modifiers),
+                        ),
                         table_conflict_mode="ignore",
                     )
 
         with timings.measure("revenue_analytics_views"):
             revenue_views = []
             try:
-                revenue_views = list(build_all_revenue_analytics_views(team, timings))
+                revenue_views = []
+                if not is_managed_viewset_enabled:
+                    revenue_views = list(build_all_revenue_analytics_views(team, timings))
             except Exception as e:
                 capture_exception(e)
 

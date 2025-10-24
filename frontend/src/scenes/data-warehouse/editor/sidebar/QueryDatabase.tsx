@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
 
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
@@ -191,6 +192,7 @@ export const QueryDatabase = (): JSX.Element => {
 
                     // Check if this is a saved query (has last_run_at) vs managed view
                     const isSavedQuery = item.record?.isSavedQuery || false
+                    const isManagedViewsetQuery = item.record?.view.managed_viewset_kind !== null
 
                     return (
                         <DropdownMenuGroup>
@@ -203,7 +205,26 @@ export const QueryDatabase = (): JSX.Element => {
                                             sceneLogic.actions.newTab(urls.sqlEditor(undefined, item.record?.view.id))
                                         }}
                                     >
-                                        <ButtonPrimitive menuItem>Edit view definition</ButtonPrimitive>
+                                        <ButtonPrimitive
+                                            menuItem
+                                            tooltipInteractive
+                                            tooltipPlacement="right"
+                                            disabled={isManagedViewsetQuery}
+                                            tooltip={
+                                                isManagedViewsetQuery ? (
+                                                    <>
+                                                        Managed viewset views cannot be edited directly. You can
+                                                        enable/disable these views in the{' '}
+                                                        <Link to={urls.dataWarehouseManagedViewsets()}>
+                                                            Managed Viewsets
+                                                        </Link>{' '}
+                                                        section.
+                                                    </>
+                                                ) : undefined
+                                            }
+                                        >
+                                            Edit view definition
+                                        </ButtonPrimitive>
                                     </DropdownMenuItem>
                                     <DropdownMenuItem
                                         asChild
@@ -222,7 +243,26 @@ export const QueryDatabase = (): JSX.Element => {
                                             deleteDataWarehouseSavedQuery(viewId)
                                         }}
                                     >
-                                        <ButtonPrimitive menuItem>Delete</ButtonPrimitive>
+                                        <ButtonPrimitive
+                                            menuItem
+                                            tooltipInteractive
+                                            tooltipPlacement="right"
+                                            disabled={isManagedViewsetQuery}
+                                            tooltip={
+                                                isManagedViewsetQuery ? (
+                                                    <>
+                                                        Managed viewset views cannot be individually deleted. You can
+                                                        choose to delete all views in the managed viewset from the{' '}
+                                                        <Link to={urls.dataWarehouseManagedViewsets()}>
+                                                            Managed Viewsets
+                                                        </Link>{' '}
+                                                        page.
+                                                    </>
+                                                ) : undefined
+                                            }
+                                        >
+                                            Delete
+                                        </ButtonPrimitive>
                                     </DropdownMenuItem>
                                 </>
                             )}
