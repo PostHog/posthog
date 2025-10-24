@@ -83,12 +83,22 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
                     </>
                 )
             )}
-            {gravatarUrl && gravatarsReady && gravatarLoaded !== false ? (
+            {gravatarUrl && gravatarsReady && gravatarLoaded === true ? (
                 <img
                     className="absolute top-0 left-0 w-full h-full rounded-full"
                     src={gravatarUrl}
                     loading="lazy"
                     title={title || `This is the Gravatar for ${combinedNameAndEmail}`}
+                    alt=""
+                    onError={() => setGravatarLoaded(false)}
+                    onLoad={() => setGravatarLoaded(true)}
+                />
+            ) : null}
+            {gravatarUrl && gravatarsReady && gravatarLoaded === undefined ? (
+                <img
+                    className="hidden"
+                    src={gravatarUrl}
+                    loading="lazy"
                     alt=""
                     onError={() => setGravatarLoaded(false)}
                     onLoad={() => setGravatarLoaded(true)}
