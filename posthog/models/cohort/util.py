@@ -932,7 +932,7 @@ def _get_cohort_chunking_config(
             send_feature_flag_events=False,
         )
 
-        if payload is None:
+        if payload is None or not isinstance(payload, dict):
             return None
 
         chunk_size = payload.get("chunk_size", TARGET_CHUNK_SIZE)
