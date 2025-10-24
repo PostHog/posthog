@@ -12,11 +12,11 @@ export function EmailMFAVerify(): JSX.Element {
     const { verifyAndLogin } = useActions(emailMFAVerifyLogic)
 
     return (
-        <BridgePage view="login" hedgehog>
-            <div className="px-12 py-8 text-center flex flex-col items-center max-w-160 w-full">
+        <BridgePage view="login" fixedWidth={false}>
+            <div className="px-12 py-8 text-center flex flex-col items-center max-w-320 w-full">
                 {view === 'ready' ? (
                     <>
-                        <h1 className="text-3xl font-bold">Almost in - just verify below!</h1>
+                        <h1 className="text-3xl font-bold">Almost in - just click below!</h1>
                         <div className="max-w-60 mb-12">
                             <HeartHog className="w-full h-full" />
                         </div>
