@@ -238,4 +238,33 @@ describe('snapshotDataLogic', () => {
             expect(chunks).toEqual([snapshot])
         })
     })
+
+    describe('loadFromTimestamp', () => {
+        it('sets targetTimestampToSeekFromMillis when action is called', () => {
+            const targetTimestamp = new Date('2023-08-11T12:01:30.000Z').getTime()
+            logic.actions.loadFromTimestamp(targetTimestamp)
+            expect(logic.values.targetTimestampToSeekFromMillis).toBe(targetTimestamp)
+        })
+
+        it('clears targetTimestampToSeekFromMillis when set to null', () => {
+            const targetTimestamp = new Date('2023-08-11T12:01:30.000Z').getTime()
+            logic.actions.loadFromTimestamp(targetTimestamp)
+            expect(logic.values.targetTimestampToSeekFromMillis).toBe(targetTimestamp)
+            logic.actions.loadFromTimestamp(null)
+            expect(logic.values.targetTimestampToSeekFromMillis).toBeNull()
+        })
+
+        it('triggers loadNextSnapshotSource when sources are available', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshots()
+            }).toFinishAllListeners()
+
+            const targetTimestamp = new Date('2023-08-11T12:03:40.000Z').getTime()
+            await expectLogic(logic, () => {
+                logic.actions.loadFromTimestamp(targetTimestamp)
+            })
+                .toDispatchActions(['loadFromTimestamp', 'loadNextSnapshotSource'])
+                .toFinishAllListeners()
+        })
+    })
 })
