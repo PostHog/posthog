@@ -3,7 +3,7 @@ import './ProfilePicture.scss'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import md5 from 'md5'
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 
 import { HedgehogBuddyProfile } from 'lib/components/HedgehogBuddy/HedgehogBuddyRender'
 import { fullName, inStorybookTestRunner } from 'lib/utils'
@@ -13,6 +13,7 @@ import { MinimalHedgehogConfig, UserBasicType } from '~/types'
 
 import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
 import { IconRobot } from '../icons'
+import { profilePictureLogic } from './profilePictureLogic'
 
 export interface ProfilePictureProps {
     user?:
@@ -34,8 +35,8 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
     ref
 ) {
     const { user: currentUser } = useValues(userLogic)
+    const { gravatarsReady } = useValues(profilePictureLogic)
     const [gravatarLoaded, setGravatarLoaded] = useState<boolean | undefined>()
-    const [shouldLoadGravatar, setShouldLoadGravatar] = useState(false)
 
     let email = user?.email
 
@@ -60,13 +61,6 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
         }
     }, [email, hedgehogProfile, name])
 
-    // Defer gravatar loading until after initial render to avoid blocking table rendering
-    useEffect(() => {
-        queueMicrotask(() => {
-            setShouldLoadGravatar(true)
-        })
-    }, [])
-
     const pictureComponent = (
         <span className={clsx('ProfilePicture', size, className)} ref={ref}>
             {hedgehogProfile ? (
@@ -89,7 +83,7 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
                     </>
                 )
             )}
-            {gravatarUrl && shouldLoadGravatar && gravatarLoaded !== false ? (
+            {gravatarUrl && gravatarsReady && gravatarLoaded !== false ? (
                 <img
                     className="absolute top-0 left-0 w-full h-full rounded-full"
                     src={gravatarUrl}
