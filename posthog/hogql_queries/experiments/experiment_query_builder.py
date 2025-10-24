@@ -446,30 +446,43 @@ class ExperimentQueryBuilder:
             denom_entity_field = self.entity_key
             denom_timestamp_field = f"{denom_table}.timestamp"
 
-        # Build exposure query with conditional exposure_identifier
+        # Build exposure query with conditional exposure_identifier(s)
         exposure_query = self._build_exposure_select_query()
         if num_is_dw or denom_is_dw:
-            # Add exposure_identifier for data warehouse joins
-            dw_source = self.metric.numerator if num_is_dw else self.metric.denominator
-            assert isinstance(dw_source, ExperimentDataWarehouseNode)
-            events_join_key_parts = cast(list[str | int], dw_source.events_join_key.split("."))
-            exposure_query.select.append(
-                ast.Alias(
-                    alias="exposure_identifier",
-                    expr=ast.Field(chain=events_join_key_parts),
+            # Add exposure_identifier fields for data warehouse joins
+            # Support different join keys for numerator and denominator
+            if num_is_dw:
+                num_source = cast(ExperimentDataWarehouseNode, self.metric.numerator)
+                num_join_key_parts = cast(list[str | int], num_source.events_join_key.split("."))
+                exposure_query.select.append(
+                    ast.Alias(
+                        alias="exposure_identifier_num",
+                        expr=ast.Field(chain=num_join_key_parts),
+                    )
                 )
-            )
-            if exposure_query.group_by:
-                exposure_query.group_by.append(ast.Field(chain=events_join_key_parts))
+                if exposure_query.group_by:
+                    exposure_query.group_by.append(ast.Field(chain=num_join_key_parts))
+
+            if denom_is_dw:
+                denom_source = cast(ExperimentDataWarehouseNode, self.metric.denominator)
+                denom_join_key_parts = cast(list[str | int], denom_source.events_join_key.split("."))
+                exposure_query.select.append(
+                    ast.Alias(
+                        alias="exposure_identifier_denom",
+                        expr=ast.Field(chain=denom_join_key_parts),
+                    )
+                )
+                if exposure_query.group_by:
+                    exposure_query.group_by.append(ast.Field(chain=denom_join_key_parts))
 
         # Build join conditions
         num_join_cond = (
-            "toString(exposures.exposure_identifier) = toString(numerator_events.entity_id)"
+            "toString(exposures.exposure_identifier_num) = toString(numerator_events.entity_id)"
             if num_is_dw
             else "exposures.entity_id = numerator_events.entity_id"
         )
         denom_join_cond = (
-            "toString(exposures.exposure_identifier) = toString(denominator_events.entity_id)"
+            "toString(exposures.exposure_identifier_denom) = toString(denominator_events.entity_id)"
             if denom_is_dw
             else "exposures.entity_id = denominator_events.entity_id"
         )
