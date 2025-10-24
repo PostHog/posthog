@@ -228,7 +228,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 ),
             )
 
-            modeling_jobs = DataModelingJob.objects.filter(team_id=self.team_id, finished_at__gte=cutoff_time)
+            modeling_jobs = DataModelingJob.objects.filter(team_id=self.team_id, created_at__gte=cutoff_time)
 
             modeling_stats = modeling_jobs.aggregate(
                 total=Count("id"),
