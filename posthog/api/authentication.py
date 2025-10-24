@@ -251,7 +251,7 @@ class LoginSerializer(serializers.Serializer):
                 if email_mfa_sent:
                     # Increment the resend throttle counter so the initial send counts towards the limit
                     resend_throttle = EmailMFAResendThrottle()
-                    resend_throttle.allow_request(request, None)
+                    resend_throttle.allow_request(request, None)  # type: ignore[arg-type]
                     raise EmailMFARequired(user.email)
                 else:
                     # if we failed to send the email, we should fall through to allow login without MFA
