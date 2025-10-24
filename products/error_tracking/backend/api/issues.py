@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 from django.db import transaction
+from django.db.models.query import QuerySet
 from django.http import JsonResponse
 
 import structlog
@@ -448,7 +449,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         value = request.GET.get("value", None)
         key = request.GET.get("key")
 
-        issue_values = []
+        issue_values: QuerySet[ErrorTrackingIssue] = QuerySet()
         if key and value:
             if key == "name":
                 issue_values = queryset.filter(name__icontains=value).values_list("name", flat=True)
