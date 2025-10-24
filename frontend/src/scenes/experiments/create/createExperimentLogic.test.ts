@@ -145,6 +145,8 @@ describe('createExperimentLogic', () => {
         })
 
         it('shows success toast with view button', async () => {
+            routerPushSpy.mockClear()
+
             await expectLogic(logic, () => {
                 logic.actions.setExperiment({
                     ...NEW_EXPERIMENT,
