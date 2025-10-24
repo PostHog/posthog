@@ -16,6 +16,8 @@ export interface ErrorTrackingBreakdownsLogicProps {
     id: string
 }
 
+const CUSTOM_BREAKDOWN_TITLE = '$$_custom_breakdown'
+
 export const BREAKDOWN_PRESETS: BreakdownPreset[] = [
     { property: '$browser', title: 'Browser' },
     { property: '$device_type', title: 'Device Type' },
@@ -34,12 +36,14 @@ export const errorTrackingBreakdownsLogic = kea<errorTrackingBreakdownsLogicType
     }),
     actions({
         setSelectedBreakdownPreset: (breakdownPreset: BreakdownPreset) => ({ breakdownPreset }),
+        setBreakdownProperty: (property: string) => ({ property }),
     }),
     reducers(({ props }) => ({
         selectedBreakdownPreset: [
-            BREAKDOWN_PRESETS[0],
+            { property: '$browser', title: CUSTOM_BREAKDOWN_TITLE },
             {
                 setSelectedBreakdownPreset: (_, { breakdownPreset }) => breakdownPreset,
+                setBreakdownProperty: (_, { property }) => ({ property, title: CUSTOM_BREAKDOWN_TITLE }),
             },
         ],
         issueId: [props.id],
