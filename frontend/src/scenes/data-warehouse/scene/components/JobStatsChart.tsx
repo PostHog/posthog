@@ -1,20 +1,16 @@
-import { useEffect, useRef } from 'react'
+import { useMemo } from 'react'
 
-import { Chart } from 'lib/Chart'
-
-import { DataWarehouseJobStats } from '~/types'
+import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
+import { ChartDisplayType, DataWarehouseJobStats } from '~/types'
 
 interface JobStatsChartProps {
     jobStats: DataWarehouseJobStats
 }
 
 export function JobStatsChart({ jobStats }: JobStatsChartProps): JSX.Element {
-    const canvasRef = useRef<HTMLCanvasElement>(null)
-    const chartRef = useRef<Chart | null>(null)
-
-    useEffect(() => {
-        if (!canvasRef.current || !jobStats?.breakdown) {
-            return
+    const { xData, yData } = useMemo(() => {
+        if (!jobStats?.breakdown) {
+            return { xData: null, yData: [] }
         }
 
         const timestamps = Object.keys(jobStats.breakdown).sort()
@@ -31,77 +27,70 @@ export function JobStatsChart({ jobStats }: JobStatsChartProps): JSX.Element {
             return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
         })
 
-        if (chartRef.current) {
-            chartRef.current.destroy()
-        }
-
-        const ctx = canvasRef.current.getContext('2d')
-        if (!ctx) {
-            return
-        }
-
         const successColor = getComputedStyle(document.body).getPropertyValue('--success').trim() || '#388600'
         const dangerColor = getComputedStyle(document.body).getPropertyValue('--danger').trim() || '#db3707'
 
-        chartRef.current = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels,
-                datasets: [
-                    {
+        return {
+            xData: {
+                column: {
+                    name: 'timestamp',
+                    type: {
+                        name: 'STRING' as const,
+                        isNumerical: false,
+                    },
+                    label: 'Time',
+                    dataIndex: 0,
+                },
+                data: labels,
+            },
+            yData: [
+                {
+                    column: {
+                        name: 'successful',
+                        type: { name: 'INTEGER' as const, isNumerical: true },
                         label: 'Successful',
-                        data: successData,
-                        backgroundColor: successColor,
-                        stack: 'stack0',
+                        dataIndex: 0,
                     },
-                    {
+                    data: successData,
+                    settings: {
+                        display: {
+                            color: successColor,
+                            displayType: 'bar' as const,
+                        },
+                    },
+                },
+                {
+                    column: {
+                        name: 'failed',
+                        type: { name: 'INTEGER' as const, isNumerical: true },
                         label: 'Failed',
-                        data: failedData,
-                        backgroundColor: dangerColor,
-                        stack: 'stack0',
+                        dataIndex: 1,
                     },
-                ],
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        position: 'bottom',
-                    },
-                    tooltip: {
-                        mode: 'index',
-                        intersect: false,
-                    },
-                },
-                scales: {
-                    x: {
-                        stacked: true,
-                        grid: {
-                            display: false,
-                        },
-                    },
-                    y: {
-                        stacked: true,
-                        beginAtZero: true,
-                        ticks: {
-                            precision: 0,
+                    data: failedData,
+                    settings: {
+                        display: {
+                            color: dangerColor,
+                            displayType: 'bar' as const,
                         },
                     },
                 },
-            },
-        })
-
-        return () => {
-            if (chartRef.current) {
-                chartRef.current.destroy()
-            }
+            ],
         }
     }, [jobStats])
 
+    if (!jobStats?.breakdown) {
+        return <div className="relative h-64 flex items-center justify-center">No data available</div>
+    }
+
     return (
-        <div className="relative h-64">
-            <canvas ref={canvasRef} />
-        </div>
+        <LineGraph
+            className="h-64"
+            xData={xData}
+            yData={yData}
+            visualizationType={ChartDisplayType.ActionsStackedBar}
+            chartSettings={{
+                stackBars100: false,
+            }}
+        />
     )
 }
