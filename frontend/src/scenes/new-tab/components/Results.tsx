@@ -314,11 +314,10 @@ function Category({
                                                             const showMoreIndex = typedItems.length
                                                             showMoreInSection(category)
 
-                                                            // Focus will be maintained automatically since the operation is now instant
-                                                            if (mobileLayout) {
+                                                            if (!mobileLayout) {
                                                                 setTimeout(() => {
                                                                     groupRef.current?.resumeFocus(showMoreIndex)
-                                                                }, 0)
+                                                                }, 10)
                                                             }
                                                         }}
                                                         className="w-full text-tertiary data-[focused=true]:text-primary"
@@ -346,13 +345,12 @@ function Category({
                                                     size="sm"
                                                     onClick={() => {
                                                         const showAllIndex = typedItems.length
-
                                                         showMoreInSection(category)
 
-                                                        if (mobileLayout) {
+                                                        if (!mobileLayout) {
                                                             setTimeout(() => {
                                                                 groupRef.current?.resumeFocus(showAllIndex)
-                                                            }, 0)
+                                                            }, 10)
                                                         }
                                                     }}
                                                     className="w-full text-tertiary data-[focused=true]:text-primary"

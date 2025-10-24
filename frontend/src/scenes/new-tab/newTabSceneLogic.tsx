@@ -1237,7 +1237,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         loadRecentsSuccess: () => {
             // Prefetch next batch when recents load successfully and we have more
             const recents = values.recents
-            if (recents.hasMore && !values.recentsPrefetchedBatch && values.recentsExpanded) {
+            if (recents.hasMore && !values.recentsPrefetchedBatch) {
                 actions.prefetchNextRecents()
             }
         },
