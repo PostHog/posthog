@@ -18,9 +18,11 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import type { Experiment } from '~/types'
 
-import { ExperimentTypePanel } from './ExperimentTypePanel'
 import { ExposureCriteriaPanel } from './ExposureCriteriaPanel'
+import { ExposureCriteriaPanelHeader } from './ExposureCriteriaPanelHeader'
+import { MetricsPanel, MetricsPanelHeader } from './MetricsPanel'
 import { VariantsPanel } from './VariantsPanel'
+import { VariantsPanelHeader } from './VariantsPanelHeader'
 import { createExperimentLogic } from './createExperimentLogic'
 
 const LemonFieldError = ({ error }: { error: string }): JSX.Element => {
@@ -35,17 +37,14 @@ type CreateExperimentProps = Partial<{
     draftExperiment: Experiment
 }>
 
-/**
- * temporary setup. We may want to put this behind a feature flag for testing.
- */
-const SHOW_EXPERIMENT_TYPE_PANEL = false
-const SHOW_TARGETING_PANEL = false
-
 export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JSX.Element => {
     const { HogfettiComponent } = useHogfetti({ count: 100, duration: 3000 })
 
-    const { experiment, experimentErrors } = useValues(createExperimentLogic({ experiment: draftExperiment }))
-    const { setExperimentValue } = useActions(createExperimentLogic({ experiment: draftExperiment }))
+    const { experiment, experimentErrors, sharedMetrics } = useValues(
+        createExperimentLogic({ experiment: draftExperiment })
+    )
+    const { setExperimentValue, setExperiment, setSharedMetrics, setExposureCriteria, setFeatureFlagConfig } =
+        useActions(createExperimentLogic({ experiment: draftExperiment }))
 
     const [selectedPanel, setSelectedPanel] = useState<string | null>(null)
 
@@ -104,88 +103,117 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
                     <SceneDivider />
                     <LemonCollapse
                         activeKey={selectedPanel ?? undefined}
-                        defaultActiveKey="experiment-variants"
-                        onChange={(key) => {
-                            setSelectedPanel(key as string | null)
-                        }}
+                        defaultActiveKey="experiment-exposure"
+                        onChange={setSelectedPanel}
                         className="bg-surface-primary"
                         panels={[
-                            ...(SHOW_EXPERIMENT_TYPE_PANEL
-                                ? [
-                                      {
-                                          key: 'experiment-type',
-                                          header: 'Experiment type',
-                                          content: (
-                                              <ExperimentTypePanel
-                                                  experiment={experiment}
-                                                  setExperimentType={(type) => setExperimentValue('type', type)}
-                                              />
-                                          ),
-                                      },
-                                  ]
-                                : []),
-                            {
-                                key: 'experiment-variants',
-                                header: 'Feature flag & variants',
-                                content: (
-                                    <VariantsPanel
-                                        experiment={experiment}
-                                        updateFeatureFlag={(updates) => {
-                                            if (updates.feature_flag_key !== undefined) {
-                                                setExperimentValue('feature_flag_key', updates.feature_flag_key)
-                                            }
-                                            if (updates.parameters) {
-                                                setExperimentValue('parameters', {
-                                                    ...experiment.parameters,
-                                                    ...updates.parameters,
-                                                })
-                                            }
-                                        }}
-                                    />
-                                ),
-                            },
-                            ...(SHOW_TARGETING_PANEL
-                                ? [
-                                      {
-                                          key: 'experiment-targeting',
-                                          header: 'Targeting',
-                                          content: (
-                                              <div className="p-4">
-                                                  <span>Targeting Panel Goes Here</span>
-                                              </div>
-                                          ),
-                                      },
-                                  ]
-                                : []),
                             {
                                 key: 'experiment-exposure',
-                                header: 'Exposure criteria',
+                                header: <ExposureCriteriaPanelHeader experiment={experiment} />,
                                 content: (
                                     <ExposureCriteriaPanel
                                         experiment={experiment}
-                                        onChange={(exposureCriteria) => exposureCriteria}
+                                        onChange={setExposureCriteria}
+                                        onNext={() => setSelectedPanel('experiment-variants')}
+                                    />
+                                ),
+                            },
+                            {
+                                key: 'experiment-variants',
+                                header: <VariantsPanelHeader experiment={experiment} />,
+                                content: (
+                                    <VariantsPanel
+                                        experiment={experiment}
+                                        updateFeatureFlag={setFeatureFlagConfig}
+                                        onPrevious={() => setSelectedPanel('experiment-exposure')}
+                                        onNext={() => setSelectedPanel('experiment-metrics')}
                                     />
                                 ),
                             },
                             {
                                 key: 'experiment-metrics',
-                                header: 'Metrics',
+                                header: <MetricsPanelHeader experiment={experiment} />,
                                 content: (
-                                    <div className="p-4">
-                                        <span>Metrics Panel Goes Here</span>
-                                    </div>
+                                    <MetricsPanel
+                                        experiment={experiment}
+                                        sharedMetrics={sharedMetrics}
+                                        onSaveMetric={(metric, context) => {
+                                            const isNew = !experiment[context.field].some((m) => m.uuid === metric.uuid)
+
+                                            setExperiment({
+                                                ...experiment,
+                                                [context.field]: isNew
+                                                    ? [...experiment[context.field], metric]
+                                                    : experiment[context.field].map((m) =>
+                                                          m.uuid === metric.uuid ? metric : m
+                                                      ),
+                                                ...(isNew && {
+                                                    [context.orderingField]: [
+                                                        ...(experiment[context.orderingField] ?? []),
+                                                        metric.uuid,
+                                                    ],
+                                                }),
+                                            })
+                                        }}
+                                        onDeleteMetric={(metric, context) => {
+                                            if (metric.isSharedMetric) {
+                                                setExperiment({
+                                                    ...experiment,
+                                                    [context.orderingField]: (
+                                                        experiment[context.orderingField] ?? []
+                                                    ).filter((uuid) => uuid !== metric.uuid),
+                                                })
+                                                setSharedMetrics({
+                                                    ...sharedMetrics,
+                                                    [context.type]: sharedMetrics[context.type].filter(
+                                                        (m) => m.uuid !== metric.uuid
+                                                    ),
+                                                })
+                                                return
+                                            }
+
+                                            const metricIndex = experiment[context.field].findIndex(
+                                                ({ uuid }) => uuid === metric.uuid
+                                            )
+                                            if (metricIndex !== -1) {
+                                                setExperiment({
+                                                    ...experiment,
+                                                    [context.field]: experiment[context.field].filter(
+                                                        ({ uuid }) => uuid !== metric.uuid
+                                                    ),
+                                                    [context.orderingField]: (
+                                                        experiment[context.orderingField] ?? []
+                                                    ).filter((uuid) => uuid !== metric.uuid),
+                                                })
+                                            }
+                                        }}
+                                        onSaveSharedMetrics={(metrics, context) => {
+                                            setExperiment({
+                                                ...experiment,
+                                                [context.orderingField]: [
+                                                    ...(experiment[context.orderingField] ?? []),
+                                                    ...metrics.map((metric) => metric.uuid),
+                                                ],
+                                                saved_metrics: [
+                                                    ...(experiment.saved_metrics ?? []),
+                                                    ...metrics.map((metric) => ({
+                                                        saved_metric: metric.sharedMetricId,
+                                                    })),
+                                                ],
+                                            })
+                                            setSharedMetrics({
+                                                ...sharedMetrics,
+                                                [context.type]: [...sharedMetrics[context.type], ...metrics],
+                                            })
+                                        }}
+                                        onPrevious={() => setSelectedPanel('experiment-variants')}
+                                    />
                                 ),
                             },
                         ]}
                     />
                 </SceneContent>
             </Form>
-            {/* Sidebar Checklist */}
-            <div className="h-full">
-                <div className="sticky top-16">
-                    <span>Sidebar Checklist Goes Here</span>
-                </div>
-            </div>
         </div>
     )
 }

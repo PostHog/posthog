@@ -28,7 +28,7 @@ export function HogFlowFunctionConfiguration({
         if (template && Object.keys(inputs ?? {}).length === 0) {
             setInputs(templateToConfiguration(template).inputs ?? {})
         }
-    }, [template, setInputs, inputs])
+    }, [templateId])
 
     if (hogFunctionTemplatesByIdLoading) {
         return (

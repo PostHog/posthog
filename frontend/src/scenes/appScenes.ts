@@ -51,6 +51,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.LegacyPlugin]: () => import('./data-pipelines/legacy-plugins/LegacyPluginScene'),
     [Scene.LiveEvents]: () => import('./activity/live/LiveEventsTable'),
     [Scene.Login2FA]: () => import('./authentication/Login2FA'),
+    [Scene.EmailMFAVerify]: () => import('./authentication/EmailMFAVerify'),
     [Scene.Login]: () => import('./authentication/Login'),
     [Scene.Max]: () => import('./max/Max'),
     [Scene.MoveToPostHogCloud]: () => import('./moveToPostHogCloud/MoveToPostHogCloud'),
