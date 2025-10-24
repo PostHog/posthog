@@ -130,6 +130,11 @@ jobs:
               run: |
                   npm run schema:build:python && git diff --exit-code
 
+            - name: Check hogli manifest completeness
+              shell: bash
+              run: |
+                  ./bin/hogli meta:check
+
             # - name: Check if "taxonomy.json/taxonomy.tsx" is up to date
             #   if: needs.changes.outputs.python == 'true'
             #   shell: bash
