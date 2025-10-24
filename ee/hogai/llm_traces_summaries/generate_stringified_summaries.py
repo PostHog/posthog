@@ -9,6 +9,7 @@ from google.genai.types import GenerateContentConfig
 from rich.console import Console
 
 from posthog.models.team.team import Team
+from posthog.sync import database_sync_to_async
 
 from products.llm_analytics.backend.providers.gemini import GeminiProvider
 
@@ -72,10 +73,8 @@ class LLMTraceSummarizerGenerator:
         """Summarize a dictionary of stringified traces."""
         tasks = {}
         # Check which traces already have summaries to avoid re-generating them
-        existing_trace_ids = set(
-            LLMTraceSummary.objects.filter(
-                team=self._team, trace_summary_type=self._summary_type, trace_id__in=list(stringified_traces.keys())
-            ).values_list("trace_id", flat=True)
+        existing_trace_ids = await database_sync_to_async(self._check_existing_summaries)(
+            trace_ids=list(stringified_traces.keys())
         )
         async with asyncio.TaskGroup() as tg:
             for trace_id, stringified_trace in stringified_traces.items():
@@ -97,18 +96,6 @@ class LLMTraceSummarizerGenerator:
             # Return only successful summaries
             summarized_traces[trace_id] = res
         return summarized_traces
-
-    def store_summaries_in_db(self, summarized_traces: dict[str, str]):
-        # Store summaries in the database should be part of the embedding process
-        # Temporary PSQL solution to test end-to-end summarization pipeline
-        # TODO: Should be replaced (or migrated to) later with the Clickhouse-powered solution to allow FTS
-        summaries_batch_size = 500
-        summaries_for_db = [
-            LLMTraceSummary(team=self._team, trace_id=trace_id, summary=summary, trace_summary_type=self._summary_type)
-            for trace_id, summary in summarized_traces.items()
-        ]
-        # Ignore already processed traces summaries, if they get to this stage
-        LLMTraceSummary.objects.bulk_create(summaries_for_db, batch_size=summaries_batch_size, ignore_conflicts=True)
 
     async def _generate_trace_summary(self, trace_id: str, stringified_trace: str) -> str | Exception:
         prompt = GENERATE_STRINGIFIED_TRACE_SUMMARY_PROMPT.format(stringified_trace=stringified_trace)
@@ -195,3 +182,23 @@ class LLMTraceSummarizerGenerator:
                 console.print(f"[red]Removed: '{original_summary[i1:i2]}'[/red]")
                 console.print(f"[green]Added: '{summary[j1:j2]}'[/green]")
         console.print("=" * 50 + "\n")
+
+    def store_summaries_in_db(self, summarized_traces: dict[str, str]):
+        # Store summaries in the database should be part of the embedding process
+        # Temporary PSQL solution to test end-to-end summarization pipeline
+        # TODO: Should be replaced (or migrated to) later with the Clickhouse-powered solution to allow FTS
+        summaries_batch_size = 500
+        summaries_for_db = [
+            LLMTraceSummary(team=self._team, trace_id=trace_id, summary=summary, trace_summary_type=self._summary_type)
+            for trace_id, summary in summarized_traces.items()
+        ]
+        # Ignore already processed traces summaries, if they get to this stage
+        LLMTraceSummary.objects.bulk_create(summaries_for_db, batch_size=summaries_batch_size, ignore_conflicts=True)
+
+    def _check_existing_summaries(self, trace_ids: list[str]) -> set[str]:
+        existing_trace_ids = set(
+            LLMTraceSummary.objects.filter(
+                team=self._team, trace_summary_type=self._summary_type, trace_id__in=trace_ids
+            ).values_list("trace_id", flat=True)
+        )
+        return existing_trace_ids

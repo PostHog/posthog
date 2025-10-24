@@ -15,12 +15,6 @@ from ee.hogai.llm_traces_summaries.generate_stringified_summaries import LLMTrac
 from ee.hogai.llm_traces_summaries.get_traces import LLMTracesSummarizerCollector
 from ee.hogai.llm_traces_summaries.stringify_trace import LLMTracesSummarizerStringifier
 
-# def collect_traces_to_analyze(self, date_range: DateRange) -> Generator[list[LLMTrace], None, None]:
-#     """
-#     Collect traces, return page by page to avoid storing too many full traces in memory at once.
-#     """
-#     offset = 0
-
 
 class LLMTracesSummarizer:
     def __init__(self, team: Team):
