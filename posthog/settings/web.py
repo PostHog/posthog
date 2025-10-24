@@ -110,7 +110,7 @@ MIDDLEWARE = [
     "posthog.middleware.CHQueries",
     "django_prometheus.middleware.PrometheusAfterMiddleware",
     "posthog.middleware.PostHogTokenCookieMiddleware",
-    "posthoganalytics.integrations.django.PosthogContextMiddleware",
+    "posthog.middleware.SyncPostHogContextMiddleware",
 ]
 
 DJANGO_STRUCTLOG_CELERY_ENABLED = True

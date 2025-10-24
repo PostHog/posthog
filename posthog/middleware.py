@@ -21,6 +21,7 @@ from django.utils.cache import add_never_cache_headers
 import structlog
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
+from posthoganalytics.integrations.django import PosthogContextMiddleware
 from rest_framework import status
 from social_core.exceptions import AuthFailed
 from statshog.defaults.django import statsd
@@ -776,3 +777,8 @@ class SocialAuthExceptionMiddleware:
 
         # Handle other exceptions with existing middleware
         return None
+
+
+class SyncPostHogContextMiddleware(PosthogContextMiddleware):
+    # Our middlewares are synchronous, but PostHog middleware supports async.
+    async_capable = False
