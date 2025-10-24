@@ -345,7 +345,7 @@ async def handle_error(
         await logger.ainfo("Marking job %s as failed", job.id)
         await logger.aerror(f"handle_error: error={error}. error_message={error_message}")
         job.status = DataModelingJob.Status.FAILED
-        job.error = f"{error} - {error_message}"
+        job.error = str(error)
         await database_sync_to_async(job.save)()
     await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label, error=str(error)))
 
