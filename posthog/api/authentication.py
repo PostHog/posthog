@@ -249,6 +249,9 @@ class LoginSerializer(serializers.Serializer):
                 # Email MFA flow
                 email_mfa_sent = email_mfa_verifier.create_token_and_send_email_mfa_verification(request, user)
                 if email_mfa_sent:
+                    # Increment the resend throttle counter so the initial send counts towards the limit
+                    resend_throttle = EmailMFAResendThrottle()
+                    resend_throttle.allow_request(request, None)  # type: ignore[arg-type]
                     raise EmailMFARequired(user.email)
                 else:
                     # if we failed to send the email, we should fall through to allow login without MFA

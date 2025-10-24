@@ -4,7 +4,6 @@ exports[`LogsIngestionConsumer general should process a valid log message 1`] = 
 [
   {
     "headers": {
-      "distinct_id": "user-1",
       "team_id": "2",
       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
     },
@@ -24,7 +23,6 @@ exports[`LogsIngestionConsumer general should process multiple log messages 1`] 
 [
   {
     "headers": {
-      "distinct_id": "user-1",
       "team_id": "2",
       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
     },
@@ -39,7 +37,6 @@ exports[`LogsIngestionConsumer general should process multiple log messages 1`] 
   },
   {
     "headers": {
-      "distinct_id": "user-1",
       "team_id": "2",
       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
     },
@@ -54,7 +51,6 @@ exports[`LogsIngestionConsumer general should process multiple log messages 1`] 
   },
   {
     "headers": {
-      "distinct_id": "user-1",
       "team_id": "2",
       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
     },
