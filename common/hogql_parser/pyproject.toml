@@ -23,13 +23,14 @@ before-all = [
     # update cmake for antlr
     "dnf install -y epel-release",
     "dnf install -y cmake3",
+    "cmake3 --version",
     "curl https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip",
     # Check that the downloaded archive is the expected runtime - a security measure
     "antlr_known_md5sum=\"c875c148991aacd043f733827644a76f\"",
     "antlr_found_ms5sum=\"$(md5sum antlr4-source.zip | cut -d' ' -f1)\"",
     'if [[ "$antlr_known_md5sum" != "$antlr_found_ms5sum" ]]; then exit 64; fi',
     "unzip antlr4-source.zip -d antlr4-source && cd antlr4-source",
-    "cmake . -DBUILD_TESTING=OFF -DANTLR4_BUILD_TESTS=OFF",
+    "cmake3 . -DBUILD_TESTING=OFF -DANTLR4_BUILD_TESTS=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5",
     "DESTDIR=out make install",
     "cp -r out/usr/local/include/antlr4-runtime /usr/include/",
     "cp out/usr/local/lib64/libantlr4-runtime.so* /usr/lib64/",
