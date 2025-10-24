@@ -74,5 +74,5 @@ jobs:
                   labels: |
                       automated
                       llm-analytics
-                  reviewers: |
-                      PostHog/team-llm-analytics
+                  team-reviewers: |
+                      team-llm-analytics
