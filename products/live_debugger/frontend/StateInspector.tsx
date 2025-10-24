@@ -44,7 +44,7 @@ export function StateInspector({
     selectedInstance: any
     selectInstance: (arg: any) => void
 }): JSX.Element {
-    const { breakpoints, breakpointInstances } = useValues(liveDebuggerLogic)
+    const { breakpoints, breakpointInstances, currentRepository } = useValues(liveDebuggerLogic)
 
     const { toggleBreakpointForFile } = useActions(liveDebuggerLogic)
 
@@ -119,7 +119,7 @@ export function StateInspector({
                                                 type={hasBreakpoint ? 'primary' : 'secondary'}
                                                 onClick={() => {
                                                     if (typeof lineNumber === 'number') {
-                                                        toggleBreakpointForFile(fileName, lineNumber)
+                                                        toggleBreakpointForFile(fileName, lineNumber, currentRepository)
                                                     }
                                                 }}
                                             >

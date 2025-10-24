@@ -13,5 +13,8 @@
     },
     "dependencies": {
         "fuse.js": "^6.6.2"
+    },
+    "devDependencies": {
+        "kea-test-utils": "^0.2.4"
     }
 }

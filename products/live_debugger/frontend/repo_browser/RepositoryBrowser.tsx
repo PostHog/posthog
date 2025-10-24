@@ -14,7 +14,7 @@ export function RepositoryBrowser(): JSX.Element {
 
     const { loadFileContent, setFileSearchQuery } = useActions(repoBrowserLogic)
 
-    const { breakpoints, breakpointsByLine, instancesByLine, hitCountsByLine, newHitsByLine } =
+    const { breakpoints, breakpointsByLine, instancesByLine, hitCountsByLine, newHitsByLine, currentRepository } =
         useValues(liveDebuggerLogic)
 
     const { clearAllBreakpoints, toggleBreakpoint, showHitsForLine, setSelectedFilePath } =
@@ -49,6 +49,7 @@ export function RepositoryBrowser(): JSX.Element {
                             onItemClick={(item) => {
                                 if (item?.record?.type === 'file') {
                                     loadFileContent(item.record.fullPath)
+                                    setSelectedFilePath(item.record.fullPath)
                                 }
                             }}
                         />
@@ -92,8 +93,7 @@ export function RepositoryBrowser(): JSX.Element {
                                     hasNewHits={hasNewHits}
                                     onClick={() => {
                                         if (selectedFilePath) {
-                                            setSelectedFilePath(selectedFilePath)
-                                            toggleBreakpoint(selectedFilePath, lineNumber)
+                                            toggleBreakpoint(selectedFilePath, lineNumber, currentRepository)
                                         }
                                     }}
                                     onHitCountClick={() => showHitsForLine(lineNumber)}
