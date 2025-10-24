@@ -8,7 +8,6 @@ import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
 import type { Experiment, FeatureFlagType } from '~/types'
 
-import { createExperimentLogic } from './createExperimentLogic'
 import type { variantsPanelLogicType } from './variantsPanelLogicType'
 
 export const variantsPanelLogic = kea<variantsPanelLogicType>({
@@ -19,15 +18,8 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
         experiment: Experiment
     },
     connect: {
-        values: [
-            featureFlagsLogic,
-            ['featureFlags'],
-            experimentsLogic,
-            ['experiments'],
-            createExperimentLogic,
-            ['experiment'],
-        ],
-        actions: [createExperimentLogic, ['setExperimentValue', 'setFeatureFlagConfig']],
+        values: [featureFlagsLogic, ['featureFlags'], experimentsLogic, ['experiments']],
+        actions: [],
     },
     actions: {
         setMode: (mode: 'create' | 'link') => ({ mode }),
@@ -67,15 +59,12 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
         featureFlagKeyValidation: [
             null as { valid: boolean; error: string | null } | null,
             {
-                validateFeatureFlagKey: async ({ key }, breakpoint) => {
+                validateFeatureFlagKey: async ({ key }) => {
                     // First do client-side validation
                     const clientError = validateFeatureFlagKey(key)
                     if (clientError) {
                         return { valid: false, error: clientError }
                     }
-
-                    // Debounce API call
-                    await breakpoint(300)
 
                     // Check if key already exists in our unavailable keys set
                     if (values.unavailableFeatureFlagKeys.has(key)) {
@@ -109,29 +98,28 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
             },
         ],
     },
-    listeners: ({ values, actions }) => ({
-        [createExperimentLogic.actionTypes.setExperimentValue]: ({ name, value }) => {
-            if (name === 'name' && values.mode === 'create' && !values.featureFlagKeyDirty) {
-                actions.generateFeatureFlagKey(value)
-            }
-        },
+    listeners: ({ props, actions }) => ({
         setMode: ({ mode }) => {
             // When switching from link to create, validate the current key to show it's taken
             // Note: We use values.experiment (from createExperimentLogic connection) instead of props.experiment
             // because props are captured at mount time and don't update when the parent logic changes state
-            if (mode === 'create' && values.experiment.feature_flag_key) {
-                actions.validateFeatureFlagKey(values.experiment.feature_flag_key)
-            }
-
-            // When switching to link mode, restore the linked flag's key/variants to experiment state
-            if (mode === 'link' && values.linkedFeatureFlag) {
-                actions.setFeatureFlagConfig({
-                    feature_flag_key: values.linkedFeatureFlag.key,
-                    parameters: {
-                        feature_flag_variants: values.linkedFeatureFlag.filters?.multivariate?.variants || [],
-                    },
-                })
+            if (mode === 'create' && props.experiment.feature_flag_key) {
+                actions.validateFeatureFlagKey(props.experiment.feature_flag_key)
             }
         },
     }),
+    propsChanged: (
+        {
+            props,
+            actions,
+        }: {
+            props: { experiment: Experiment }
+            actions: { validateFeatureFlagKey: (key: string) => void }
+        },
+        oldProps: { experiment: Experiment }
+    ) => {
+        if (props.experiment.feature_flag_key !== oldProps.experiment.feature_flag_key) {
+            actions.validateFeatureFlagKey(props.experiment.feature_flag_key)
+        }
+    },
 })

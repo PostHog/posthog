@@ -17,7 +17,9 @@ import type { Experiment, FeatureFlagFilters, MultivariateFlagVariant } from '~/
 import { ProductKey } from '~/types'
 
 import { NEW_EXPERIMENT } from '../constants'
+import { generateFeatureFlagKey } from './VariantsPanelCreateFeatureFlag'
 import type { createExperimentLogicType } from './createExperimentLogicType'
+import { variantsPanelLogic } from './variantsPanelLogic'
 
 export type CreateExperimentLogicProps = Partial<{
     experiment: Experiment
@@ -28,7 +30,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
     key((props) => props.experiment?.id || 'create-experiment'),
     path((key) => ['scenes', 'experiments', 'create', 'createExperimentLogic', key]),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], variantsPanelLogic, ['featureFlagKeyDirty']],
         actions: [
             eventUsageLogic,
             ['reportExperimentCreated'],
@@ -36,6 +38,8 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             ['updateFlag'],
             teamLogic,
             ['addProductIntent'],
+            variantsPanelLogic,
+            ['validateFeatureFlagKey'],
         ],
     })),
     forms(({ actions, props }) => ({
@@ -117,7 +121,15 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
     })),
     listeners(({ values, actions }) => ({
         setExperiment: () => {},
-        setExperimentValue: () => {},
+        setExperimentValue: ({ name, value }) => {
+            if (name === 'name' && !values.featureFlagKeyDirty) {
+                const key = generateFeatureFlagKey(value)
+                actions.setFeatureFlagConfig({
+                    feature_flag_key: key,
+                })
+                actions.validateFeatureFlagKey(key)
+            }
+        },
         createExperiment: async () => {
             const response = (await api.create(`api/projects/@current/experiments`, values.experiment)) as Experiment
 
