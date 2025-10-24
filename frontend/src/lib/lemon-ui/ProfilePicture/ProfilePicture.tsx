@@ -3,7 +3,7 @@ import './ProfilePicture.scss'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import md5 from 'md5'
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 
 import { HedgehogBuddyProfile } from 'lib/components/HedgehogBuddy/HedgehogBuddyRender'
 import { fullName, inStorybookTestRunner } from 'lib/utils'
@@ -35,6 +35,7 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
 ) {
     const { user: currentUser } = useValues(userLogic)
     const [gravatarLoaded, setGravatarLoaded] = useState<boolean | undefined>()
+    const [shouldLoadGravatar, setShouldLoadGravatar] = useState(false)
 
     let email = user?.email
 
@@ -59,6 +60,14 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
         }
     }, [email, hedgehogProfile, name])
 
+    // Defer gravatar loading until after initial render to avoid blocking table rendering
+    useEffect(() => {
+        const timeoutId = setTimeout(() => {
+            setShouldLoadGravatar(true)
+        }, 0)
+        return () => clearTimeout(timeoutId)
+    }, [])
+
     const pictureComponent = (
         <span className={clsx('ProfilePicture', size, className)} ref={ref}>
             {hedgehogProfile ? (
@@ -81,7 +90,7 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
                     </>
                 )
             )}
-            {gravatarUrl && gravatarLoaded !== false ? (
+            {gravatarUrl && shouldLoadGravatar && gravatarLoaded !== false ? (
                 <img
                     className="absolute top-0 left-0 w-full h-full rounded-full"
                     src={gravatarUrl}
