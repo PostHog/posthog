@@ -355,24 +355,38 @@ class TestViewLinkValidation(APIBaseTest):
 
     @patch(f"{PATH}.execute_hogql_query", side_effect=_mock_execute_hogql_side_effect)
     def test_basic_success(self, _):
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/warehouse_view_links/validate/",
-            {
-                "source_table_name": "events",
-                "source_table_key": "uuid",
-                "joining_table_name": "persons",
-                "joining_table_key": "id",
-            },
-        )
+        payloads = [
+            (
+                "string joining key",
+                {
+                    "source_table_name": "events",
+                    "source_table_key": "uuid",
+                    "joining_table_name": "persons",
+                    "joining_table_key": "id",
+                },
+            ),
+            (
+                "integer joining key",
+                {
+                    "source_table_name": "groups",
+                    "source_table_key": "index",
+                    "joining_table_name": "system.feature_flags",
+                    "joining_table_key": "id",
+                },
+            ),
+        ]
+        for msg, payload in payloads:
+            with self.subTest(msg=msg):
+                response = self.client.post(f"/api/environments/{self.team.id}/warehouse_view_links/validate/", payload)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        data = response.json()
-        self.assertTrue(data["is_valid"])
-        self.assertIsNone(data["msg"])
-        self.assertHogQLEqual(
-            data["hogql"],
-            "SELECT validation.id FROM events WHERE notEquals(validation.id, '') LIMIT 10",
-        )
+                self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+                data = response.json()
+                self.assertTrue(data["is_valid"])
+                self.assertIsNone(data["msg"])
+                self.assertHogQLEqual(
+                    data["hogql"],
+                    f"SELECT validation.{payload['joining_table_key']} FROM {payload['source_table_name']} LIMIT 10",
+                )
 
     @patch(f"{PATH}.execute_hogql_query", side_effect=_mock_execute_hogql_side_effect)
     def test_system_table_success(self, _):
@@ -392,7 +406,7 @@ class TestViewLinkValidation(APIBaseTest):
         self.assertIsNone(data["msg"])
         self.assertHogQLEqual(
             data["hogql"],
-            "SELECT validation.id FROM groups WHERE notEquals(validation.id, '') LIMIT 10",
+            "SELECT validation.id FROM groups LIMIT 10",
         )
 
     @patch(f"{PATH}.execute_hogql_query", side_effect=_mock_execute_hogql_side_effect)
@@ -415,7 +429,7 @@ class TestViewLinkValidation(APIBaseTest):
         self.assertIsNone(data["msg"])
         self.assertHogQLEqual(
             data["hogql"],
-            "SELECT validation.distinct_id FROM `postgres.foo.bar` AS postgres__foo__bar WHERE notEquals(validation.distinct_id, '') LIMIT 10",
+            "SELECT validation.distinct_id FROM `postgres.foo.bar` AS postgres__foo__bar LIMIT 10",
         )
 
     @patch(f"{PATH}.execute_hogql_query", side_effect=_mock_execute_hogql_side_effect)
@@ -436,7 +450,7 @@ class TestViewLinkValidation(APIBaseTest):
         self.assertIsNone(data["msg"])
         self.assertHogQLEqual(
             data["hogql"],
-            "SELECT validation.id FROM events WHERE notEquals(validation.id, '') LIMIT 10",
+            "SELECT validation.id FROM events LIMIT 10",
         )
 
     @patch(f"{PATH}.execute_hogql_query", side_effect=_mock_execute_hogql_side_effect)
@@ -457,7 +471,7 @@ class TestViewLinkValidation(APIBaseTest):
         self.assertIsNone(data["msg"])
         self.assertHogQLEqual(
             data["hogql"],
-            "SELECT validation.id FROM events WHERE notEquals(validation.id, '') LIMIT 10",
+            "SELECT validation.id FROM events LIMIT 10",
         )
 
     def test_nonexistent_field(self):
@@ -474,9 +488,10 @@ class TestViewLinkValidation(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
         data = response.json()
         self.assertEqual(data["attr"], None)
-        self.assertEqual(data["code"], "validation_error")
+        self.assertEqual(data["code"], "QueryError")
         self.assertEqual(data["detail"], "Field not found: nonexistent_field")
         self.assertEqual(data["type"], "query_error")
+        self.assertEqual(data["hogql"], "SELECT validation.id FROM events LIMIT 10")
 
     def test_invalid_source_table(self):
         response = self.client.post(
@@ -614,9 +629,10 @@ class TestViewLinkValidation(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         data = response.json()
         self.assertEqual(data["attr"], None)
-        self.assertEqual(data["code"], "validation_error")
+        self.assertEqual(data["code"], "CHQueryErrorIllegalTypeOfArgument")
         self.assertTrue(data["detail"].startswith("Illegal types of arguments (DateTime64(6, 'UTC'), UUID)"))
         self.assertEqual(data["type"], "query_error")
+        self.assertEqual(data["hogql"], "SELECT validation.id FROM events LIMIT 10")
 
     @patch(f"{PATH}.execute_hogql_query", side_effect=_mock_execute_hogql_side_effect)
     def test_ambiguous_keys(self, _):
@@ -639,7 +655,7 @@ class TestViewLinkValidation(APIBaseTest):
         self.assertIsNone(data["msg"])
         self.assertHogQLEqual(
             data["hogql"],
-            "SELECT validation.email FROM `postgres.test.foo` AS postgres__test__foo WHERE notEquals(validation.email, '') LIMIT 10",
+            "SELECT validation.email FROM `postgres.test.foo` AS postgres__test__foo LIMIT 10",
         )
 
     @patch(f"{PATH}.execute_hogql_query", side_effect=_mock_execute_hogql_side_effect)
@@ -661,5 +677,5 @@ class TestViewLinkValidation(APIBaseTest):
         self.assertIsNone(data["msg"])
         self.assertHogQLEqual(
             data["hogql"],
-            "SELECT validation.distinct_id FROM `postgres.test.user` AS postgres__test__user WHERE notEquals(validation.distinct_id, '') LIMIT 10",
+            "SELECT validation.distinct_id FROM `postgres.test.user` AS postgres__test__user LIMIT 10",
         )

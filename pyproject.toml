@@ -1,7 +1,7 @@
 [project]
 name = "posthog"
 version = "0.0.0"
-requires-python = "==3.12.11" # Leave patch version so that we don't accidentally upgrade minor versions
+requires-python = "==3.12.12" # Leave patch version so that we don't accidentally upgrade minor versions
 dependencies = [
     "aioboto3==12.0.0",
     "aiohttp==3.11.10",
@@ -235,7 +235,7 @@ dev = [
     "types-python-dateutil>=2.8.3",
     "types-pytz==2023.3",
     "types-pyyaml==6.0.1",
-    "types-redis==4.3.20",
+    "types-redis==4.6.0.20241004",
     # >= 2.31.0.7 versions of types-requests require urllib>=2, which is incompatible with our dependencies
     "types-requests==2.31.0.6",
     "types-retry==0.9.9.4",
