@@ -251,6 +251,7 @@ export const errorTrackingIssueBreakdownQuery = ({
                     kind: NodeKind.EventsNode,
                     event: '$exception',
                     math: BaseMathType.TotalCount,
+                    name: '.',
                     properties: [
                         {
                             key: '$exception_issue_id',
