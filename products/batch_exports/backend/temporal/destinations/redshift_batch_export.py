@@ -13,6 +13,7 @@ from django.conf import settings
 import psycopg
 import pyarrow as pa
 import aioboto3
+import botocore.exceptions
 from psycopg import sql
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
@@ -106,7 +107,58 @@ NON_RETRYABLE_ERROR_TYPES = (
     # usually means the table was created by the user, as we resolve types the
     # same way every time.
     "DatatypeMismatch",
+    # Raised when multiple S3 operations failed with a ClientError.
+    "ClientErrorGroup",
 )
+
+
+class ClientErrorGroup(ExceptionGroup):
+    """Exception group wrapping multiple `botocore.exceptions.ClientError`.
+
+    We detail each operation that failed, summarizing the results if only one type
+    of operation failed with the same error multiple times. This is common in situations
+    when permissions are missing.
+    """
+
+    def __new__(cls, exceptions: list[botocore.exceptions.ClientError]):
+        ops = {}
+        for err in exceptions:
+            op_name = err.operation_name
+            error_code = err.response.get("Error", {}).get("Code", "Unknown")
+
+            if op_name not in ops:
+                ops[op_name] = {error_code}
+            else:
+                ops[op_name].add(error_code)
+
+        if len(ops) == 1:
+            op_name, error_codes = next(iter(ops.items()))
+
+            if len(error_codes) == 1:
+                # One type of operation failed, one error.
+                error_code = error_codes.pop()
+                super().__new__(
+                    ClientErrorGroup, f"S3 operation '{op_name}' failed with error: '{error_code}'", exceptions
+                )
+            else:
+                # One type of operation failed, but with multiple errors.
+                super().__new__(
+                    ClientErrorGroup,
+                    f"S3 operation '{op_name}' failed with multiple errors: {', '.join(f"'{error_code}'" for error_code in error_code)}",
+                    exceptions,
+                )
+        else:
+            # Many operations failed with multiple errors.
+            pairs = ((op_name, error_code) for op_name, error_codes in ops.items() for error_code in error_codes)
+
+            super().__new__(
+                ClientErrorGroup,
+                f"Multiple S3 operations failed: {', '.join(f"'{op_name}' failed with error '{error_code}'" for op_name, error_code in pairs)}",
+                exceptions,
+            )
+
+    def derive(self, excs):
+        return ClientErrorGroup(excs)
 
 
 class RedshiftClient(PostgreSQLClient):
@@ -1076,9 +1128,28 @@ async def upload_manifest_file(
                 }
             )
 
-        async with asyncio.TaskGroup() as tg:
-            for f in files_uploaded:
-                tg.create_task(populate_entry(f))
+        try:
+            async with asyncio.TaskGroup() as tg:
+                for f in files_uploaded:
+                    tg.create_task(populate_entry(f))
+        except* botocore.exceptions.ClientError as err_group:
+            LOGGER.exception("Failed to populate manifest entries")
+
+            error_codes = {err.response.get("Error", {}).get("Code", None) for err in err_group.exceptions}
+            for error_code in error_codes:
+                if error_code == "AccessDenied":
+                    # This reports the error to the user, we have already logged the exception above.
+                    EXTERNAL_LOGGER.error(  # noqa: TRY400
+                        "Missing permissions when attempting to list uploaded files while preparing for manifest upload. Have you granted 's3:ListBucket' permissions to the provided user on the bucket '%s'?",
+                        bucket,
+                    )
+                else:
+                    EXTERNAL_LOGGER.error(  # noqa: TRY400
+                        "Unknown error permissions when attempting to list uploaded files: %s",
+                        error_code,
+                    )
+
+            raise ClientErrorGroup(err_group.exceptions)
 
         manifest = {"entries": entries}
 
