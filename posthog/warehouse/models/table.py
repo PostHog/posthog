@@ -163,6 +163,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         except:
             return False
 
+    def _is_suppressed_chdb_error(self, err: Exception) -> bool:
+        return isinstance(err, RuntimeError) and "unsupported deltalake type: timestamp_ntz" in str(err).lower()
+
     def get_columns(
         self,
         safe_expose_ch_error: bool = True,
@@ -194,13 +197,11 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             chdb_result = chdb.query(chdb_query, output_format="CSV")
             reader = csv.reader(StringIO(str(chdb_result)))
             result = [tuple(row) for row in reader]
-        except RuntimeError as rterr:
-            if "Unsupported DeltaLake type: timestamp_ntz" not in str(rterr).casefold():
-                raise  # don't silence other runtime issues
-            logger.debug(rterr)
-            result = None  # avoids unbound local var later in code
         except Exception as chdb_error:
-            capture_exception(chdb_error)
+            if self._is_suppressed_chdb_error(chdb_error):
+                logger.debug(chdb_error)
+            else:
+                capture_exception(chdb_error)
 
             tag_queries(team_id=self.team.pk, table_id=self.id, warehouse_query=True)
 
