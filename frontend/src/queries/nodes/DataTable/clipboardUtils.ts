@@ -4,6 +4,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { asDisplay } from 'scenes/persons/person-utils'
+import { getDisplayColumnName } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode } from '~/queries/schema/schema-general'
@@ -134,9 +135,17 @@ export const getCsvTableData = (dataTableRows: DataTableRow[], columns: string[]
 
     // Create consistent CSV structure with all discovered columns
     const sortedColumns = Array.from(allColumns).sort()
+
+    // Apply UI-friendly column names for web analytics queries
+    let displayColumns = sortedColumns
+    if (isWebStatsTableQuery(query.source) || isWebGoalsQuery(query.source) || isWebExternalClicksQuery(query.source)) {
+        const breakdownBy = isWebStatsTableQuery(query.source) ? query.source.breakdownBy : undefined
+        displayColumns = sortedColumns.map((col) => getDisplayColumnName(col, breakdownBy))
+    }
+
     const csvData = processedRows.map((flattenedRecord) => sortedColumns.map((col) => flattenedRecord[col] ?? ''))
 
-    return [sortedColumns, ...csvData]
+    return [displayColumns, ...csvData]
 }
 
 export const getJsonTableData = (

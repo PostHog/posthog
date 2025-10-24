@@ -49,7 +49,6 @@ import { NewActionButton } from 'products/actions/frontend/components/NewActionB
 import { ErrorTrackingButton } from '../CrossSellButtons/ErrorTrackingButton'
 import { HeatmapButton } from '../CrossSellButtons/HeatmapButton'
 import { ReplayButton } from '../CrossSellButtons/ReplayButton'
-import { WebAnalyticsExport } from '../WebAnalyticsExport'
 import { pageReportsLogic } from '../pageReportsLogic'
 import { MarketingAnalyticsTable } from '../tabs/marketing-analytics/frontend/components/MarketingAnalyticsTable/MarketingAnalyticsTable'
 import { marketingAnalyticsLogic } from '../tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
@@ -71,6 +70,83 @@ export const toUtcOffsetFormat = (value: number): string => {
 
     // E.g. UTC-3, UTC, UTC+5:30, UTC+11:45
     return `UTC${sign}${integerPart}${formattedMinutes}`
+}
+
+// Utility function to map SQL/internal column names to UI-friendly display names
+export const getDisplayColumnName = (column: string, breakdownBy?: WebStatsBreakdown): string => {
+    // Handle breakdown columns
+    if (breakdownBy !== undefined) {
+        switch (breakdownBy) {
+            case WebStatsBreakdown.Page:
+                return 'Path'
+            case WebStatsBreakdown.InitialPage:
+                return 'Initial Path'
+            case WebStatsBreakdown.ExitPage:
+                return 'End Path'
+            case WebStatsBreakdown.PreviousPage:
+                return 'Previous Page'
+            case WebStatsBreakdown.ExitClick:
+                return 'Exit Click'
+            case WebStatsBreakdown.ScreenName:
+                return 'Screen Name'
+            case WebStatsBreakdown.InitialChannelType:
+                return 'Channel Type'
+            case WebStatsBreakdown.InitialReferringDomain:
+                return 'Referring Domain'
+            case WebStatsBreakdown.InitialUTMSource:
+                return 'UTM Source'
+            case WebStatsBreakdown.InitialUTMCampaign:
+                return 'UTM Campaign'
+            case WebStatsBreakdown.InitialUTMMedium:
+                return 'UTM Medium'
+            case WebStatsBreakdown.InitialUTMTerm:
+                return 'UTM Term'
+            case WebStatsBreakdown.InitialUTMContent:
+                return 'UTM Content'
+            case WebStatsBreakdown.Browser:
+                return 'Browser'
+            case WebStatsBreakdown.OS:
+                return 'OS'
+            case WebStatsBreakdown.Viewport:
+                return 'Viewport'
+            case WebStatsBreakdown.DeviceType:
+                return 'Device Type'
+            case WebStatsBreakdown.Country:
+                return 'Country'
+            case WebStatsBreakdown.Region:
+                return 'Region'
+            case WebStatsBreakdown.City:
+                return 'City'
+            case WebStatsBreakdown.Timezone:
+                return 'Timezone'
+            case WebStatsBreakdown.Language:
+                return 'Language'
+            case WebStatsBreakdown.FrustrationMetrics:
+                return 'URL'
+            case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
+                return 'Source / Medium / Campaign'
+        }
+    }
+
+    // Handle known metric columns
+    const metricMappings: Record<string, string> = {
+        visitors: 'Visitors',
+        views: 'Views',
+        sessions: 'Sessions',
+        bounce_rate: 'Bounce Rate',
+        session_duration: 'Session Duration',
+        total_pageviews: 'Total Pageviews',
+        unique_visitors: 'Unique Visitors',
+        scroll_gt80_percentage: 'Scroll Depth >80%',
+        rage_clicks: 'Rage Clicks',
+    }
+
+    if (metricMappings[column]) {
+        return metricMappings[column]
+    }
+
+    // Return original column name if no mapping found
+    return column
 }
 
 type VariationCellProps = { isPercentage?: boolean; reverseColors?: boolean }
@@ -615,12 +691,7 @@ export const WebStatsTableTile = ({
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
-            {(control != null || query) && (
-                <div className="flex flex-row items-center justify-end gap-2 m-2 mr-4">
-                    {control}
-                    <WebAnalyticsExport query={query} insightProps={insightProps} />
-                </div>
-            )}
+            {control != null && <div className="flex flex-row items-center justify-end m-2 mr-4">{control}</div>}
             <Query
                 uniqueKey="WebAnalytics.WebStatsTableTile"
                 attachTo={attachTo}
@@ -707,7 +778,7 @@ export const WebGoalsTile = ({
 
     return (
         <div className="border rounded bg-surface-primary flex-1">
-            <div className="flex flex-row-reverse gap-2 p-2">
+            <div className="flex flex-row-reverse p-2">
                 <LemonButton
                     to={urls.actions()}
                     onClick={() => {
@@ -723,7 +794,6 @@ export const WebGoalsTile = ({
                 >
                     Manage actions
                 </LemonButton>
-                <WebAnalyticsExport query={query} insightProps={insightProps} />
             </div>
             <Query
                 attachTo={attachTo}
@@ -747,8 +817,8 @@ export const WebExternalClicksTile = ({
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
-            <div className="flex flex-row items-center justify-end gap-2 m-2 mr-4">
-                {!isPageReportsPage && (
+            {!isPageReportsPage && (
+                <div className="flex flex-row items-center justify-end m-2 mr-4">
                     <div className="flex flex-row items-center deprecated-space-x-2">
                         <LemonSwitch
                             label="Strip query parameters"
@@ -757,9 +827,8 @@ export const WebExternalClicksTile = ({
                             className="h-full"
                         />
                     </div>
-                )}
-                <WebAnalyticsExport query={query} insightProps={insightProps} />
-            </div>
+                </div>
+            )}
             <Query
                 attachTo={attachTo}
                 query={query}
