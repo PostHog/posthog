@@ -25,7 +25,6 @@ import { HistoryPreview } from './HistoryPreview'
 import { Intro } from './Intro'
 import { Thread } from './Thread'
 import { AnimatedBackButton } from './components/AnimatedBackButton'
-import { SidebarQuestionInput } from './components/SidebarQuestionInput'
 import { SidebarQuestionInputWithSuggestions } from './components/SidebarQuestionInputWithSuggestions'
 import { ThreadAutoScroller } from './components/ThreadAutoScroller'
 import { maxLogic } from './maxLogic'
@@ -103,14 +102,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     const content = (
         <BindLogic logic={maxLogic} props={{ tabId }}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>
-                <div
-                    style={
-                        {
-                            // Max has larger border radiuses than rest of the app, for a friendlier, rounder AI vibe
-                            display: 'contents',
-                        } as React.CSSProperties
-                    }
-                >
+                <>
                     {conversationHistoryVisible ? (
                         <ConversationHistory sidePanel={sidePanel} />
                     ) : !threadVisible ? (
@@ -134,10 +126,9 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                         /** Must be the last child and be a direct descendant of the scrollable element */
                         <ThreadAutoScroller>
                             <Thread className="p-3" />
-                            <SidebarQuestionInput isSticky />
                         </ThreadAutoScroller>
                     )}
-                </div>
+                </>
             </BindLogic>
         </BindLogic>
     )
