@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { useState } from 'react'
-import { useDebouncedCallback } from 'use-debounce'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
@@ -51,10 +50,6 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
 
     const [selectedPanel, setSelectedPanel] = useState<string | null>(null)
 
-    const debouncedOnNameChange = useDebouncedCallback((name: string) => {
-        setExperimentValue('name', name)
-    }, 500)
-
     return (
         <div className="flex flex-col xl:grid xl:grid-cols-[1fr_400px] gap-x-4 h-full">
             <Form logic={createExperimentLogic} formKey="experiment" enableFormOnSubmit>
@@ -72,7 +67,7 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
                             experiment.user_access_level
                         )}
                         forceEdit
-                        onNameChange={debouncedOnNameChange}
+                        onNameChange={(name) => setExperimentValue('name', name)}
                         actions={
                             <>
                                 <LemonButton
