@@ -14,8 +14,8 @@ class Migration(migrations.Migration):
             SET sync_type_config = jsonb_set(sync_type_config, '{partition_format}', '"month"')
             WHERE
                 should_sync = true
-                and sync_type_config->>'partitioning_enabled' = 'true'
-                and sync_type_config->>'partition_mode' = 'datetime'
-                and sync_type_config->>'partition_format' is null;
+                AND sync_type_config->>'partitioning_enabled' = 'true'
+                AND sync_type_config->>'partition_mode' = 'datetime'
+                AND sync_type_config->>'partition_format' is null;
         """)
     ]
