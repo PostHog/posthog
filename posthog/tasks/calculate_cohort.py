@@ -396,7 +396,7 @@ def collect_cohort_query_stats(
             # Only update history if it's still in progress (no finished_at)
             if "exception" in query_stats and not history.finished_at:
                 history.finished_at = timezone.now()
-                history.error = query_stats.get("exception", query_stats.get("exception"))
+                history.error = query_stats.get("exception")
                 update_fields.append("finished_at")
                 update_fields.append("error")
 
