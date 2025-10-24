@@ -6,6 +6,7 @@ Help output is dynamically generated from the manifest with category grouping.
 
 from __future__ import annotations
 
+import os
 from collections import defaultdict
 
 import click
@@ -85,8 +86,10 @@ def _auto_update_manifest() -> None:
 @click.pass_context
 def cli(ctx: click.Context) -> None:
     """hogli - Developer CLI for PostHog."""
-    # Auto-update manifest on every invocation (but skip for meta:check, which validates only)
-    if ctx.invoked_subcommand not in {"meta:check", "help"}:
+    # Auto-update manifest on every invocation (but skip for meta:check and git hooks)
+    # Skip during git hooks to prevent manifest modifications during lint-staged execution
+    in_git_hook = os.environ.get("GIT_DIR") is not None or os.environ.get("HUSKY") is not None
+    if ctx.invoked_subcommand not in {"meta:check", "help"} and not in_git_hook:
         _auto_update_manifest()
 
 
