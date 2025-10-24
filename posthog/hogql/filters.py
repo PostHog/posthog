@@ -203,7 +203,7 @@ class ReplaceFilters(CloningVisitor):
             if dateTo is not None:
                 try:
                     parsed_date = isoparse(dateTo).replace(tzinfo=self.team.timezone_info)
-                    if isoparse(dateTo).tzinfo is None:
+                    if isoparse(dateTo).tzinfo is not None:
                         # Check if we have overridden the timezone, this likely indicates a bug somewhere if we have
                         # create a temporary exception just to capture it and make debugging easier
                         try:
