@@ -194,11 +194,13 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             chdb_result = chdb.query(chdb_query, output_format="CSV")
             reader = csv.reader(StringIO(str(chdb_result)))
             result = [tuple(row) for row in reader]
+        except RuntimeError as rterr:
+            if "Unsupported DeltaLake type: timestamp_ntz" not in str(rterr).casefold():
+                raise  # don't silence other runtime issues
+            logger.debug(rterr)
+            result = None  # avoids unbound local var later in code
         except Exception as chdb_error:
-            if "Unsupported DeltaLake type: timestamp_ntz" in str(chdb_error).casefold():
-                logger.debug(chdb_error)
-            else:
-                capture_exception(chdb_error)
+            capture_exception(chdb_error)
 
             tag_queries(team_id=self.team.pk, table_id=self.id, warehouse_query=True)
 
