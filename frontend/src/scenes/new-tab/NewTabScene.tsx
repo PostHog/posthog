@@ -2,17 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useRef } from 'react'
 
-import {
-    IconApps,
-    IconDatabase,
-    IconDocument,
-    IconInfo,
-    IconPerson,
-    IconPlusSmall,
-    IconSearch,
-    IconSparkles,
-    IconX,
-} from '@posthog/icons'
+import { IconInfo, IconSearch } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
@@ -58,8 +48,6 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
         sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
     )
     const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
-    const isAIAvailable = useFeatureFlag('ARTIFICIAL_HOG')
-    const showAiFeature = newTabSceneData && isAIAvailable
 
     const focusSearchInput = (): void => {
         commandInputRef.current?.focus()
@@ -147,18 +135,16 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                             />
                         )}
 
-                        <div
-                            className={cn('mx-1.5', {
-                                'mt-[.5px]': newTabSceneData,
-                            })}
-                        >
-                            <SearchHints
-                                filteredItemsGridLength={filteredItemsGrid.length}
-                                focusSearchInput={focusSearchInput}
-                                tabId={tabId || ''}
-                                handleAskAi={handleAskAi}
-                            />
-                        </div>
+                        {!newTabSceneData && (
+                            <div className="mx-1.5">
+                                <SearchHints
+                                    filteredItemsGridLength={filteredItemsGrid.length}
+                                    focusSearchInput={focusSearchInput}
+                                    tabId={tabId || ''}
+                                    handleAskAi={handleAskAi}
+                                />
+                            </div>
+                        )}
                     </div>
                     {!newTabSceneData ? (
                         <TabsPrimitive
@@ -205,93 +191,6 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                         <div className="border-b">
                             <div className="max-w-[1200px] mx-auto w-full px-2 @lg/main-content:px-10 pb-2">
                                 <div className="flex items-center gap-x-2 gap-y-2 flex-wrap">
-                                    {newTabSceneDataInclude.length === 0 ||
-                                    newTabSceneDataInclude.includes('all') ? null : (
-                                        <>
-                                            <span className="text-xs text-tertiary">Showing only:</span>
-                                            {newTabSceneDataInclude
-                                                .filter((command) => command !== 'all')
-                                                .map((command) => {
-                                                    const commandInfo = NEW_TAB_COMMANDS_ITEMS.find(
-                                                        (cmd) => cmd.value === command
-                                                    )
-                                                    if (!commandInfo) {
-                                                        return null
-                                                    }
-
-                                                    return (
-                                                        <ListBox.Item asChild key={command}>
-                                                            <ButtonPrimitive
-                                                                size="xxs"
-                                                                variant="outline"
-                                                                onClick={() => {
-                                                                    toggleNewTabSceneDataInclude(command)
-                                                                    refreshDataAfterToggle()
-                                                                    focusSearchInput()
-                                                                }}
-                                                                className="text-xs"
-                                                                tooltip={
-                                                                    <span>
-                                                                        Remove{' '}
-                                                                        <span className="font-bold">
-                                                                            {commandInfo.displayName}
-                                                                        </span>{' '}
-                                                                        from selected filters
-                                                                    </span>
-                                                                }
-                                                            >
-                                                                {command === 'persons' && (
-                                                                    <IconPerson className="size-4" />
-                                                                )}
-                                                                {command === 'eventDefinitions' && (
-                                                                    <IconApps className="size-4" />
-                                                                )}
-                                                                {command === 'propertyDefinitions' && (
-                                                                    <IconApps className="size-4" />
-                                                                )}
-                                                                {command === 'create-new' && (
-                                                                    <IconPlusSmall className="size-4" />
-                                                                )}
-                                                                {command === 'apps' && <IconApps className="size-4" />}
-                                                                {command === 'data-management' && (
-                                                                    <IconDatabase className="size-4" />
-                                                                )}
-                                                                {command === 'recents' && (
-                                                                    <IconDocument className="size-4" />
-                                                                )}
-                                                                {command === 'askAI' && showAiFeature && (
-                                                                    <IconSparkles className="size-4" />
-                                                                )}
-                                                                {commandInfo.displayName}
-                                                                <IconX className="size-3" />
-                                                            </ButtonPrimitive>
-                                                        </ListBox.Item>
-                                                    )
-                                                })}
-                                            {newTabSceneDataInclude.length > 1 && (
-                                                <ListBox.Item asChild>
-                                                    <ButtonPrimitive
-                                                        size="xxs"
-                                                        variant="panel"
-                                                        onClick={() => {
-                                                            // Clear all filters
-                                                            newTabSceneDataInclude.forEach((command) => {
-                                                                toggleNewTabSceneDataInclude(command)
-                                                            })
-                                                            refreshDataAfterToggle()
-                                                            focusSearchInput()
-                                                        }}
-                                                        className="text-xs"
-                                                        tooltip="Clear all filters"
-                                                    >
-                                                        <IconX className="size-4" />
-                                                        Clear all
-                                                    </ButtonPrimitive>
-                                                </ListBox.Item>
-                                            )}
-                                        </>
-                                    )}
-
                                     {source === 'homepage' ? (
                                         <>
                                             <ButtonPrimitive

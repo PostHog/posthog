@@ -1,6 +1,6 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 
-import { IconCheck, IconX } from '@posthog/icons'
+import { IconCheck, IconChevronRight, IconX } from '@posthog/icons'
 
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -56,6 +56,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
     const [filteredCommands, setFilteredCommands] = useState<SearchInputCommand<T>[]>(commands)
     const inputRef = useRef<HTMLInputElement>(null)
     const [focusedTagIndex, setFocusedTagIndex] = useState<number | null>(null)
+    const [expandedTags, setExpandedTags] = useState(false)
 
     useImperativeHandle(
         ref,
@@ -83,9 +84,12 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
         setInputValue(newValue)
         onChange?.(newValue)
 
-        // Clear focused tag when user starts typing
+        // Clear focused tag and expanded state when user starts typing
         if (focusedTagIndex !== null) {
             setFocusedTagIndex(null)
+        }
+        if (expandedTags) {
+            setExpandedTags(false)
         }
 
         if (newValue === '/') {
@@ -117,7 +121,12 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
             setInputValue('')
             onChange?.('')
         }
+
+        // Reset tag focus state when selecting from dropdown
+        setExpandedTags(false)
+        setFocusedTagIndex(null)
         setShowDropdown(false)
+
         // Small delay to ensure dropdown closes before focusing
         setTimeout(() => {
             if (inputRef.current) {
@@ -140,6 +149,97 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                 }
                 // If input already has content, let the '/' be typed normally
                 break
+            case 'Backspace':
+                if (inputValue === '') {
+                    e.preventDefault()
+                    e.stopPropagation() // Prevent parent ListBox from handling this event
+                    if (selectedCommands.length === 0) {
+                        // No filters selected (showing "all"): open dropdown
+                        setShowDropdown(true)
+                    } else if (!expandedTags) {
+                        // First backspace: expand tags and focus the last one
+                        setExpandedTags(true)
+                        setFocusedTagIndex(selectedCommands.length - 1)
+                    } else if (focusedTagIndex !== null) {
+                        // Second backspace: remove the focused tag
+                        const commandToRemove = selectedCommands[focusedTagIndex]
+                        selectCommand(commandToRemove)
+                        setExpandedTags(false)
+                        setFocusedTagIndex(null)
+                    }
+                }
+                break
+            case 'ArrowLeft':
+                if (inputValue === '') {
+                    e.preventDefault()
+                    e.stopPropagation() // Prevent parent ListBox from handling this event
+                    if (selectedCommands.length === 0) {
+                        // No filters selected (showing "all"): open dropdown
+                        setShowDropdown(true)
+                    } else if (!expandedTags && selectedCommands.length > 0) {
+                        // Empty search + arrow left: expand tags and focus the last one
+                        setExpandedTags(true)
+                        setFocusedTagIndex(selectedCommands.length - 1)
+                    } else if (expandedTags && focusedTagIndex !== null) {
+                        if (focusedTagIndex > 0) {
+                            setFocusedTagIndex(focusedTagIndex - 1)
+                        } else {
+                            // On first tag, focus the dropdown button
+                            setFocusedTagIndex(-1) // -1 represents dropdown focus
+                        }
+                    }
+                }
+                break
+            case 'ArrowRight':
+                if (inputValue === '' && expandedTags && focusedTagIndex !== null) {
+                    e.preventDefault()
+                    e.stopPropagation() // Prevent parent ListBox from handling this event
+                    if (focusedTagIndex === -1) {
+                        // From dropdown, move to first tag
+                        setFocusedTagIndex(0)
+                    } else if (focusedTagIndex < selectedCommands.length - 1) {
+                        setFocusedTagIndex(focusedTagIndex + 1)
+                    } else {
+                        // On last tag, remove tag focus
+                        setFocusedTagIndex(null)
+                        setExpandedTags(false)
+                    }
+                }
+                break
+            case 'Enter':
+                if (inputValue === '' && expandedTags && focusedTagIndex !== null) {
+                    e.preventDefault()
+                    e.stopPropagation() // Prevent parent ListBox from handling this event
+                    if (focusedTagIndex === -1) {
+                        // Enter on dropdown button: open dropdown
+                        setShowDropdown(true)
+                    } else {
+                        // Enter on tag: remove the tag
+                        const commandToRemove = selectedCommands[focusedTagIndex]
+                        selectCommand(commandToRemove)
+                        setExpandedTags(false)
+                        setFocusedTagIndex(null)
+                    }
+                }
+                break
+            case 'ArrowDown':
+                if (inputValue === '' && expandedTags && focusedTagIndex === -1) {
+                    e.preventDefault()
+                    e.stopPropagation() // Prevent parent ListBox from handling this event
+                    // Arrow down on dropdown button: open dropdown
+                    setShowDropdown(true)
+                }
+                break
+            case 'Escape':
+                if (showDropdown || expandedTags) {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    // Reset tag focus state when escaping
+                    setExpandedTags(false)
+                    setFocusedTagIndex(null)
+                    setShowDropdown(false)
+                }
+                break
         }
     }
 
@@ -160,24 +260,17 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                         setShowDropdown(open)
                     }}
                 >
-                    <ListBox.Item
-                        asChild
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            setShowDropdown(true)
-                        }}
-                    >
-                        <DropdownMenuTrigger asChild>
-                            <ButtonPrimitive
-                                variant="outline"
-                                className="ml-1 font-mono text-tertiary"
-                                iconOnly
-                                size="sm"
-                            >
-                                /
-                            </ButtonPrimitive>
-                        </DropdownMenuTrigger>
-                    </ListBox.Item>
+                    <DropdownMenuTrigger asChild>
+                        <ButtonPrimitive
+                            variant="outline"
+                            className={`ml-[calc(var(--button-padding-x-sm)+1px)] font-mono text-tertiary ${focusedTagIndex === -1 ? 'ring-2 ring-accent' : ''}`}
+                            iconOnly
+                            size="sm"
+                        >
+                            /
+                        </ButtonPrimitive>
+                    </DropdownMenuTrigger>
+
                     <DropdownMenuContent
                         align="start"
                         className="min-w-[200px]"
@@ -233,23 +326,36 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                     </DropdownMenuContent>
                 </DropdownMenu>
 
-                {selectedCommands.length === 0
-                    ? null
-                    : selectedCommands.map((command) => (
-                          <ButtonPrimitive
-                              key={command.value as string}
-                              className="text-primary"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                  selectCommand(command)
-                                  setShowDropdown(false)
-                              }}
-                          >
-                              {command.displayName}
-                              <IconX className="size-3 ml-1" />
-                          </ButtonPrimitive>
-                      ))}
+                {/* Selected inline tags */}
+                {selectedCommands.length === 0 ? null : selectedCommands.length === 1 || expandedTags ? (
+                    selectedCommands.map((command, index) => (
+                        <ButtonPrimitive
+                            key={command.value as string}
+                            className={`text-primary ${focusedTagIndex === index ? 'ring-2 ring-accent' : ''}`}
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                                selectCommand(command)
+                                setShowDropdown(false)
+                                setExpandedTags(false)
+                                setFocusedTagIndex(null)
+                            }}
+                        >
+                            {command.displayName}
+                            <IconX className="size-3 ml-1 text-tertiary" />
+                        </ButtonPrimitive>
+                    ))
+                ) : (
+                    <ButtonPrimitive
+                        className="text-primary"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setShowDropdown(true)}
+                    >
+                        {selectedCommands.length} filters
+                        <IconChevronRight className="ml-1 rotate-90 text-tertiary" />
+                    </ButtonPrimitive>
+                )}
 
                 {/* Input Field */}
                 <TextInputPrimitive
@@ -261,7 +367,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                     placeholder={placeholder}
                     autoFocus
                     autoComplete="off"
-                    className="pl-1 w-full border-none flex-1 h-full min-h-full"
+                    className="pl-1 w-full border-none flex-1 h-full min-h-full rounded-r-lg"
                     size="lg"
                     suffix={
                         inputValue !== '' && (
