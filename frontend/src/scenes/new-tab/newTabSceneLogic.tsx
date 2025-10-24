@@ -23,7 +23,7 @@ import {
 import { SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { TreeDataItem } from '~/lib/lemon-ui/LemonTree/LemonTree'
-import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemIconType, FileSystemImport, FileSystemViewLogEntry } from '~/queries/schema/schema-general'
 import { EventDefinition, PersonType, PropertyDefinition } from '~/types'
 
 import { SearchInputCommand } from './components/SearchInput'
@@ -118,6 +118,14 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         askAI: (searchTerm: string) => ({ searchTerm }),
     }),
     loaders(({ values }) => ({
+        sceneLogViews: [
+            [] as FileSystemViewLogEntry[],
+            {
+                loadSceneLogViews: async () => {
+                    return await api.fileSystemLogView.list({ type: 'scene' })
+                },
+            },
+        ],
         recents: [
             (() => {
                 if ('sessionStorage' in window) {
@@ -1292,6 +1300,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         },
     })),
     afterMount(({ actions, values }) => {
+        actions.loadSceneLogViews()
         actions.loadRecents()
 
         // Load initial data for data sections when "all" is selected by default

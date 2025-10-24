@@ -2564,6 +2564,12 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     sceneKey?: string
 }
 
+export interface FileSystemViewLogEntry {
+    type: string
+    ref: string
+    viewed_at: string
+}
+
 export interface PersistedFolder {
     id: string
     type: string

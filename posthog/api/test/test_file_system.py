@@ -326,3 +326,36 @@ class TestFileSystemLogViewEndpoint(APIBaseTest):
         log_entry = FileSystemViewLog.objects.get()
         assert log_entry.type == representation.type
         assert log_entry.ref == str(representation.ref)
+
+    def test_log_view_endpoint_lists_entries(self) -> None:
+        FileSystemViewLog.objects.all().delete()
+
+        earlier = now() - timedelta(hours=1)
+        later = now()
+
+        FileSystemViewLog.objects.create(
+            team=self.team,
+            user=self.user,
+            type="scene",
+            ref="First",
+            viewed_at=earlier,
+        )
+        FileSystemViewLog.objects.create(
+            team=self.team,
+            user=self.user,
+            type="scene",
+            ref="Second",
+            viewed_at=later,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/file_system/log_view/",
+            {"type": "scene", "limit": 10},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+
+        payload = response.json()
+        assert [entry["ref"] for entry in payload] == ["Second", "First"]
+        assert all(entry["type"] == "scene" for entry in payload)
+        assert all("viewed_at" in entry for entry in payload)
