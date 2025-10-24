@@ -1,7 +1,6 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
-import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { Scene } from 'scenes/sceneTypes'
@@ -58,7 +57,7 @@ export const heatmapsSceneLogic = kea<heatmapsSceneLogicType>([
             },
         ],
     }),
-    selectors(({ actions }) => ({
+    selectors(() => ({
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => {
@@ -70,26 +69,6 @@ export const heatmapsSceneLogic = kea<heatmapsSceneLogicType>([
                         iconType: sceneConfigurations[Scene.Heatmaps].iconType || 'default_icon_type',
                     },
                 ]
-            },
-        ],
-        pagination: [
-            (s) => [s.filters, s.totalCount],
-            (filters: HeatmapSavedFilters, totalCount: number): PaginationManual => {
-                return {
-                    controlled: true,
-                    pageSize: HEATMAPS_PER_PAGE,
-                    currentPage: filters.page,
-                    entryCount: totalCount,
-                    onBackward:
-                        (filters.page || 1) > 1
-                            ? () =>
-                                  actions.setHeatmapsFilters({ ...filters, page: Math.max(1, (filters.page || 1) - 1) })
-                            : undefined,
-                    onForward:
-                        (filters.page || 1) * HEATMAPS_PER_PAGE < (totalCount || 0)
-                            ? () => actions.setHeatmapsFilters({ ...filters, page: (filters.page || 1) + 1 })
-                            : undefined,
-                }
             },
         ],
     })),

@@ -18,7 +18,7 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { HeatmapScreenshotType } from '~/types'
 
-import { heatmapsSceneLogic } from './heatmapsSceneLogic'
+import { HEATMAPS_PER_PAGE, heatmapsSceneLogic } from './heatmapsSceneLogic'
 
 export const scene: SceneExport = {
     component: HeatmapsScene,
@@ -27,7 +27,7 @@ export const scene: SceneExport = {
 }
 
 export function HeatmapsScene(): JSX.Element {
-    const { savedHeatmaps, savedHeatmapsLoading, filters, pagination } = useValues(heatmapsSceneLogic)
+    const { savedHeatmaps, savedHeatmapsLoading, filters, totalCount } = useValues(heatmapsSceneLogic)
     const { deleteHeatmap, setHeatmapsFilters } = useActions(heatmapsSceneLogic)
 
     const columns: LemonTableColumns<HeatmapScreenshotType> = [
@@ -155,7 +155,20 @@ export function HeatmapsScene(): JSX.Element {
                     loading={savedHeatmapsLoading}
                     columns={columns}
                     rowKey="id"
-                    pagination={pagination}
+                    pagination={{
+                        controlled: true,
+                        pageSize: HEATMAPS_PER_PAGE,
+                        currentPage: filters.page,
+                        entryCount: totalCount,
+                        onBackward:
+                            (filters.page || 1) > 1
+                                ? () => setHeatmapsFilters({ ...filters, page: Math.max(1, (filters.page || 1) - 1) })
+                                : undefined,
+                        onForward:
+                            (filters.page || 1) * HEATMAPS_PER_PAGE < (totalCount || 0)
+                                ? () => setHeatmapsFilters({ ...filters, page: (filters.page || 1) + 1 })
+                                : undefined,
+                    }}
                     nouns={['heatmap', 'heatmaps']}
                 />
             </div>
