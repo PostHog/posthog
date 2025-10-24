@@ -1,5 +1,8 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import type { sidePanelStatusLogicType } from './sidePanelStatusLogicType'
@@ -76,7 +79,7 @@ export interface SPStatus {
     description: string
 }
 
-export const STATUS_PAGE_BASE = 'https://status.posthog.com'
+export type StatusPageProvider = 'statuspage' | 'incidentio'
 
 // NOTE: Test account with some incidents - ask @benjackwhite for access
 // export const STATUS_PAGE_BASE = 'https://posthogtesting.statuspage.io'
@@ -94,6 +97,7 @@ export const sidePanelStatusLogic = kea<sidePanelStatusLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelStatusLogic']),
     connect(() => ({
         actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
+        values: [featureFlagLogic, ['featureFlags']],
     })),
 
     actions({
@@ -130,11 +134,42 @@ export const sidePanelStatusLogic = kea<sidePanelStatusLogicType>([
             null as SPSummary | null,
             {
                 loadStatusPage: async () => {
-                    const response = await fetch(`${STATUS_PAGE_BASE}/api/v2/summary.json`)
+                    const response = await fetch(`https://status.posthog.com/api/v2/summary.json`)
                     const data: SPSummary = await response.json()
 
                     return data
                 },
+            },
+        ],
+
+        incidentioSummary: [
+            null as SPSummary | null,
+            {
+                loadIncidentioSummary: async () => {
+                    const response = await fetch('https://statuspage.incident.io/proxy/posthog')
+                    const data = await response.json()
+
+                    return null
+                },
+            },
+        ],
+    })),
+
+    selectors(() => ({
+        provider: [
+            (s) => [s.featureFlags],
+            (featureFlags): StatusPageProvider => {
+                return featureFlags[FEATURE_FLAGS.STATUS_PAGE_INCIDENTIO] ? 'incidentio' : 'statuspage'
+            },
+        ],
+
+        externalLink: [
+            (s) => [s.provider],
+            (provider): string => {
+                if (provider === 'incidentio') {
+                    return 'https://status2.posthog.com'
+                }
+                return 'https://status.posthog.com'
             },
         ],
     })),
@@ -155,8 +190,12 @@ export const sidePanelStatusLogic = kea<sidePanelStatusLogicType>([
         },
     })),
 
-    afterMount(({ actions, cache }) => {
-        actions.loadStatusPage()
+    afterMount(({ actions, cache, values }) => {
+        if (values.provider === 'incidentio') {
+            actions.loadIncidentioSummary()
+        } else {
+            actions.loadStatusPage()
+        }
         cache.disposables.add(() => {
             const onVisibilityChange = (): void => {
                 actions.setPageVisibility(document.visibilityState === 'visible')

@@ -11,7 +11,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { sidePanelLogic } from '../sidePanelLogic'
 import { SidePanelDocsSkeleton } from './SidePanelDocs'
-import { STATUS_PAGE_BASE, sidePanelStatusLogic } from './sidePanelStatusLogic'
+import { sidePanelStatusLogic } from './sidePanelStatusLogic'
 
 export const SidePanelStatusIcon = (props: { className?: string }): JSX.Element => {
     const { status, statusPage } = useValues(sidePanelStatusLogic)
@@ -44,6 +44,7 @@ export const SidePanelStatusIcon = (props: { className?: string }): JSX.Element 
 export const SidePanelStatus = (): JSX.Element => {
     const { closeSidePanel } = useActions(sidePanelLogic)
     const [ready, setReady] = useState(false)
+    const { externalLink } = useValues(sidePanelStatusLogic)
 
     return (
         <>
@@ -54,7 +55,7 @@ export const SidePanelStatus = (): JSX.Element => {
                     targetBlank
                     // We can't use the normal `to` property as that is intercepted to open this panel :D
                     onClick={() => {
-                        window.open(STATUS_PAGE_BASE, '_blank')?.focus()
+                        window.open(externalLink, '_blank')?.focus()
                         closeSidePanel()
                     }}
                 >
@@ -63,7 +64,7 @@ export const SidePanelStatus = (): JSX.Element => {
             </SidePanelPaneHeader>
             <div className="relative flex-1 overflow-hidden">
                 <iframe
-                    src={STATUS_PAGE_BASE}
+                    src={externalLink}
                     title="Status"
                     className={clsx('w-full h-full', !ready && 'hidden')}
                     onLoad={() => setReady(true)}
