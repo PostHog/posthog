@@ -98,7 +98,7 @@ impl KafkaLogRow {
                 )
             })
             .collect();
-        attributes.extend(resource_attributes);
+        attributes.extend(resource_attributes.clone());
 
         let instrumentation_scope = match scope {
             Some(s) => format!("{}@{}", s.name, s.version),
@@ -129,7 +129,7 @@ impl KafkaLogRow {
             body,
             severity_text,
             severity_number,
-            resource_attributes: HashMap::new(),
+            resource_attributes: resource_attributes.into_iter().collect(),
             instrumentation_scope,
             event_name,
             resource_id,
