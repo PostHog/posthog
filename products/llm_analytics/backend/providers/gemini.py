@@ -207,7 +207,7 @@ class GeminiProvider:
         trace_id: str | None = None,
         properties: dict | None = None,
         groups: dict | None = None,
-    ) -> str:
+    ) -> str | None:
         """
         Get direct string response from Gemini API for a provided string prompt (no streaming).
         """
@@ -228,9 +228,7 @@ class GeminiProvider:
             return response.text
         except APIError as e:
             logger.exception(f"Gemini API error when getting async response: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'error': f'Gemini API error'})}\n\n"
-            return
+            return None
         except Exception as e:
             logger.exception(f"Unexpected error when getting async response: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'error': f'Unexpected error'})}\n\n"
-            return
+            return None
