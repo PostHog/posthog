@@ -1,10 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { Spinner } from '@posthog/lemon-ui'
 
-import { getSeriesColor } from 'lib/colors'
-import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { cn } from 'lib/utils/css-classes'
 
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -13,8 +10,9 @@ import { FilterLogicalOperator } from '~/types'
 
 import { errorTrackingIssueBreakdownQuery } from '../../queries'
 import { errorTrackingIssueSceneLogic } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
+import { BreakdownStackedBar } from './BreakdownStackedBar'
 import { breakdownFiltersLogic } from './breakdownFiltersLogic'
-import { BreakdownSinglePropertyStat, breakdownPreviewLogic } from './breakdownPreviewLogic'
+import { breakdownPreviewLogic } from './breakdownPreviewLogic'
 import { POSTHOG_BREAKDOWN_NULL_VALUE } from './consts'
 import { BreakdownPreset, errorTrackingBreakdownsLogic } from './errorTrackingBreakdownsLogic'
 
@@ -26,12 +24,12 @@ export const ERROR_TRACKING_BREAKDOWNS_DATA_COLLECTION_NODE_ID = 'error-tracking
 
 export function BreakdownTileButton({ item }: BreakdownTileButtonProps): JSX.Element {
     const { dateRange, filterTestAccounts } = useValues(breakdownFiltersLogic)
-    const { selectedBreakdownPreset } = useValues(errorTrackingBreakdownsLogic)
-    const { setSelectedBreakdownPreset } = useActions(errorTrackingBreakdownsLogic)
+    const { breakdownProperty, issueId } = useValues(errorTrackingBreakdownsLogic)
+    const { setBreakdownProperty } = useActions(errorTrackingBreakdownsLogic)
+    const { category } = useValues(errorTrackingIssueSceneLogic)
     const { setCategory } = useActions(errorTrackingIssueSceneLogic)
 
-    const isSelected = selectedBreakdownPreset.property === item.property
-    const { issueId } = useValues(errorTrackingBreakdownsLogic)
+    const isSelected = category === 'breakdowns' && breakdownProperty === item.property
 
     const query = errorTrackingIssueBreakdownQuery({
         breakdownProperty: item.property,
@@ -44,7 +42,7 @@ export function BreakdownTileButton({ item }: BreakdownTileButtonProps): JSX.Ele
     return (
         <button
             onClick={() => {
-                setSelectedBreakdownPreset(item)
+                setBreakdownProperty(item.property)
                 setCategory('breakdowns')
             }}
             className={cn(
@@ -90,82 +88,9 @@ function BreakdownPreview({
                 ) : properties.length === 0 || hasOnlyNullBreakdown ? (
                     <div className="text-muted text-xs flex items-center justify-center">No data</div>
                 ) : (
-                    <StackedBar properties={properties} totalCount={totalCount} propertyName={property} />
+                    <BreakdownStackedBar properties={properties} totalCount={totalCount} propertyName={property} />
                 )}
             </div>
-        </div>
-    )
-}
-
-function StackedBar({
-    properties,
-    totalCount,
-    propertyName,
-}: {
-    properties: BreakdownSinglePropertyStat[]
-    totalCount: number
-    propertyName: string
-}): JSX.Element {
-    const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
-    const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 })
-
-    const handleMouseEnter = (index: number, event: React.MouseEvent<HTMLDivElement>): void => {
-        setHoveredIndex(index)
-        const rect = event.currentTarget.getBoundingClientRect()
-        setTooltipPosition({
-            x: rect.left + rect.width / 2,
-            y: rect.top,
-        })
-    }
-
-    return (
-        <div className="relative">
-            {/* Bar itself */}
-            <div className="flex w-full h-4 rounded overflow-hidden bg-fill-secondary">
-                {properties.map((item, index) => {
-                    const percentage = (item.count / totalCount) * 100
-
-                    return (
-                        <div
-                            key={index}
-                            className="h-full transition-all hover:opacity-80 cursor-pointer flex items-center justify-center"
-                            style={{
-                                width: `${percentage}%`,
-                                backgroundColor: getSeriesColor(index),
-                            }}
-                            onMouseEnter={(e) => handleMouseEnter(index, e)}
-                            onMouseLeave={() => setHoveredIndex(null)}
-                        >
-                            {percentage > 8 && (
-                                <PropertyIcon
-                                    property={propertyName}
-                                    value={item.label}
-                                    className="text-white text-xs opacity-90"
-                                />
-                            )}
-                        </div>
-                    )
-                })}
-            </div>
-            {/* Tooltip */}
-            {hoveredIndex !== null && (
-                <div
-                    className="fixed px-2 py-1 bg-bg-3000 border border-border rounded shadow-lg whitespace-nowrap z-[9999] text-xs pointer-events-none"
-                    style={{
-                        left: `${tooltipPosition.x}px`,
-                        top: `${tooltipPosition.y - 8}px`,
-                        transform: 'translate(-50%, -100%)',
-                    }}
-                >
-                    <div className="flex items-center gap-1.5 font-semibold">
-                        <PropertyIcon property={propertyName} value={properties[hoveredIndex].label} />
-                        <span>{properties[hoveredIndex].label}</span>
-                    </div>
-                    <div className="text-muted">
-                        {((properties[hoveredIndex].count / totalCount) * 100).toFixed(1)}%
-                    </div>
-                </div>
-            )}
         </div>
     )
 }

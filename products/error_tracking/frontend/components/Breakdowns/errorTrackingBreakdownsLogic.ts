@@ -16,8 +16,6 @@ export interface ErrorTrackingBreakdownsLogicProps {
     id: string
 }
 
-const CUSTOM_BREAKDOWN_TITLE = '$$_custom_breakdown'
-
 export const BREAKDOWN_PRESETS: BreakdownPreset[] = [
     { property: '$browser', title: 'Browser' },
     { property: '$device_type', title: 'Device Type' },
@@ -35,34 +33,32 @@ export const errorTrackingBreakdownsLogic = kea<errorTrackingBreakdownsLogicType
         values: [breakdownFiltersLogic, ['dateRange', 'filterTestAccounts']],
     }),
     actions({
-        setSelectedBreakdownPreset: (breakdownPreset: BreakdownPreset) => ({ breakdownPreset }),
         setBreakdownProperty: (property: string) => ({ property }),
     }),
     reducers(({ props }) => ({
-        selectedBreakdownPreset: [
-            { property: '$browser', title: CUSTOM_BREAKDOWN_TITLE },
+        breakdownProperty: [
+            '$browser' as string,
             {
-                setSelectedBreakdownPreset: (_, { breakdownPreset }) => breakdownPreset,
-                setBreakdownProperty: (_, { property }) => ({ property, title: CUSTOM_BREAKDOWN_TITLE }),
+                setBreakdownProperty: (_, { property }) => property,
             },
         ],
         issueId: [props.id],
     })),
     selectors({
         breakdownQuery: [
-            (s, p) => [s.selectedBreakdownPreset, s.dateRange, s.filterTestAccounts, p.id],
+            (s, p) => [s.breakdownProperty, s.dateRange, s.filterTestAccounts, p.id],
             (
-                selectedBreakdownPreset: BreakdownPreset,
+                breakdownProperty: string,
                 dateRange: DateRange,
                 filterTestAccounts: boolean,
                 issueId: string
             ): InsightVizNode | null => {
-                if (!selectedBreakdownPreset) {
+                if (!breakdownProperty) {
                     return null
                 }
 
                 return errorTrackingIssueBreakdownQuery({
-                    breakdownProperty: selectedBreakdownPreset.property,
+                    breakdownProperty,
                     dateRange,
                     filterTestAccounts,
                     filterGroup: {

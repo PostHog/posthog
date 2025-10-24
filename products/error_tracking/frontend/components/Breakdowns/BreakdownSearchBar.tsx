@@ -17,7 +17,7 @@ import { errorTrackingBreakdownsLogic } from './errorTrackingBreakdownsLogic'
 export function BreakdownSearchBar(): JSX.Element {
     const { dateRange, filterTestAccounts } = useValues(breakdownFiltersLogic)
     const { setDateRange, setFilterTestAccounts } = useActions(breakdownFiltersLogic)
-    const { selectedBreakdownPreset } = useValues(errorTrackingBreakdownsLogic)
+    const { breakdownProperty } = useValues(errorTrackingBreakdownsLogic)
     const { setBreakdownProperty } = useActions(errorTrackingBreakdownsLogic)
     const [filterOpen, setFilterOpen] = useState(false)
 
@@ -39,7 +39,7 @@ export function BreakdownSearchBar(): JSX.Element {
             <Popover
                 overlay={
                     <TaxonomicFilter
-                        value={selectedBreakdownPreset.property}
+                        value={breakdownProperty}
                         onChange={(_, value) => {
                             if (value) {
                                 setBreakdownProperty(String(value))
@@ -54,7 +54,7 @@ export function BreakdownSearchBar(): JSX.Element {
             >
                 <LemonButton size="small" type="secondary" onClick={() => setFilterOpen(!filterOpen)}>
                     <PropertyKeyInfo
-                        value={selectedBreakdownPreset.property}
+                        value={breakdownProperty}
                         disablePopover
                         type={TaxonomicFilterGroupType.EventProperties}
                     />
