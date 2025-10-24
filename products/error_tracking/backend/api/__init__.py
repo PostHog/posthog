@@ -1,6 +1,7 @@
 from .assignment_rules import ErrorTrackingAssignmentRuleViewSet
 from .external_references import ErrorTrackingExternalReferenceViewSet
 from .fingerprints import ErrorTrackingFingerprintViewSet
+from .git_provider_file_link_resolver import GitProviderFileLinksViewSet
 from .grouping_rules import ErrorTrackingGroupingRuleViewSet
 from .issues import ErrorTrackingIssueViewSet
 from .releases import ErrorTrackingReleaseViewSet
@@ -18,4 +19,5 @@ __all__ = [
     "ErrorTrackingReleaseViewSet",
     "ErrorTrackingSuppressionRuleViewSet",
     "ErrorTrackingAssignmentRuleViewSet",
+    "GitProviderFileLinksViewSet",
 ]

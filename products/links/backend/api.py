@@ -8,6 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.mixins import FileSystemViewSetMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.link import Link
@@ -52,7 +53,7 @@ class LinkSerializer(serializers.ModelSerializer):
         return link
 
 
-class LinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class LinkViewSet(FileSystemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, read, update, and delete links.
     """

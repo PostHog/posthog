@@ -40,6 +40,7 @@ from products.error_tracking.backend.api import (
     ErrorTrackingStackFrameViewSet,
     ErrorTrackingSuppressionRuleViewSet,
     ErrorTrackingSymbolSetViewSet,
+    GitProviderFileLinksViewSet,
 )
 from products.llm_analytics.backend.api import (
     DatasetItemViewSet,
@@ -741,6 +742,13 @@ environments_router.register(
     r"error_tracking/stack_frames",
     ErrorTrackingStackFrameViewSet,
     "project_error_tracking_stack_frames",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"error_tracking/git-provider-file-links",
+    GitProviderFileLinksViewSet,
+    "project_error_tracking_git_provider_file_links",
     ["team_id"],
 )
 

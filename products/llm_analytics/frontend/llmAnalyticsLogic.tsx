@@ -864,7 +864,6 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
 
     tabAwareUrlToAction(({ actions, values }) => {
         function applySearchParams({ filters, date_from, date_to, filter_test_accounts }: Record<string, any>): void {
-            // Normal parameter handling
             const parsedFilters = isAnyPropertyFilters(filters) ? filters : []
             if (!objectsEqual(parsedFilters, values.propertyFilters)) {
                 actions.setPropertyFilters(parsedFilters)
