@@ -150,7 +150,15 @@ impl IntoResponse for FlagError {
                 ClientFacingError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
                 ClientFacingError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg),
                 ClientFacingError::BillingLimit => (StatusCode::PAYMENT_REQUIRED, "Billing limit reached. Please upgrade your plan.".to_string()),
-                ClientFacingError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded. Please reduce your request frequency and try again later.".to_string()),
+                ClientFacingError::RateLimited => {
+                    let response = AuthenticationErrorResponse {
+                        error_type: "validation_error".to_string(),
+                        code: "rate_limit_exceeded".to_string(),
+                        detail: "Rate limit exceeded".to_string(),
+                        attr: None,
+                    };
+                    return (StatusCode::TOO_MANY_REQUESTS, Json(response)).into_response();
+                },
                 ClientFacingError::ServiceUnavailable => (StatusCode::SERVICE_UNAVAILABLE, "Service is currently unavailable. Please try again later.".to_string()),
             },
             FlagError::Internal(msg) => {

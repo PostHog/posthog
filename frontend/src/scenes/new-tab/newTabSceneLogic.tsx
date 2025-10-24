@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import { IconApps, IconArrowRight, IconDatabase, IconHogQL, IconPerson, IconSparkles, IconToggle } from '@posthog/icons'
+import { IconApps, IconArrowRight, IconDatabase, IconHogQL, IconPerson, IconSparkles } from '@posthog/icons'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -67,6 +67,7 @@ export interface NewTabTreeDataItem extends TreeDataItem {
     category: NEW_TAB_CATEGORY_ITEMS
     href?: string
     flag?: string
+    lastViewedAt?: string | null
 }
 
 export interface NewTabCategoryItem {
@@ -139,9 +140,9 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     }
                     const searchTerm = values.search.trim()
                     const response = await api.fileSystem.list({
-                        search: '"name:' + searchTerm + '"',
+                        search: searchTerm,
                         limit: PAGINATION_LIMIT + 1,
-                        orderBy: '-created_at',
+                        orderBy: '-last_viewed_at',
                         notType: 'folder',
                     })
                     breakpoint()
@@ -342,6 +343,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             (featureFlags): NewTabCategoryItem[] => {
                 const categories: NewTabCategoryItem[] = [
                     { key: 'all', label: 'All' },
+                    { key: 'recents', label: 'Recents' },
                     {
                         key: 'create-new',
                         label: 'Create new',
@@ -351,7 +353,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         key: 'data-management',
                         label: 'Data management',
                     },
-                    { key: 'recents', label: 'Recents' },
                 ]
                 if (featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]) {
                     categories.push({
@@ -414,6 +415,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         name: name || item.path,
                         category: 'recents',
                         href: item.href || '#',
+                        lastViewedAt: item.last_viewed_at ?? null,
                         icon: getIconForFileSystemItem({
                             type: item.type,
                             iconType: item.type as any,
@@ -457,12 +459,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         id: `event-definition-${eventDef.id}`,
                         name: eventDef.name,
                         category: 'eventDefinitions' as NEW_TAB_CATEGORY_ITEMS,
-                        href: `events://${eventDef.name}`,
-                        icon: <IconToggle />,
+                        href: urls.eventDefinition(eventDef.id),
+                        icon: <IconApps />,
                         record: {
                             type: 'event-definition',
                             path: `Event: ${eventDef.name}`,
-                            href: `events://${eventDef.name}`,
+                            href: urls.eventDefinition(eventDef.id),
                         },
                     }
                     return item
@@ -478,12 +480,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         id: `property-definition-${propDef.id}`,
                         name: propDef.name,
                         category: 'propertyDefinitions' as NEW_TAB_CATEGORY_ITEMS,
-                        href: `properties://${propDef.name}`,
+                        href: urls.propertyDefinition(propDef.id),
                         icon: <IconApps />,
                         record: {
                             type: 'property-definition',
                             path: `Property: ${propDef.name}`,
-                            href: `properties://${propDef.name}`,
+                            href: urls.propertyDefinition(propDef.id),
                         },
                     }
                     return item
@@ -611,6 +613,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                 const allItems: NewTabTreeDataItem[] = [
                     ...(newTabSceneData ? aiSearchItems : []),
+                    ...projectTreeSearchItems,
                     {
                         id: 'new-sql-query',
                         name: 'New SQL query',
@@ -624,7 +627,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     ...products,
                     ...data,
                     ...newDataItems,
-                    ...projectTreeSearchItems,
                     {
                         id: 'new-hog-program',
                         name: 'New Hog program',
@@ -899,7 +901,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 const showAll = newTabSceneDataInclude.includes('all')
 
                 // Add sections in a useful order
-                const mainSections = ['create-new', 'apps', 'data-management', 'recents']
+                const mainSections = ['recents', 'create-new', 'apps', 'data-management']
                 mainSections.forEach((section) => {
                     if (showAll || newTabSceneDataInclude.includes(section as NEW_TAB_COMMANDS)) {
                         orderedSections.push(section)
