@@ -38,8 +38,9 @@ def sessions_v3_backfill(context: AssetExecutionContext):
     # as long as the backfill has run at least once for each partition, the data will be correct
     backfill_sql = RAW_SESSION_TABLE_BACKFILL_SQL_V3(where=where_clause)
 
+    partition_range = context.partition_key_range
     context.log.info(
-        f"Running backfill for {context.partition_key} (where='{where_clause}') using commit {get_git_commit_short() or 'unknown'} "
+        f"Running backfill for {partition_range.start} to {partition_range.end} (where='{where_clause}') using commit {get_git_commit_short() or 'unknown'} "
     )
 
     cluster = get_cluster()

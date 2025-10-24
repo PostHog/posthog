@@ -1,19 +1,17 @@
+use anyhow::{anyhow, bail, Result};
+use magic_string::{GenerateDecodedMapOptions, MagicString};
+use posthog_symbol_data::{write_symbol_data, HermesMap};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use sourcemap::SourceMap;
 use std::{collections::BTreeMap, path::PathBuf};
+use tracing::info;
 
 use crate::{
     api::symbol_sets::SymbolSetUpload,
     sourcemaps::constant::{CHUNKID_COMMENT_PREFIX, CHUNKID_PLACEHOLDER, CODE_SNIPPET_TEMPLATE},
-    utils::files::{is_javascript_file, SourceFile},
+    utils::files::SourceFile,
 };
-use anyhow::{anyhow, bail, Context, Result};
-use globset::{Glob, GlobSetBuilder};
-use magic_string::{GenerateDecodedMapOptions, MagicString};
-use posthog_symbol_data::{write_symbol_data, SourceAndMap};
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use sourcemap::SourceMap;
-use tracing::{info, warn};
-use walkdir::WalkDir;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SourceMapContent {
@@ -31,154 +29,6 @@ pub struct SourceMapFile {
 
 pub struct MinifiedSourceFile {
     pub inner: SourceFile<String>,
-}
-
-// Source pairs are the fundamental unit of a frontend symbol set
-pub struct SourcePair {
-    pub source: MinifiedSourceFile,
-    pub sourcemap: SourceMapFile,
-}
-
-impl SourcePair {
-    pub fn has_chunk_id(&self) -> bool {
-        // Minified chunks are the source of truth for their ID's, not sourcemaps,
-        // because sometimes sourcemaps are shared across multiple chunks.
-        self.get_chunk_id().is_some()
-    }
-
-    pub fn get_chunk_id(&self) -> Option<String> {
-        self.source.get_chunk_id()
-    }
-
-    pub fn has_release_id(&self) -> bool {
-        self.get_release_id().is_some()
-    }
-
-    pub fn remove_chunk_id(&mut self, chunk_id: String) -> Result<()> {
-        if self.get_chunk_id().as_ref() != Some(&chunk_id) {
-            return Err(anyhow!("Chunk ID mismatch"));
-        }
-        let adjustment = self.source.remove_chunk_id(chunk_id)?;
-        self.sourcemap.apply_adjustment(adjustment)?;
-        self.sourcemap.set_chunk_id(None);
-        Ok(())
-    }
-
-    pub fn update_chunk_id(
-        &mut self,
-        previous_chunk_id: String,
-        new_chunk_id: String,
-    ) -> Result<()> {
-        self.remove_chunk_id(previous_chunk_id)?;
-        self.add_chunk_id(new_chunk_id)?;
-        Ok(())
-    }
-
-    pub fn add_chunk_id(&mut self, chunk_id: String) -> Result<()> {
-        if self.has_chunk_id() {
-            return Err(anyhow!("Chunk ID already set"));
-        }
-
-        let adjustment = self.source.set_chunk_id(&chunk_id)?;
-        // In cases where sourcemaps are shared across multiple chunks,
-        // we should only apply the adjustment if the sourcemap doesn't
-        // have a chunk ID set (since otherwise, it's already been adjusted)
-        if self.sourcemap.get_chunk_id().is_none() {
-            self.sourcemap.apply_adjustment(adjustment)?;
-            self.sourcemap.set_chunk_id(Some(chunk_id));
-        }
-        Ok(())
-    }
-
-    pub fn set_release_id(&mut self, release_id: Option<String>) {
-        self.sourcemap.set_release_id(release_id);
-    }
-
-    pub fn save(&self) -> Result<()> {
-        self.source.save()?;
-        self.sourcemap.save()?;
-        Ok(())
-    }
-
-    pub(crate) fn get_release_id(&self) -> Option<String> {
-        self.sourcemap.get_release_id()
-    }
-}
-
-pub fn read_pairs(
-    directory: &PathBuf,
-    ignore_globs: &[String],
-    strip_prefix: &Option<String>,
-) -> Result<Vec<SourcePair>> {
-    // Make sure the directory exists
-    if !directory.exists() {
-        bail!("Directory does not exist");
-    }
-
-    let mut builder = GlobSetBuilder::new();
-    for glob in ignore_globs {
-        builder.add(Glob::new(glob)?);
-    }
-    let set: globset::GlobSet = builder.build()?;
-
-    let mut pairs = Vec::new();
-
-    for entry_path in WalkDir::new(directory)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(is_javascript_file)
-        .map(|e| e.path().canonicalize())
-    {
-        let entry_path = entry_path?;
-
-        if set.is_match(&entry_path) {
-            info!(
-                "Skipping because it matches an ignored glob: {}",
-                entry_path.display()
-            );
-            continue;
-        }
-
-        info!("Processing file: {}", entry_path.display());
-        let source = MinifiedSourceFile::load(&entry_path)?;
-        let sourcemap_path = source.get_sourcemap_path(strip_prefix)?;
-
-        let Some(path) = sourcemap_path else {
-            warn!(
-                "No sourcemap file found for file {}, skipping",
-                entry_path.display()
-            );
-            continue;
-        };
-
-        let sourcemap = SourceMapFile::load(&path).context(format!("reading {path:?}"))?;
-        pairs.push(SourcePair { source, sourcemap });
-    }
-    Ok(pairs)
-}
-
-impl TryInto<SymbolSetUpload> for SourcePair {
-    type Error = anyhow::Error;
-
-    fn try_into(self) -> Result<SymbolSetUpload> {
-        let chunk_id = self
-            .get_chunk_id()
-            .ok_or_else(|| anyhow!("Chunk ID not found"))?;
-        let source_content = self.source.inner.content;
-        let sourcemap_content = serde_json::to_string(&self.sourcemap.inner.content)?;
-        let data = SourceAndMap {
-            minified_source: source_content,
-            sourcemap: sourcemap_content,
-        };
-
-        let data = write_symbol_data(data)?;
-
-        Ok(SymbolSetUpload {
-            chunk_id,
-            data,
-            release_id: self.sourcemap.get_release_id(),
-        })
-    }
 }
 
 impl SourceMapFile {
@@ -203,26 +53,38 @@ impl SourceMapFile {
     pub fn apply_adjustment(&mut self, adjustment: SourceMap) -> Result<()> {
         let new_content = {
             let content = serde_json::to_string(&self.inner.content)?.into_bytes();
-            let mut original_sourcemap = match sourcemap::decode_slice(content.as_slice())
-                .map_err(|err| anyhow!("Failed to parse sourcemap: {err}"))?
-            {
-                sourcemap::DecodedMap::Regular(map) => map,
-                sourcemap::DecodedMap::Index(index_map) => index_map
+            let mut map = sourcemap::decode_slice(content.as_slice())
+                .map_err(|err| anyhow!("Failed to parse sourcemap: {err}"))?;
+
+            // This looks weird. The reason we do it, is that we want `original` below
+            // to be a &mut SourceMap. This is easy to do if it's a Regular, or Hermes
+            // map, but if it's an Index map (Regular is already a SourceMap, so just
+            // taking the &mut works, and Hermes maps impl DerefMut<Target = SourceMap>),
+            // but for index maps, we have to flatten first, and that necessitates a Clone.
+            // Doing that Clone in the match below and then trying to borrow a &mut to the
+            // result of the Clone causes us to try and borrow something we immediately drop,
+            // (the clone is done in the match arm scope, and then a ref to a local in that
+            // scope is returned to the outer scope), so instead, we do the clone here if
+            // we need to, and declare the index branch unreachable below.
+            if let sourcemap::DecodedMap::Index(indexed) = &mut map {
+                let replacement = indexed
                     .flatten()
-                    .map_err(|err| anyhow!("Failed to parse sourcemap: {err}"))?,
-                sourcemap::DecodedMap::Hermes(_) => {
-                    // TODO(olly) - YES THEY ARE!!!!! WOOOOOOO!!!!! YIPEEEEEEEE!!!
-                    anyhow::bail!("Hermes source maps are not supported")
-                }
+                    .map_err(|err| anyhow!("Failed to flatten sourcemap: {err}"))?;
+
+                map = sourcemap::DecodedMap::Regular(replacement);
             };
 
-            original_sourcemap.adjust_mappings(&adjustment);
+            let original = match &mut map {
+                sourcemap::DecodedMap::Regular(m) => m,
+                sourcemap::DecodedMap::Hermes(m) => m,
+                sourcemap::DecodedMap::Index(_) => unreachable!(),
+            };
 
-            // I mean if we've got the bytes allocated already, why not use 'em
+            original.adjust_mappings(&adjustment);
+
             let mut content = content;
             content.clear();
-            original_sourcemap.to_writer(&mut content)?;
-
+            original.to_writer(&mut content)?;
             serde_json::from_slice(&content)?
         };
 
@@ -368,7 +230,7 @@ impl MinifiedSourceFile {
         None
     }
 
-    fn remove_chunk_id(&mut self, chunk_id: String) -> Result<SourceMap> {
+    pub fn remove_chunk_id(&mut self, chunk_id: String) -> Result<SourceMap> {
         let (new_source_content, source_adjustment) = {
             // Update source content with chunk ID
             let source_content = &self.inner.content;
@@ -410,5 +272,32 @@ impl MinifiedSourceFile {
 
         self.inner.content = new_source_content;
         Ok(source_adjustment)
+    }
+}
+
+impl TryInto<SymbolSetUpload> for SourceMapFile {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<SymbolSetUpload> {
+        let chunk_id = self
+            .get_chunk_id()
+            .ok_or_else(|| anyhow!("Chunk ID not found"))?;
+
+        let release_id = self.get_release_id();
+        let sourcemap = self.inner.content;
+        let content = serde_json::to_string(&sourcemap)?;
+        if !sourcemap.fields.contains_key("x_hermes_function_offsets") {
+            bail!("Map is not a hermes sourcemap - missing key x_hermes_function_offsets");
+        }
+
+        let data = HermesMap { sourcemap: content };
+
+        let data = write_symbol_data(data)?;
+
+        Ok(SymbolSetUpload {
+            chunk_id,
+            release_id,
+            data,
+        })
     }
 }

@@ -11,7 +11,10 @@ import {
 } from 'scenes/session-recordings/player/snapshot-processing/chrome-extension-stripping'
 import { chunkMutationSnapshot } from 'scenes/session-recordings/player/snapshot-processing/chunk-large-mutations'
 import { decompressEvent } from 'scenes/session-recordings/player/snapshot-processing/decompress'
-import { ViewportResolution } from 'scenes/session-recordings/player/snapshot-processing/patch-meta-event'
+import {
+    ViewportResolution,
+    extractDimensionsFromMobileSnapshot,
+} from 'scenes/session-recordings/player/snapshot-processing/patch-meta-event'
 import { SourceKey, keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { throttleCapture } from 'scenes/session-recordings/player/snapshot-processing/throttle-capturing'
 
@@ -26,33 +29,65 @@ import { PostHogEE } from '../../../../../@posthog/ee/types'
 
 export type ProcessingCache = Record<SourceKey, RecordingSnapshot[]>
 
-function isLikelyMobileScreenshot(snapshot: RecordingSnapshot): boolean {
+function extractImgNodeFromMobileIncremental(snapshot: RecordingSnapshot): any | undefined {
     if (snapshot.type !== EventType.IncrementalSnapshot) {
-        return false
+        return undefined
     }
     const data: any = (snapshot as any).data
-    // Detect React Native wireframe incremental format
-    return !!(data && Array.isArray(data.updates) && data.updates.some((u: any) => u && 'wireframe' in u))
+
+    if (data?.source !== 0 || !Array.isArray(data.adds)) {
+        return undefined
+    }
+
+    const checksLimit = Math.min(data.adds.length, 3)
+    for (let i = 0; i < checksLimit; i++) {
+        const node = data.adds[i]?.node
+        if (
+            node &&
+            node.type === 2 &&
+            node.tagName === 'img' &&
+            node.attributes?.['data-rrweb-id'] &&
+            node.attributes?.width &&
+            node.attributes?.height
+        ) {
+            return node
+        }
+    }
+
+    return undefined
 }
 
-function createMinimalFullSnapshot(windowId: string | undefined, timestamp: number): RecordingSnapshot {
+function isLikelyMobileScreenshot(snapshot: RecordingSnapshot): boolean {
+    return extractImgNodeFromMobileIncremental(snapshot) !== undefined
+}
+
+function createMinimalFullSnapshot(windowId: string | undefined, timestamp: number, imgNode?: any): RecordingSnapshot {
     // Create a minimal rrweb full document snapshot structure sufficient for playback
+    // For mobile screenshots, include the img node in body so dimension extraction works
+    const bodyChildNodes = imgNode ? [imgNode] : []
+
     const htmlNode = {
-        type: 1, // NodeType.Element
+        type: 2, // Element node
         tagName: 'html',
-        attributes: {},
+        attributes: {
+            'data-rrweb-id': 'minimal-html',
+        },
         childNodes: [
             {
-                type: 1,
+                type: 2, // Element node
                 tagName: 'head',
-                attributes: {},
+                attributes: {
+                    'data-rrweb-id': 'minimal-head',
+                },
                 childNodes: [],
             },
             {
-                type: 1,
+                type: 2, // Element node
                 tagName: 'body',
-                attributes: {},
-                childNodes: [],
+                attributes: {
+                    'data-rrweb-id': 5, // Match mobile transformer body id
+                },
+                childNodes: bodyChildNodes,
             },
         ],
     }
@@ -123,11 +158,22 @@ export function processAllSnapshots(
         let seenHashes = new Set<number>()
 
         // Helper to inject a Meta event before a full snapshot when missing
-        const pushPatchedMeta = (ts: number, winId?: string): boolean => {
+        const pushPatchedMeta = (ts: number, winId?: string, fullSnapshot?: RecordingSnapshot): boolean => {
             if (hasSeenMeta) {
                 return false
             }
-            const viewport = viewportForTimestamp(ts)
+
+            // First try to extract dimensions from mobile snapshot data if available
+            let viewport: ViewportResolution | undefined
+            if (fullSnapshot) {
+                viewport = extractDimensionsFromMobileSnapshot(fullSnapshot)
+            }
+
+            // Fallback to event-based viewport lookup
+            if (!viewport) {
+                viewport = viewportForTimestamp(ts)
+            }
+
             if (viewport && viewport.width && viewport.height) {
                 const metaEvent: RecordingSnapshot = {
                     type: EventType.Meta,
@@ -202,16 +248,14 @@ export function processAllSnapshots(
                 !hasSeenFullForWindow &&
                 isLikelyMobileScreenshot(snapshot)
             ) {
-                // Inject a synthetic full snapshot (and meta if needed) immediately before the first incremental
                 const syntheticTimestamp = Math.max(0, snapshot.timestamp - 1)
+                const imgNode = extractImgNodeFromMobileIncremental(snapshot)
+                const syntheticFull = createMinimalFullSnapshot(snapshot.windowId, syntheticTimestamp, imgNode)
+                const metaInserted = pushPatchedMeta(syntheticTimestamp, snapshot.windowId, syntheticFull)
 
-                const metaInserted = pushPatchedMeta(syntheticTimestamp, snapshot.windowId)
-
-                const syntheticFull = createMinimalFullSnapshot(snapshot.windowId, syntheticTimestamp)
                 result.push(syntheticFull)
                 sourceResult.push(syntheticFull)
                 seenFullByWindow[windowId] = true
-                // mark meta as seen only if we actually inserted it; otherwise allow next full to patch
                 hasSeenMeta = hasSeenMeta || metaInserted
             }
 
@@ -220,7 +264,7 @@ export function processAllSnapshots(
                 seenFullByWindow[snapshot.windowId] = true
 
                 // Ensure meta before this full snapshot if missing
-                pushPatchedMeta(snapshot.timestamp, snapshot.windowId)
+                pushPatchedMeta(snapshot.timestamp, snapshot.windowId, snapshot)
 
                 // Reset for next potential full snapshot
                 hasSeenMeta = false
