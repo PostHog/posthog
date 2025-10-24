@@ -1,4 +1,4 @@
-import { actions, connect, kea, path, props, selectors } from 'kea'
+import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
 
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
@@ -25,7 +25,15 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
         actions: [experimentLogic(props), ['loadExperiment', 'loadExposures', 'setEditExperiment', 'resetExperiment']],
     })),
     actions({
-        // Actions are delegated to experimentLogic
+        setActiveTabKey: (activeTabKey: string) => ({ activeTabKey }),
+    }),
+    reducers({
+        activeTabKey: [
+            'metrics' as string,
+            {
+                setActiveTabKey: (_, { activeTabKey }) => activeTabKey,
+            },
+        ],
     }),
     selectors({
         experimentId: [
