@@ -134,8 +134,12 @@ This document is in `PostHog/posthog` - when merged to master, it will appear on
 
 **Questions?** Ask in #team-website
 
-## Update: Path Fix Verification
+## Update: Switched to gatsby-source-git
 
-Testing after removing POSTHOG_REPO_PATH and fixing path duplication bug. The clone script now correctly creates `.posthog-monorepo-cache/docs/published/` structure, and gatsby-config always joins `source.path + github.path`.
+Successfully migrated from custom clone script to simpler `gatsby-source-git` plugin approach. The workflow now:
 
-This update verifies the fix works end-to-end!
+1. Triggers Vercel deployment on posthog.com@source-git branch
+2. Passes `GATSBY_POSTHOG_BRANCH` env var to control which monorepo branch to pull docs from
+3. Posts enhanced PR comments with file table and preview links
+
+Much simpler implementation - thanks to PR #13375!
