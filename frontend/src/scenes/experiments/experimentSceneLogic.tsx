@@ -23,7 +23,7 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
     selectors({
         breadcrumbs: [
             (s) => [s.experiment, s.experimentId],
-            (experiment, experimentId): Breadcrumb[] => {
+            (experiment: Experiment, experimentId: Experiment['id']): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.Experiments,
@@ -52,7 +52,7 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
         ],
         projectTreeRef: [
             (s) => [s.experimentId],
-            (experimentId): ProjectTreeRef => {
+            (experimentId: Experiment['id']): ProjectTreeRef => {
                 return { type: 'experiment', ref: experimentId === 'new' ? null : String(experimentId) }
             },
         ],
@@ -72,7 +72,7 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                         name: query.name ?? '',
                     })
                 }
-                if (parsedId !== 'new' && parsedId === values.experimentId) {
+                if (parsedId !== 'new' && String(parsedId) === String(values.experimentId)) {
                     actions.loadExperiment()
                     if (values.isExperimentRunning) {
                         actions.loadExposures()
