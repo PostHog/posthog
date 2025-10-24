@@ -527,12 +527,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         graph = (
             AssistantGraph(self.team, self.user)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-            .add_root(
-                {
-                    "root": AssistantNodeName.ROOT,
-                    "end": AssistantNodeName.END,
-                }
-            )
+            .add_root()
             .compile()
         )
 
@@ -1245,7 +1240,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         graph = (
             AssistantGraph(self.team, self.user)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-            .add_root({"root": AssistantNodeName.ROOT, "end": AssistantNodeName.END})
+            .add_root()
             .compile()
         )
         self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
@@ -1265,7 +1260,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         graph = (
             AssistantGraph(self.team, self.user)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-            .add_root({"root": AssistantNodeName.ROOT, "end": AssistantNodeName.END})
+            .add_root()
             .compile()
         )
 
@@ -1316,12 +1311,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         graph = (
             AssistantGraph(self.team, self.user)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-            .add_root(
-                {
-                    "root": AssistantNodeName.ROOT,
-                    "end": AssistantNodeName.END,
-                }
-            )
+            .add_root()
             .compile()
         )
 
@@ -1662,12 +1652,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         output, assistant = await self._run_assistant_graph(
             test_graph=AssistantGraph(self.team, self.user)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-            .add_root(
-                {
-                    "root": AssistantNodeName.ROOT,
-                    "end": AssistantNodeName.END,
-                }
-            )
+            .add_root()
             .compile(),
             conversation=self.conversation,
             is_new_conversation=True,
@@ -1733,7 +1718,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         graph = (
             AssistantGraph(self.team, self.user)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-            .add_root({"root": AssistantNodeName.ROOT, "end": AssistantNodeName.END})
+            .add_root()
             .compile()
         )
 
@@ -2045,12 +2030,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         test_graph = (
             AssistantGraph(self.team, self.user)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-            .add_root(
-                {
-                    "root": AssistantNodeName.ROOT,
-                    "end": AssistantNodeName.END,
-                }
-            )
+            .add_root()
             .compile()
         )
 
