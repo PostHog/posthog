@@ -15,6 +15,7 @@ export const manifest: ProductManifest = {
             name: 'Error tracking',
             defaultDocsPath: '/docs/error-tracking',
             iconType: 'error_tracking',
+            description: 'Track and analyze your error tracking data to understand and fix issues.',
         },
         ErrorTrackingIssue: {
             import: () => import('./frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
@@ -65,6 +66,7 @@ export const manifest: ProductManifest = {
                 'var(--color-product-error-tracking-dark)',
             ] as FileSystemIconColor,
             href: urls.errorTracking(),
+            sceneKey: 'ErrorTracking',
         },
     ],
 }

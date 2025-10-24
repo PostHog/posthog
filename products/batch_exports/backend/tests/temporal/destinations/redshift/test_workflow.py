@@ -12,13 +12,14 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog import constants
-from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
+from posthog.batch_exports.service import BatchExportModel, BatchExportSchema, RedshiftCopyInputs
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
 
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
     RedshiftBatchExportInputs,
     RedshiftBatchExportWorkflow,
+    copy_into_redshift_activity_from_stage,
     insert_into_redshift_activity,
     insert_into_redshift_activity_from_stage,
 )
@@ -27,8 +28,9 @@ from products.batch_exports.backend.tests.temporal.destinations.redshift.utils i
     MISSING_REQUIRED_ENV_VARS,
     TEST_MODELS,
     assert_clickhouse_records_in_redshift,
+    delete_all_from_s3_prefix,
 )
-from products.batch_exports.backend.tests.temporal.utils import mocked_start_batch_export_run
+from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -41,6 +43,25 @@ pytestmark = [
 @pytest.fixture
 def table_name(ateam, interval):
     return f"test_workflow_table_{ateam.pk}_{interval}"
+
+
+@pytest.fixture
+def mode(request) -> str:
+    try:
+        return request.param
+    except AttributeError:
+        return "INSERT"
+
+
+@pytest.fixture(autouse=True)
+async def clean_up_s3_bucket(s3_client, mode, bucket_name, key_prefix):
+    """Clean-up S3 bucket used in Redshift copy activity."""
+    yield
+
+    if s3_client is None or bucket_name is None or mode != "COPY":
+        return
+
+    await delete_all_from_s3_prefix(s3_client, bucket_name, key_prefix)
 
 
 @pytest.fixture
@@ -69,6 +90,7 @@ async def redshift_batch_export(ateam, table_name, redshift_config, interval, ex
 
 @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
+@pytest.mark.parametrize("mode", ["COPY", "INSERT"], indirect=True)
 @pytest.mark.parametrize("model", TEST_MODELS)
 async def test_redshift_export_workflow(
     clickhouse_client,
@@ -83,6 +105,11 @@ async def test_redshift_export_workflow(
     generate_test_data,
     data_interval_start,
     data_interval_end,
+    mode,
+    aws_credentials,
+    bucket_name,
+    bucket_region,
+    key_prefix,
     use_internal_stage,
 ):
     """Test Redshift Export Workflow end-to-end.
@@ -104,6 +131,26 @@ async def test_redshift_export_workflow(
     ):
         pytest.skip(f"Batch export model {model.name} cannot be tested in PostgreSQL")
 
+    if mode == "COPY":
+        if MISSING_REQUIRED_ENV_VARS:
+            pytest.skip("Testing COPY mode requires a Redshift instance")
+
+        if use_internal_stage is False:
+            pytest.skip("Testing COPY mode requires internal stage")
+
+        if not aws_credentials or not bucket_name or not bucket_region:
+            pytest.skip("Testing COPY mode requires S3 variables to be configured")
+
+        copy_inputs = RedshiftCopyInputs(
+            s3_bucket=bucket_name,
+            region_name=bucket_region,
+            s3_key_prefix=key_prefix,
+            authorization=aws_credentials,
+            bucket_credentials=aws_credentials,
+        )
+    else:
+        copy_inputs = None
+
     batch_export_schema: BatchExportSchema | None = None
     batch_export_model: BatchExportModel | None = None
     if isinstance(model, BatchExportModel):
@@ -119,6 +166,8 @@ async def test_redshift_export_workflow(
         interval=interval,
         batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
+        mode=mode,
+        copy_inputs=copy_inputs,
         **redshift_batch_export.destination.config,
     )
 
@@ -135,6 +184,7 @@ async def test_redshift_export_workflow(
                     insert_into_redshift_activity,
                     insert_into_internal_stage_activity,
                     insert_into_redshift_activity_from_stage,
+                    copy_into_redshift_activity_from_stage,
                     finish_batch_export_run,
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
@@ -179,6 +229,7 @@ async def test_redshift_export_workflow(
         batch_export_model=model,
         exclude_events=exclude_events,
         sort_key=sort_key,
+        copy=mode == "COPY",
     )
 
 
@@ -216,6 +267,7 @@ async def test_redshift_export_workflow_handles_unexpected_insert_activity_error
                     insert_into_redshift_activity,
                     insert_into_internal_stage_activity,
                     insert_into_redshift_activity_from_stage,
+                    copy_into_redshift_activity_from_stage,
                     finish_batch_export_run,
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
@@ -286,6 +338,7 @@ async def test_redshift_export_workflow_handles_insert_activity_non_retryable_er
                     insert_into_redshift_activity,
                     insert_into_internal_stage_activity,
                     insert_into_redshift_activity_from_stage,
+                    copy_into_redshift_activity_from_stage,
                     finish_batch_export_run,
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),

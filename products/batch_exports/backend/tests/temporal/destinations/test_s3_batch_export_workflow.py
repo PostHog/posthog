@@ -50,10 +50,8 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
 )
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue
-from products.batch_exports.backend.tests.temporal.utils import (
-    get_record_batch_from_queue,
-    mocked_start_batch_export_run,
-)
+from products.batch_exports.backend.tests.temporal.utils.records import get_record_batch_from_queue
+from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -1948,5 +1946,13 @@ base_inputs = {"bucket_name": "test", "region": "test", "team_id": 1}
 )
 def test_get_s3_key(inputs, expected):
     """Test the get_s3_key function renders the expected S3 key given inputs."""
-    result = get_s3_key(inputs)
+    result = get_s3_key(
+        inputs.prefix,
+        inputs.data_interval_start,
+        inputs.data_interval_end,
+        inputs.batch_export_model,
+        inputs.file_format,
+        inputs.compression,
+        use_new_file_naming_scheme=inputs.max_file_size_mb is not None,
+    )
     assert result == expected
