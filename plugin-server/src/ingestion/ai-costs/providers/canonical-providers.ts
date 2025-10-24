@@ -67,7 +67,7 @@ export type CanonicalProvider =
     | 'meta-fp8'
     | 'minimax'
     | 'mistral'
-    | 'model-run'
+    | 'modelrun'
     | 'moonshotai'
     | 'moonshotai-fp8'
     | 'moonshotai-turbo'
