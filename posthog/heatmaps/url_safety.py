@@ -6,12 +6,12 @@ DISALLOWED_SCHEMES = {"file", "ftp", "gopher", "ws", "wss", "data", "javascript"
 METADATA_HOSTS = {"169.254.169.254", "metadata.google.internal"}
 
 
-def resolve_host_ips(host: str) -> set[ipaddress._BaseAddress]:
+def resolve_host_ips(host: str) -> set[ipaddress.IPv4Address | ipaddress.IPv6Address]:
     try:
         infos = socket.getaddrinfo(host, None)
     except socket.gaierror:
         return set()
-    ips: set[ipaddress._BaseAddress] = set()
+    ips: set[ipaddress.IPv4Address | ipaddress.IPv6Address] = set()
     for _fam, *_rest, sockaddr in infos:
         ip = sockaddr[0]
         try:
