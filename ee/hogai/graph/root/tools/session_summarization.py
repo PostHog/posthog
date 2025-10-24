@@ -45,7 +45,7 @@ Otherwise:
 """.strip()
 
 
-class SessionSumarizationToolArgs(MaxToolArgs):
+class SessionSummarizationToolArgs(MaxToolArgs):
     session_summarization_query: str = Field(
         description="""
         - The user's complete query for session recordings summarization.
@@ -94,12 +94,12 @@ class SessionSumarizationToolArgs(MaxToolArgs):
     )
 
 
-class SessionSumarizationTool(MaxTool):
+class SessionSummarizationTool(MaxTool):
     name: Literal["session_summarization"] = "session_summarization"
     description: str = SESSION_SUMMARIZATION_TOOL_PROMPT
     thinking_message: str = "Summarizing session recordings"
     context_prompt_template: str = "Summarizes session recordings based on the user's query and current filters"
-    args_schema: type[BaseModel] = SessionSumarizationToolArgs
+    args_schema: type[BaseModel] = SessionSummarizationToolArgs
     show_tool_call_message: bool = False
 
     async def _arun_impl(

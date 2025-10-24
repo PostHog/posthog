@@ -65,7 +65,7 @@ from .tools import (
     ReadDataTool,
     ReadTaxonomyTool,
     SearchTool,
-    SessionSumarizationTool,
+    SessionSummarizationTool,
     TodoWriteTool,
 )
 
@@ -253,7 +253,7 @@ class RootNode(AssistantNode):
 
         # Add session summarization tool if enabled
         if self._has_session_summarization_feature_flag():
-            default_tools.append(SessionSumarizationTool)
+            default_tools.append(SessionSummarizationTool)
 
         # Add other lower-priority tools
         default_tools.extend(

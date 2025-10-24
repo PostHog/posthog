@@ -1,4 +1,3 @@
-# The module contains tools that are deprecated and will be replaced in the future with MaxTool implementations.
 from typing import Literal
 
 from langchain_core.runnables import RunnableLambda
@@ -7,8 +6,6 @@ from pydantic import BaseModel, Field
 from ee.hogai.graph.dashboards.nodes import DashboardCreationNode
 from ee.hogai.tool import MaxTool, MaxToolArgs, ToolMessagesArtifact
 from ee.hogai.utils.types.base import AssistantState, InsightQuery, PartialAssistantState
-
-# Lower casing matters here. Do not change it.
 
 CREATE_DASHBOARD_TOOL_PROMPT = """
 Use this tool when users ask to create, build, or make a new dashboard with insights.

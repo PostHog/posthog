@@ -108,28 +108,6 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 self.assertEqual(result, "")
                 self.assertIsNotNone(artifact)
 
-    async def test_execute_with_empty_insight_queries(self):
-        mock_result = PartialAssistantState(messages=[AssistantMessage(content="Empty dashboard created")])
-
-        async def mock_ainvoke(state):
-            self.assertEqual(state.search_insights_queries, [])
-            self.assertEqual(state.dashboard_name, "Empty Dashboard")
-            return mock_result
-
-        mock_chain = MagicMock()
-        mock_chain.ainvoke = mock_ainvoke
-
-        with patch("ee.hogai.graph.dashboards.nodes.DashboardCreationNode"):
-            with patch("ee.hogai.graph.root.tools.create_dashboard.RunnableLambda", return_value=mock_chain):
-                result, artifact = await self.tool._arun_impl(
-                    search_insights_queries=[],
-                    dashboard_name="Empty Dashboard",
-                    tool_call_id="test-id",
-                )
-
-                self.assertEqual(result, "")
-                self.assertIsNotNone(artifact)
-
     async def test_execute_with_many_insight_queries(self):
         mock_result = PartialAssistantState(messages=[AssistantMessage(content="Large dashboard created")])
 

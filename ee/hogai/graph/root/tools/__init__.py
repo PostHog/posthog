@@ -4,7 +4,7 @@ from .navigate import NavigateTool, NavigateToolArgs
 from .read_data import ReadDataTool, ReadDataToolArgs
 from .read_taxonomy import ReadTaxonomyTool
 from .search import SearchTool, SearchToolArgs
-from .session_summarization import SessionSumarizationTool, SessionSumarizationToolArgs
+from .session_summarization import SessionSummarizationTool, SessionSummarizationToolArgs
 from .todo_write import TodoWriteTool, TodoWriteToolArgs
 
 __all__ = [
@@ -19,8 +19,8 @@ __all__ = [
     "ReadTaxonomyTool",
     "SearchTool",
     "SearchToolArgs",
-    "SessionSumarizationTool",
-    "SessionSumarizationToolArgs",
+    "SessionSummarizationTool",
+    "SessionSummarizationToolArgs",
     "TodoWriteTool",
     "TodoWriteToolArgs",
 ]

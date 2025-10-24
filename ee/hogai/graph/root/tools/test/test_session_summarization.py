@@ -7,11 +7,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from posthog.schema import AssistantMessage
 
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.graph.root.tools.session_summarization import SessionSumarizationTool
+from ee.hogai.graph.root.tools.session_summarization import SessionSummarizationTool
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 
-class TestSessionSumarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
+class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def setUp(self):
@@ -19,7 +19,7 @@ class TestSessionSumarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.tool_call_id = str(uuid4())
         self.state = AssistantState(messages=[], root_tool_call_id=self.tool_call_id)
         self.context_manager = AssistantContextManager(self.team, self.user, {})
-        self.tool = SessionSumarizationTool(
+        self.tool = SessionSummarizationTool(
             team=self.team,
             user=self.user,
             state=self.state,
@@ -166,7 +166,7 @@ class TestSessionSumarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
             session_summarization_query=original_query,
         )
 
-        tool = SessionSumarizationTool(
+        tool = SessionSummarizationTool(
             team=self.team,
             user=self.user,
             state=original_state,
