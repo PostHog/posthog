@@ -256,9 +256,9 @@ def get_app_dashboard_queries_rate_limiter():
 
     def _is_in_temporal() -> bool:
         try:
-            from temporalio import workflow
+            from temporalio import activity, workflow
 
-            return workflow.in_workflow()
+            return workflow.in_workflow() or activity.in_activity()
         except ImportError:
             return False
 

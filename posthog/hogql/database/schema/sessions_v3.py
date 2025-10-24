@@ -27,7 +27,7 @@ from posthog.hogql.errors import ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.models.property_definition import PropertyType
-from posthog.models.raw_sessions.sql_v3 import (
+from posthog.models.raw_sessions.sessions_v3 import (
     RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_V3,
     RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER_V3,
     SESSION_V3_LOWER_TIER_AD_IDS,

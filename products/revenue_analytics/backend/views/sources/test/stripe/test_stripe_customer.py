@@ -52,8 +52,9 @@ class TestCustomerStripeBuilder(StripeSourceBaseTest):
         self.assertQueryContainsFields(query.query, CUSTOMER_SCHEMA)
         self.assertBuiltQueryStructure(
             query,
-            f"stripe.{self.external_data_source.prefix}.no_source",
+            str(self.stripe_handle.source.id),  # type: ignore
             f"stripe.{self.external_data_source.prefix}",
+            expected_test_comments="no_schema",
         )
 
         # Print and snapshot the generated HogQL query
@@ -76,8 +77,9 @@ class TestCustomerStripeBuilder(StripeSourceBaseTest):
         self.assertQueryContainsFields(query.query, CUSTOMER_SCHEMA)
         self.assertBuiltQueryStructure(
             query,
-            f"stripe.{self.external_data_source.prefix}.no_table",
+            str(self.stripe_handle.source.id),  # type: ignore
             f"stripe.{self.external_data_source.prefix}",
+            expected_test_comments="no_table",
         )
 
         # Print and snapshot the generated HogQL query

@@ -16,7 +16,9 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
+from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.mixins import FileSystemViewSetMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -234,7 +236,9 @@ class NotebookSerializer(NotebookMinimalSerializer):
         ],
     )
 )
-class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class NotebookViewSet(
+    FileSystemViewSetMixin, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet
+):
     scope_object = "notebook"
     queryset = Notebook.objects.all()
     filter_backends = [DjangoFilterBackend]
@@ -344,7 +348,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if str(request.headers.get("If-None-Match")) == str(instance.version):
             return Response(None, 304)
 
-        return Response(serializer.data)
+        response = Response(serializer.data)
+        log_api_file_system_view(request, instance)
+        return response
 
     @action(methods=["GET"], detail=False)
     def recording_comments(self, request: Request, **kwargs):
