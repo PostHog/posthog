@@ -605,7 +605,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                         recordings = [...recordings, ...fetchedRecordings.results]
                     }
-                    // TODO: Check for pinnedRecordings being IDs and fetch them, returning the merged list
 
                     return recordings
                 },
