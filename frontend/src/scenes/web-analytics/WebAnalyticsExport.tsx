@@ -60,13 +60,13 @@ export function WebAnalyticsExport({ query, insightProps }: WebAnalyticsExportPr
 
         switch (format) {
             case ExporterFormat.CSV:
-                copyTableToCsv(dataTableRows, columnsInResponse, dataTableQuery)
+                copyTableToCsv(dataTableRows, columnsInResponse, dataTableQuery, columnsInResponse)
                 break
             case ExporterFormat.JSON:
                 copyTableToJson(dataTableRows, columnsInResponse, dataTableQuery)
                 break
             case ExporterFormat.XLSX:
-                copyTableToExcel(dataTableRows, columnsInResponse, dataTableQuery)
+                copyTableToExcel(dataTableRows, columnsInResponse, dataTableQuery, columnsInResponse)
                 break
         }
     }
