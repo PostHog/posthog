@@ -5,6 +5,7 @@
 # TODO: 5. Clusterize embeddings, return groups/singles/and group centroids
 
 
+from ee.models.llm_traces_summaries import LLMTraceSummary
 from posthog.schema import DateRange
 
 from posthog.models.team.team import Team
@@ -48,10 +49,10 @@ class LLMTracesSummarizer:
         await database_sync_to_async(summary_generator.store_summaries_in_db)(summarized_traces=summarized_traces)
         # Embed summaries
         embedder = LLMTracesSummarizerEmbedder(team=self._team)
-        embedder.embed_summaries(summarized_traces=summarized_traces)
+        embedder.embed_summaries(summarized_traces=summarized_traces, summary_type=LLMTraceSummary.LLMTraceSummaryType.ISSUES_SEARCH)
         # Returns nothing if everything succeeded
         return None
 
     def find_top_similar_traces_for_query(self, query: str, top: int, date_range: DateRange) -> list[dict[str, str]]:
         """Search all summarized traces for the query and return the top similar traces."""
-        
+

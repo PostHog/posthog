@@ -8,8 +8,11 @@ from django.utils import timezone
 import structlog
 from langchain_core.runnables import RunnableConfig
 
+from ee.hogai.llm_traces_summaries.find_similar_traces import LLMTracesSummarizerFinder
+from ee.models.llm_traces_summaries import LLMTraceSummary
 from posthog.schema import AssistantToolCallMessage, DateRange, NotebookUpdateMessage
 
+from posthog.sync import database_sync_to_async
 from products.notebooks.backend.util import (
     TipTapNode,
     create_heading_with_text,
@@ -84,6 +87,14 @@ class LLMTracesSummarizationNode(AssistantNode):
                 # Check the last day, by default? # date_from="-1dStart", date_to="-1dEnd"
                 date_range=DateRange(date_from="-30d", date_to="-1d")  # TODO: Use proper date range
             )
+            traces_finder = LLMTracesSummarizerFinder(team=self._team)
+            test_similar_documents = await database_sync_to_async(traces_finder.find_top_similar_traces_for_query)(
+                query=llm_traces_summarization_query,
+                request_id=str(conversation_id),
+                top=10,
+                date_range=DateRange(date_from="-30d"), # Including now to search recent embeddings
+                summary_type=LLMTraceSummary.LLMTraceSummaryType.ISSUES_SEARCH,
+            )
             similar_documents: list[dict[str, str]] = []
             if not similar_documents:
                 return self._create_error_response("No similar traces found", state)
@@ -99,6 +110,7 @@ class LLMTracesSummarizationNode(AssistantNode):
             return PartialAssistantState(
                 messages=[
                     AssistantToolCallMessage(
+                        # TODO: Write helper prompt for PostHog AI that not all traces found are 100% relevant, so he needs to pick proper ones
                         content=f"Here are 5 latest traces for the requested query (specify 'latest' explicitly in your response):\n\n{json.dumps(similar_documents)}",
                         tool_call_id=state.root_tool_call_id or "unknown",
                         id=str(uuid4()),
