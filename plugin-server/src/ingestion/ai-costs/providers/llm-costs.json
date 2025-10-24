@@ -2006,7 +2006,7 @@
                 "prompt_token": 0,
                 "completion_token": 0
             },
-            "model-run": {
+            "modelrun": {
                 "prompt_token": 0,
                 "completion_token": 0
             }
