@@ -140,7 +140,7 @@ class TestStreamProcessor(BaseTest):
         self.assertEqual(result.tool_call_id, root_tool_call_id)
 
     def test_missing_parent_message_returns_ack(self):
-        """Test that missing parent message raises detailed ValueError."""
+        """Test that missing parent message returns ACK."""
         missing_parent_id = str(uuid4())
         child_message = AssistantMessage(content="Orphan", parent_tool_call_id=missing_parent_id)
 
