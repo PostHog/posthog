@@ -20,6 +20,11 @@ before-build = [
 before-all = [
     # manylinux_2_28 is based on AlmaLinux 8, which uses Fedora's dnf as its package manager
     "dnf install -y boost-devel unzip cmake curl uuid pkg-config",
+    # update cmake for antlr
+    "dnf install -y epel-release",
+    "dnf install -y cmake3",
+    "alternatives --set cmake /usr/bin/cmake3",
+    "dnf install -y boost-devel unzip curl uuid pkg-config",
     "curl https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip",
     # Check that the downloaded archive is the expected runtime - a security measure
     "antlr_known_md5sum=\"c875c148991aacd043f733827644a76f\"",
