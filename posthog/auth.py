@@ -111,13 +111,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         if "HTTP_AUTHORIZATION" in request.META:
             authorization_match = re.match(rf"^{cls.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
             if authorization_match:
-                token = authorization_match.group(1).strip()
-
-                if token.startswith(
-                    "pha_"
-                ):  # TRICKY: This returns None to allow the next authentication method to have a go. This should be `if not token.startswith("phx_")`, but we need to support legacy personal api keys that may not have been prefixed with phx_.
-                    return None
-                return token, "Authorization header"
+                return authorization_match.group(1).strip(), "Authorization header"
         data = request.data if request_data is None and isinstance(request, Request) else request_data
 
         if data and "personal_api_key" in data:
@@ -462,7 +456,7 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
             access_token = self._validate_token(authorization_token)
 
             if not access_token:
-                raise AuthenticationFailed(detail="Invalid access token.")
+                return None  # We return None here because we want to let the next authentication method have a go
 
             self.access_token = access_token
 
@@ -484,10 +478,10 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
             authorization_match = re.match(rf"^{self.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
             if authorization_match:
                 token = authorization_match.group(1).strip()
-
-                if token.startswith("pha_"):
-                    return token
-                return None
+                # Skip tokens that match personal api keys to avoid unnecessary DB queries
+                if token.startswith(("phx_", "phs_")):
+                    return None
+                return token
         return None
 
     def _validate_token(self, token: str):
