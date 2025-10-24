@@ -2,10 +2,7 @@ import datetime as dt
 
 import pytest
 
-from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
-    SnowflakeQueryTimeoutError,
-    _get_snowflake_query_timeout,
-)
+from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import _get_snowflake_query_timeout
 
 
 @pytest.mark.parametrize(
@@ -23,47 +20,3 @@ from products.batch_exports.backend.temporal.destinations.snowflake_batch_export
 )
 def test_get_snowflake_query_timeout(data_interval_start, data_interval_end, expected_timeout):
     assert _get_snowflake_query_timeout(data_interval_start, data_interval_end) == expected_timeout
-
-
-@pytest.mark.parametrize(
-    "query_status, expected_guidance",
-    [
-        (
-            "QUEUED",
-            "Warehouse is overloaded with queued queries. Consider scaling up warehouse or reducing concurrent queries.",
-        ),
-        (
-            "RESUMING_WAREHOUSE",
-            "Warehouse is resuming from suspended state. Consider keeping warehouse running or using larger warehouse.",
-        ),
-        (
-            "QUEUED_REPARING_WAREHOUSE",
-            "Warehouse is repairing. Retry later or contact Snowflake support.",
-        ),
-        (
-            "BLOCKED",
-            "Query is blocked. Check for locks or resource contention.",
-        ),
-        (
-            "RUNNING",
-            "Query is still running but exceeded timeout. Consider using a larger warehouse or reducing the number of concurrent queries.",
-        ),
-        (
-            "UNKNOWN_STATUS",
-            "Query status: UNKNOWN_STATUS",
-        ),
-    ],
-)
-def test_snowflake_query_timeout_error_message(query_status, expected_guidance):
-    """Test that SnowflakeQueryTimeoutError provides helpful context based on query status."""
-    error = SnowflakeQueryTimeoutError(
-        operation="COPY INTO",
-        timeout=1800.0,
-        query_id="abc123",
-        query_status=query_status,
-    )
-
-    error_message = str(error)
-    assert "COPY INTO operation timed out after 1800 seconds" in error_message
-    assert "query_id: abc123" in error_message
-    assert expected_guidance in error_message

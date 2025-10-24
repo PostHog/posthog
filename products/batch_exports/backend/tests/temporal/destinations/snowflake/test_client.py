@@ -65,7 +65,7 @@ async def test_execute_async_query_with_timeout_raises_error(snowflake_client):
 
     # Verify the exception has the correct information
     error_message = str(exc_info.value)
-    assert "Query operation timed out after 1 seconds" in error_message
+    assert "Query timed out after 1 seconds" in error_message
     assert "query_id:" in error_message
     # The query status should be RUNNING since the sleep is still executing
     assert (

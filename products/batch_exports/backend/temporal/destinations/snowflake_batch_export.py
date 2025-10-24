@@ -170,11 +170,10 @@ class SnowflakeIncompatibleSchemaError(Exception):
 class SnowflakeQueryTimeoutError(Exception):
     """Raised when a Snowflake query times out."""
 
-    def __init__(self, operation: str, timeout: float, query_id: str, query_status: str):
+    def __init__(self, timeout: float, query_id: str, query_status: str):
         """Initialize the exception with context about the timeout.
 
         Args:
-            operation: The operation that timed out (e.g., "COPY INTO", "MERGE")
             timeout: The timeout duration in seconds
             query_id: The Snowflake query ID for debugging
             query_status: The status of the query when timeout occurred
@@ -190,9 +189,7 @@ class SnowflakeQueryTimeoutError(Exception):
 
         guidance = status_guidance.get(query_status, f"Query status: {query_status}")
 
-        super().__init__(
-            f"{operation} operation timed out after {timeout:.0f} seconds (query_id: {query_id}). {guidance}"
-        )
+        super().__init__(f"Query timed out after {timeout:.0f} seconds (query_id: {query_id}). {guidance}")
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -497,7 +494,6 @@ class SnowflakeClient:
                 await self.abort_query(query_id)
 
                 raise SnowflakeQueryTimeoutError(
-                    operation="Query",
                     timeout=timeout,
                     query_id=query_id,
                     query_status=final_status.name if final_status else "UNKNOWN",
