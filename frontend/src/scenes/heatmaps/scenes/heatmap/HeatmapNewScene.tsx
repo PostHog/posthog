@@ -67,7 +67,7 @@ export function HeatmapNewScene(): JSX.Element {
             >
                 <LemonInput
                     size="small"
-                    placeholder={displayUrl ? `Same as display URL: ${displayUrl}` : 'Enter a URL'}
+                    placeholder="https://www.example.com/*"
                     value={dataUrl ?? ''}
                     onChange={(value) => {
                         setDataUrl(value || null)
