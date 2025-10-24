@@ -75,7 +75,7 @@ jobs:
                   cd common/hogql_parser && python setup.py sdist
 
             - name: Install cibuildwheel
-              run: pip install cibuildwheel==2.16.*
+              run: pip install cibuildwheel==2.23.*
 
             - name: Build wheels
               run: cd common/hogql_parser && python -m cibuildwheel --output-dir dist
