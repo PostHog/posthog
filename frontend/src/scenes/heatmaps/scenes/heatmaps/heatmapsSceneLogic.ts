@@ -1,6 +1,7 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
+import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { Scene } from 'scenes/sceneTypes'
@@ -18,14 +19,17 @@ export const DEFAULT_HEATMAP_FILTERS = {
     order: '-created_at',
 }
 
+export const HEATMAPS_PER_PAGE = 30
+
 export const heatmapsSceneLogic = kea<heatmapsSceneLogicType>([
-    path(['scenes', 'heatmaps', 'heatmapsSceneLogic']),
+    path(['scenes', 'heatmaps', 'scenes', 'heatmaps', 'heatmapsSceneLogic']),
     actions({
         loadSavedHeatmaps: true,
         setSavedHeatmaps: (items: HeatmapScreenshotType[]) => ({ items }),
         setLoading: (loading: boolean) => ({ loading }),
         deleteHeatmap: (short_id: string) => ({ short_id }),
         setHeatmapsFilters: (filters: HeatmapSavedFilters) => ({ filters }),
+        setTotalCount: (count: number) => ({ count }),
     }),
     reducers({
         savedHeatmaps: [
@@ -47,8 +51,14 @@ export const heatmapsSceneLogic = kea<heatmapsSceneLogicType>([
                 setHeatmapsFilters: (_, { filters }) => filters,
             },
         ],
+        totalCount: [
+            0 as number,
+            {
+                setTotalCount: (_, { count }) => count,
+            },
+        ],
     }),
-    selectors(() => ({
+    selectors(({ actions }) => ({
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => {
@@ -60,6 +70,26 @@ export const heatmapsSceneLogic = kea<heatmapsSceneLogicType>([
                         iconType: sceneConfigurations[Scene.Heatmaps].iconType || 'default_icon_type',
                     },
                 ]
+            },
+        ],
+        pagination: [
+            (s) => [s.filters, s.totalCount],
+            (filters, totalCount): PaginationManual => {
+                return {
+                    controlled: true,
+                    pageSize: HEATMAPS_PER_PAGE,
+                    currentPage: filters.page,
+                    entryCount: totalCount,
+                    onBackward:
+                        (filters.page || 1) > 1
+                            ? () =>
+                                  actions.setHeatmapsFilters({ ...filters, page: Math.max(1, (filters.page || 1) - 1) })
+                            : undefined,
+                    onForward:
+                        (filters.page || 1) * HEATMAPS_PER_PAGE < (totalCount || 0)
+                            ? () => actions.setHeatmapsFilters({ ...filters, page: (filters.page || 1) + 1 })
+                            : undefined,
+                }
             },
         ],
     })),
@@ -77,9 +107,12 @@ export const heatmapsSceneLogic = kea<heatmapsSceneLogicType>([
                     createdBy: createdBy || 'All users',
                     page: f.page || 1,
                     order: f.order || '-created_at',
+                    limit: HEATMAPS_PER_PAGE,
+                    offset: Math.max(0, (f.page - 1 || 0) * HEATMAPS_PER_PAGE),
                 }
                 const response = await api.heatmapSaved.list(params)
                 actions.setSavedHeatmaps(response.results || [])
+                actions.setTotalCount(response.count || 0)
             } finally {
                 actions.setLoading(false)
             }

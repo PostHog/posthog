@@ -97,10 +97,6 @@ def _block_internal_requests(page: Page) -> None:
     max_retries=3,
 )
 def generate_heatmap_screenshot(screenshot_id: str) -> None:
-    """
-    Generate a screenshot of a website for heatmap purposes.
-    Similar to image_exporter but for arbitrary URLs.
-    """
     try:
         screenshot = HeatmapSaved.objects.select_related("team", "created_by").get(id=screenshot_id)
     except HeatmapSaved.DoesNotExist:
@@ -164,8 +160,6 @@ def generate_heatmap_screenshot(screenshot_id: str) -> None:
 
 
 def _generate_screenshots(screenshot: HeatmapSaved) -> None:
-    """Generate screenshots for multiple widths using Playwright in one browser session."""
-
     # Determine target widths
     target_widths = screenshot.target_widths or DEFAULT_TARGET_WIDTHS
     # Deduplicate and keep order

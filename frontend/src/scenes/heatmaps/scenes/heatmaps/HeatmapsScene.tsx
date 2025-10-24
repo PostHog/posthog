@@ -27,7 +27,7 @@ export const scene: SceneExport = {
 }
 
 export function HeatmapsScene(): JSX.Element {
-    const { savedHeatmaps, savedHeatmapsLoading, filters } = useValues(heatmapsSceneLogic)
+    const { savedHeatmaps, savedHeatmapsLoading, filters, pagination } = useValues(heatmapsSceneLogic)
     const { deleteHeatmap, setHeatmapsFilters } = useActions(heatmapsSceneLogic)
 
     const columns: LemonTableColumns<HeatmapScreenshotType> = [
@@ -150,7 +150,14 @@ export function HeatmapsScene(): JSX.Element {
                 </div>
             </div>
             <div className="mb-4">
-                <LemonTable dataSource={savedHeatmaps} loading={savedHeatmapsLoading} columns={columns} rowKey="id" />
+                <LemonTable
+                    dataSource={savedHeatmaps}
+                    loading={savedHeatmapsLoading}
+                    columns={columns}
+                    rowKey="id"
+                    pagination={pagination}
+                    nouns={['heatmap', 'heatmaps']}
+                />
             </div>
         </SceneContent>
     )

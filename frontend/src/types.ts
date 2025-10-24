@@ -5885,6 +5885,8 @@ export interface HeatmapSavedFilters {
     search: string
     createdBy: number | 'All users'
     page: number
+    limit: number
+    offset: number
 }
 
 export interface DataWarehouseDashboardDataSource {
