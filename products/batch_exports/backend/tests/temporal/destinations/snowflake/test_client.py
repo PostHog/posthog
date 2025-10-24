@@ -4,7 +4,6 @@ Test SnowflakeClient behavior.
 Note: This module uses a real Snowflake connection.
 """
 
-import re
 import asyncio
 import datetime as dt
 
@@ -55,16 +54,15 @@ async def test_execute_async_query_with_timeout_raises_error(snowflake_client):
     This test uses a real Snowflake connection and runs a query that will take longer than
     the specified timeout. We use a SYSTEM$WAIT() call to simulate a long-running query.
     """
-    # Execute a query that will sleep for 10 seconds but with a 1 second timeout
-    # This should raise a SnowflakeQueryTimeoutError
     with pytest.raises(SnowflakeQueryTimeoutError) as exc_info:
         await snowflake_client.execute_async_query(
             "CALL SYSTEM$WAIT(10)",  # Sleep for 10 seconds
-            timeout=1.0,  # Timeout after 1 second
+            timeout=1.0,
         )
 
     # Verify the exception has the correct information
-    error_message = str(exc_info.value)
+    error = exc_info.value
+    error_message = str(error)
     assert "Query timed out after 1 seconds" in error_message
     assert "query_id:" in error_message
     # The query status should be RUNNING since the sleep is still executing
@@ -74,31 +72,37 @@ async def test_execute_async_query_with_timeout_raises_error(snowflake_client):
         or "Warehouse is resuming" in error_message
     )
 
-    # Extract the query_id from the error message to check if it was cancelled
-    query_id_match = re.search(r"query_id:\s*([a-f0-9-]+)", error_message)
-    assert query_id_match is not None, f"Query ID should be present in error message: {error_message}"
-    query_id = query_id_match.group(1)
+    query_id = error.query_id
+    assert query_id is not None, "Query ID should be available as exception attribute"
 
     # Check if the query was actually cancelled/aborted in Snowflake
-    # Wait a bit to allow cancellation to take effect
-    await asyncio.sleep(1)
+    # Poll for the query to be aborted with a timeout
+    max_wait_seconds = 10
+    poll_interval = 0.5
+    elapsed = 0.0
 
-    query_status = await snowflake_client.get_query_status(query_id, throw_if_error=False)
+    while elapsed < max_wait_seconds:
+        await asyncio.sleep(poll_interval)
+        elapsed += poll_interval
+
+        query_status = await snowflake_client.get_query_status(query_id, throw_if_error=False)
+        assert query_status is not None, "Query status should be available"
+
+        if query_status.name in ["ABORTED", "FAILED_WITH_ERROR"]:
+            # Query was successfully aborted
+            break
 
     # The query should be aborted, not still running
-    assert query_status is not None, "Query status should be available"
     assert query_status.name in [
         "ABORTED",
         "FAILED_WITH_ERROR",  # for some odd reason this seems to be the status when the query is aborted
-    ], f"Query should be aborted after timeout, status: {query_status.name}"
+    ], f"Query was not successfully aborted after timeout, status: {query_status.name}"
 
 
 async def test_execute_async_query_without_timeout_completes(snowflake_client):
     """Test that execute_async_query completes successfully when no timeout is specified."""
-    # Execute a simple query without a timeout - should complete successfully
     result = await snowflake_client.execute_async_query("SELECT 1 AS test_column")
 
-    # Verify the query completed successfully
     assert result is not None
     results, description = result
     assert len(results) == 1
@@ -108,13 +112,11 @@ async def test_execute_async_query_without_timeout_completes(snowflake_client):
 
 async def test_execute_async_query_completes_within_timeout(snowflake_client):
     """Test that execute_async_query completes successfully when query finishes before timeout."""
-    # Execute a quick query with a generous timeout - should complete successfully
     result = await snowflake_client.execute_async_query(
         "SELECT 1 AS test_column",
-        timeout=60.0,  # 60 second timeout, query should complete in < 1 second
+        timeout=60.0,
     )
 
-    # Verify the query completed successfully
     assert result is not None
     results, _description = result
     assert len(results) == 1

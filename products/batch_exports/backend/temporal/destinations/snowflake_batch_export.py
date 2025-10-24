@@ -167,7 +167,7 @@ class SnowflakeIncompatibleSchemaError(Exception):
         )
 
 
-class SnowflakeQueryTimeoutError(Exception):
+class SnowflakeQueryTimeoutError(TimeoutError):
     """Raised when a Snowflake query times out."""
 
     def __init__(self, timeout: float, query_id: str, query_status: str):
@@ -178,6 +178,10 @@ class SnowflakeQueryTimeoutError(Exception):
             query_id: The Snowflake query ID for debugging
             query_status: The status of the query when timeout occurred
         """
+        self.timeout = timeout
+        self.query_id = query_id
+        self.query_status = query_status
+
         # Provide context-specific guidance based on query status
         status_guidance = {
             "QUEUED": "Warehouse is overloaded with queued queries. Consider scaling up warehouse or reducing concurrent queries.",
@@ -420,15 +424,20 @@ class SnowflakeClient:
         else:
             return await asyncio.to_thread(self.connection.get_query_status, query_id)
 
-    async def abort_query(self, query_id: str) -> None:
-        """Abort a query."""
+    async def abort_query(self, query_id: str, timeout: float = 30.0) -> None:
+        """Abort a query with a timeout to prevent hanging."""
         try:
             with self.connection.cursor() as cursor:
-                abort_success = await asyncio.to_thread(cursor.abort_query, query_id)
+                abort_success = await asyncio.wait_for(
+                    asyncio.to_thread(cursor.abort_query, query_id),
+                    timeout=timeout,
+                )
                 if not abort_success:
-                    self.logger.warning("Failed to abort query '%s'", query_id)
+                    self.logger.warning("Failed to abort query", query_id=query_id)
+        except TimeoutError:
+            self.logger.warning("Timed out while aborting query after %.2fs", timeout, query_id=query_id)
         except Exception as e:
-            self.logger.warning("Error while aborting query '%s': %s", query_id, e)
+            self.logger.warning("Error while aborting query '%s'", e, query_id=query_id)
 
     async def execute_async_query(
         self,
@@ -464,7 +473,7 @@ class SnowflakeClient:
         Raises:
             SnowflakeQueryTimeoutError: If the query exceeds the specified timeout.
         """
-        query_start_time = time.time()
+        query_start_time = time.monotonic()
         self.logger.debug("Executing async query: %s", query)
 
         poll_interval = poll_interval or self.DEFAULT_POLL_INTERVAL
@@ -480,7 +489,7 @@ class SnowflakeClient:
 
         while self.connection.is_still_running(query_status):
             # Check if we've exceeded the timeout
-            if timeout is not None and (time.time() - query_start_time) > timeout:
+            if timeout is not None and (time.monotonic() - query_start_time) > timeout:
                 # Get the final query status to provide context in the error message
                 final_status = await self.get_query_status(query_id, throw_if_error=False)
                 self.logger.warning(
@@ -502,7 +511,7 @@ class SnowflakeClient:
             query_status = await self.get_query_status(query_id, throw_if_error=True)
             await asyncio.sleep(poll_interval)
 
-        query_execution_time = time.time() - query_start_time
+        query_execution_time = time.monotonic() - query_start_time
         self.logger.debug(
             "Async query '%s' finished with status '%s' in %.2fs", query_id, query_status, query_execution_time
         )
