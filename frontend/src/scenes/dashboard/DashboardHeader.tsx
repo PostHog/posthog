@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useMemo, useState } from 'react'
 
-import { IconGridMasonry, IconNotebook, IconPalette, IconScreen, IconTrash } from '@posthog/icons'
+import { IconGraph, IconGridMasonry, IconNotebook, IconPalette, IconScreen, IconTrash } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
@@ -28,6 +28,10 @@ import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
+import { MaxTool } from 'scenes/max/MaxTool'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -40,6 +44,7 @@ import {
 } from '~/layout/scenes/SceneLayout'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { notebooksModel } from '~/models/notebooksModel'
 import { tagsModel } from '~/models/tagsModel'
@@ -49,7 +54,7 @@ import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
 import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
-import { dashboardLogic } from './dashboardLogic'
+import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
 
 const RESOURCE_TYPE = 'dashboard'
@@ -69,13 +74,16 @@ export function DashboardHeader(): JSX.Element | null {
         showTextTileModal,
         textTileId,
     } = useValues(dashboardLogic)
-    const { setDashboardMode, triggerDashboardUpdate } = useActions(dashboardLogic)
-    const { asDashboardTemplate } = useValues(dashboardLogic)
+    const { setDashboardMode, triggerDashboardUpdate, loadDashboard } = useActions(dashboardLogic)
+    const { asDashboardTemplate, effectiveEditBarFilters, effectiveDashboardVariableOverrides, tiles } =
+        useValues(dashboardLogic)
     const { updateDashboard, pinDashboard, unpinDashboard } = useActions(dashboardsModel)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { setDashboardTemplate, openDashboardTemplateEditor } = useActions(dashboardTemplateEditorLogic)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
+    const { newTab } = useActions(sceneLogic)
+    const { setScenePanelOpen } = useActions(sceneLayoutLogic)
 
     const { user } = useValues(userLogic)
 
@@ -311,6 +319,35 @@ export function DashboardHeader(): JSX.Element | null {
                     )}
 
                     {dashboard && <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />}
+                    {dashboard && (
+                        <ButtonPrimitive
+                            onClick={() => {
+                                tiles.forEach((tile) => {
+                                    if (tile.insight?.short_id == null) {
+                                        return
+                                    }
+                                    const url = urls.insightView(
+                                        tile.insight.short_id,
+                                        dashboard.id,
+                                        effectiveDashboardVariableOverrides,
+                                        effectiveEditBarFilters,
+                                        tile?.filters_overrides
+                                    )
+                                    newTab(url)
+                                })
+                                setScenePanelOpen(false)
+                            }}
+                            menuItem
+                            data-attr="open-insights-in-new-posthog-tabs"
+                            disabledReasons={{
+                                'Cannot open insights when editing dashboard': dashboardMode === DashboardMode.Edit,
+                                'Dashboard has no insights': tiles.length === 0,
+                            }}
+                        >
+                            <IconGraph />
+                            Open insights in new PostHog tabs
+                        </ButtonPrimitive>
+                    )}
                 </ScenePanelActionsSection>
                 {dashboard && canEditDashboard && (
                     <>
@@ -343,7 +380,7 @@ export function DashboardHeader(): JSX.Element | null {
                 name={dashboard?.name}
                 description={dashboard?.description}
                 resourceType={{
-                    type: 'dashboard',
+                    type: sceneConfigurations[Scene.Dashboard].iconType || 'default_icon_type',
                 }}
                 onNameChange={(value) => updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })}
                 onDescriptionChange={(value) =>
@@ -415,44 +452,55 @@ export function DashboardHeader(): JSX.Element | null {
                                     </>
                                 )}
                                 {dashboard ? (
-                                    <AccessControlAction
-                                        resourceType={AccessControlResourceType.Dashboard}
-                                        minAccessLevel={AccessControlLevel.Editor}
-                                        userAccessLevel={dashboard.user_access_level}
-                                    >
-                                        <LemonButton
-                                            onClick={showAddInsightToDashboardModal}
-                                            type="primary"
-                                            data-attr="dashboard-add-graph-header"
-                                            sideAction={{
-                                                dropdown: {
-                                                    placement: 'bottom-end',
-                                                    overlay: (
-                                                        <AccessControlAction
-                                                            resourceType={AccessControlResourceType.Dashboard}
-                                                            minAccessLevel={AccessControlLevel.Editor}
-                                                            userAccessLevel={dashboard.user_access_level}
-                                                        >
-                                                            <LemonButton
-                                                                fullWidth
-                                                                onClick={() => {
-                                                                    push(urls.dashboardTextTile(dashboard.id, 'new'))
-                                                                }}
-                                                                data-attr="add-text-tile-to-dashboard"
-                                                            >
-                                                                Add text card
-                                                            </LemonButton>
-                                                        </AccessControlAction>
-                                                    ),
-                                                },
-                                                disabled: false,
-                                                'data-attr': 'dashboard-add-dropdown',
-                                            }}
-                                            size="small"
+                                    <>
+                                        <AccessControlAction
+                                            resourceType={AccessControlResourceType.Dashboard}
+                                            minAccessLevel={AccessControlLevel.Editor}
+                                            userAccessLevel={dashboard.user_access_level}
                                         >
-                                            Add insight
-                                        </LemonButton>
-                                    </AccessControlAction>
+                                            <LemonButton
+                                                onClick={() => {
+                                                    push(urls.dashboardTextTile(dashboard.id, 'new'))
+                                                }}
+                                                data-attr="add-text-tile-to-dashboard"
+                                                type="secondary"
+                                                size="small"
+                                            >
+                                                Add text card
+                                            </LemonButton>
+                                        </AccessControlAction>
+                                        <MaxTool
+                                            identifier="edit_current_dashboard"
+                                            context={{
+                                                current_dashboard: dashboard
+                                                    ? {
+                                                          id: dashboard.id,
+                                                          name: dashboard.name,
+                                                          description: dashboard.description,
+                                                          tags: dashboard.tags,
+                                                      }
+                                                    : undefined,
+                                            }}
+                                            active={!!dashboard && canEditDashboard}
+                                            callback={() => loadDashboard({ action: DashboardLoadAction.Update })}
+                                            position="top-right"
+                                        >
+                                            <AccessControlAction
+                                                resourceType={AccessControlResourceType.Dashboard}
+                                                minAccessLevel={AccessControlLevel.Editor}
+                                                userAccessLevel={dashboard.user_access_level}
+                                            >
+                                                <LemonButton
+                                                    onClick={showAddInsightToDashboardModal}
+                                                    type="primary"
+                                                    data-attr="dashboard-add-graph-header"
+                                                    size="small"
+                                                >
+                                                    Add insight
+                                                </LemonButton>
+                                            </AccessControlAction>
+                                        </MaxTool>
+                                    </>
                                 ) : null}
                             </>
                         )}

@@ -5,25 +5,20 @@ import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { humanFriendlyDuration } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { EvaluationRun } from '../types'
 
 export function EvaluationRunsTable(): JSX.Element {
-    const { evaluationRuns, runsLoading } = useValues(llmEvaluationLogic)
+    const { evaluationRuns, evaluationRunsLoading } = useValues(llmEvaluationLogic)
     const { refreshEvaluationRuns } = useActions(llmEvaluationLogic)
 
     const columns: LemonTableColumns<EvaluationRun> = [
         {
             title: 'Timestamp',
             key: 'timestamp',
-            render: (_, run) => (
-                <div className="flex flex-col">
-                    <TZLabel time={run.timestamp} />
-                    <div className="text-muted text-xs">{humanFriendlyDuration(run.timestamp)}</div>
-                </div>
-            ),
+            render: (_, run) => <TZLabel time={run.timestamp} />,
             sorter: (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
         },
         {
@@ -31,31 +26,12 @@ export function EvaluationRunsTable(): JSX.Element {
             key: 'generation_id',
             render: (_, run) => (
                 <div className="font-mono text-sm">
-                    <Link to={`/llm-analytics/traces?event=${run.generation_id}`} className="text-primary">
+                    <Link
+                        to={urls.llmAnalyticsTrace(run.trace_id, { event: run.generation_id })}
+                        className="text-primary"
+                    >
                         {run.generation_id.slice(0, 12)}...
                     </Link>
-                </div>
-            ),
-        },
-        {
-            title: 'Input',
-            key: 'input_preview',
-            render: (_, run) => (
-                <div className="max-w-xs">
-                    <div className="text-sm font-mono bg-bg-light border rounded px-2 py-1 truncate">
-                        {run.input_preview || '(No input)'}
-                    </div>
-                </div>
-            ),
-        },
-        {
-            title: 'Output',
-            key: 'output_preview',
-            render: (_, run) => (
-                <div className="max-w-xs">
-                    <div className="text-sm font-mono bg-bg-light border rounded px-2 py-1 truncate">
-                        {run.output_preview || '(No output)'}
-                    </div>
                 </div>
             ),
         },
@@ -95,6 +71,15 @@ export function EvaluationRunsTable(): JSX.Element {
             },
         },
         {
+            title: 'Reasoning',
+            key: 'reasoning',
+            render: (_, run) => (
+                <div className="max-w-md">
+                    <div className="text-sm text-default line-clamp-2">{run.reasoning}</div>
+                </div>
+            ),
+        },
+        {
             title: 'Status',
             key: 'status',
             render: (_, run) => {
@@ -116,7 +101,7 @@ export function EvaluationRunsTable(): JSX.Element {
                     type="secondary"
                     icon={<IconRefresh />}
                     onClick={refreshEvaluationRuns}
-                    loading={runsLoading}
+                    loading={evaluationRunsLoading}
                     size="small"
                 >
                     Refresh
@@ -126,7 +111,7 @@ export function EvaluationRunsTable(): JSX.Element {
             <LemonTable
                 columns={columns}
                 dataSource={evaluationRuns}
-                loading={runsLoading}
+                loading={evaluationRunsLoading}
                 rowKey="id"
                 pagination={{
                     pageSize: 20,

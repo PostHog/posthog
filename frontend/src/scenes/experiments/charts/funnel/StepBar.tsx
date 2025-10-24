@@ -51,7 +51,7 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element {
         if (sessionData) {
             openModal({
                 sessionData,
-                stepName: step.name,
+                stepName: step.custom_name || step.name,
                 variant: variantKey,
             })
         }

@@ -7,13 +7,14 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.notebook.notebook import Notebook
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.rbac.user_access_control import AccessSource
 from posthog.utils import render_template
+
+from products.notebooks.backend.models import Notebook
 
 from ee.api.test.base import APILicensedTest
 from ee.models.rbac.role import Role, RoleMembership
@@ -762,13 +763,13 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         with self.assertNumQueries(baseline + 4):
             self.client.get(f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true")
 
-        baseline = 8
+        baseline = 9
         # Getting my own notebook is the same as a dashboard - 3 extra queries
         with self.assertNumQueries(baseline + 5):
             self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
 
         # Except when accessing a different notebook where we _also_ need to check as we are not the creator and the pk is not the same (short_id)
-        with self.assertNumQueries(baseline + 6):
+        with self.assertNumQueries(baseline + 7):
             self.client.get(f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}")
 
         baseline = 8
@@ -805,14 +806,14 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         self._org_membership(OrganizationMembership.Level.MEMBER)
         # Baseline query (triggers any first time cache things)
         self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
-        baseline = 8
+        baseline = 9
 
         # Getting my own notebook is the same as a dashboard - 3 extra queries
         with self.assertNumQueries(baseline + 5):
             self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
 
         # Except when accessing a different notebook where we _also_ need to check as we are not the creator and the pk is not the same (short_id)
-        with self.assertNumQueries(baseline + 6):
+        with self.assertNumQueries(baseline + 7):
             self.client.get(f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}")
 
     def test_query_counts_stable_for_project_access(self):

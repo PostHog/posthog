@@ -479,7 +479,11 @@ export function buildPartialResponsesFilter(survey: Survey): string {
     ) --- Filter to ensure we only get one response per ${SurveyEventProperties.SURVEY_SUBMISSION_ID}`
 }
 
-export function sanitizeSurvey(survey: Partial<Survey>): Partial<Survey> {
+interface SanitizeSurveyOptions {
+    keepEmptyConditions?: boolean
+}
+
+export function sanitizeSurvey(survey: Partial<Survey>, options?: SanitizeSurveyOptions): Partial<Survey> {
     const sanitizedQuestions =
         survey.questions?.map((question) => ({
             ...question,
@@ -514,7 +518,7 @@ export function sanitizeSurvey(survey: Partial<Survey>): Partial<Survey> {
         sanitized.targeting_flag_filters = undefined
     }
 
-    if (!conditions || Object.keys(conditions).length === 0) {
+    if (options?.keepEmptyConditions !== true && (!conditions || Object.keys(conditions).length === 0)) {
         delete sanitized.conditions
     }
     if (!sanitizedAppearance || Object.keys(sanitizedAppearance).length === 0) {

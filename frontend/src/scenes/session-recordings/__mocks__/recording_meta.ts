@@ -24,4 +24,6 @@ export const recordingMetaJson: SessionRecordingType = {
     storage: 'object_storage',
     viewers: [],
     snapshot_source: 'web',
+    expiry_time: '2023-06-01T00:00:00.000000Z',
+    recording_ttl: 30,
 }

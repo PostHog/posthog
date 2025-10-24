@@ -30,6 +30,7 @@ async def mock_export_asset():
     with (
         patch("ee.tasks.subscriptions.subscription_utils.exporter.export_asset_direct", side_effect=set_content),
         patch("ee.tasks.subscriptions.subscription_utils.get_metric_meter", MagicMock()),
+        patch("ee.tasks.subscriptions.get_metric_meter", MagicMock()),
     ):
         yield
 

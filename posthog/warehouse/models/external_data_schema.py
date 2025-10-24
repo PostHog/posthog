@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Literal, Optional
 
 from django.conf import settings
@@ -54,7 +54,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType.choices, null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str] }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -175,6 +175,13 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
         return None
 
+    @property
+    def chunk_size_override(self) -> int | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("chunk_size_override", None)
+
+        return None
+
     def set_partitioning_enabled(
         self,
         partitioning_keys: list[str],
@@ -201,6 +208,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config.pop("partitioning_keys", None)
         self.sync_type_config.pop("partition_mode", None)
         # We don't reset partition_format
+        # We don't reset chunk_size_override
 
         self.save()
 
@@ -276,9 +284,18 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
         return value
 
     if field_type == IncrementalFieldType.DateTime or field_type == IncrementalFieldType.Timestamp:
+        if isinstance(value, datetime):
+            return value
+
         return parser.parse(value)
 
     if field_type == IncrementalFieldType.Date:
+        if isinstance(value, datetime):
+            return value.date()
+
+        if isinstance(value, date):
+            return value
+
         return parser.parse(value).date()
 
     if field_type == IncrementalFieldType.ObjectID:

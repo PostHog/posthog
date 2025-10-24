@@ -11,6 +11,7 @@ import { setupCommonRoutes, setupExpressApp } from './api/router'
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
 import { CdpBehaviouralEventsConsumer } from './cdp/consumers/cdp-behavioural-events.consumer'
+import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
 import { CdpCyclotronDelayConsumer } from './cdp/consumers/cdp-cyclotron-delay.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
@@ -27,6 +28,7 @@ import {
 import { IngestionConsumer } from './ingestion/ingestion-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { onShutdown } from './lifecycle'
+import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
 import { startAsyncWebhooksHandlerConsumer } from './main/ingestion-queues/on-event-handler-consumer'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
@@ -270,6 +272,22 @@ export class PluginServer {
                     const worker = new CdpBehaviouralEventsConsumer(hub)
                     await worker.start()
                     return worker.service
+                })
+            }
+
+            if (capabilities.cdpCohortMembership) {
+                serviceLoaders.push(async () => {
+                    const consumer = new CdpCohortMembershipConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
+            if (capabilities.logsIngestion) {
+                serviceLoaders.push(async () => {
+                    const consumer = new LogsIngestionConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
                 })
             }
 

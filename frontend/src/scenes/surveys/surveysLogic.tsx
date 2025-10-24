@@ -6,16 +6,11 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { Scene } from 'scenes/sceneTypes'
-import {
-    SURVEY_CREATED_SOURCE,
-    SURVEY_EMPTY_STATE_EXPERIMENT_VARIANT,
-    SURVEY_PAGE_SIZE,
-    SurveyTemplate,
-} from 'scenes/surveys/constants'
+import { sceneConfigurations } from 'scenes/scenes'
+import { SURVEY_CREATED_SOURCE, SURVEY_PAGE_SIZE, SurveyTemplate } from 'scenes/surveys/constants'
 import { sanitizeSurvey } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -342,12 +337,6 @@ export const surveysLogic = kea<surveysLogicType>([
         },
     })),
     selectors({
-        isOnNewEmptyStateExperiment: [
-            (s) => [s.enabledFlags],
-            (enabledFlags: FeatureFlagsSet): boolean => {
-                return enabledFlags[FEATURE_FLAGS.SURVEY_EMPTY_STATE_V2] === SURVEY_EMPTY_STATE_EXPERIMENT_VARIANT.TEST
-            },
-        ],
         searchedSurveys: [
             (selectors) => [selectors.data, selectors.searchTerm, selectors.filters],
             (data, searchTerm, filters) => {
@@ -396,9 +385,9 @@ export const surveysLogic = kea<surveysLogicType>([
             (): Breadcrumb[] => [
                 {
                     key: Scene.Surveys,
-                    name: 'Surveys',
+                    name: sceneConfigurations[Scene.Surveys].name || 'Surveys',
                     path: urls.surveys(),
-                    iconType: 'survey',
+                    iconType: sceneConfigurations[Scene.Surveys].iconType || 'default_icon_type',
                 },
             ],
         ],

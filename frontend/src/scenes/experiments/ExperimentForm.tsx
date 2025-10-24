@@ -38,11 +38,17 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AccessControlLevel, AccessControlResourceType, FeatureFlagType } from '~/types'
 
 import { experimentLogic } from './experimentLogic'
-import { featureFlagEligibleForExperiment } from './utils'
 
 const ExperimentFormFields = (): JSX.Element => {
-    const { formMode, experiment, groupTypes, aggregationLabel, hasPrimaryMetricSet, validExistingFeatureFlag } =
-        useValues(experimentLogic)
+    const {
+        formMode,
+        experiment,
+        groupTypes,
+        aggregationLabel,
+        hasPrimaryMetricSet,
+        validExistingFeatureFlag,
+        createExperimentLoading,
+    } = useValues(experimentLogic)
     const { addVariant, removeVariant, setExperiment, submitExperiment, setExperimentType, validateFeatureFlag } =
         useActions(experimentLogic)
     const { webExperimentsAvailable, unavailableFeatureFlagKeys } = useValues(experimentsLogic)
@@ -193,7 +199,7 @@ const ExperimentFormFields = (): JSX.Element => {
                     <SceneDivider />
                 </>
             )}
-            {groupsAccessStatus === GroupsAccessStatus.AlreadyUsing && (
+            {groupsAccessStatus === GroupsAccessStatus.AlreadyUsing && !validExistingFeatureFlag && (
                 <>
                     <SceneSection
                         title="Participant type"
@@ -385,6 +391,7 @@ const ExperimentFormFields = (): JSX.Element => {
                     type="primary"
                     data-attr="save-experiment"
                     onClick={() => submitExperiment()}
+                    loading={createExperimentLoading}
                 >
                     Save as draft
                 </LemonButton>
@@ -494,19 +501,12 @@ const SelectExistingFeatureFlagModal = ({
             <div className="deprecated-space-y-2">
                 <div className="text-muted mb-2 max-w-xl">
                     Select an existing multivariate feature flag to use with this experiment. The feature flag must use
-                    multiple variants with <code>'control'</code> as the first, and not be associated with an existing
-                    experiment.
+                    multiple variants with <code>'control'</code> as the first.
                 </div>
                 {filtersSection}
                 <LemonTable
                     id="ff"
-                    dataSource={featureFlagModalFeatureFlags.results.filter((featureFlag) => {
-                        try {
-                            return featureFlagEligibleForExperiment(featureFlag)
-                        } catch {
-                            return false
-                        }
-                    })}
+                    dataSource={featureFlagModalFeatureFlags.results}
                     loading={featureFlagModalFeatureFlagsLoading}
                     useURLForSorting={false}
                     columns={[

@@ -27,16 +27,6 @@ from .dashboard_tile import DashboardTile, Text
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
-from .error_tracking import (
-    ErrorTrackingIssue,
-    ErrorTrackingIssueFingerprintV2,
-    ErrorTrackingStackFrame,
-    ErrorTrackingSymbolSet,
-    ErrorTrackingIssueAssignment,
-    ErrorTrackingAssignmentRule,
-    ErrorTrackingGroupingRule,
-    ErrorTrackingSuppressionRule,
-)
 from .event.event import Event
 from .event_buffer import EventBuffer
 from .event_definition import EventDefinition
@@ -46,6 +36,7 @@ from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
 from .surveys.survey import Survey
 from .file_system.file_system import FileSystem
+from .file_system.file_system_view_log import FileSystemViewLog
 from .filters import Filter, RetentionFilter
 from .group import Group
 from .group_usage_metric import GroupUsageMetric
@@ -64,7 +55,6 @@ from .message_template import MessageTemplate
 from .message_category import MessageCategory
 from .message_preferences import MessageRecipientPreference
 from .messaging import MessagingRecord
-from .notebook import Notebook
 from .organization import Organization, OrganizationMembership
 from .organization_domain import OrganizationDomain
 from .organization_integration import OrganizationIntegration
@@ -79,6 +69,7 @@ from .property_definition import PropertyDefinition
 from .proxy_record import ProxyRecord
 from .remote_config import RemoteConfig
 from .scheduled_change import ScheduledChange
+from .schema import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
 from .share_password import SharePassword
 from .sharing_configuration import SharingConfiguration
 from .subscription import Subscription
@@ -119,14 +110,6 @@ __all__ = [
     "Element",
     "ElementGroup",
     "Entity",
-    "ErrorTrackingIssue",
-    "ErrorTrackingIssueFingerprintV2",
-    "ErrorTrackingStackFrame",
-    "ErrorTrackingSymbolSet",
-    "ErrorTrackingIssueAssignment",
-    "ErrorTrackingAssignmentRule",
-    "ErrorTrackingGroupingRule",
-    "ErrorTrackingSuppressionRule",
     "Event",
     "EventBuffer",
     "EventDefinition",
@@ -138,6 +121,7 @@ __all__ = [
     "ExportedAsset",
     "FeatureFlag",
     "FileSystem",
+    "FileSystemViewLog",
     "Filter",
     "Group",
     "GroupUsageMetric",
@@ -188,6 +172,9 @@ __all__ = [
     "ProxyRecord",
     "RetentionFilter",
     "RemoteConfig",
+    "EventSchema",
+    "SchemaPropertyGroup",
+    "SchemaPropertyGroupProperty",
     "SessionRecording",
     "SessionRecordingPlaylist",
     "SessionRecordingPlaylistItem",

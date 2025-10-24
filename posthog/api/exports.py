@@ -29,6 +29,9 @@ from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExpo
 
 VIDEO_EXPORT_SEMAPHORE = threading.Semaphore(10)  # Allow max 10 concurrent video exports
 
+# Allow max 10 full video exports per team per calendar month
+FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM = 10
+
 logger = structlog.get_logger(__name__)
 
 SIX_MONTHS = timedelta(weeks=26)
@@ -99,6 +102,32 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
 
         if data.get("insight") and data["insight"].team.id != self.context["team_id"]:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
+
+        # NEW: Check full video export limit for team (only MP4 exports with "video" mode)
+        export_format = data.get("export_format")
+        export_context = data.get("export_context", {})
+        export_mode = export_context.get("mode")
+
+        if export_format == "video/mp4" and export_mode == "video":
+            # Calculate the start of the current month
+            current_time = now()
+            start_of_month = current_time.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+            existing_full_video_exports_count = ExportedAsset.objects.filter(
+                team_id=self.context["team_id"],
+                export_format="video/mp4",
+                export_context__mode="video",
+                created_at__gte=start_of_month,
+            ).count()
+
+            if existing_full_video_exports_count >= FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM:
+                raise ValidationError(
+                    {
+                        "export_limit_exceeded": [
+                            f"Your team has reached the limit of {FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM} full video exports this month."
+                        ]
+                    }
+                )
 
         data["expires_after"] = data.get("expires_after", (now() + SIX_MONTHS).date())
 

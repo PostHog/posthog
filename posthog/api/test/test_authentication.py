@@ -256,6 +256,37 @@ class TestLoginAPI(APIBaseTest):
                 },
             )
 
+    def test_login_lockout_is_ip_based(self):
+        """Verify brute force lockout applies per-IP, not globally"""
+        User.objects.create(email="locktest@posthog.com", password="87654321")
+
+        with self.settings(AXES_ENABLED=True, AXES_FAILURE_LIMIT=3):
+            # Lock out IP 1.1.1.1 with 3 failed attempts
+            for _ in range(3):
+                self.client.post(
+                    "/api/login",
+                    {"email": "locktest@posthog.com", "password": "invalid"},
+                    REMOTE_ADDR="1.1.1.1",
+                )
+
+            # Verify IP 1.1.1.1 is locked (403 even with correct credentials)
+            response = self.client.post(
+                "/api/login",
+                {"email": "locktest@posthog.com", "password": "87654321"},
+                REMOTE_ADDR="1.1.1.1",
+            )
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertEqual(response.json()["code"], "too_many_failed_attempts")
+
+            # Verify different IP 2.2.2.2 can still attempt login (not locked)
+            response = self.client.post(
+                "/api/login",
+                {"email": "locktest@posthog.com", "password": "87654321"},
+                REMOTE_ADDR="2.2.2.2",
+            )
+            # Second IP is not locked, so can attempt login
+            self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
 
 class TestTwoFactorAPI(APIBaseTest):
     """
@@ -556,9 +587,9 @@ class TestPasswordResetAPI(APIBaseTest):
             else:
                 # Fourth request should fail
                 self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-                self.assertDictContainsSubset(
-                    {"attr": None, "code": "throttled", "type": "throttled_error"},
-                    response.json(),
+                self.assertLessEqual(
+                    {"attr": None, "code": "throttled", "type": "throttled_error"}.items(),
+                    response.json().items(),
                 )
 
         # Three emails should be sent, fourth should not
@@ -576,9 +607,9 @@ class TestPasswordResetAPI(APIBaseTest):
                 else:
                     # Fourth request should fail
                     self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-                    self.assertDictContainsSubset(
-                        {"attr": None, "code": "throttled", "type": "throttled_error"},
-                        response.json(),
+                    self.assertLessEqual(
+                        {"attr": None, "code": "throttled", "type": "throttled_error"}.items(),
+                        response.json().items(),
                     )
 
     # Token validation
@@ -959,6 +990,29 @@ class TestTimeSensitivePermissions(APIBaseTest):
             }
 
             res = self.client.get("/api/organizations/@current")
+            assert res.status_code == 200
+
+    def test_user_after_timeout_modifications_require_reauthentication(self):
+        now = datetime.now()
+        with freeze_time(now):
+            res = self.client.patch("/api/users/@me", {"first_name": "new name"})
+            assert res.status_code == 200
+
+        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE - 100)):
+            res = self.client.patch("/api/users/@me", {"first_name": "new name"})
+            assert res.status_code == 200
+
+        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+            res = self.client.patch("/api/users/@me", {"first_name": "new name"})
+            assert res.status_code == 403
+            assert res.json() == {
+                "type": "authentication_error",
+                "code": "permission_denied",
+                "detail": "This action requires you to be recently authenticated.",
+                "attr": None,
+            }
+
+            res = self.client.get("/api/users/@me")
             assert res.status_code == 200
 
 

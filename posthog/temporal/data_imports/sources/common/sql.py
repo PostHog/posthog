@@ -31,10 +31,19 @@ class Column(typing.Protocol):
 class TableBase:
     """Base class for `TableReference` and `Table`."""
 
-    def __init__(self, name: str, parents: tuple[str, ...] | None = None, alias: str | None = None) -> None:
+    type: typing.Literal["table", "view", "materialized_view"] | None
+
+    def __init__(
+        self,
+        name: str,
+        parents: tuple[str, ...] | None = None,
+        alias: str | None = None,
+        type: typing.Literal["table", "view", "materialized_view"] | None = None,
+    ) -> None:
         self.name = name
         self.parents = parents
         self.alias = alias
+        self.type = type
 
     def __repr__(self):
         return f"<{self.__class__.__name__}: '{self.fully_qualified_name}'>"
@@ -99,8 +108,9 @@ class Table(TableBase, typing.Generic[ColumnType]):
         columns: list[ColumnType],
         parents: tuple[str, ...] | None = None,
         alias: str | None = None,
+        type: typing.Literal["table", "view", "materialized_view"] | None = None,
     ) -> None:
-        super().__init__(name, parents, alias)
+        super().__init__(name, parents, alias, type)
         self.columns = columns
 
     def __iter__(self) -> collections.abc.Iterator[ColumnType]:

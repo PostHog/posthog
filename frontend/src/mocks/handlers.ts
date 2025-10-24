@@ -14,6 +14,8 @@ import {
 
 import { ResponseComposition, RestContext, RestRequest } from 'msw'
 
+import sdkVersions from '~/mocks/fixtures/api/sdk_versions.json'
+import teamSdkVersions from '~/mocks/fixtures/api/team_sdk_versions.json'
 import { SharingConfigurationType } from '~/types'
 
 import { getAvailableProductFeatures } from './features'
@@ -182,6 +184,9 @@ export const defaultMocks: Mocks = {
             status: 'None',
             eligible: false,
         },
+
+        '/api/billing/spend/': { results: [] },
+        '/api/billing/usage/': { results: [] },
         'https://status.posthog.com/api/v2/summary.json': statusPageAllOK,
         '/api/projects/:team_id/hog_function_templates': hogFunctionTemplatesMock,
         '/api/projects/:team_id/hog_function_templates/:id': hogFunctionTemplateRetrieveMock,
@@ -214,6 +219,8 @@ export const defaultMocks: Mocks = {
         'api/projects/@current/resource_access_controls': EMPTY_PAGINATED_RESPONSE,
         'api/projects/@current/access_controls': EMPTY_PAGINATED_RESPONSE,
         'api/projects/:team_id/notebooks/recording_comments': EMPTY_PAGINATED_RESPONSE,
+        '/api/sdk_versions/': sdkVersions,
+        '/api/team_sdk_versions/': teamSdkVersions,
     },
     post: {
         'https://us.i.posthog.com/e/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
@@ -225,6 +232,7 @@ export const defaultMocks: Mocks = {
         'https://us.i.posthog.com/engage/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
         '/api/environments/:team_id/insights/viewed/': (): MockSignature => [201, null],
         'api/environments/:team_id/query': [200, { results: [] }],
+        '/api/environments/:team_id/file_system/log_view/': {},
     },
     patch: {
         '/api/projects/:team_id/session_recording_playlists/:playlist_id/': {},
