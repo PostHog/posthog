@@ -1,4 +1,4 @@
-from typing import Annotated, Literal
+from typing import Literal
 
 from django.conf import settings
 
@@ -6,14 +6,12 @@ import posthoganalytics
 from langchain_core.output_parsers import SimpleJsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda
-from langchain_core.tools import InjectedToolCallId
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
-from pydantic.json_schema import SkipJsonSchema
 
 from ee.hogai.graph.insights.nodes import InsightSearchNode, NoInsightsException
 from ee.hogai.graph.root.tools.full_text_search.tool import EntitySearchTool, FTSKind
-from ee.hogai.tool import MaxSubtool, MaxTool, ToolMessagesArtifact
+from ee.hogai.tool import MaxSubtool, MaxTool, MaxToolArgs, ToolMessagesArtifact
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantState, PartialAssistantState
 
@@ -70,8 +68,7 @@ ENTITIES = [f"{entity}" for entity in FTSKind if entity != FTSKind.INSIGHTS]
 SearchKind = Literal["insights", "docs", *ENTITIES]  # type: ignore
 
 
-class SearchToolArgs(BaseModel):
-    tool_call_id: Annotated[str, InjectedToolCallId, SkipJsonSchema]
+class SearchToolArgs(MaxToolArgs):
     kind: SearchKind = Field(description="Select the entity you want to find")
     query: str = Field(
         description="Describe what you want to find. Include as much details from the context as possible."
