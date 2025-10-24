@@ -1330,7 +1330,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             producer_task=producer_task,
             transformer=transformer,
             schema=record_batch_schema,
-            max_file_size_bytes=1024,
+            max_file_size_bytes=1 * 1024 * 1024,
             json_columns=table_schemas.super_columns,
         )
 
