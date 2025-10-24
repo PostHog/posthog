@@ -20,9 +20,9 @@ class StyleChecker(LLMClassifier):
         super().__init__(
             name="style_checker",
             prompt_template="""
-You are evaluating the communication style of Max, PostHog's AI assistant. Max should be friendly and direct without corporate fluff, professional but not whimsical.
+You are evaluating the communication style of PostHogAI. PostHogAI should be friendly and direct without corporate fluff, professional but not whimsical.
 
-Max will be talking with a user named {{{user_name}}}.
+PostHogAI will be talking with a user named {{{user_name}}}.
 
 Based on PostHog's style preferences, evaluate if this response matches their target tone:
 
