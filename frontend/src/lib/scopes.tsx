@@ -126,6 +126,24 @@ export const APIScopeActionLabels: Record<APIScopeAction, string> = {
     write: 'Write',
 }
 
+export const PROJECT_SECRET_API_KEY_SCOPES: APIScope[] = [
+    { key: 'endpoint', disabledActions: ['write'], objectPlural: 'endpoints' },
+]
+
+export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: {
+    value: string
+    label: string
+    scopes: string[]
+    description: string
+}[] = [
+    {
+        value: 'endpoint_execution',
+        label: 'Endpoint execution',
+        scopes: ['endpoint:read'],
+        description: 'Execute endpoints',
+    },
+]
+
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
 
 export const getScopeDescription = (scope: string): string => {
