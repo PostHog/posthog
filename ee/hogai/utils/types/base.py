@@ -292,7 +292,7 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The ID of the message to start from to keep the message window short enough.
     """
-    root_tool_call_id: Optional[str] = Field(default=None)
+    root_tool_call_id: Annotated[Optional[str], replace] = Field(default=None)
     """
     The ID of the tool call from the root node.
     """
@@ -304,7 +304,7 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The type of insight to generate.
     """
-    root_tool_calls_count: Optional[int] = Field(default=None)
+    root_tool_calls_count: Annotated[Optional[int], replace] = Field(default=None)
     """
     Tracks the number of tool calls made by the root node to terminate the loop.
     """
