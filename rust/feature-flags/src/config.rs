@@ -353,6 +353,35 @@ pub struct Config {
 
     #[envconfig(from = "OTEL_LOG_LEVEL", default = "info")]
     pub otel_log_level: Level,
+
+    // Rate limiting configuration for /flags endpoint (token-based)
+    // Enable/disable token-based rate limiting (defaults to off to match /decide)
+    #[envconfig(from = "FLAGS_RATE_LIMIT_ENABLED", default = "false")]
+    pub flags_rate_limit_enabled: FlexBool,
+
+    // Token bucket capacity (maximum burst size)
+    // Matches Python's DecideRateThrottle default of 100
+    #[envconfig(from = "FLAGS_BUCKET_CAPACITY", default = "100")]
+    pub flags_bucket_capacity: u32,
+
+    // Token bucket replenish rate (tokens per second)
+    // Matches Python's DecideRateThrottle default of 5.0
+    #[envconfig(from = "FLAGS_BUCKET_REPLENISH_RATE", default = "5.0")]
+    pub flags_bucket_replenish_rate: f64,
+
+    // IP-based rate limiting configuration
+    // Provides defense-in-depth against DDoS attacks with rotating fake tokens
+    // This limits ALL requests per IP address, regardless of token validity
+    #[envconfig(from = "FLAGS_IP_RATE_LIMIT_ENABLED", default = "false")]
+    pub flags_ip_rate_limit_enabled: FlexBool,
+
+    // IP rate limit burst size (maximum requests per IP in a burst)
+    #[envconfig(from = "FLAGS_IP_BURST_SIZE", default = "100")]
+    pub flags_ip_burst_size: u32,
+
+    // IP rate limit replenish rate (requests per second per IP)
+    #[envconfig(from = "FLAGS_IP_REPLENISH_RATE", default = "20.0")]
+    pub flags_ip_replenish_rate: f64,
 }
 
 impl Config {
@@ -411,6 +440,12 @@ impl Config {
             object_storage_bucket: "posthog".to_string(),
             object_storage_region: "us-east-1".to_string(),
             object_storage_endpoint: "".to_string(),
+            flags_rate_limit_enabled: FlexBool(false),
+            flags_bucket_capacity: 100,
+            flags_bucket_replenish_rate: 5.0,
+            flags_ip_rate_limit_enabled: FlexBool(false),
+            flags_ip_burst_size: 100,
+            flags_ip_replenish_rate: 20.0,
         }
     }
 
