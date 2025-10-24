@@ -108,4 +108,18 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
             }
         },
     }),
+    propsChanged: (
+        {
+            props,
+            actions,
+        }: {
+            props: { experiment: Experiment }
+            actions: { validateFeatureFlagKey: (key: string) => void }
+        },
+        oldProps: { experiment: Experiment }
+    ) => {
+        if (props.experiment.feature_flag_key !== oldProps.experiment.feature_flag_key) {
+            actions.validateFeatureFlagKey(props.experiment.feature_flag_key)
+        }
+    },
 })
