@@ -50,6 +50,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     dataTableMaxPaginationLimit?: number
     /** Custom expandable config for DataTable rows */
     expandable?: ExpandableConfig<DataTableRow>
+    /** Ignore action/event names in series labels (show only breakdown/compare values) */
+    ignoreActionsInSeriesLabels?: boolean
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

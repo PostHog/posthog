@@ -9,7 +9,7 @@ export function BreakdownChart(): JSX.Element {
 
     return (
         <div className="border rounded bg-surface-primary p-3">
-            <Query query={breakdownQuery} />
+            <Query query={breakdownQuery} context={{ ignoreActionsInSeriesLabels: true }} />
         </div>
     )
 }
