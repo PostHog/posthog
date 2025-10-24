@@ -55,7 +55,7 @@ export class HogFunctionHandler implements ActionHandler {
 
         return {
             nextAction: findContinueAction(invocation),
-            output: functionResult.execResult || functionResult.error,
+            output: functionResult.execResult,
         }
     }
 

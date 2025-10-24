@@ -106,7 +106,10 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                     },
                                     content: (
                                         <div className="flex flex-col items-start gap-2">
-                                            <LemonField.Pure label="Select a workflow variable to store the output of this step.">
+                                            <LemonField.Pure
+                                                label="Select a workflow variable to store the output of this step"
+                                                info="A workflow "
+                                            >
                                                 <LemonSelect
                                                     options={[
                                                         { value: null, label: 'Do not store' },
