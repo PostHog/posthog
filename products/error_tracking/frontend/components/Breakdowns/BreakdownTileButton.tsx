@@ -46,7 +46,7 @@ export function BreakdownTileButton({ item }: BreakdownTileButtonProps): JSX.Ele
                 setCategory('breakdowns')
             }}
             className={cn(
-                'w-full px-2.5 py-2 text-left transition-all cursor-pointer border-l-[3px]',
+                'w-full px-2.5 py-2 text-left border-l-[3px] cursor-pointer',
                 isSelected ? 'border-l-brand-yellow' : 'border-l-transparent'
             )}
         >
@@ -82,11 +82,11 @@ function BreakdownPreview({
             <div className="font-semibold text-xs w-[30%]">{title}</div>
             <div className="w-[70%]">
                 {responseLoading ? (
-                    <div className="flex items-center justify-center h-4">
+                    <div className="h-4 flex items-center justify-center">
                         <Spinner className="text-xs" />
                     </div>
                 ) : properties.length === 0 || hasOnlyNullBreakdown ? (
-                    <div className="text-muted text-xs flex items-center justify-center">No data</div>
+                    <div className="text-muted text-xs">No data</div>
                 ) : (
                     <BreakdownStackedBar properties={properties} totalCount={totalCount} propertyName={property} />
                 )}

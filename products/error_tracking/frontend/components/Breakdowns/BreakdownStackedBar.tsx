@@ -34,7 +34,7 @@ export function BreakdownStackedBar({ properties, totalCount, propertyName }: Br
                     return (
                         <div
                             key={index}
-                            className="h-full transition-all hover:opacity-80 cursor-pointer flex items-center justify-center"
+                            className="h-full hover:opacity-80 flex items-center justify-center"
                             style={{
                                 width: `${percentage}%`,
                                 backgroundColor: getSeriesColor(index),
@@ -56,7 +56,7 @@ export function BreakdownStackedBar({ properties, totalCount, propertyName }: Br
             {/* Tooltip */}
             {hoveredIndex !== null && (
                 <div
-                    className="fixed px-2 py-1 bg-bg-3000 border border-border rounded shadow-lg whitespace-nowrap z-[9999] text-xs pointer-events-none"
+                    className="fixed px-2 py-1 bg-bg-3000 border rounded shadow-lg whitespace-nowrap z-[9999] text-xs pointer-events-none"
                     style={{
                         left: `${tooltipPosition.x}px`,
                         top: `${tooltipPosition.y - 8}px`,
