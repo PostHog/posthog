@@ -7,6 +7,7 @@ import type { liveDebuggerLogicType } from './liveDebuggerLogicType'
 
 export interface Breakpoint {
     id: string
+    repository: string | null
     filename: string
     line_number: number
     enabled: boolean
@@ -30,8 +31,16 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
     path(['products', 'live_debugger', 'frontend', 'liveDebuggerLogic']),
 
     actions({
-        toggleBreakpoint: (filename: string, lineNumber: number) => ({ filename, lineNumber }),
-        toggleBreakpointForFile: (filename: string, lineNumber: number) => ({ filename, lineNumber }),
+        toggleBreakpoint: (filename: string, lineNumber: number, repository: string) => ({
+            filename,
+            lineNumber,
+            repository,
+        }),
+        toggleBreakpointForFile: (filename: string, lineNumber: number, repository: string) => ({
+            filename,
+            lineNumber,
+            repository,
+        }),
         setHoveredLine: (lineNumber: number | null) => ({ lineNumber }),
         selectInstance: (instanceId: string | null) => ({ instanceId }),
         clearAllBreakpoints: true,
@@ -39,16 +48,28 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
         showHitsForLine: (lineNumber: number | null) => ({ lineNumber }),
         startPollingBreakpoints: true,
         stopPollingBreakpoints: true,
-        savePollingInterval: (intervalHdl: NodeJS.Timeout) => ({ intervalHdl }),
+        savePollingInterval: (intervalHdl: number) => ({ intervalHdl }),
         setSelectedFilePath: (filePath: string) => ({ filePath }),
+        setCurrentRepository: (repository: string) => ({ repository }),
     }),
 
-    loaders(() => ({
+    loaders(({ values }) => ({
         breakpoints: [
             [] as Breakpoint[],
             {
                 loadBreakpoints: async () => {
-                    const response = await api.get('api/projects/@current/live_debugger_breakpoints/')
+                    // Only load when both repository and file are selected
+                    if (!values.currentRepository || !values.selectedFilePath) {
+                        return []
+                    }
+
+                    const params = new URLSearchParams()
+                    params.append('repository', values.currentRepository)
+                    params.append('filename', values.selectedFilePath)
+
+                    const queryString = params.toString()
+                    const url = `api/projects/@current/live_debugger_breakpoints/?${queryString}`
+                    const response = await api.get(url)
                     return response.results || []
                 },
             },
@@ -57,7 +78,15 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
             [] as BreakpointInstance[],
             {
                 loadBreakpointInstances: async () => {
-                    const response = await api.get('api/projects/@current/live_debugger_breakpoints/breakpoint_hits/')
+                    // Filter hits by currently loaded breakpoints (for efficiency)
+                    const breakpointIds = values.breakpoints.map((bp) => bp.id)
+
+                    const params = new URLSearchParams()
+                    breakpointIds.forEach((id: string) => params.append('breakpoint_ids', id))
+
+                    const queryString = params.toString()
+                    const url = `api/projects/@current/live_debugger_breakpoints/breakpoint_hits/${queryString ? `?${queryString}` : ''}`
+                    const response = await api.get(url)
                     return response.results || []
                 },
             },
@@ -65,6 +94,12 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
     })),
 
     reducers({
+        currentRepository: [
+            'PostHog/posthog' as string,
+            {
+                setCurrentRepository: (_, { repository }) => repository,
+            },
+        ],
         selectedFilePath: [
             '',
             {
@@ -123,15 +158,18 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
                 }, 2000)
             }
         },
-        toggleBreakpoint: async ({ filename, lineNumber }) => {
+        toggleBreakpoint: async ({ filename, lineNumber, repository }) => {
             const existingBreakpoint = Array.isArray(values.breakpoints)
-                ? values.breakpoints.find((bp) => bp.line_number === lineNumber && bp.filename === filename)
+                ? values.breakpoints.find(
+                      (bp) => bp.line_number === lineNumber && bp.filename === filename && bp.repository === repository
+                  )
                 : undefined
 
             if (existingBreakpoint) {
                 await api.delete(`api/projects/@current/live_debugger_breakpoints/${existingBreakpoint.id}/`)
             } else {
                 await api.create('api/projects/@current/live_debugger_breakpoints/', {
+                    repository,
                     filename,
                     line_number: lineNumber,
                     enabled: true,
@@ -141,15 +179,18 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
             actions.loadBreakpoints()
             actions.loadBreakpointInstances()
         },
-        toggleBreakpointForFile: async ({ filename, lineNumber }) => {
+        toggleBreakpointForFile: async ({ filename, lineNumber, repository }) => {
             const existingBreakpoint = Array.isArray(values.breakpoints)
-                ? values.breakpoints.find((bp) => bp.line_number === lineNumber && bp.filename === filename)
+                ? values.breakpoints.find(
+                      (bp) => bp.line_number === lineNumber && bp.filename === filename && bp.repository === repository
+                  )
                 : undefined
 
             if (existingBreakpoint) {
                 await api.delete(`api/projects/@current/live_debugger_breakpoints/${existingBreakpoint.id}/`)
             } else {
                 await api.create('api/projects/@current/live_debugger_breakpoints/', {
+                    repository,
                     filename,
                     line_number: lineNumber,
                     enabled: true,
@@ -180,12 +221,28 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
                 actions.loadBreakpointInstances()
             }, 15000)
 
-            actions.savePollingInterval(interval)
+            actions.savePollingInterval(interval as unknown as number)
         },
-        stopPollingBreakpoints: async () => {
+        stopPollingBreakpoints: () => {
             if (values.breakpointPollingInterval) {
                 clearInterval(values.breakpointPollingInterval)
             }
+        },
+        setCurrentRepository: () => {
+            // Reload breakpoints when repository changes (only if file is selected)
+            if (values.selectedFilePath) {
+                actions.loadBreakpoints()
+            }
+        },
+        setSelectedFilePath: () => {
+            // Reload breakpoints when file path changes (only if repository is set)
+            if (values.currentRepository) {
+                actions.loadBreakpoints()
+            }
+        },
+        loadBreakpointsSuccess: () => {
+            // Reload instances when breakpoints change (the list of IDs has changed)
+            actions.loadBreakpointInstances()
         },
     })),
 
@@ -193,6 +250,10 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
         selectedInstance: [
             (s) => [s.selectedInstanceId, s.breakpointInstances],
             (selectedId, instances): BreakpointInstance | null => instances.find((i) => i.id === selectedId) || null,
+        ],
+        visibleBreakpointIds: [
+            (s) => [s.breakpoints],
+            (breakpoints: Breakpoint[]): string[] => breakpoints.map((bp) => bp.id),
         ],
         breakpointLines: [
             (s) => [s.breakpoints, s.selectedFilePath],

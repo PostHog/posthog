@@ -14,7 +14,7 @@ export function RepositoryBrowser(): JSX.Element {
 
     const { loadFileContent, setFileSearchQuery } = useActions(repoBrowserLogic)
 
-    const { breakpoints, breakpointsByLine, instancesByLine, hitCountsByLine, newHitsByLine } =
+    const { breakpoints, breakpointsByLine, instancesByLine, hitCountsByLine, newHitsByLine, currentRepository } =
         useValues(liveDebuggerLogic)
 
     const { clearAllBreakpoints, toggleBreakpoint, showHitsForLine, setSelectedFilePath } =
@@ -93,7 +93,7 @@ export function RepositoryBrowser(): JSX.Element {
                                     onClick={() => {
                                         if (selectedFilePath) {
                                             setSelectedFilePath(selectedFilePath)
-                                            toggleBreakpoint(selectedFilePath, lineNumber)
+                                            toggleBreakpoint(selectedFilePath, lineNumber, currentRepository)
                                         }
                                     }}
                                     onHitCountClick={() => showHitsForLine(lineNumber)}
