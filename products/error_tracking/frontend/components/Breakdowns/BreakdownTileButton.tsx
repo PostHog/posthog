@@ -14,6 +14,7 @@ import { errorTrackingIssueBreakdownQuery } from '../../queries'
 import { errorTrackingIssueSceneLogic } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { breakdownFiltersLogic } from './breakdownFiltersLogic'
 import { BreakdownSinglePropertyStat, breakdownPreviewLogic } from './breakdownPreviewLogic'
+import { POSTHOG_BREAKDOWN_NULL_VALUE } from './consts'
 import { BreakdownPreset, errorTrackingBreakdownsLogic } from './errorTrackingBreakdownsLogic'
 
 const BREAKDOWN_COLORS = ['#3b82f6', '#22c55e', '#eab308', '#a855f7', '#ec4899', '#f97316', '#06b6d4', '#ef4444']
@@ -77,6 +78,8 @@ function BreakdownPreview({
     const logic = breakdownPreviewLogic({ dataNodeLogicProps, limitItems: LIMIT_ITEMS })
     const { properties, totalCount, responseLoading } = useValues(logic)
 
+    const hasOnlyNullBreakdown = properties.length === 1 && properties[0].label === POSTHOG_BREAKDOWN_NULL_VALUE
+
     return (
         <div className="flex items-center gap-2">
             <div className="font-semibold text-xs w-[30%]">{title}</div>
@@ -85,7 +88,7 @@ function BreakdownPreview({
                     <div className="flex items-center justify-center h-6">
                         <Spinner className="text-xs" />
                     </div>
-                ) : properties.length === 0 ? (
+                ) : properties.length === 0 || hasOnlyNullBreakdown ? (
                     <div className="text-muted text-xs flex items-center justify-center">No data</div>
                 ) : (
                     <StackedBar properties={properties} totalCount={totalCount} propertyName={property} />

@@ -94,7 +94,6 @@ export function V2Layout(): JSX.Element {
                     <LemonDivider className="my-0" />
                     <div className="p-2 space-y-2">
                         <ErrorTrackingIssueScenePanel showActions={false} />
-                        <div className="bg-accent-3000 h-[100px] flex justify-center items-center">Breakdowns</div>
                     </div>
                 </div>
                 <div className="flex col-span-7 gap-y-2 flex-col">
