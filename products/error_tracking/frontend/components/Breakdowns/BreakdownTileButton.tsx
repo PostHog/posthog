@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 import { Spinner } from '@posthog/lemon-ui'
 
+import { getSeriesColor } from 'lib/colors'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { cn } from 'lib/utils/css-classes'
 
@@ -16,8 +17,6 @@ import { breakdownFiltersLogic } from './breakdownFiltersLogic'
 import { BreakdownSinglePropertyStat, breakdownPreviewLogic } from './breakdownPreviewLogic'
 import { POSTHOG_BREAKDOWN_NULL_VALUE } from './consts'
 import { BreakdownPreset, errorTrackingBreakdownsLogic } from './errorTrackingBreakdownsLogic'
-
-const BREAKDOWN_COLORS = ['#3b82f6', '#22c55e', '#eab308', '#a855f7', '#ec4899', '#f97316', '#06b6d4', '#ef4444']
 
 interface BreakdownTileButtonProps {
     item: BreakdownPreset
@@ -85,7 +84,7 @@ function BreakdownPreview({
             <div className="font-semibold text-xs w-[30%]">{title}</div>
             <div className="w-[70%]">
                 {responseLoading ? (
-                    <div className="flex items-center justify-center h-6">
+                    <div className="flex items-center justify-center h-4">
                         <Spinner className="text-xs" />
                     </div>
                 ) : properties.length === 0 || hasOnlyNullBreakdown ? (
@@ -122,7 +121,7 @@ function StackedBar({
     return (
         <div className="relative">
             {/* Bar itself */}
-            <div className="flex w-full h-6 rounded overflow-hidden bg-fill-secondary">
+            <div className="flex w-full h-4 rounded overflow-hidden bg-fill-secondary">
                 {properties.map((item, index) => {
                     const percentage = (item.count / totalCount) * 100
 
@@ -132,7 +131,7 @@ function StackedBar({
                             className="h-full transition-all hover:opacity-80 cursor-pointer flex items-center justify-center"
                             style={{
                                 width: `${percentage}%`,
-                                backgroundColor: BREAKDOWN_COLORS[index % BREAKDOWN_COLORS.length],
+                                backgroundColor: getSeriesColor(index),
                             }}
                             onMouseEnter={(e) => handleMouseEnter(index, e)}
                             onMouseLeave={() => setHoveredIndex(null)}
