@@ -54,6 +54,7 @@ jobs:
                         - .github/workflows/ci-python.yml
                         - .github/workflows/ci-dagster.yml
                         - .github/workflows/ci-backend.yml
+                        - .flox/env/manifest.toml
                         - bin/check_uv_python_compatibility.py
                         # Schema changes need to trigger Python CI to validate schema.py is regenerated
                         - 'frontend/src/queries/schema.json'

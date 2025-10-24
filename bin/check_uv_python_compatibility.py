@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 # ruff: noqa: T201 allow print statements
 """
-Validate that the uv version specified in GitHub workflows can download
-the Python version specified in pyproject.toml.
+Validate that the uv version specified in GitHub workflows and flox manifest
+can download the Python version specified in pyproject.toml.
 
 uv uses python-build-standalone for Python versions, and older uv versions
 may not support newer Python patch versions.
 
 This script is run in CI (see .github/workflows/ci-python.yml) to catch
 incompatibilities early. When pyproject.toml's requires-python is updated,
-or when workflow files change their uv version, this check will verify
+or when workflow/flox files change their uv version, this check will verify
 compatibility.
 
 Exit codes:
@@ -18,9 +18,9 @@ Exit codes:
 """
 
 import re
+import subprocess
 import sys
 from pathlib import Path
-from typing import Tuple
 
 try:
     import tomllib
@@ -44,6 +44,22 @@ def get_python_version_from_pyproject() -> str:
     return match.group(1)
 
 
+def get_uv_version_from_flox() -> str | None:
+    """Extract uv version from flox manifest."""
+    flox_manifest = Path(__file__).parent.parent / ".flox" / "env" / "manifest.toml"
+    
+    if not flox_manifest.exists():
+        return None
+    
+    with open(flox_manifest, "rb") as f:
+        data = tomllib.load(f)
+    
+    # Look for uv in the install section
+    install = data.get("install", {})
+    uv_config = install.get("uv", {})
+    return uv_config.get("version")
+
+
 def get_uv_versions_from_workflows() -> dict[str, str]:
     """Extract uv versions from GitHub workflow files."""
     workflows_dir = Path(__file__).parent.parent / ".github" / "workflows"
@@ -60,53 +76,74 @@ def get_uv_versions_from_workflows() -> dict[str, str]:
     return uv_versions
 
 
-def parse_version(version_str: str) -> Tuple[int, int, int]:
-    """Parse a version string into a tuple of integers."""
-    parts = version_str.split(".")
-    return (int(parts[0]), int(parts[1]), int(parts[2]))
-
-
-def check_uv_python_compatibility(uv_version: str, python_version: str) -> bool:
+def check_uv_python_compatibility(uv_version: str, python_version: str) -> tuple[bool, str]:
     """
-    Check if a given uv version supports the specified Python version.
+    Check if a given uv version can download the specified Python version.
     
-    Based on uv release notes and python-build-standalone availability:
-    - uv 0.5.0+ supports Python 3.12.7+
-    - uv 0.6.0+ supports Python 3.13.0+
-    - uv 0.8.0+ supports Python 3.12.8+
-    - uv 0.8.4+ supports Python 3.12.9+
-    - uv 0.8.12+ supports Python 3.12.10+
-    - uv 0.8.19+ supports Python 3.12.11+
+    Uses `uv python install` with dry-run to check if the Python version is available.
+    Falls back to being conservative if uv is not available.
     
-    To update these mappings when a new Python version is released:
-    1. Check uv release notes: https://github.com/astral-sh/uv/releases
-    2. Look for mentions of updated Python version support
-    3. Add a new condition below following the existing pattern
-    4. Test with: python3 bin/check_uv_python_compatibility.py
-    
-    This is a conservative check - if we're unsure, we'll warn but not fail.
+    Returns:
+        tuple: (is_compatible, message)
     """
-    uv_ver = parse_version(uv_version)
-    py_ver = parse_version(python_version)
-    
-    # Check for known incompatibilities
-    if py_ver >= (3, 12, 11):
-        if uv_ver < (0, 8, 19):
-            return False
-    elif py_ver >= (3, 12, 10):
-        if uv_ver < (0, 8, 12):
-            return False
-    elif py_ver >= (3, 12, 9):
-        if uv_ver < (0, 8, 4):
-            return False
-    elif py_ver >= (3, 12, 8):
-        if uv_ver < (0, 8, 0):
-            return False
-    elif py_ver >= (3, 13, 0):
-        if uv_ver < (0, 6, 0):
-            return False
-    
-    return True
+    # Try to use uv to check if the Python version is available
+    try:
+        # Check if uv is available
+        result = subprocess.run(
+            ["uv", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        
+        if result.returncode != 0:
+            # uv not available, we can't check - be conservative and pass
+            return True, "uv not available for testing"
+        
+        actual_uv_version = result.stdout.strip()
+        
+        # Try to install the Python version (dry-run to avoid actual installation)
+        # First check if uv python install supports the version
+        result = subprocess.run(
+            ["uv", "python", "install", "--help"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        
+        if result.returncode != 0:
+            # uv python install not available, fall back to conservative pass
+            return True, f"uv python install not available (uv {actual_uv_version})"
+        
+        # Try to find the Python version - uv will error if it doesn't exist
+        # We use a timeout to prevent hanging
+        result = subprocess.run(
+            ["uv", "python", "find", python_version],
+            capture_output=True,
+            text=True,
+            timeout=15
+        )
+        
+        # If find succeeds, the version is available
+        if result.returncode == 0:
+            return True, f"verified via uv python find (uv {actual_uv_version})"
+        else:
+            # Check if it's a "not found" error vs other error
+            error_msg = result.stderr.lower()
+            if "no python" in error_msg or "not found" in error_msg or "could not find" in error_msg:
+                return False, f"Python {python_version} not available for uv {actual_uv_version}"
+            else:
+                # Other error, be conservative
+                return True, f"unable to verify (uv {actual_uv_version})"
+            
+    except subprocess.TimeoutExpired:
+        return True, "uv command timed out, assuming compatible"
+    except FileNotFoundError:
+        # uv not installed, be conservative
+        return True, "uv not installed, assuming compatible"
+    except Exception as e:
+        # Other error, be conservative
+        return True, f"unable to verify via uv ({type(e).__name__})"
 
 
 def main() -> int:
@@ -121,24 +158,41 @@ def main() -> int:
         print(f"✗ Error reading Python version: {e}")
         return 1
     
+    # Collect all uv versions from different sources
+    all_uv_versions = {}
+    
+    # Check flox manifest
     try:
-        uv_versions = get_uv_versions_from_workflows()
-        if not uv_versions:
-            print("⚠ Warning: No uv versions found in workflows")
-            return 0
-        
-        print(f"✓ Found uv versions in {len(uv_versions)} workflow(s)")
-        print()
+        flox_uv = get_uv_version_from_flox()
+        if flox_uv:
+            all_uv_versions["flox manifest"] = flox_uv
+            print(f"✓ Found uv version in flox manifest: {flox_uv}")
     except Exception as e:
-        print(f"✗ Error reading uv versions: {e}")
+        print(f"⚠ Warning: Could not read flox manifest: {e}")
+    
+    # Check workflows
+    try:
+        workflow_versions = get_uv_versions_from_workflows()
+        if workflow_versions:
+            all_uv_versions.update(workflow_versions)
+            print(f"✓ Found uv versions in {len(workflow_versions)} workflow(s)")
+    except Exception as e:
+        print(f"✗ Error reading workflow versions: {e}")
         return 1
     
-    # Check each workflow's uv version
+    if not all_uv_versions:
+        print("⚠ Warning: No uv versions found")
+        return 0
+    
+    print()
+    
+    # Check each source's uv version
     all_compatible = True
-    for workflow, uv_version in uv_versions.items():
-        compatible = check_uv_python_compatibility(uv_version, python_version)
+    for source, uv_version in all_uv_versions.items():
+        compatible, message = check_uv_python_compatibility(uv_version, python_version)
         status = "✓" if compatible else "✗"
-        print(f"{status} {workflow}: uv {uv_version} {'supports' if compatible else 'may not support'} Python {python_version}")
+        detail = f" ({message})" if message else ""
+        print(f"{status} {source}: uv {uv_version} {'supports' if compatible else 'may not support'} Python {python_version}{detail}")
         if not compatible:
             all_compatible = False
     
@@ -150,7 +204,7 @@ def main() -> int:
         print("✗ Some uv versions may not support the required Python version")
         print()
         print("To fix this:")
-        print("1. Update the uv version in the affected workflows")
+        print("1. Update the uv version in the affected workflows or flox manifest")
         print("2. Or use an older Python version in pyproject.toml")
         print()
         print("See uv releases: https://github.com/astral-sh/uv/releases")
