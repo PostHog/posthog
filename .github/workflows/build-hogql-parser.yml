@@ -146,12 +146,18 @@ jobs:
                   token: ${{ secrets.POSTHOG_BOT_PAT }}
                   ref: ${{ github.event.pull_request.head.ref }}
 
+            - name: Install uv
+              id: setup-uv
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              with:
+                  enable-cache: true
+                  version: 0.8.19
+
             - name: Update hogql-parser in requirements
               shell: bash
               env:
                   RETRIES: 20
               run: |
-                  brew install uv
                   # In case the version is not available yet, try up to $RETRIES times
                   for i in {1..$RETRIES}; do
                       if uv add hogql-parser==$(python common/hogql_parser/setup.py --version); then
