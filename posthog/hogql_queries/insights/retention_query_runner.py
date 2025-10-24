@@ -103,6 +103,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
     @cached_property
     def lookahead_period_count(self) -> int:
         if self.is_custom_bracket_retention:
+            assert self.query.retentionFilter.retentionCustomBrackets is not None
             # We add one, because the first period is the cohorting period
             return len(self.query.retentionFilter.retentionCustomBrackets) + 1
         return self.query_date_range.lookahead
@@ -224,6 +225,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
     @cached_property
     def query_date_range(self) -> QueryDateRangeWithIntervals:
         if self.is_custom_bracket_retention:
+            assert self.query.retentionFilter.retentionCustomBrackets is not None
             # For custom brackets, lookahead is sum of brackets, but total intervals for date range is from query
             intervals_to_look_ahead = sum(self.query.retentionFilter.retentionCustomBrackets)
             total_intervals = self.query.retentionFilter.totalIntervals or DEFAULT_TOTAL_INTERVALS
