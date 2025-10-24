@@ -25,7 +25,6 @@ import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
 import { SidePanelTab } from '~/types'
 
@@ -116,7 +115,6 @@ function Category({
     columnIndex: number
     isFirstCategoryWithResults: boolean
 }): JSX.Element {
-    const { mobileLayout } = useValues(navigationLogic)
     const groupRef = useRef<ListBoxGroupHandle>(null)
     const typedItems = items as NewTabTreeDataItem[]
     const isFirstCategory = columnIndex === 0
@@ -314,11 +312,9 @@ function Category({
                                                             const showMoreIndex = typedItems.length
                                                             showMoreInSection(category)
 
-                                                            if (!mobileLayout) {
-                                                                setTimeout(() => {
-                                                                    groupRef.current?.resumeFocus(showMoreIndex)
-                                                                }, 10)
-                                                            }
+                                                            setTimeout(() => {
+                                                                groupRef.current?.resumeFocus(showMoreIndex)
+                                                            }, 0)
                                                         }}
                                                         className="w-full text-tertiary data-[focused=true]:text-primary"
                                                     >
@@ -347,11 +343,9 @@ function Category({
                                                         const showAllIndex = typedItems.length
                                                         showMoreInSection(category)
 
-                                                        if (!mobileLayout) {
-                                                            setTimeout(() => {
-                                                                groupRef.current?.resumeFocus(showAllIndex)
-                                                            }, 10)
-                                                        }
+                                                        setTimeout(() => {
+                                                            groupRef.current?.resumeFocus(showAllIndex)
+                                                        }, 0)
                                                     }}
                                                     className="w-full text-tertiary data-[focused=true]:text-primary"
                                                 >

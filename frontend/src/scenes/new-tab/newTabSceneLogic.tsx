@@ -76,7 +76,7 @@ export interface NewTabCategoryItem {
     description?: string
 }
 
-const PAGINATION_LIMIT = 10
+const PAGINATION_LIMIT = 5
 
 function getIconForFileSystemItem(fs: FileSystemImport): JSX.Element {
     // If the item has a direct icon property, use it with color wrapper
@@ -144,7 +144,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     const searchTerm = values.search.trim()
                     const currentRecents = values.recents
                     const currentlyExpanded = values.recentsExpanded
-                    const currentTotalLoaded = currentlyExpanded ? currentRecents.totalLoaded : PAGINATION_LIMIT
+
+                    // For refresh: maintain current view, for initial load: use default limit
+                    const isRefresh = currentRecents.results.length > 0
+                    const currentTotalLoaded =
+                        isRefresh && currentlyExpanded ? currentRecents.totalLoaded : PAGINATION_LIMIT
 
                     const response = await api.fileSystem.list({
                         search: searchTerm,
