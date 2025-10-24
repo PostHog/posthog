@@ -48,7 +48,13 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const Generating: Story = {}
+export const Generating: Story = {
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: false,
+        },
+    },
+}
 
 const iframeSaved = {
     id: 101,
