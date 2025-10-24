@@ -26,9 +26,6 @@ metadata:
           title: Multi-step workflows
         - key: environment
           title: Environment and shell
-    # Services/topics describe PostHog's infrastructure for new developers.
-    # They appear in command help text and `hogli meta:concepts` output.
-    # Each service explains what it does and why it matters to PostHog.
     services:
         flox:
             name: Flox
@@ -37,7 +34,8 @@ metadata:
         docker:
             name: Docker
             about: Isolates services and dependencies in containers to match production
-                without requiring local installation. Orbstack strongly recommended over Docker Desktop.
+                without requiring local installation. Orbstack strongly recommended over Docker
+                Desktop.
         migration:
             name: Database migrations
             about: Schema updates and data migrations across PostgreSQL, ClickHouse, and
@@ -337,7 +335,8 @@ quality:
         cmd: pnpm oxlint --fix --fix-suggestions --quiet && pnpm prettier --write
         description: Format JavaScript/TypeScript files (frontend)
     format:plugin-server:
-        cmd: pnpm --dir plugin-server exec eslint --fix && pnpm --dir plugin-server exec prettier --write
+        cmd: pnpm --dir plugin-server exec eslint --fix && pnpm --dir plugin-server exec
+            prettier --write
         description: Format plugin-server JavaScript files
     format:rust:
         cmd: rustfmt
@@ -388,6 +387,10 @@ tools:
     tool:print-hog-stl:
         cmd: python manage.py print_hog_stl_table
         description: Print HogSQL standard library definitions for reference
+        hidden: true
+    clickhouse:logs:init:
+        bin_script: clickhouse-logs-init
+        description: 'TODO: add description for clickhouse-logs-init'
         hidden: true
 utilities:
     utilities:posthog-worktree:
@@ -445,7 +448,6 @@ compositions:
     build:grammar:
         cmd: pnpm grammar:build
         description: Generate HogQL grammar definitions (Python and C++)
-        # TODO: candidate for conversion to hogli steps
 environment:
     flox:activate:
         cmd: flox activate
