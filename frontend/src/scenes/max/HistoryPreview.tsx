@@ -17,7 +17,8 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
     const { conversationHistory, conversationHistoryLoading } = useValues(maxLogic)
     const { toggleConversationHistory, openConversation } = useActions(maxLogic)
 
-    if (!conversationHistory.length && !conversationHistoryLoading) {
+    // No need to render if we do not have any conversations to show.
+    if (!conversationHistory.length) {
         return null
     }
 
@@ -34,7 +35,7 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
                     View all
                 </LemonButton>
             </div>
-            {conversationHistoryLoading && !conversationHistory.length ? (
+            {conversationHistoryLoading ? (
                 <>
                     <LemonSkeleton className="h-5 w-full" />
                     <LemonSkeleton className="h-5 w-full" />
