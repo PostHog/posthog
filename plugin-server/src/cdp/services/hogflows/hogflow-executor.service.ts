@@ -521,9 +521,7 @@ export class HogFlowExecutorService {
             this.log(
                 result,
                 'debug',
-                `Stored action result in variable '${action.output_variable.key}': ${JSON.stringify({
-                    result: output,
-                })}`
+                `Stored action result in variable '${action.output_variable.key}': ${JSON.stringify(result.invocation.state.variables[action.output_variable.key])}`
             )
         }
     }
