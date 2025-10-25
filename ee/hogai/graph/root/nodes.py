@@ -202,6 +202,18 @@ class RootNode(AssistantNode):
             send_feature_flag_events=False,
         )
 
+    def _has_llm_traces_summarization_feature_flag(self) -> bool:
+        """
+        Check if the user has the LLM traces summarization feature flag enabled.
+        """
+        return posthoganalytics.feature_enabled(
+            "llm-traces-summarization",
+            str(self._user.distinct_id),
+            groups={"organization": str(self._team.organization_id)},
+            group_properties={"organization": {"id": str(self._team.organization_id)}},
+            send_feature_flag_events=False,
+        )
+
     async def _get_billing_prompt(self, config: RunnableConfig) -> str:
         """Get billing information including whether to include the billing tool and the prompt.
         Returns:
@@ -269,7 +281,8 @@ class RootNode(AssistantNode):
             available_tools.append(session_summarization)
 
         # LLM summarization tool
-        available_tools.append(llm_traces_summarization)
+        if self._has_llm_traces_summarization_feature_flag():
+            available_tools.append(llm_traces_summarization)
 
         # Dashboard creation tool
         available_tools.append(create_dashboard)
