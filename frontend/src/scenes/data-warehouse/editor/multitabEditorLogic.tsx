@@ -795,6 +795,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
             const savedInsight = await insightsApi.update(values.editingInsight.id, insightRequest)
 
+            await insightLogic({ dashboardItemId: savedInsight.short_id }).actions?.setInsight(savedInsight, {
+                fromPersistentApi: true,
+                overrideQuery: true,
+            })
+
             if (values.activeTab) {
                 actions.updateTab({
                     ...values.activeTab,
