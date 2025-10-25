@@ -118,7 +118,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insightQuery,
         insightData,
     } = useValues(insightDataLogic(insightProps))
-    const { toggleQueryEditorPanel, toggleDebugPanel } = useActions(insightDataLogic(insightProps))
+    const { toggleQueryEditorPanel, toggleDebugPanel, cancelChanges } = useActions(insightDataLogic(insightProps))
     const { createStaticCohort } = useActions(exportsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
@@ -524,7 +524,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         {insightMode === ItemMode.Edit && hasDashboardItemId && (
                             <LemonButton
                                 type="secondary"
-                                onClick={() => setInsightMode(ItemMode.View, null)}
+                                onClick={() => {
+                                    cancelChanges()
+                                    setInsightMode(ItemMode.View, null)
+                                }}
                                 data-attr="insight-cancel-edit-button"
                                 size="small"
                             >
