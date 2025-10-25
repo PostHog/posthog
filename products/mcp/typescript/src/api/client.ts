@@ -19,6 +19,7 @@ import {
     type SimpleDashboard,
     SimpleDashboardSchema,
 } from '@/schema/dashboards'
+import { type Issue, IssueSchema, type UpdateIssueData, UpdateIssueSchema } from '@/schema/errors'
 import type {
     Experiment,
     ExperimentExposureQuery,
@@ -1305,6 +1306,29 @@ export class ApiClient {
                 const url = `${this.baseUrl}/api/projects/${projectId}/surveys/${validatedParams.survey_id}/stats/${searchParams.toString() ? `?${searchParams}` : ''}`
 
                 return this.fetchWithSchema(url, SurveyResponseStatsOutputSchema)
+            },
+        }
+    }
+
+    errorTracking({ projectId }: { projectId: string }) {
+        return {
+            updateIssue: async ({
+                issueId,
+                data,
+            }: {
+                issueId: string
+                data: UpdateIssueData
+            }): Promise<Result<Issue>> => {
+                const validatedInput = UpdateIssueSchema.parse(data)
+
+                return this.fetchWithSchema(
+                    `${this.baseUrl}/api/projects/${projectId}/error_tracking_issues/${issueId}/`,
+                    IssueSchema,
+                    {
+                        method: 'PATCH',
+                        body: JSON.stringify(validatedInput),
+                    }
+                )
             },
         }
     }

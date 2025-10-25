@@ -35,6 +35,25 @@ export const ErrorDetailsSchema = z.object({
     dateTo: z.string().datetime().optional(),
 })
 
+export const UpdateIssueStatusSchema = z.enum(['active', 'resolved', 'suppressed'])
+
+export const UpdateIssueSchema = z.object({
+    status: UpdateIssueStatusSchema.optional(),
+    name: z.string().optional(),
+})
+
+export const IssueSchema = z.object({
+    id: z.string().uuid(),
+    status: UpdateIssueStatusSchema,
+    name: z.string(),
+    description: z.string().nullish(),
+    first_seen: z.string().datetime(),
+})
+
 export type ListErrorsData = z.infer<typeof ListErrorsSchema>
 
 export type ErrorDetailsData = z.infer<typeof ErrorDetailsSchema>
+
+export type UpdateIssueData = z.infer<typeof UpdateIssueSchema>
+
+export type Issue = z.infer<typeof IssueSchema>

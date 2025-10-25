@@ -12,6 +12,7 @@ import {
 } from '@/shared/test-utils'
 import listErrorsTool from '@/tools/errorTracking/listErrors'
 import errorDetailsTool from '@/tools/errorTracking/errorDetails'
+import updateIssueTool from '@/tools/errorTracking/updateIssue'
 import type { Context } from '@/tools/types'
 import { OrderByErrors, OrderDirectionErrors, StatusErrors } from '@/schema/errors'
 
@@ -107,6 +108,104 @@ describe('Error Tracking', { concurrent: false }, () => {
             const errorDetails = parseToolResponse(result)
 
             expect(Array.isArray(errorDetails)).toBe(true)
+        })
+    })
+
+    describe('update-issue tool', () => {
+        const updateTool = updateIssueTool()
+        const listTool = listErrorsTool()
+
+        it('should update issue status', async () => {
+            const listResult = await listTool.handler(context, {
+                status: StatusErrors.Active,
+            })
+            const errorList = parseToolResponse(listResult)
+
+            if (errorList.length > 0 && errorList[0].issueId) {
+                const issueId = errorList[0].issueId
+                const originalStatus = errorList[0].status
+
+                const updateResult = await updateTool.handler(context, {
+                    issueId,
+                    status: StatusErrors.Resolved,
+                })
+
+                expect(updateResult.content).toBeDefined()
+                expect(updateResult.content[0].text).toContain('Successfully updated issue')
+
+                await updateTool.handler(context, {
+                    issueId,
+                    status: originalStatus,
+                })
+            } else {
+                console.log('Skipping test: No active errors found')
+            }
+        })
+
+        it('should update issue name', async () => {
+            const listResult = await listTool.handler(context, {})
+            const errorList = parseToolResponse(listResult)
+
+            if (errorList.length > 0 && errorList[0].issueId) {
+                const issueId = errorList[0].issueId
+                const originalName = errorList[0].name
+
+                const newName = `Test Updated Name ${Date.now()}`
+                const updateResult = await updateTool.handler(context, {
+                    issueId,
+                    name: newName,
+                })
+
+                expect(updateResult.content).toBeDefined()
+                expect(updateResult.content[0].text).toContain('Successfully updated issue')
+
+                await updateTool.handler(context, {
+                    issueId,
+                    name: originalName,
+                })
+            } else {
+                console.log('Skipping test: No errors found')
+            }
+        })
+
+        it('should update both status and name', async () => {
+            const listResult = await listTool.handler(context, {})
+            const errorList = parseToolResponse(listResult)
+
+            if (errorList.length > 0 && errorList[0].issueId) {
+                const issueId = errorList[0].issueId
+                const originalStatus = errorList[0].status
+                const originalName = errorList[0].name
+
+                const newName = `Test Combined Update ${Date.now()}`
+                const updateResult = await updateTool.handler(context, {
+                    issueId,
+                    status: StatusErrors.Suppressed,
+                    name: newName,
+                })
+
+                expect(updateResult.content).toBeDefined()
+                expect(updateResult.content[0].text).toContain('Successfully updated issue')
+
+                await updateTool.handler(context, {
+                    issueId,
+                    status: originalStatus,
+                    name: originalName,
+                })
+            } else {
+                console.log('Skipping test: No errors found')
+            }
+        })
+
+        it('should handle invalid issue ID', async () => {
+            const invalidIssueId = '00000000-0000-0000-0000-000000000001'
+
+            await expect(
+                updateTool.handler(context, {
+                    issueId: invalidIssueId,
+                    status: StatusErrors.Resolved,
+                })
+            ).rejects.toThrow()
         })
     })
 
