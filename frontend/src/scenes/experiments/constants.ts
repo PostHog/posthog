@@ -91,5 +91,5 @@ export const NEW_EXPERIMENT: Experiment = {
     exposure_criteria: {
         filterTestAccounts: true,
     },
-    user_access_level: AccessControlLevel.Member,
+    user_access_level: AccessControlLevel.Editor,
 }
