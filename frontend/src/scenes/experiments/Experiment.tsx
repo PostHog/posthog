@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -10,18 +10,20 @@ import { ExperimentForm } from './ExperimentForm'
 import { ExperimentView } from './ExperimentView/ExperimentView'
 import { CreateExperiment } from './create/CreateExperiment'
 import { type ExperimentLogicProps, FORM_MODES, experimentLogic } from './experimentLogic'
+import { type ExperimentSceneLogicProps, experimentSceneLogic } from './experimentSceneLogic'
 
-export const scene: SceneExport<ExperimentLogicProps> = {
+export const scene: SceneExport<ExperimentSceneLogicProps> = {
     component: Experiment,
-    logic: experimentLogic,
+    logic: experimentSceneLogic,
     paramsToProps: ({ params: { id, formMode } }) => ({
         experimentId: id === 'new' ? 'new' : parseInt(id, 10),
         formMode: formMode || (id === 'new' ? FORM_MODES.create : FORM_MODES.update),
+        // tabId is automatically added by sceneLogic
     }),
 }
 
 export function Experiment(): JSX.Element {
-    const { formMode, experimentMissing, experimentId } = useValues(experimentLogic)
+    const { formMode, experimentMissing, experimentId } = useValues(experimentSceneLogic)
     const { currentTeamId } = useValues(teamLogic)
     const isUnifiedCreateFormEnabled = useFeatureFlag('EXPERIMENTS_UNIFIED_CREATE_FORM', 'test')
 
@@ -36,13 +38,24 @@ export function Experiment(): JSX.Element {
         return <NotFound object="experiment" />
     }
 
+    // Bind experimentLogic with props so all child components get the correct instance
+    const logicProps: ExperimentLogicProps = { experimentId, formMode }
+
     if (isUnifiedCreateFormEnabled && formMode === FORM_MODES.create) {
-        return <CreateExperiment />
+        return (
+            <BindLogic logic={experimentLogic} props={logicProps}>
+                <CreateExperiment />
+            </BindLogic>
+        )
     }
 
-    return ([FORM_MODES.create, FORM_MODES.duplicate] as string[]).includes(formMode) ? (
-        <ExperimentForm />
-    ) : (
-        <ExperimentView />
+    return (
+        <BindLogic logic={experimentLogic} props={logicProps}>
+            {formMode && ([FORM_MODES.create, FORM_MODES.duplicate] as string[]).includes(formMode) ? (
+                <ExperimentForm />
+            ) : (
+                <ExperimentView />
+            )}
+        </BindLogic>
     )
 }
