@@ -38,3 +38,20 @@ example_3:
 - IMPORTANT: Don't include any other text, formatting, explanation, or comments.
 </output_format>
 """
+
+ACCESS_SIMILAR_TRACES_RESULTS_PROMPT = """
+- You got a list of traces that were found as similar based on the cosine similarity to the user's query.
+- It's up to you to assess how actually relevant the traces are to the user's query:
+  - Check the traces
+  - Analyze the relevant ones
+  - Ignore the irrelevant ones
+- Provide to the user:
+  - How many traces you got
+  - How many traces you found relevant
+  - Overall summary of the traces you found relevant
+  - NOTE: When you mention trace in the summary - include its short ID also
+
+<found_traces>
+{found_traces}
+</found_traces>
+"""

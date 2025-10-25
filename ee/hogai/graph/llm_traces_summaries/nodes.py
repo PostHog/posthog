@@ -22,9 +22,11 @@ from products.notebooks.backend.util import (
 )
 
 from ee.hogai.graph.base import AssistantNode
-from ee.hogai.graph.llm_traces_summaries.prompts import EXTRACT_TOPICS_FROM_QUERY_PROMPT
+from ee.hogai.graph.llm_traces_summaries.prompts import (
+    ACCESS_SIMILAR_TRACES_RESULTS_PROMPT,
+    EXTRACT_TOPICS_FROM_QUERY_PROMPT,
+)
 from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.llm_traces_summaries.constants import LLM_TRACES_SUMMARIES_TOP_SIMILAR_TRACES_COUNT
 from ee.hogai.llm_traces_summaries.summarize_traces import LLMTracesSummarizer
 from ee.hogai.session_summaries.session_group.summary_notebooks import (
     create_empty_notebook_for_summary,
@@ -35,12 +37,12 @@ from ee.hogai.utils.types.base import AssistantNodeName
 from ee.hogai.utils.types.composed import MaxNodeName
 from ee.models.llm_traces_summaries import LLMTraceSummary
 
-# TODO: Move to a Temporal job
-# trace_summarizer = LLMTracesSummarizer(team=self._team)
-# await trace_summarizer.summarize_traces_for_date_range(
-#     # Check the last day, by default? # date_from="-1dStart", date_to="-1dEnd"
-#     date_range=DateRange(date_from="-30d", date_to="-1d")  # TODO: Use proper date range
-# )
+# Analyzing the last week by default, later could be guessed from the query
+DEFAULT_LLM_TRACES_SUMMARIZATION_TOOL_DATE_RANGE = DateRange(date_from="-7d")
+# Issue search is the main search, for now, later could be guessed from the query
+DEFAULT_LLM_TRACES_SUMMARIZATION_TOOL_SUMMARY_TYPE = LLMTraceSummary.LLMTraceSummaryType.ISSUES_SEARCH
+# Search for the top 10 similar traces by default, later could be guessed from the query
+DEFAULT_LLM_TRACES_SUMMARIZATION_TOOL_TOP_SIMILAR_TRACES_COUNT = 10
 
 
 class LLMTracesSummarizationNode(AssistantNode):
@@ -80,7 +82,9 @@ class LLMTracesSummarizationNode(AssistantNode):
         notebook = await create_empty_notebook_for_summary(
             user=self._user,
             team=self._team,
-            summary_title=_create_notebook_title(query=llm_traces_summarization_query),
+            summary_title=_create_notebook_title(
+                query=llm_traces_summarization_query, top=DEFAULT_LLM_TRACES_SUMMARIZATION_TOOL_TOP_SIMILAR_TRACES_COUNT
+            ),
         )
         state.notebook_short_id = notebook.short_id
         try:
@@ -93,16 +97,19 @@ class LLMTracesSummarizationNode(AssistantNode):
             similar_traces = await database_sync_to_async(traces_summarizer.find_top_similar_traces_for_query)(
                 query=extracted_topics_str,
                 request_id=str(conversation_id),
-                top=LLM_TRACES_SUMMARIES_TOP_SIMILAR_TRACES_COUNT,
-                date_range=DateRange(date_from="-7d"),
-                summary_type=LLMTraceSummary.LLMTraceSummaryType.ISSUES_SEARCH,
+                top=DEFAULT_LLM_TRACES_SUMMARIZATION_TOOL_TOP_SIMILAR_TRACES_COUNT,
+                date_range=DEFAULT_LLM_TRACES_SUMMARIZATION_TOOL_DATE_RANGE,
+                summary_type=DEFAULT_LLM_TRACES_SUMMARIZATION_TOOL_SUMMARY_TYPE,
             )
             # Format found traces into readable/printable documents, while remove excessive context
             similar_documents = self._format_similar_traces_into_documents(similar_traces=similar_traces)
             if not similar_documents:
                 return self._create_error_response("No similar traces found", state)
             notebook_content = _prepare_basic_llm_summary_notebook_content(
-                summaries=similar_documents, query=llm_traces_summarization_query, team_id=self._team.id
+                summaries=similar_documents,
+                query=llm_traces_summarization_query,
+                team_id=self._team.id,
+                top=DEFAULT_LLM_TRACES_SUMMARIZATION_TOOL_TOP_SIMILAR_TRACES_COUNT,
             )
             await self._stream_notebook_content(content=notebook_content, state=state)
             await update_notebook_from_summary_content(
@@ -112,8 +119,7 @@ class LLMTracesSummarizationNode(AssistantNode):
             return PartialAssistantState(
                 messages=[
                     AssistantToolCallMessage(
-                        # TODO: Write helper prompt for PostHog AI that not all traces found are 100% relevant, so he needs to pick proper ones
-                        content=f"Here are 5 latest traces for the requested query (specify 'latest' explicitly in your response):\n\n{json.dumps(similar_documents)}",
+                        content=ACCESS_SIMILAR_TRACES_RESULTS_PROMPT.format(found_traces=json.dumps(similar_documents)),
                         tool_call_id=state.root_tool_call_id or "unknown",
                         id=str(uuid4()),
                     ),
@@ -186,19 +192,19 @@ class LLMTracesSummarizationNode(AssistantNode):
         return "INSTRUCTIONS: Tell the user that you encountered an issue while summarizing the LLM traces and suggest they try again with a different question."
 
 
-def _create_notebook_title(query: str) -> str:
-    title = f'LLM traces summaries report (last 5) - "{query}"'
+def _create_notebook_title(query: str, top: int) -> str:
+    title = f'LLM traces summaries report (top {top}) - "{query}"'
     timestamp = timezone.now().strftime("%Y-%m-%d")
     title += f" ({timestamp})"
     return title
 
 
 def _prepare_basic_llm_summary_notebook_content(
-    summaries: list[dict[str, str | float]], query: str, team_id: int
+    summaries: list[dict[str, str | float]], query: str, team_id: int, top: int
 ) -> TipTapNode:
     content = []
     # Title
-    content.append(create_heading_with_text(_create_notebook_title(query=query), 1))
+    content.append(create_heading_with_text(_create_notebook_title(query=query, top=top), 1))
     # Add summaries
     content.append({"type": "horizontalRule"})
     for summary in summaries:

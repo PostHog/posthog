@@ -120,9 +120,9 @@ class ClusterExplainer:
     ) -> dict[str, ExplainedClusterizedSuggestionsGroup]:
         # Sort named clusters by the average similarity
         return dict(
-            sorted(  # type: ignore
+            sorted(
                 named_clusters.items(),
-                key=lambda item: item[1].avg_similarity,  # type: ignore
+                key=lambda item: item[1].avg_similarity,
                 reverse=True,
             )
         )
