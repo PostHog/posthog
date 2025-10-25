@@ -1,3 +1,4 @@
+import json
 import typing
 import datetime as dt
 import collections.abc
@@ -88,6 +89,7 @@ class BaseBatchExportInputs:
         interval: The range of data we are exporting.
         data_interval_end: For manual runs, the end date of the batch. This should be set to `None` for regularly
             scheduled runs and for backfills.
+        integration_id: The ID of the integration that contains the credentials for the destination.
     """
 
     batch_export_id: str
@@ -102,6 +104,7 @@ class BaseBatchExportInputs:
     backfill_details: BackfillDetails | None = None
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
+    integration_id: int | None = None
 
     def get_is_backfill(self) -> bool:
         """Needed for backwards compatibility with existing batch exports.
@@ -200,11 +203,76 @@ class PostgresBatchExportInputs(BaseBatchExportInputs):
         self.port = int(self.port)
 
 
+IAMRole = str
+
+
+@dataclass
+class AWSCredentials:
+    aws_access_key_id: str
+    aws_secret_access_key: str
+
+
+@dataclass
+class RedshiftCopyInputs:
+    s3_bucket: str
+    region_name: str
+    s3_key_prefix: str
+    # Authorization role or credentials for Redshift to COPY data from bucket.
+    authorization: IAMRole | AWSCredentials
+    # S3 batch export credentials.
+    # TODO: Also support RBAC for S3 batch export, then we could take
+    # `IAMRole | AWSCredentials` here too.
+    bucket_credentials: AWSCredentials
+
+
 @dataclass(kw_only=True)
-class RedshiftBatchExportInputs(PostgresBatchExportInputs):
+class RedshiftBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Redshift export workflow."""
 
+    user: str
+    password: str
+    host: str
+    database: str
+    schema: str = "public"
+    table_name: str = "events"
+    port: int = 5439
     properties_data_type: str = "varchar"
+    mode: typing.Literal["COPY", "INSERT"] = "INSERT"
+    copy_inputs: RedshiftCopyInputs | None = None
+
+    def __post_init__(self):
+        if (
+            self.mode == "COPY"
+            and self.copy_inputs is not None
+            and not isinstance(self.copy_inputs, RedshiftCopyInputs)
+        ):
+            if isinstance(self.copy_inputs, str | bytes | bytearray):  # type: ignore
+                raw_inputs = json.loads(self.copy_inputs)
+            elif isinstance(self.copy_inputs, dict):
+                raw_inputs = self.copy_inputs
+            else:
+                raise TypeError(f"Invalid type for copy inputs: '{type(self.copy_inputs)}'")
+
+            bucket_credentials = AWSCredentials(
+                aws_access_key_id=raw_inputs["bucket_credentials"]["aws_access_key_id"],
+                aws_secret_access_key=raw_inputs["bucket_credentials"]["aws_secret_access_key"],
+            )
+
+            if isinstance(raw_inputs["authorization"], str):
+                authorization: IAMRole | AWSCredentials = raw_inputs["authorization"]
+            else:
+                authorization = AWSCredentials(
+                    aws_access_key_id=raw_inputs["authorization"]["aws_access_key_id"],
+                    aws_secret_access_key=raw_inputs["authorization"]["aws_secret_access_key"],
+                )
+
+            self.copy_inputs = RedshiftCopyInputs(
+                s3_bucket=raw_inputs["s3_bucket"],
+                s3_key_prefix=raw_inputs.get("s3_key_prefix", "/"),
+                region_name=raw_inputs["region_name"],
+                authorization=authorization,
+                bucket_credentials=bucket_credentials,
+            )
 
 
 @dataclass(kw_only=True)
@@ -228,6 +296,22 @@ class BigQueryBatchExportInputs(BaseBatchExportInputs):
 
 
 @dataclass(kw_only=True)
+class DatabricksBatchExportInputs(BaseBatchExportInputs):
+    """Inputs for Databricks export workflow.
+
+    NOTE: we store config related to the Databricks instance in the integration model instead.
+    (including sensitive config such as client ID and client secret)
+    """
+
+    http_path: str
+    catalog: str
+    schema: str
+    table_name: str
+    use_variant_type: bool = True
+    use_automatic_schema_evolution: bool = True
+
+
+@dataclass(kw_only=True)
 class HttpBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Http export workflow."""
 
@@ -248,6 +332,7 @@ DESTINATION_WORKFLOWS = {
     "Postgres": ("postgres-export", PostgresBatchExportInputs),
     "Redshift": ("redshift-export", RedshiftBatchExportInputs),
     "BigQuery": ("bigquery-export", BigQueryBatchExportInputs),
+    "Databricks": ("databricks-export", DatabricksBatchExportInputs),
     "HTTP": ("http-export", HttpBatchExportInputs),
     "NoOp": ("no-op", NoOpInputs),
 }
@@ -679,6 +764,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                     # This assignment should be removed after updating all existing exports to use
                     # `batch_export_model` instead.
                     batch_export_schema=None,
+                    integration_id=batch_export.destination.integration_id,
                     **destination_config,
                 )
             ),

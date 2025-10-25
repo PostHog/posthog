@@ -139,6 +139,7 @@ async fn setup_router_with_limits(
         None,        // historical_tokens_keys
         false,       // is_mirror_deploy
         0.0,         // verbose_sample_percent
+        26_214_400,  // ai_max_sum_of_parts_bytes (25MB)
     );
 
     (app, sink)
@@ -1154,7 +1155,7 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
 
     // Configure set_nx_ex to return true (key was set successfully, first time seeing this submission)
     let mut redis_client = MockRedisClient::new();
-    let survey_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "surveys");
+    let survey_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "survey_responses");
     redis_client = redis_client.zrangebyscore_ret(&survey_key, vec![token.to_string()]);
     let submission_key = format!("survey-submission:{token}:submission_first");
     redis_client = redis_client.set_nx_ex_ret(&submission_key, Ok(true));
@@ -1182,6 +1183,7 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         None,
         false,
         0.0,
+        26_214_400,
     );
 
     let client = TestClient::new(app);
@@ -1226,7 +1228,7 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
     };
 
     // Configure MockRedisClient for survey quota limited scenario
-    let survey_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "surveys");
+    let survey_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "survey_responses");
     let mut redis_client =
         MockRedisClient::new().zrangebyscore_ret(&survey_key, vec![token.to_string()]);
 
@@ -1257,6 +1259,7 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         None,
         false,
         0.0,
+        26_214_400,
     );
 
     let client = TestClient::new(app);
@@ -1301,7 +1304,7 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
     };
 
     // Configure MockRedisClient for survey quota limited scenario
-    let survey_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "surveys");
+    let survey_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "survey_responses");
     let mut redis_client =
         MockRedisClient::new().zrangebyscore_ret(&survey_key, vec![token.to_string()]);
 
@@ -1336,6 +1339,7 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         None,
         false,
         0.0,
+        26_214_400,
     );
 
     let client = TestClient::new(app);
@@ -1752,6 +1756,7 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         None,
         false,
         0.0,
+        26_214_400,
     );
 
     let client = TestClient::new(app);

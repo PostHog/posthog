@@ -107,12 +107,9 @@ impl Fingerprint {
 #[cfg(test)]
 mod test {
 
+    use crate::{frames::Frame, types::Stacktrace};
+    use common_types::error_tracking::FrameId;
     use uuid::Uuid;
-
-    use crate::{
-        frames::{Frame, FrameId},
-        types::Stacktrace,
-    };
 
     use super::*;
 
@@ -145,6 +142,8 @@ mod test {
                 context: None,
                 release: None,
                 synthetic: false,
+                suspicious: false,
+                module: None,
             },
             Frame {
                 raw_id: FrameId::new(String::new(), team_id),
@@ -161,6 +160,8 @@ mod test {
                 context: None,
                 release: None,
                 synthetic: false,
+                suspicious: false,
+                module: None,
             },
         ];
 
@@ -179,6 +180,8 @@ mod test {
             context: None,
             release: None,
             synthetic: false,
+            suspicious: false,
+            module: None,
         };
 
         exception.stack = Some(Stacktrace::Resolved {
@@ -227,6 +230,8 @@ mod test {
                 context: None,
                 release: None,
                 synthetic: false,
+                suspicious: false,
+                module: None,
             },
             Frame {
                 raw_id: FrameId::new(String::new(), 1),
@@ -243,6 +248,8 @@ mod test {
                 context: None,
                 release: None,
                 synthetic: false,
+                suspicious: false,
+                module: None,
             },
             Frame {
                 raw_id: FrameId::new(String::new(), 1),
@@ -259,6 +266,8 @@ mod test {
                 context: None,
                 release: None,
                 synthetic: false,
+                suspicious: false,
+                module: None,
             },
         ];
 
@@ -301,6 +310,8 @@ mod test {
             context: None,
             release: None,
             synthetic: false,
+            suspicious: false,
+            module: None,
         }];
 
         let non_app_frame = Frame {
@@ -318,6 +329,8 @@ mod test {
             context: None,
             release: None,
             synthetic: false,
+            suspicious: false,
+            module: None,
         };
 
         exception.stack = Some(Stacktrace::Resolved {

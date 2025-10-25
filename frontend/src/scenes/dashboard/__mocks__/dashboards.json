@@ -19,9 +19,7 @@
                 "date_from": "-7d"
             },
             "tags": [],
-            "restriction_level": 21,
-            "effective_restriction_level": 21,
-            "effective_privilege_level": 37
+            "user_access_level": "editor"
         },
         {
             "id": 3,
@@ -42,9 +40,22 @@
             "creation_mode": "default",
             "filters": {},
             "tags": [],
-            "restriction_level": 37,
-            "effective_restriction_level": 37,
-            "effective_privilege_level": 21
+            "user_access_level": "editor"
+        },
+        {
+            "id": 4,
+            "name": "🔒 View only",
+            "description": "View only dashboard.",
+            "pinned": false,
+            "items": null,
+            "created_at": "2022-03-14T14:31:38.994916Z",
+            "created_by": null,
+            "is_shared": false,
+            "deleted": false,
+            "creation_mode": "default",
+            "filters": {},
+            "tags": [],
+            "user_access_level": "viewer"
         }
     ]
 }

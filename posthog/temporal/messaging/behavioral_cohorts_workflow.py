@@ -1,3 +1,4 @@
+import asyncio
 import datetime as dt
 import dataclasses
 from typing import Any, Optional
@@ -6,10 +7,11 @@ import temporalio.activity
 import temporalio.workflow
 from structlog.contextvars import bind_contextvars
 
-from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.topics import KAFKA_COHORT_MEMBERSHIP_CHANGED
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
@@ -62,7 +64,6 @@ class ProcessConditionBatchInputs:
 
 @dataclasses.dataclass
 class CohortMembershipResult:
-    memberships_count: int  # Just the count, not the actual data
     conditions_processed: int
     batch_number: int
 
@@ -98,79 +99,92 @@ async def get_unique_conditions_page_activity(inputs: GetConditionsPageInputs) -
         f"Fetching unique conditions page from ClickHouse (offset={inputs.offset}, page_size={inputs.page_size})"
     )
 
-    # Send heartbeat at start
-    temporalio.activity.heartbeat()
-
-    # Basic validation for reasonable bounds
-    if not isinstance(inputs.days, int) or inputs.days < 0 or inputs.days > 365:
-        raise ValueError(f"Invalid days value: {inputs.days}")
-    if inputs.limit is not None and (not isinstance(inputs.limit, int) or inputs.limit < 1 or inputs.limit > 100000):
-        raise ValueError(f"Invalid limit value: {inputs.limit}")
-
-    where_clauses = ["date >= now() - toIntervalDay(%(days)s)"]
-    params: dict[str, Any] = {"days": inputs.days}
-
-    if inputs.team_id:
-        where_clauses.append("team_id = %(team_id)s")
-        params["team_id"] = inputs.team_id
-    if inputs.cohort_id:
-        where_clauses.append("cohort_id = %(cohort_id)s")
-        params["cohort_id"] = inputs.cohort_id
-    if inputs.condition:
-        where_clauses.append("condition = %(condition)s")
-        params["condition"] = inputs.condition
-
-    where_clause = " AND ".join(where_clauses)
-
-    # Calculate effective limit for this page
-    if inputs.limit:
-        current_limit = inputs.limit
-    else:
-        current_limit = inputs.page_size
-
-    try:
-        query = """
-            SELECT DISTINCT
-                team_id,
-                cohort_id,
-                condition
-            FROM behavioral_cohorts_matches
-            WHERE {where_clause}
-            ORDER BY team_id, cohort_id, condition
-            LIMIT {limit} OFFSET {offset}
-        """.format(where_clause=where_clause, limit=current_limit, offset=inputs.offset)
-
-        with tags_context(
-            team_id=inputs.team_id,
-            feature=Feature.BEHAVIORAL_COHORTS,
-            cohort_id=inputs.cohort_id,
-            product=Product.MESSAGING,
-            query_type="get_unique_conditions_page",
+    async with Heartbeater(details=(f"Starting to fetch conditions page (offset={inputs.offset})",)) as heartbeater:
+        # Basic validation for reasonable bounds
+        if not isinstance(inputs.days, int) or inputs.days < 0 or inputs.days > 365:
+            raise ValueError(f"Invalid days value: {inputs.days}")
+        if inputs.limit is not None and (
+            not isinstance(inputs.limit, int) or inputs.limit < 1 or inputs.limit > 100000
         ):
-            results = sync_execute(query, params, ch_user=ClickHouseUser.COHORTS, workload=Workload.OFFLINE)
+            raise ValueError(f"Invalid limit value: {inputs.limit}")
 
-        conditions = [
-            {
-                "team_id": row[0],
-                "cohort_id": row[1],
-                "condition": row[2],
-            }
-            for row in results
-        ]
+        where_clauses = ["date >= now() - toIntervalDay(%(days)s)"]
+        params: dict[str, Any] = {"days": inputs.days}
 
-        # Check if there are more results
-        has_more = len(results) == current_limit
-        total_fetched = inputs.offset + len(conditions)
+        if inputs.team_id:
+            where_clauses.append("team_id = %(team_id)s")
+            params["team_id"] = inputs.team_id
+        if inputs.cohort_id:
+            where_clauses.append("cohort_id = %(cohort_id)s")
+            params["cohort_id"] = inputs.cohort_id
+        if inputs.condition:
+            where_clauses.append("condition = %(condition)s")
+            params["condition"] = inputs.condition
 
-        logger.info(
-            f"Fetched page with {len(conditions)} conditions (offset={inputs.offset}, total={total_fetched}, has_more={has_more})"
-        )
+        where_clause = " AND ".join(where_clauses)
 
-        return ConditionsPageResult(conditions=conditions, has_more=has_more, total_fetched=total_fetched)
+        # Calculate effective limit for this page
+        if inputs.limit:
+            current_limit = inputs.limit
+        else:
+            current_limit = inputs.page_size
 
-    except Exception as e:
-        logger.exception("Error fetching unique conditions page", error=str(e))
-        raise
+        try:
+            query = """
+                SELECT DISTINCT
+                    team_id,
+                    cohort_id,
+                    condition
+                FROM behavioral_cohorts_matches
+                WHERE {where_clause}
+                ORDER BY team_id, cohort_id, condition
+                LIMIT {limit} OFFSET {offset}
+                FORMAT JSONEachRow
+            """.format(where_clause=where_clause, limit=current_limit, offset=inputs.offset)
+
+            heartbeater.details = ("Executing ClickHouse query",)
+
+            with tags_context(
+                team_id=inputs.team_id,
+                feature=Feature.BEHAVIORAL_COHORTS,
+                cohort_id=inputs.cohort_id,
+                product=Product.MESSAGING,
+                query_type="get_unique_conditions_page",
+            ):
+                async with get_client(team_id=inputs.team_id) as client:
+                    results = []
+                    row_count = 0
+                    async for row in client.stream_query_as_jsonl(query, query_parameters=params):
+                        results.append((row["team_id"], row["cohort_id"], row["condition"]))
+                        row_count += 1
+                        # Only update heartbeat details every 100 rows to minimize overhead
+                        if row_count % 100 == 0:
+                            heartbeater.details = (f"Processed {row_count} conditions",)
+
+            conditions = [
+                {
+                    "team_id": row[0],
+                    "cohort_id": row[1],
+                    "condition": row[2],
+                }
+                for row in results
+            ]
+
+            # Check if there are more results
+            has_more = len(results) == current_limit
+            total_fetched = inputs.offset + len(conditions)
+
+            logger.info(
+                f"Fetched page with {len(conditions)} conditions (offset={inputs.offset}, total={total_fetched}, has_more={has_more})"
+            )
+
+            heartbeater.details = (f"Completed: fetched {len(conditions)} conditions",)
+
+            return ConditionsPageResult(conditions=conditions, has_more=has_more, total_fetched=total_fetched)
+
+        except Exception as e:
+            logger.exception("Error fetching unique conditions page", error=str(e))
+            raise
 
 
 @temporalio.activity.defn
@@ -182,19 +196,26 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
         f"Processing batch {inputs.batch_number}/{inputs.total_batches} with {len(inputs.conditions)} conditions"
     )
 
-    # Basic validation
-    if not isinstance(inputs.days, int) or inputs.days < 0 or inputs.days > 365:
-        raise ValueError(f"Invalid days value: {inputs.days}")
-    if not isinstance(inputs.min_matches, int) or inputs.min_matches < 0:
-        raise ValueError(f"Invalid min_matches value: {inputs.min_matches}")
+    async with Heartbeater(details=(f"Starting batch {inputs.batch_number}/{inputs.total_batches}",)) as heartbeater:
+        # Basic validation
+        if not isinstance(inputs.days, int) or inputs.days < 0 or inputs.days > 365:
+            raise ValueError(f"Invalid days value: {inputs.days}")
+        if not isinstance(inputs.min_matches, int) or inputs.min_matches < 0:
+            raise ValueError(f"Invalid min_matches value: {inputs.min_matches}")
 
-    memberships_count = 0
+        # Initialize Kafka producer once before the loop
+        kafka_producer = KafkaProducer()
 
-    async with Heartbeater():
         for idx, condition_data in enumerate(inputs.conditions, 1):
             team_id = condition_data["team_id"]
             cohort_id = condition_data["cohort_id"]
             condition_hash = condition_data["condition"]
+
+            # Update heartbeat progress every 100 conditions to minimize overhead
+            if idx % 100 == 0 or idx == len(inputs.conditions):
+                heartbeater.details = (
+                    f"Processing condition {idx}/{len(inputs.conditions)} in batch {inputs.batch_number}",
+                )
 
             # Log progress within the batch
             if idx % 100 == 0 or idx == len(inputs.conditions):
@@ -207,15 +228,51 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
 
             query = """
                 SELECT
-                    person_id
-                FROM behavioral_cohorts_matches
-                WHERE
-                    team_id = %(team_id)s
-                    AND cohort_id = %(cohort_id)s
-                    AND condition = %(condition)s
-                    AND date >= now() - toIntervalDay(%(days)s)
-                    AND matches >= %(min_matches)s
-                LIMIT 100000
+                    COALESCE(bcm.team_id, cmc.team_id) as team_id,
+                    COALESCE(bcm.cohort_id, cmc.cohort_id) as cohort_id,
+                    COALESCE(bcm.person_id, cmc.person_id) as person_id,
+                    now64() as last_updated,
+                    CASE
+                        WHEN
+                            cmc.person_id IS NULL -- Does not exist in cohort_membership_changed
+                            THEN 'entered' -- so, new member
+                        WHEN
+                            cmc.person_id IS NOT NULL -- Exists in cohort_membership_changed
+                            AND cmc.status = 'left' -- it left the cohort at some point
+                            AND bcm.person_id IS NOT NULL -- but now there is a match in behavioral_cohorts_matches
+                            THEN 'entered' -- so, it re-entered the cohort
+                        WHEN
+                            cmc.person_id IS NOT NULL -- Exists in cohort_membership_changed
+                            AND cmc.status = 'entered' -- it is a member at some point
+                            AND bcm.person_id IS NULL -- but there is no match in behavioral_cohorts_matches
+                            THEN 'left' -- so, it left the cohort
+                        ELSE
+                            'unchanged' -- for all other cases, the membership did not change
+                    END as status
+                FROM
+                (
+                    SELECT team_id, cohort_id, person_id
+                    FROM behavioral_cohorts_matches
+                    WHERE
+                        team_id = %(team_id)s
+                        AND cohort_id = %(cohort_id)s
+                        AND condition = %(condition)s
+                        AND date >= now() - toIntervalDay(%(days)s)
+                    GROUP BY team_id, cohort_id, person_id
+                    HAVING sum(matches) >= %(min_matches)s
+                ) bcm
+                FULL OUTER JOIN
+                (
+                    SELECT team_id, cohort_id, person_id, argMax(status, last_updated) as status
+                    FROM cohort_membership
+                    WHERE
+                        team_id = %(team_id)s
+                        AND cohort_id = %(cohort_id)s
+                    GROUP BY team_id, cohort_id, person_id
+                ) cmc ON bcm.team_id = cmc.team_id AND bcm.cohort_id = cmc.cohort_id AND bcm.person_id = cmc.person_id
+                WHERE status != 'unchanged'
+                SETTINGS join_use_nulls = 1
+                FORMAT JSONEachRow
             """
 
             try:
@@ -226,21 +283,30 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
                     product=Product.MESSAGING,
                     query_type="get_cohort_memberships_batch",
                 ):
-                    results = sync_execute(
-                        query,
-                        {
-                            "team_id": team_id,
-                            "cohort_id": cohort_id,
-                            "condition": condition_hash,
-                            "days": inputs.days,
-                            "min_matches": inputs.min_matches,
-                        },
-                        ch_user=ClickHouseUser.COHORTS,
-                        workload=Workload.OFFLINE,
-                    )
-
-                # Just count the memberships, don't store them
-                memberships_count += len(results)
+                    async with get_client(team_id=team_id) as client:
+                        async for row in client.stream_query_as_jsonl(
+                            query,
+                            query_parameters={
+                                "team_id": team_id,
+                                "cohort_id": cohort_id,
+                                "condition": condition_hash,
+                                "days": inputs.days,
+                                "min_matches": inputs.min_matches,
+                            },
+                        ):
+                            payload = {
+                                "team_id": row["team_id"],
+                                "cohort_id": row["cohort_id"],
+                                "person_id": str(row["person_id"]),
+                                "last_updated": str(row["last_updated"]),
+                                "status": row["status"],
+                            }
+                            await asyncio.to_thread(
+                                kafka_producer.produce,
+                                topic=KAFKA_COHORT_MEMBERSHIP_CHANGED,
+                                key=payload["person_id"],
+                                data=payload,
+                            )
 
             except Exception as e:
                 logger.exception(
@@ -251,18 +317,18 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
                 )
                 continue
 
-    logger.info(
-        f"Batch {inputs.batch_number} completed: {memberships_count} memberships from {len(inputs.conditions)} conditions",
-        batch_number=inputs.batch_number,
-        memberships_count=memberships_count,
-        conditions_count=len(inputs.conditions),
-    )
+        heartbeater.details = (f"Completed batch {inputs.batch_number}: processed {len(inputs.conditions)} conditions",)
 
-    return CohortMembershipResult(
-        memberships_count=memberships_count,
-        conditions_processed=len(inputs.conditions),
-        batch_number=inputs.batch_number,
-    )
+        logger.info(
+            f"Batch {inputs.batch_number} completed: processed {len(inputs.conditions)} conditions",
+            batch_number=inputs.batch_number,
+            conditions_count=len(inputs.conditions),
+        )
+
+        return CohortMembershipResult(
+            conditions_processed=len(inputs.conditions),
+            batch_number=inputs.batch_number,
+        )
 
 
 def split_into_batches(items: list[Any], batch_count: int) -> list[list[Any]]:
@@ -337,7 +403,6 @@ class BehavioralCohortsWorkflow(PostHogWorkflow):
         if not all_conditions:
             workflow_logger.warning("No conditions found for this workflow's range")
             return {
-                "total_memberships": 0,
                 "conditions_processed": 0,
                 "batches_processed": 0,
             }
@@ -367,13 +432,10 @@ class BehavioralCohortsWorkflow(PostHogWorkflow):
             ),
         )
 
-        workflow_logger.info(
-            f"Child workflow completed: {result.memberships_count} memberships from {result.conditions_processed} conditions"
-        )
+        workflow_logger.info(f"Child workflow completed: processed {result.conditions_processed} conditions")
 
         # Return summary statistics
         return {
-            "total_memberships": result.memberships_count,
             "conditions_processed": result.conditions_processed,
             "batches_processed": 1,
         }

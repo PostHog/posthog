@@ -14,6 +14,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Billing]: () => import('./billing/Billing'),
     [Scene.Canvas]: () => import('./notebooks/NotebookCanvasScene'),
     [Scene.Cohort]: () => import('./cohorts/Cohort'),
+    [Scene.CohortCalculationHistory]: () => import('./cohorts/CohortCalculationHistory'),
     [Scene.Cohorts]: () => import('./cohorts/Cohorts'),
     [Scene.CustomCss]: () => import('./themes/CustomCssScene'),
     [Scene.Dashboard]: () => import('./dashboard/Dashboard'),
@@ -50,6 +51,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.LegacyPlugin]: () => import('./data-pipelines/legacy-plugins/LegacyPluginScene'),
     [Scene.LiveEvents]: () => import('./activity/live/LiveEventsTable'),
     [Scene.Login2FA]: () => import('./authentication/Login2FA'),
+    [Scene.EmailMFAVerify]: () => import('./authentication/EmailMFAVerify'),
     [Scene.Login]: () => import('./authentication/Login'),
     [Scene.Max]: () => import('./max/Max'),
     [Scene.MoveToPostHogCloud]: () => import('./moveToPostHogCloud/MoveToPostHogCloud'),
@@ -94,7 +96,5 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.WebAnalyticsMarketing]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.WebAnalyticsWebVitals]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.WebAnalytics]: () => import('./web-analytics/WebAnalyticsScene'),
-    [Scene.EmbeddedAnalytics]: () => import('./embedded-analytics/EmbeddedAnalyticsScene'),
-    [Scene.QueryEndpoints]: () => import('./embedded-analytics/EmbeddedAnalyticsScene'),
     [Scene.Wizard]: () => import('./wizard/Wizard'),
 }

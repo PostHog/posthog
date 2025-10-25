@@ -27,6 +27,12 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         template_id: z.string(),
         inputs: z.record(CyclotronInputSchema),
     }),
+    z.object({
+        type: z.literal('tracking_pixel'),
+        template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+        template_id: z.string(),
+        inputs: z.record(CyclotronInputSchema),
+    }),
 ])
 
 const HogFlowActionSchema = z.discriminatedUnion('type', [
@@ -157,6 +163,16 @@ export const HogFlowSchema = z.object({
     name: z.string(),
     status: z.enum(['active', 'draft', 'archived']),
     trigger: HogFlowTriggerSchema,
+    // Optional masking config for the trigger, allows HogFlows to be rate limited per distinct ID or other property
+    trigger_masking: z
+        .object({
+            ttl: z.number().nullable(),
+            hash: z.string(),
+            bytecode: z.array(z.union([z.string(), z.number()])),
+            threshold: z.number().nullable(),
+        })
+        .optional()
+        .nullable(),
     conversion: z
         .object({
             window_minutes: z.number(),

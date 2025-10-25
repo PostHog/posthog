@@ -17,13 +17,14 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
-from posthog.models import GroupTypeMapping, GroupUsageMetric, Notebook, Person
+from posthog.models import GroupTypeMapping, GroupUsageMetric, Person
 from posthog.models.group.util import create_group
-from posthog.models.notebook import ResourceNotebook
 from posthog.models.organization import Organization
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.notebooks.backend.models import Notebook, ResourceNotebook
 
 PATH = "ee.clickhouse.views.groups"
 
@@ -1489,6 +1490,19 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
 
         self.assertEqual(list_response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(list_response.json()), 0)
+
+    def test_create_detail_dashboard(self):
+        GroupTypeMapping.objects.create(
+            team=self.team, project=self.project, group_type="organization", group_type_index=0
+        )
+
+        response = self.client.put(self.url + "/create_detail_dashboard", {"group_type_index": 0})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["group_type"], "organization")
+        self.assertEqual(data["group_type_index"], 0)
+        self.assertIsNotNone(data["detail_dashboard"])
 
 
 class GroupUsageMetricViewSetTestCase(APIBaseTest):

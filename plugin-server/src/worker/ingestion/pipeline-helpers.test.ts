@@ -58,7 +58,7 @@ describe('sendEventToDLQ', () => {
 
         jest.mocked(mockKafkaProducer.queueMessages).mockImplementation(() => Promise.resolve())
         jest.mocked(mockKafkaProducer.produce).mockImplementation(() => Promise.resolve())
-        mockCaptureIngestionWarning.mockResolvedValue(undefined)
+        mockCaptureIngestionWarning.mockResolvedValue(true)
     })
 
     it('should send event to DLQ with proper logging', async () => {
@@ -383,13 +383,14 @@ describe('sendMessageToDLQ', () => {
             key: 'test-key',
             size: 12,
             headers: [
-                { 'team-id': Buffer.from('42') },
-                { 'distinct-id': Buffer.from('test-user') },
+                { team_id: Buffer.from('42') },
+                { distinct_id: Buffer.from('test-user') },
                 { event: 'pageview' },
+                { uuid: 'test-uuid-123' },
             ],
         } as Message
 
-        mockCaptureIngestionWarning.mockResolvedValue(undefined)
+        mockCaptureIngestionWarning.mockResolvedValue(true)
     })
 
     it('should send message to DLQ with proper headers and logging', async () => {
@@ -402,6 +403,7 @@ describe('sendMessageToDLQ', () => {
         expect(mockLogger.warn).toHaveBeenCalledWith('Event sent to DLQ', {
             step: stepName,
             team_id: '42',
+            uuid: 'test-uuid-123',
             distinct_id: 'test-user',
             event: 'pageview',
             error: 'Test error',
@@ -413,7 +415,7 @@ describe('sendMessageToDLQ', () => {
             'pipeline_step_dlq',
             {
                 distinctId: 'test-user',
-                eventUuid: 'unknown',
+                eventUuid: 'test-uuid-123',
                 error: 'Test error',
                 event: 'pageview',
                 step: stepName,
@@ -426,8 +428,8 @@ describe('sendMessageToDLQ', () => {
             value: mockMessage.value,
             key: mockMessage.key,
             headers: expect.objectContaining({
-                'team-id': '42',
-                'distinct-id': 'test-user',
+                team_id: '42',
+                distinct_id: 'test-user',
                 event: 'pageview',
                 'dlq-reason': 'Test error',
                 'dlq-step': stepName,
@@ -459,8 +461,8 @@ describe('sendMessageToDLQ', () => {
         const messageWithMixedHeaders = {
             ...mockMessage,
             headers: [
-                { 'team-id': 42 }, // number
-                { 'distinct-id': 'test-user' }, // string
+                { team_id: 42 }, // number
+                { distinct_id: 'test-user' }, // string
                 { event: Buffer.from('pageview') }, // Buffer
                 { custom: null }, // null
                 { undefined: undefined }, // undefined
@@ -478,8 +480,8 @@ describe('sendMessageToDLQ', () => {
             value: messageWithMixedHeaders.value,
             key: messageWithMixedHeaders.key,
             headers: expect.objectContaining({
-                'team-id': '42',
-                'distinct-id': 'test-user',
+                team_id: '42',
+                distinct_id: 'test-user',
                 event: 'pageview',
                 custom: 'null',
                 // undefined should not be included
@@ -515,6 +517,8 @@ describe('sendMessageToDLQ', () => {
 
         expect(mockLogger.error).toHaveBeenCalledWith('Failed to send event to DLQ', {
             step: stepName,
+            uuid: 'test-uuid-123',
+            event: 'pageview',
             team_id: '42',
             distinct_id: 'test-user',
             error: dlqError,
@@ -551,11 +555,7 @@ describe('redirectMessageToTopic', () => {
             offset: 123,
             key: 'test-key',
             size: 12,
-            headers: [
-                { 'team-id': Buffer.from('42') },
-                { 'distinct-id': Buffer.from('test-user') },
-                { event: 'pageview' },
-            ],
+            headers: [{ team_id: Buffer.from('42') }, { distinct_id: Buffer.from('test-user') }, { event: 'pageview' }],
         } as Message
     })
 
@@ -570,8 +570,8 @@ describe('redirectMessageToTopic', () => {
             value: mockMessage.value,
             key: mockMessage.key,
             headers: expect.objectContaining({
-                'team-id': '42',
-                'distinct-id': 'test-user',
+                team_id: '42',
+                distinct_id: 'test-user',
                 event: 'pageview',
                 'redirect-step': stepName,
                 'redirect-timestamp': expect.any(String),
@@ -669,11 +669,7 @@ describe('logDroppedMessage', () => {
             offset: 123,
             key: 'test-key',
             size: 12,
-            headers: [
-                { 'team-id': Buffer.from('42') },
-                { 'distinct-id': Buffer.from('test-user') },
-                { event: 'pageview' },
-            ],
+            headers: [{ team_id: Buffer.from('42') }, { distinct_id: Buffer.from('test-user') }, { event: 'pageview' }],
         } as Message
     })
 

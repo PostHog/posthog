@@ -105,11 +105,13 @@ export const sessionAttributionExplorerLogic = kea<sessionAttributionExplorerLog
                         key: Scene.WebAnalytics,
                         name: `Web analytics`,
                         path: urls.webAnalytics(),
+                        iconType: 'web_analytics',
                     },
                     {
                         key: Scene.SessionAttributionExplorer,
                         name: `Session attribution explorer`,
                         path: urls.sessionAttributionExplorer(),
+                        iconType: 'web_analytics',
                     },
                 ]
             },

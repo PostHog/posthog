@@ -28,6 +28,7 @@ DEFAULT_DISTINCT_ID_FIELD = "distinct_id"
 
 # CTE names
 CAMPAIGN_COST_CTE_NAME = "campaign_costs"
+UNIFIED_CONVERSION_GOALS_CTE_ALIAS = "ucg"
 
 # Prefixes for table names
 CONVERSION_GOAL_PREFIX_ABBREVIATION = "cg_"
@@ -146,7 +147,7 @@ MARKETING_ANALYTICS_SCHEMA = {
 }
 
 # Valid native marketing sources
-VALID_NATIVE_MARKETING_SOURCES = ["GoogleAds", "LinkedinAds", "RedditAds", "MetaAds"]
+VALID_NATIVE_MARKETING_SOURCES = ["GoogleAds", "LinkedinAds", "RedditAds", "MetaAds", "TikTokAds"]
 
 # Valid non-native marketing sources (managed external sources like BigQuery)
 VALID_NON_NATIVE_MARKETING_SOURCES = ["BigQuery"]
@@ -160,6 +161,7 @@ NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS = {
     "LinkedinAds": ["campaigns", "campaign_stats"],
     "RedditAds": ["campaigns", "campaign_report"],
     "MetaAds": ["campaigns", "campaign_stats"],
+    "TikTokAds": ["campaigns", "campaign_report"],
 }
 
 # Table pattern matching for native sources. TODO: find a better way to get the table names from the source.
@@ -183,6 +185,11 @@ TABLE_PATTERNS = {
         "campaign_table_keywords": ["campaigns"],
         "campaign_table_exclusions": ["stats"],
         "stats_table_keywords": ["campaign_stats"],
+    },
+    "TikTokAds": {
+        "campaign_table_keywords": ["campaigns"],
+        "campaign_table_exclusions": ["report"],
+        "stats_table_keywords": ["campaign_report"],
     },
 }
 

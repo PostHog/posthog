@@ -142,11 +142,11 @@ pub enum HermesError {
 pub enum EventError {
     #[error("Wrong event type: {0} for event {1}")]
     WrongEventType(String, Uuid),
-    #[error("No properties: {0}")]
+    #[error("No properties on event {0}")]
     NoProperties(Uuid),
-    #[error("Invalid properties: {0}, serde error: {1}")]
+    #[error("Invalid properties on event {0}, serde error: {1}")]
     InvalidProperties(Uuid, String),
-    #[error("Empty exception list: {0}")]
+    #[error("Empty exception list on event {0}")]
     EmptyExceptionList(Uuid),
     #[error("Invalid event timestamp: {0}, {1}")]
     InvalidTimestamp(String, String),

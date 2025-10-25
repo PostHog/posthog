@@ -4,7 +4,7 @@ from functools import lru_cache
 from typing import Any, Optional, Union, cast
 
 from django.db import transaction
-from django.db.models import Count, Prefetch, QuerySet
+from django.db.models import Count, F, Max, Prefetch, QuerySet
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
 from django.utils.text import slugify
@@ -36,6 +36,7 @@ from posthog import schema
 from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight_variable import map_stale_to_latest
+from posthog.api.mixins import FileSystemViewSetMixin
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -213,6 +214,7 @@ class InsightBasicSerializer(
 
     dashboard_tiles = DashboardTileBasicSerializer(many=True, read_only=True)
     created_by = UserBasicSerializer(read_only=True)
+    last_viewed_at = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Insight
@@ -236,11 +238,16 @@ class InsightBasicSerializer(
             "last_modified_at",
             "favorited",
             "user_access_level",
+            "last_viewed_at",
         ]
         read_only_fields = ("short_id", "updated_at", "last_refresh", "refreshing")
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Any:
         raise NotImplementedError()
+
+    def get_last_viewed_at(self, instance: Insight):
+        """Get the last viewed timestamp for this insight by any user in the team."""
+        return getattr(instance, "last_viewed_at", None)
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
@@ -322,6 +329,7 @@ class InsightSerializer(InsightBasicSerializer):
     effective_restriction_level = serializers.SerializerMethodField()
     effective_privilege_level = serializers.SerializerMethodField()
     timezone = serializers.SerializerMethodField(help_text="The timezone this chart is displayed in.")
+    last_viewed_at = serializers.SerializerMethodField(read_only=True)
     dashboards = serializers.PrimaryKeyRelatedField(
         help_text="""
         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
@@ -384,6 +392,7 @@ class InsightSerializer(InsightBasicSerializer):
             "types",
             "_create_in_folder",
             "alerts",
+            "last_viewed_at",
         ]
         read_only_fields = (
             "created_at",
@@ -418,6 +427,8 @@ class InsightSerializer(InsightBasicSerializer):
             last_modified_by=request.user,
             **validated_data,
         )
+
+        InsightViewed.objects.create(team_id=team_id, user=request.user, insight=insight, last_viewed_at=now())
 
         if dashboards is not None:
             for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():
@@ -840,6 +851,7 @@ Background calculation can be tracked using the `query_status` response field.""
     ),
 )
 class InsightViewSet(
+    FileSystemViewSetMixin,
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
@@ -925,15 +937,23 @@ class InsightViewSet(
         queryset = queryset.select_related("created_by", "last_modified_by", "team")
         if self.action == "list":
             queryset = queryset.prefetch_related("tagged_items__tag")
+            queryset = queryset.annotate(last_viewed_at=Max("insightviewed__last_viewed_at"))
             queryset = self._filter_request(self.request, queryset)
 
-        order = self.request.GET.get("order", None)
-        if order:
-            queryset = queryset.order_by(order)
-        else:
-            queryset = queryset.order_by("order")
+        return self.order_queryset(queryset)
 
-        return queryset
+    def order_queryset(self, queryset: QuerySet) -> QuerySet:
+        order = self.request.GET.get("order", None)
+        if not order:
+            return queryset.order_by("order")
+
+        if order == "-last_viewed_at":
+            return queryset.order_by(F("last_viewed_at").desc(nulls_last=True))
+
+        if order == "last_viewed_at":
+            return queryset.order_by(F("last_viewed_at").asc(nulls_first=True))
+
+        return queryset.order_by(order)
 
     @action(methods=["GET"], detail=False)
     def my_last_viewed(self, request: request.Request, *args, **kwargs) -> Response:
@@ -1098,7 +1118,9 @@ When set, the specified dashboard's filters and date range override will be appl
 
             serialized_data["layouts"] = layouts
 
-        return Response(serialized_data)
+        response = Response(serialized_data)
+
+        return response
 
     @extend_schema(exclude=True)
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
@@ -1257,18 +1279,35 @@ When set, the specified dashboard's filters and date range override will be appl
         return {"result": result.results, "timezone": team.timezone}
 
     # ******************************************
-    # /projects/:id/insights/:short_id/viewed
-    # Creates or updates an InsightViewed object for the user/insight combo
+    # /projects/:id/insights/viewed
+    # Creates or updates InsightViewed objects for the user/insight combo(s)
+    # Accepts an array of insight_ids
     # ******************************************
-    @action(methods=["POST"], detail=True, required_scopes=["insight:read"])
+    @action(methods=["POST"], detail=False, required_scopes=["insight:read"])
     def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        insight = self.get_object()
-        InsightViewed.objects.update_or_create(
-            team=self.team,
-            user=request.user,
-            insight=insight,
-            defaults={"last_viewed_at": now()},
+        """
+        Update insight view timestamps.
+        Expects: {"insight_ids": [1, 2, 3, ...]}
+        """
+        insight_ids = request.data.get("insight_ids")
+
+        if not insight_ids or not isinstance(insight_ids, list):
+            raise serializers.ValidationError({"insight_ids": "Must be a non-empty list of insight IDs"})
+
+        insights = Insight.objects.filter(
+            id__in=insight_ids,
+            team__project_id=self.team.project_id,
+            deleted=False,
         )
+
+        viewed_at = now()
+        for insight in insights:
+            InsightViewed.objects.update_or_create(
+                team=self.team,
+                user=request.user,
+                insight=insight,
+                defaults={"last_viewed_at": viewed_at},
+            )
 
         return Response(status=status.HTTP_201_CREATED)
 

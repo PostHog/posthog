@@ -37,6 +37,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
+import { panelLayoutLogic } from '../panelLayoutLogic'
 import type { projectTreeDataLogicType } from './projectTreeDataLogicType'
 import { getExperimentalProductsTree } from './projectTreeWebAnalyticsExperiment'
 
@@ -55,6 +56,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             groupsModel,
             ['aggregationLabel', 'groupTypes', 'groupTypesLoading', 'groupsAccessStatus'],
         ],
+        actions: [panelLayoutLogic, ['setActivePanelIdentifier']],
     })),
     actions({
         loadUnfiledItems: true,
@@ -271,6 +273,15 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                   href: item.href,
                               }
                     const response = await api.fileSystemShortcuts.create(shortcutItem)
+                    lemonToast.success('Shortcut created successfully', {
+                        button: {
+                            label: 'View',
+                            dataAttr: 'project-tree-view-shortcuts',
+                            action: () => {
+                                actions.setActivePanelIdentifier('Shortcuts')
+                            },
+                        },
+                    })
                     return [...values.shortcutData, response]
                 },
                 deleteShortcut: async ({ id }) => {
@@ -736,6 +747,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         treeItemsNew: [
             (s) => [s.getStaticTreeItems],
             (getStaticTreeItems) => getStaticTreeItems('', false).find((item) => item.id === 'new://')?.children ?? [],
+        ],
+        shortcutNonFolderPaths: [
+            (s) => [s.shortcutData],
+            (shortcutData) =>
+                new Set(shortcutData.filter((shortcut) => shortcut.type !== 'folder').map((shortcut) => shortcut.path)),
         ],
     }),
     listeners(({ actions, values }) => ({

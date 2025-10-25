@@ -40,7 +40,7 @@ export type TaskUpsertProps = Optional<
         | 'workflow'
         | 'current_stage'
     >,
-    'position' | 'workflow' | 'current_stage'
+    'position' | 'workflow' | 'current_stage' | 'title'
 >
 
 export interface KanbanColumn {
@@ -137,3 +137,5 @@ export interface WorkflowConfiguration {
     workflow: TaskWorkflow
     stages: WorkflowStage[]
 }
+
+export type TaskTrackerTab = 'dashboard' | 'backlog' | 'kanban' | 'settings'

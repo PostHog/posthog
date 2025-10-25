@@ -34,7 +34,9 @@ from posthog.schema import (
     InsightActorsQuery,
     InsightActorsQueryOptions,
     LifecycleQuery,
+    MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
+    NodeKind,
     PathsQuery,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -52,6 +54,7 @@ from posthog.schema import (
     TraceQuery,
     TracesQuery,
     TrendsQuery,
+    UsageMetricsQuery,
     VectorSearchQuery,
     WebGoalsQuery,
     WebOverviewQuery,
@@ -64,7 +67,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, create_hogql_database
 from posthog.hogql.modifiers import create_default_modifiers_for_user
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
 
@@ -73,7 +76,7 @@ from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, las
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.client.limit import (
-    get_api_personal_rate_limiter,
+    get_api_team_rate_limiter,
     get_app_dashboard_queries_rate_limiter,
     get_app_org_rate_limiter,
     get_org_app_concurrency_limit,
@@ -173,7 +176,9 @@ RunnableQueryNode = Union[
     WebTrendsQuery,
     SessionAttributionExplorerQuery,
     MarketingAnalyticsTableQuery,
+    MarketingAnalyticsAggregatedQuery,
     ActorsPropertyTaxonomyQuery,
+    UsageMetricsQuery,
 ]
 
 
@@ -545,7 +550,7 @@ def get_query_runner(
         )
 
     if kind == "ErrorTrackingQuery":
-        from .error_tracking_query_runner import ErrorTrackingQueryRunner
+        from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 
         return ErrorTrackingQueryRunner(
             query=query,
@@ -555,8 +560,21 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == "DocumentSimilarityQuery":
+        from .document_embeddings_query_runner import DocumentEmbeddingsQueryRunner
+
+        return DocumentEmbeddingsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "ErrorTrackingIssueCorrelationQuery":
-        from .error_tracking_issue_correlation_query_runner import ErrorTrackingIssueCorrelationQueryRunner
+        from products.error_tracking.backend.hogql_queries.error_tracking_issue_correlation_query_runner import (
+            ErrorTrackingIssueCorrelationQueryRunner,
+        )
 
         return ErrorTrackingIssueCorrelationQueryRunner(
             query=query,
@@ -681,12 +699,36 @@ def get_query_runner(
             modifiers=modifiers,
         )
 
-    if kind == "MarketingAnalyticsTableQuery":
+    if kind == NodeKind.MARKETING_ANALYTICS_TABLE_QUERY:
         from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
             MarketingAnalyticsTableQueryRunner,
         )
 
         return MarketingAnalyticsTableQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == NodeKind.MARKETING_ANALYTICS_AGGREGATED_QUERY:
+        from products.marketing_analytics.backend.hogql_queries.marketing_analytics_aggregated_query_runner import (
+            MarketingAnalyticsAggregatedQueryRunner,
+        )
+
+        return MarketingAnalyticsAggregatedQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "UsageMetricsQuery":
+        from products.customer_analytics.backend.hogql_queries.usage_metrics_query_runner import UsageMetricsQueryRunner
+
+        return UsageMetricsQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -786,7 +828,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return self.__annotations__["cached_response"]
 
     def is_query_node(self, data) -> TypeGuard[Q]:
-        return isinstance(data, self.query_type)
+        query_type = self.query_type
+        # Resolve type alias if present
+        if hasattr(query_type, "__value__"):
+            query_type = query_type.__value__
+        # Handle both UnionType and typing._UnionGenericAlias
+        if isinstance(query_type, UnionType) or (type(query_type).__name__ == "_UnionGenericAlias"):
+            return any(isinstance(data, t) for t in get_args(query_type))
+        if not isinstance(query_type, type):
+            raise TypeError(f"query_type must be a type, got {type(query_type)}: {query_type}")
+        return isinstance(data, query_type)
 
     def is_cached_response(self, data) -> TypeGuard[dict]:
         return hasattr(data, "is_cached") or (  # Duck typing for backwards compatibility with `CachedQueryResponse`
@@ -835,6 +886,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             dashboard_id=cache_manager.dashboard_id,
             query_json=self.query.model_dump(),
             query_id=self.query_id or cache_manager.cache_key,  # Use cache key as query ID to avoid duplicates
+            cache_key=cache_manager.cache_key,
             refresh_requested=refresh_requested,
             is_query_service=self.is_query_service,
         )
@@ -875,9 +927,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 {"cache_key": cache_manager.cache_key},
             )
 
-        if self.is_cached_response(cached_response_candidate):
-            assert isinstance(cached_response, CachedResponse)
-
+        if isinstance(cached_response, CachedResponse):
             if not self._is_stale(last_refresh=last_refresh_from_cached_result(cached_response)):
                 count_query_cache_hit(self.team.pk, hit="hit", trigger=cached_response.calculation_trigger or "")
                 # We have a valid result that's fresh enough, let's return it
@@ -1048,10 +1098,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 self.modifiers.useMaterializedViews = True
 
             concurrency_limit = self.get_api_queries_concurrency_limit()
-            with get_api_personal_rate_limiter().run(
+            with get_api_team_rate_limiter().run(
                 is_api=self.is_query_service,
                 team_id=self.team.pk,
-                org_id=self.team.organization_id,
                 task_id=self.query_id,
                 limit=concurrency_limit,
             ):
@@ -1168,7 +1217,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def to_hogql(self, **kwargs) -> str:
         with self.timings.measure("to_hogql"):
-            return print_ast(
+            return prepare_and_print_ast(
                 self.to_query(),
                 HogQLContext(
                     team_id=self.team.pk,
@@ -1178,7 +1227,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 ),
                 "hogql",
                 **kwargs,
-            )
+            )[0]
 
     def get_cache_payload(self) -> dict:
         # remove the tags key, these are used in the query log comment but shouldn't break caching

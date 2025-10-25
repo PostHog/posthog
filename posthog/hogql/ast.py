@@ -4,7 +4,7 @@ import dataclasses
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Literal, Optional, Union, get_args
+from typing import Any, Literal, Optional, Union, cast, get_args
 
 from posthog.hogql.base import AST, CTE, ConstantType, Expr, Type, UnknownType
 from posthog.hogql.constants import ConstantDataType, HogQLQuerySettings
@@ -19,6 +19,7 @@ from posthog.hogql.database.models import (
     StringArrayDatabaseField,
     StringJSONDatabaseField,
     Table,
+    UnknownDatabaseField,
     VirtualTable,
 )
 from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionError
@@ -170,18 +171,9 @@ class BaseTableType(Type):
                 return VirtualTableType(table_type=self, field=name, virtual_table=field)
             if isinstance(field, ExpressionField):
                 return ExpressionFieldType(
-                    table_type=self,
-                    name=name,
-                    expr=field.expr,
-                    isolate_scope=field.isolate_scope or False,
-                    nullable=(field.nullable if field.nullable is not None else True),
-                    # we penalize the tables with not defined nullable fields
+                    table_type=self, name=name, expr=field.expr, isolate_scope=field.isolate_scope or False
                 )
-            return FieldType(
-                name=name,
-                table_type=self,
-                nullable=(field.nullable if field.nullable is not None else True),  # type: ignore[attr-defined]
-            )
+            return FieldType(name=name, table_type=self)
 
         raise QueryError(f"Field not found: {name}")
 
@@ -598,6 +590,7 @@ class Alias(Expr):
     Hidden aliases are printed only when printing the columns of a SELECT query in the ClickHouse dialect.
     """
     hidden: bool = False
+    from_asterisk: bool = False
 
 
 class ArithmeticOperationOp(StrEnum):
@@ -725,6 +718,7 @@ class Constant(Expr):
 @dataclass(kw_only=True)
 class Field(Expr):
     chain: list[str | int]
+    from_asterisk: bool = False
 
 
 @dataclass(kw_only=True)
@@ -838,16 +832,26 @@ class SelectQuery(Expr):
     view_name: Optional[str] = None
 
     @classmethod
-    def empty(cls, *, columns: list[str] | None = None) -> "SelectQuery":
+    def empty(
+        cls,
+        *,
+        columns: dict[str, FieldOrTable] | None = None,
+    ) -> "SelectQuery":
         """Returns an empty SelectQuery that evaluates to no rows.
 
         Creates a query that selects NULL with a WHERE clause that is always false,
         effectively returning zero rows while maintaining valid SQL syntax.
         """
+
         if columns is None:
-            columns = ["_"]
+            columns = {"_": UnknownDatabaseField(name="_")}
+
         return SelectQuery(
-            select=[Alias(alias=column, expr=Constant(value=None)) for column in columns], where=Constant(value=False)
+            select=[
+                Alias(alias=column, expr=Constant(value=cast(DatabaseField, field).default_value()))
+                for (column, field) in columns.items()
+            ],
+            where=Constant(value=False),
         )
 
 

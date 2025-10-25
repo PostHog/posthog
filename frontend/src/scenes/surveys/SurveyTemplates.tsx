@@ -1,11 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonTag, Link } from '@posthog/lemon-ui'
 
-import { PageHeader } from 'lib/components/PageHeader'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
-import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -107,16 +105,6 @@ export function SurveyTemplates(): JSX.Element {
     }
     return (
         <>
-            <PageHeader
-                buttons={
-                    <>
-                        <SurveyFeedbackButton />
-                        <LemonButton type="primary" to={urls.survey('new')} data-attr="new-blank-survey">
-                            Create blank survey
-                        </LemonButton>
-                    </>
-                }
-            />
             <div className="mb-2 -ml-[var(--button-padding-x-lg)]">
                 <SceneBreadcrumbBackButton
                     forceBackTo={{

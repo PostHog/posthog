@@ -53,7 +53,16 @@ from posthog.clickhouse.query_log_archive import (
     QUERY_LOG_ARCHIVE_NEW_TABLE_SQL,
 )
 from posthog.cloud_utils import TEST_clear_instance_license_cache
+from posthog.helpers.two_factor_session import email_mfa_token_generator
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
+from posthog.models.behavioral_cohorts.sql import (
+    BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL,
+    BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE_SQL,
+    BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL,
+    DROP_BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL,
+    DROP_BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE_SQL,
+    DROP_BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL,
+)
 from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_DATA_SQL,
     CHANNEL_DEFINITION_DICTIONARY_SQL,
@@ -92,7 +101,7 @@ from posthog.models.person.sql import (
 from posthog.models.person.util import bulk_create_persons, create_person
 from posthog.models.project import Project
 from posthog.models.property_definition import DROP_PROPERTY_DEFINITIONS_TABLE_SQL, PROPERTY_DEFINITIONS_TABLE_SQL
-from posthog.models.raw_sessions.sql import (
+from posthog.models.raw_sessions.sessions_v2 import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_SQL,
     DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL,
     DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL,
@@ -104,7 +113,7 @@ from posthog.models.raw_sessions.sql import (
     RAW_SESSIONS_TABLE_SQL,
     WRITABLE_RAW_SESSIONS_TABLE_SQL,
 )
-from posthog.models.raw_sessions.sql_v3 import (
+from posthog.models.raw_sessions.sessions_v3 import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3,
     DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL_V3,
     DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL_V3,
@@ -113,7 +122,7 @@ from posthog.models.raw_sessions.sql_v3 import (
     DROP_RAW_SESSION_WRITABLE_TABLE_SQL_V3,
     RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL_V3,
     RAW_SESSIONS_TABLE_MV_SQL_V3,
-    RAW_SESSIONS_TABLE_SQL_V3,
+    SHARDED_RAW_SESSIONS_TABLE_SQL_V3,
     WRITABLE_RAW_SESSIONS_TABLE_SQL_V3,
 )
 from posthog.models.sessions.sql import (
@@ -406,6 +415,30 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query,
     )
 
+    # replace cohort calculation IDs in SQL comments and query content
+    query = re.sub(
+        r"/\* cohort_calculation:cohort_calc:[0-9a-f]+ \*/",
+        r"/* cohort_calculation:cohort_calc:00000000 */",
+        query,
+    )
+    query = re.sub(
+        r"cohort_calc:[0-9a-f]+",
+        r"cohort_calc:00000000",
+        query,
+    )
+
+    # Replace dynamic event_date and event_time filters in query_log_archive queries
+    query = re.sub(
+        rf"event_date >= '({days_to_sub})'",
+        r"event_date >= 'today'",
+        query,
+    )
+    query = re.sub(
+        rf"event_time >= '({days_to_sub}) \d\d:\d\d:\d\d'",
+        r"event_time >= 'today 00:00:00'",
+        query,
+    )
+
     return query
 
 
@@ -673,6 +706,15 @@ class NonAtomicBaseTest(PostHogTestCase, ErrorResponsesMixin, TransactionTestCas
     def setUpClass(cls):
         cls.setUpTestData()
 
+    def _fixture_teardown(self):
+        # Override to use CASCADE when truncating tables.
+        # Required when models are moved between Django apps, as PostgreSQL
+        # needs CASCADE to handle FK constraints across app boundaries.
+        from django.core.management import call_command
+
+        for db_name in self._databases_names(include_mirrors=False):
+            call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
+
 
 class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
     """
@@ -706,6 +748,16 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
         user = User.objects.create_user(email="testuser@example.com", first_name="Test", password="password")
         organization.members.add(user)
         return user
+
+    def complete_email_mfa(self, email: str, user: Optional[Any] = None):
+        if user is None:
+            user = User.objects.get(email=email)
+
+        token = email_mfa_token_generator.make_token(user)
+
+        response = self.client.post("/api/login/email-mfa/", {"email": email, "token": token})
+
+        return response
 
     def assertEntityResponseEqual(self, response1, response2, remove=("action", "label", "persons_urls", "filter")):
         stripped_response1 = stripResponse(response1, remove=remove)
@@ -946,7 +998,7 @@ class BaseTestMigrations(QueryMatchingTest):
 
     migrate_from: str
     migrate_to: str
-    apps = None
+    apps: Optional[any] = None
     assert_snapshots = False
 
     def setUp(self):
@@ -1215,13 +1267,16 @@ def reset_clickhouse_database() -> None:
             DROP_WEB_BOUNCES_HOURLY_SQL(),
             DROP_WEB_STATS_STAGING_SQL(),
             DROP_WEB_BOUNCES_STAGING_SQL(),
+            DROP_BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE_SQL(),
+            DROP_BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL(),
+            DROP_BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL(),
             TRUNCATE_COHORTPEOPLE_TABLE_SQL,
             TRUNCATE_EVENTS_RECENT_TABLE_SQL(),
             TRUNCATE_GROUPS_TABLE_SQL,
             TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
-            TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
+            TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL(),
             TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
-            TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
+            TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL(),
             TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
             TRUNCATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
         ]
@@ -1234,7 +1289,7 @@ def reset_clickhouse_database() -> None:
             PERSONS_TABLE_SQL(),
             PROPERTY_DEFINITIONS_TABLE_SQL(),
             RAW_SESSIONS_TABLE_SQL(),
-            RAW_SESSIONS_TABLE_SQL_V3(),
+            SHARDED_RAW_SESSIONS_TABLE_SQL_V3(),
             WRITABLE_RAW_SESSIONS_TABLE_SQL(),
             WRITABLE_RAW_SESSIONS_TABLE_SQL_V3(),
             SESSIONS_TABLE_SQL(),
@@ -1269,6 +1324,9 @@ def reset_clickhouse_database() -> None:
             CUSTOM_METRICS_REPLICATION_QUEUE_VIEW(),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
             QUERY_LOG_ARCHIVE_NEW_MV_SQL(view_name=QUERY_LOG_ARCHIVE_MV, dest_table=QUERY_LOG_ARCHIVE_DATA_TABLE),
+            BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE_SQL(),
+            BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL(),
+            BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -1329,7 +1387,8 @@ def snapshot_clickhouse_queries(fn_or_class):
 
         for query in queries:
             if "FROM system.columns" not in query:
-                self.assertQueryMatchesSnapshot(query)
+                replace_all_numbers = getattr(self, "snapshot_replace_all_numbers", False)
+                self.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
 
     return wrapped
 

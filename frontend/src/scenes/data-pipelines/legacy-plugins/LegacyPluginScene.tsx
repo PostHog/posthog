@@ -45,16 +45,19 @@ export const legacyPluginSceneLogic = kea<legacyPluginSceneLogicType>([
                         key: Scene.DataPipelines,
                         name: 'Data pipelines',
                         path: urls.dataPipelines(),
+                        iconType: 'data_pipeline',
                     },
                     {
                         key: [Scene.DataPipelines, 'destinations'],
                         name: 'Destinations',
                         path: urls.dataPipelines('destinations'),
+                        iconType: 'data_pipeline',
                     },
 
                     {
                         key: Scene.LegacyPlugin,
                         name: 'Plugin destination (deprecated)',
+                        iconType: 'data_pipeline',
                     },
                 ]
             },

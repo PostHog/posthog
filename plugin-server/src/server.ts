@@ -1,3 +1,4 @@
+import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
 import { Server } from 'http'
 import { CompressionCodecs, CompressionTypes } from 'kafkajs'
 import SnappyCodec from 'kafkajs-snappy'
@@ -10,6 +11,7 @@ import { setupCommonRoutes, setupExpressApp } from './api/router'
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
 import { CdpBehaviouralEventsConsumer } from './cdp/consumers/cdp-behavioural-events.consumer'
+import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
 import { CdpCyclotronDelayConsumer } from './cdp/consumers/cdp-cyclotron-delay.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
@@ -26,6 +28,7 @@ import {
 import { IngestionConsumer } from './ingestion/ingestion-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { onShutdown } from './lifecycle'
+import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
 import { startAsyncWebhooksHandlerConsumer } from './main/ingestion-queues/on-event-handler-consumer'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
@@ -33,6 +36,7 @@ import { ServerCommands } from './utils/commands'
 import { closeHub, createHub } from './utils/db/hub'
 import { PostgresRouter } from './utils/db/postgres'
 import { isTestEnv } from './utils/env-utils'
+import { initializeHeapDump } from './utils/heap-dump'
 import { logger } from './utils/logger'
 import { NodeInstrumentation } from './utils/node-instrumentation'
 import { captureException, shutdown as posthogShutdown } from './utils/posthog'
@@ -58,6 +62,7 @@ export class PluginServer {
     hub?: Hub
     expressApp: express.Application
     nodeInstrumentation: NodeInstrumentation
+    private podTerminationTimer?: NodeJS.Timeout
 
     constructor(
         config: Partial<PluginsServerConfig> = {},
@@ -74,6 +79,23 @@ export class PluginServer {
         this.nodeInstrumentation = new NodeInstrumentation(this.config)
     }
 
+    private setupPodTermination(): void {
+        // Base timeout from config (convert minutes to milliseconds)
+        const baseTimeoutMs = this.config.POD_TERMINATION_BASE_TIMEOUT_MINUTES * 60 * 1000
+
+        // Add jitter: random value between 0 and configured jitter (convert minutes to milliseconds)
+        const jitterMs = Math.random() * this.config.POD_TERMINATION_JITTER_MINUTES * 60 * 1000
+
+        const totalTimeoutMs = baseTimeoutMs + jitterMs
+
+        logger.info('⏰', `Pod termination scheduled in ${Math.round(totalTimeoutMs / 1000 / 60)} minutes`)
+
+        this.podTerminationTimer = setTimeout(() => {
+            logger.info('⏰', 'Pod termination timeout reached, shutting down gracefully...')
+            void this.stop()
+        }, totalTimeoutMs)
+    }
+
     async start(): Promise<void> {
         const startupTimer = new Date()
         this.setupListeners()
@@ -81,6 +103,20 @@ export class PluginServer {
 
         const capabilities = getPluginServerCapabilities(this.config)
         const hub = (this.hub = await createHub(this.config, capabilities))
+
+        // Initialize heap dump functionality for all services
+        if (this.config.HEAP_DUMP_ENABLED) {
+            let heapDumpS3Client: S3Client | undefined
+            if (this.config.HEAP_DUMP_S3_BUCKET && this.config.HEAP_DUMP_S3_REGION) {
+                const s3Config: S3ClientConfig = {
+                    region: this.config.HEAP_DUMP_S3_REGION,
+                }
+
+                heapDumpS3Client = new S3Client(s3Config)
+            }
+
+            initializeHeapDump(this.config, heapDumpS3Client)
+        }
 
         let _initPluginsPromise: Promise<void> | undefined
 
@@ -239,6 +275,22 @@ export class PluginServer {
                 })
             }
 
+            if (capabilities.cdpCohortMembership) {
+                serviceLoaders.push(async () => {
+                    const consumer = new CdpCohortMembershipConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
+            if (capabilities.logsIngestion) {
+                serviceLoaders.push(async () => {
+                    const consumer = new LogsIngestionConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
             const readyServices = await Promise.all(serviceLoaders.map((loader) => loader()))
             this.services.push(...readyServices)
 
@@ -253,6 +305,11 @@ export class PluginServer {
 
             pluginServerStartupTimeMs.inc(Date.now() - startupTimer.valueOf())
             logger.info('🚀', `All systems go in ${Date.now() - startupTimer.valueOf()}ms`)
+
+            // Setup pod termination if enabled
+            if (this.config.POD_TERMINATION_ENABLED) {
+                this.setupPodTermination()
+            }
         } catch (error) {
             captureException(error)
             logger.error('💥', 'Launchpad failure!', { error: error.stack ?? error })
@@ -295,6 +352,12 @@ export class PluginServer {
         }
 
         this.stopping = true
+
+        // Clear pod termination timer if it exists
+        if (this.podTerminationTimer) {
+            clearTimeout(this.podTerminationTimer)
+            this.podTerminationTimer = undefined
+        }
 
         this.nodeInstrumentation.cleanup()
 

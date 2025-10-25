@@ -2,19 +2,36 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconArchive } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTab, LemonTabs, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconArchive, IconCopy, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonInput,
+    LemonSwitch,
+    LemonTab,
+    LemonTable,
+    LemonTabs,
+    LemonTag,
+    Link,
+    Spinner,
+} from '@posthog/lemon-ui'
 
 import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { SceneExport } from 'scenes/sceneTypes'
+import { humanFriendlyDuration, objectsEqual } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { EventDetails } from 'scenes/activity/explore/EventDetails'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -22,18 +39,24 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
+import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
+import { EventType } from '~/types'
 
-import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
 import { LLMAnalyticsDatasetsScene } from './datasets/LLMAnalyticsDatasetsScene'
-import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsLogic } from './llmAnalyticsLogic'
-import { CompatMessage } from './types'
-import { normalizeMessages, truncateValue } from './utils'
+import { llmEvaluationsLogic } from './evaluations/llmEvaluationsLogic'
+import { EvaluationConfig } from './evaluations/types'
+import {
+    LLM_ANALYTICS_DATA_COLLECTION_NODE_ID,
+    getDefaultGenerationsColumns,
+    llmAnalyticsLogic,
+} from './llmAnalyticsLogic'
+import { truncateValue } from './utils'
 
 export const scene: SceneExport = {
     component: LLMAnalyticsScene,
@@ -116,15 +139,29 @@ function LLMAnalyticsDashboard(): JSX.Element {
 }
 
 function LLMAnalyticsGenerations(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setGenerationsQuery, setGenerationsColumns } =
-        useActions(llmAnalyticsLogic)
-    const { generationsQuery } = useValues(llmAnalyticsLogic)
+    const {
+        setDates,
+        setShouldFilterTestAccounts,
+        setPropertyFilters,
+        setGenerationsColumns,
+        toggleGenerationExpanded,
+    } = useActions(llmAnalyticsLogic)
+    const {
+        generationsQuery,
+        propertyFilters: currentPropertyFilters,
+        expandedGenerationIds,
+        loadedTraces,
+    } = useValues(llmAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <DataTable
             query={{
                 ...generationsQuery,
                 showSavedFilters: true,
+                defaultColumns: getDefaultGenerationsColumns(
+                    !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]
+                ),
             }}
             setQuery={(query) => {
                 if (!isEventsQuery(query.source)) {
@@ -132,13 +169,15 @@ function LLMAnalyticsGenerations(): JSX.Element {
                 }
                 setDates(query.source.after || null, query.source.before || null)
                 setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
-                setPropertyFilters(query.source.properties || [])
+
+                const newPropertyFilters = query.source.properties || []
+                if (!objectsEqual(newPropertyFilters, currentPropertyFilters)) {
+                    setPropertyFilters(newPropertyFilters)
+                }
 
                 if (query.source.select) {
                     setGenerationsColumns(query.source.select)
                 }
-
-                setGenerationsQuery(query)
             }}
             context={{
                 emptyStateHeading: 'There were no generations in this period',
@@ -147,21 +186,19 @@ function LLMAnalyticsGenerations(): JSX.Element {
                     uuid: {
                         title: 'ID',
                         render: ({ record, value }) => {
-                            const traceId = (record as unknown[])[1]
-                            if (!value) {
-                                return <></>
+                            if (!value || typeof value !== 'string') {
+                                return null
                             }
 
+                            const traceId = Array.isArray(record) && record.length > 1 ? record[1] : undefined
                             const visualValue = truncateValue(value)
 
-                            if (!traceId) {
-                                return <strong>{visualValue}</strong>
-                            }
-
-                            return (
+                            return !traceId || typeof traceId !== 'string' ? (
+                                <strong>{visualValue}</strong>
+                            ) : (
                                 <strong>
-                                    <Tooltip title={value as string}>
-                                        <Link to={`/llm-analytics/traces/${traceId}?event=${value as string}`}>
+                                    <Tooltip title={value}>
+                                        <Link to={`/llm-analytics/traces/${traceId}?event=${value}`}>
                                             {visualValue}
                                         </Link>
                                     </Tooltip>
@@ -169,71 +206,237 @@ function LLMAnalyticsGenerations(): JSX.Element {
                             )
                         },
                     },
-                    'properties.$ai_input[-1]': {
-                        title: 'Input',
-                        render: ({ value }) => {
-                            let inputNormalized: CompatMessage[] | undefined
-                            if (typeof value === 'string') {
-                                try {
-                                    inputNormalized = normalizeMessages(JSON.parse(value), 'user')
-                                } catch (e) {
-                                    console.warn('Error parsing properties.$ai_input[-1] as JSON', e)
-                                }
-                            }
-                            if (!inputNormalized?.length) {
-                                return <>–</>
-                            }
-                            return <LLMMessageDisplay message={inputNormalized.at(-1)!} isOutput={false} minimal />
-                        },
-                    },
-                    'properties.$ai_output_choices': {
-                        title: 'Output',
-                        render: ({ value }) => {
-                            let outputNormalized: CompatMessage[] | undefined
-                            if (typeof value === 'string') {
-                                try {
-                                    outputNormalized = normalizeMessages(JSON.parse(value), 'assistant')
-                                } catch (e) {
-                                    console.warn('Error parsing properties.$ai_output_choices as JSON', e)
-                                }
-                            }
-                            if (!outputNormalized?.length) {
-                                return <>–</>
-                            }
+                },
+                expandable: {
+                    expandedRowRender: function renderExpandedGeneration({ result }: DataTableRow) {
+                        if (!Array.isArray(result)) {
+                            return null
+                        }
+
+                        const uuid = result[0] as string
+                        const traceId = result[1] as string
+                        const trace = loadedTraces[traceId]
+                        const event = trace?.events.find((e) => e.id === uuid)
+
+                        if (!trace) {
                             return (
-                                <div>
-                                    {outputNormalized.map(
-                                        (
-                                            message,
-                                            index // All output choices, if multiple
-                                        ) => (
-                                            <LLMMessageDisplay key={index} message={message} isOutput={true} minimal />
-                                        )
-                                    )}
+                                <div className="p-4">
+                                    <Spinner />
                                 </div>
                             )
-                        },
-                    },
-                    'properties.$ai_trace_id': {
-                        title: 'Trace ID',
-                        render: ({ value }) => {
-                            if (!value) {
-                                return <></>
-                            }
+                        }
 
-                            const visualValue = truncateValue(value)
+                        if (!event) {
+                            return <div className="p-4">Event not found in trace</div>
+                        }
 
-                            return (
-                                <Tooltip title={value as string}>
-                                    <Link to={`/llm-analytics/traces/${value as string}`}>{visualValue}</Link>
-                                </Tooltip>
-                            )
-                        },
+                        // Convert LLMTraceEvent to EventType format for EventDetails
+                        const eventForDetails: EventType = {
+                            id: event.id,
+                            distinct_id: '',
+                            properties: event.properties,
+                            event: event.event,
+                            timestamp: event.createdAt,
+                            elements: [],
+                        }
+
+                        return (
+                            <div className="pt-2 px-4 pb-4">
+                                <EventDetails event={eventForDetails} />
+                            </div>
+                        )
                     },
+                    rowExpandable: ({ result }: DataTableRow) =>
+                        !!result && Array.isArray(result) && !!result[0] && !!result[1],
+                    isRowExpanded: ({ result }: DataTableRow) =>
+                        Array.isArray(result) && !!result[0] && expandedGenerationIds.has(result[0] as string),
+                    onRowExpand: ({ result }: DataTableRow) => {
+                        if (Array.isArray(result) && result[0] && result[1]) {
+                            toggleGenerationExpanded(result[0] as string, result[1] as string)
+                        }
+                    },
+                    onRowCollapse: ({ result }: DataTableRow) => {
+                        if (Array.isArray(result) && result[0] && result[1]) {
+                            toggleGenerationExpanded(result[0] as string, result[1] as string)
+                        }
+                    },
+                    noIndent: true,
                 },
             }}
             uniqueKey="llm-analytics-generations"
         />
+    )
+}
+
+function LLMAnalyticsEvaluations(): JSX.Element {
+    return (
+        <BindLogic logic={llmEvaluationsLogic} props={{}}>
+            <LLMAnalyticsEvaluationsContent />
+        </BindLogic>
+    )
+}
+
+function LLMAnalyticsEvaluationsContent(): JSX.Element {
+    const { filteredEvaluations, evaluationsLoading, evaluationsFilter } = useValues(llmEvaluationsLogic)
+    const { setEvaluationsFilter, toggleEvaluationEnabled, duplicateEvaluation, loadEvaluations } =
+        useActions(llmEvaluationsLogic)
+    const { currentTeamId } = useValues(teamLogic)
+    const { push } = useActions(router)
+
+    const columns: LemonTableColumns<EvaluationConfig> = [
+        {
+            title: 'Name',
+            key: 'name',
+            render: (_, evaluation) => (
+                <div className="flex flex-col">
+                    <Link to={urls.llmAnalyticsEvaluation(evaluation.id)} className="font-semibold text-primary">
+                        {evaluation.name}
+                    </Link>
+                    {evaluation.description && <div className="text-muted text-sm">{evaluation.description}</div>}
+                </div>
+            ),
+            sorter: (a, b) => a.name.localeCompare(b.name),
+        },
+        {
+            title: 'Status',
+            key: 'enabled',
+            render: (_, evaluation) => (
+                <div className="flex items-center gap-2">
+                    <LemonSwitch
+                        checked={evaluation.enabled}
+                        onChange={() => toggleEvaluationEnabled(evaluation.id)}
+                        size="small"
+                        disabled={true}
+                        disabledReason="The evaluations backend is still WIP"
+                    />
+                    <span className={evaluation.enabled ? 'text-success' : 'text-muted'}>
+                        {evaluation.enabled ? 'Enabled' : 'Disabled'}
+                    </span>
+                </div>
+            ),
+            sorter: (a, b) => Number(b.enabled) - Number(a.enabled),
+        },
+        {
+            title: 'Prompt',
+            key: 'prompt',
+            render: (_, evaluation) => (
+                <div className="max-w-md">
+                    <div className="text-sm font-mono bg-bg-light border rounded px-2 py-1 truncate">
+                        {evaluation.prompt || '(No prompt)'}
+                    </div>
+                </div>
+            ),
+        },
+        {
+            title: 'Triggers',
+            key: 'conditions',
+            render: (_, evaluation) => (
+                <div className="flex flex-wrap gap-1">
+                    {evaluation.conditions.map((condition) => (
+                        <LemonTag key={condition.id} type="option">
+                            {condition.rollout_percentage}%
+                            {condition.properties.length > 0 &&
+                                ` when ${condition.properties.length} condition${condition.properties.length !== 1 ? 's' : ''}`}
+                        </LemonTag>
+                    ))}
+                    {evaluation.conditions.length === 0 && <span className="text-muted text-sm">No triggers</span>}
+                </div>
+            ),
+        },
+        {
+            title: 'Runs',
+            key: 'total_runs',
+            render: (_, evaluation) => (
+                <div className="flex flex-col items-center">
+                    <div className="font-semibold">{evaluation.total_runs}</div>
+                    {evaluation.last_run_at && (
+                        <div className="text-muted text-xs">Last: {humanFriendlyDuration(evaluation.last_run_at)}</div>
+                    )}
+                </div>
+            ),
+            sorter: (a, b) => b.total_runs - a.total_runs,
+        },
+        {
+            title: 'Actions',
+            key: 'actions',
+            render: (_, evaluation) => (
+                <More
+                    overlay={
+                        <>
+                            <LemonButton
+                                icon={<IconPencil />}
+                                onClick={() => push(urls.llmAnalyticsEvaluation(evaluation.id))}
+                                fullWidth
+                            >
+                                Edit
+                            </LemonButton>
+                            <LemonButton
+                                icon={<IconCopy />}
+                                onClick={() => duplicateEvaluation(evaluation.id)}
+                                fullWidth
+                            >
+                                Duplicate
+                            </LemonButton>
+                            <LemonButton
+                                icon={<IconTrash />}
+                                status="danger"
+                                onClick={() => {
+                                    deleteWithUndo({
+                                        endpoint: `environments/${currentTeamId}/evaluations`,
+                                        object: evaluation,
+                                        callback: () => loadEvaluations(),
+                                    })
+                                }}
+                                fullWidth
+                            >
+                                Delete
+                            </LemonButton>
+                        </>
+                    }
+                />
+            ),
+        },
+    ]
+
+    return (
+        <div className="space-y-4">
+            {/* Header */}
+            <div className="flex justify-between items-center">
+                <div>
+                    <h2 className="text-xl font-semibold">Evaluations</h2>
+                    <p className="text-muted">
+                        Configure evaluation prompts and triggers to automatically assess your LLM generations.
+                    </p>
+                </div>
+                <LemonButton type="primary" icon={<IconPlus />} to={urls.llmAnalyticsEvaluation('new')}>
+                    Create Evaluation
+                </LemonButton>
+            </div>
+
+            {/* Search */}
+            <div className="flex items-center gap-2">
+                <LemonInput
+                    type="search"
+                    placeholder="Search evaluations..."
+                    value={evaluationsFilter}
+                    onChange={setEvaluationsFilter}
+                    prefix={<IconSearch />}
+                    className="max-w-sm"
+                />
+            </div>
+
+            {/* Table */}
+            <LemonTable
+                columns={columns}
+                dataSource={filteredEvaluations}
+                loading={evaluationsLoading}
+                rowKey="id"
+                pagination={{
+                    pageSize: 50,
+                }}
+                nouns={['evaluation', 'evaluations']}
+            />
+        </div>
     )
 }
 
@@ -302,6 +505,23 @@ export function LLMAnalyticsScene(): JSX.Element {
         })
     }
 
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]) {
+        tabs.push({
+            key: 'evaluations',
+            label: (
+                <>
+                    Evaluations{' '}
+                    <LemonTag className="ml-1" type="completion">
+                        Alpha
+                    </LemonTag>
+                </>
+            ),
+            content: <LLMAnalyticsEvaluations />,
+            link: combineUrl('/llm-analytics/evaluations', searchParams).url,
+            'data-attr': 'evaluations-tab',
+        })
+    }
+
     if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]) {
         tabs.push({
             key: 'datasets',
@@ -321,28 +541,26 @@ export function LLMAnalyticsScene(): JSX.Element {
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
-            <PageHeader
-                buttons={
-                    <div className="flex gap-2">
-                        <LemonButton
-                            to="https://posthog.com/docs/llm-analytics/installation"
-                            type="secondary"
-                            targetBlank
-                        >
-                            Documentation
-                        </LemonButton>
-                    </div>
-                }
-            />
-
             <SceneContent>
                 {!hasSentAiGenerationEventLoading && !hasSentAiGenerationEvent && <IngestionStatusCheck />}
                 <SceneTitleSection
-                    name="LLM Analytics"
-                    description="Analyze and understand your LLM usage and performance."
+                    name={sceneConfigurations[Scene.LLMAnalytics].name}
+                    description={sceneConfigurations[Scene.LLMAnalytics].description}
                     resourceType={{
-                        type: 'llm_analytics',
+                        type: sceneConfigurations[Scene.LLMAnalytics].iconType || 'default_icon_type',
                     }}
+                    actions={
+                        <>
+                            <LemonButton
+                                to="https://posthog.com/docs/llm-analytics/installation"
+                                type="secondary"
+                                targetBlank
+                                size="small"
+                            >
+                                Documentation
+                            </LemonButton>
+                        </>
+                    }
                 />
                 <SceneDivider />
 

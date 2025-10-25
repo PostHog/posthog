@@ -1,19 +1,16 @@
 # PostHog AI
 
-This directory contains the PostHog AI platform and its core features - known as Max AI.
+This directory contains the PostHog AI platform and its core features.
 
-[Getting started with Max.](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJFUP)
+[Getting started with PostHog AI.](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJFUP)
 
 ## For product teams: MaxTool
 
-Add new capabilities to our AI assistant Max using the MaxTool API. You can allow Max to do anything in your product: both perform backend actions and control the UI. A tool can itself involve an LLM call based on a prompt tailored to the tool's task, using arguments provided to the tool by the Max root + context passed from the frontend.
+Add new PostHog AI capabilities using the MaxTool API. You can allow our AI agent to do anything in your product: both perform backend actions and control the UI. A tool can itself involve an LLM call based on a prompt tailored to the tool's task, using arguments provided to the tool by the root node + context passed from the frontend.
 
-To implement a MaxTool you first define it in the backend, then you mount it in the frontend. The backend definition contains the tool's metadata for Max (what is it, how to use it, when to use it, what arguments it takes) and its actual implementation. The frontend React mount point makes the tool available to Max - i.e. the tool is only available when the UI being automated is present.
+To implement a MaxTool you first define it in the backend, then you mount it in the frontend. The backend definition contains the tool's metadata for the LLM (what is it, how to use it, when to use it, what arguments it takes) and its actual implementation. The frontend React mount point makes the tool available - i.e. the tool can only be called when the UI being automated is present.
 
-You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJFUP) in order to hack on this – just ask in #team-max-ai to get those API keys.
-
-> [!NOTE]
-> Max AI is currently behind the `artificial-hog` flag - make sure to enable it.
+You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJFUP) in order to hack on this – just ask in #team-posthog-ai to get those API keys.
 
 ### Defining
 
@@ -22,38 +19,40 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
 2. In your `max_tools.py`, define a new tool class inheriting from `MaxTool`:
 
     ```python
-    from ee.hogai.tool import MaxTool
     from pydantic import BaseModel, Field
-    from langchain_core.prompts import ChatPromptTemplate
+
     from ee.hogai.llm import MaxChatOpenAI
+    from ee.hogai.tool import MaxTool
+
 
     # Define your tool's arguments schema
     class YourToolArgs(BaseModel):
         parameter_name: str = Field(description="Description of the parameter")
 
+
+    class YourToolOutput(BaseModel):
+        result_data: int
+
+
     class YourTool(MaxTool):
         name: str = "your_tool_name"  # Must match a value in AssistantContextualTool enum
         description: str = "What this tool does"
         thinking_message: str = "What to show while tool is working"
-        root_system_prompt_template: str = "Context about the tool state: {context_var}"
+        context_prompt_template: str = "Context about the tool state: {context_var}"
         args_schema: type[BaseModel] = YourToolArgs
 
-        async def _arun_impl(self, parameter_name: str) -> tuple[str, Any]:
+        async def _arun_impl(self, parameter_name: str) -> tuple[str, YourToolOutput]:
             # Implement tool logic here
             # Access context with self.context (must have context_var from template)
             # If you use Django's ORM, ensure you utilize its asynchronous capabilities.
 
             # Optional: Use LLM to process inputs or generate structured outputs
-            model = (
-                MaxChatOpenAI(model="gpt-4o", temperature=0.2)
-                .with_structured_output(OutputType)
-                .with_retry()
-            )
+            model = MaxChatOpenAI(model="gpt-4o", temperature=0.2).with_structured_output(YourToolOutput).with_retry()
 
             response = model.ainvoke({"question": "What is PostHog?"})
 
             # Process and return results as (message, structured_data)
-            return "Tool execution completed", result_data
+            return "Tool execution completed", response
     ```
 
 3. Add your tool name to the `AssistantContextualTool` union in `frontend/src/queries/schema/schema-assistant-messages.ts`, then run `pnpm schema:build`.
@@ -110,15 +109,15 @@ When a tool is mounted, it automatically gets shown as available in the scene UI
 
 For an example, see `frontend/src/scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed.tsx`, which mounts the `search_session_recordings` tool.
 
-## Iterating
+### Iterating
 
-Once you have an initial version of the tool in place, **test the heck out of it**. Try everything you'd want as a regular user, and tune all aspects of the tool as needed: prompt, description, `root_system_prompt_template`, context from the frontend.
+Once you have an initial version of the tool in place, **test the heck out of it**. Try everything you'd want as a regular user, and tune all aspects of the tool as needed: tool name, tool description, prompt of the context messages (`context_prompt_template`), and context from the frontend.
 
 When developing, get full visibility into what the tool is doing using local PostHog LLM analytics: [http://localhost:8010/llm-analytics/traces](http://localhost:8010/llm-analytics/traces). Each _trace_ represents one human message submitted to Max, and shows the whole sequence of steps taken to answer that message.
 
-If you've got any requests for Max, including around tools, let us know at #team-max-ai in Slack!
+If you've got any requests for Max, including around tools, let us know at #team-posthog-ai in Slack!
 
-## Best practices for LLM-based tools
+### Best practices for LLM-based tools
 
 - Provide comprehensive context about current state from the frontend
 - Test with diverse inputs and edge cases
@@ -135,8 +134,19 @@ NOTE: this won't extend query types generation. For that, talk to the Max AI tea
 
 ### Adding a new query type
 
-1. **Update the query executor** (`@ee/hogai/graph/query_executor/`):
-    - Add your new query type to the `SupportedQueryTypes` union in `query_executor.py:33`:
+1. **Update the schema to include the new query types**
+    - Update `AnyAssistantSupportedQuery` in [`schema-assistant-messages.ts`](frontend/src/queries/schema/schema-assistant-messages.ts)
+
+        ```typescript
+        AnyAssistantSupportedQuery =
+            | TrendsQuery
+            | FunnelsQuery
+            | RetentionQuery
+            | HogQLQuery
+            | YourNewQuery           // Add your query type
+        ```
+
+    - Add your new query type to the `SupportedQueryTypes` union in [`query_executor.py`](ee/hogai/graph/query_executor/query_executor.py):
 
         ```python
         SupportedQueryTypes = (
@@ -152,21 +162,26 @@ NOTE: this won't extend query types generation. For that, talk to the Max AI tea
         )
         ```
 
-    - Add a new formatter class in `query_executor/format.py` that implements query result formatting for AI consumption (see below, point 3)
+2. **Update the query executor and formatters** (`@ee/hogai/graph/query_executor/`):
+    - Add a new formatter class in `query_executor/format/` that implements query result formatting for AI consumption. Make sure it's imported and exported from `query_executor/format/__init__.py`. See below (Step 3) for more information.
     - Add formatting logic to `_compress_results()` method in `query_executor/query_executor.py`:
+
         ```python
         elif isinstance(query, YourNewAssistantQuery | YourNewQuery):
             return YourNewResultsFormatter(query, response["results"]).format()
         ```
+
     - Add example prompts for your query type in `query_executor/prompts.py`, this explains to the LLM the query results formatting
     - Update `_get_example_prompt()` method in `query_executor/nodes.py` to handle your new query type:
+
         ```python
         if isinstance(viz_message.answer, YourNewAssistantQuery):
             return YOUR_NEW_EXAMPLE_PROMPT
         ```
 
-2. **Update the root node** (`@ee/hogai/graph/root/`):
+3. **Update the root node** (`@ee/hogai/graph/root/`):
     - Add your new query type to the `MAX_SUPPORTED_QUERY_KIND_TO_MODEL` mapping in `nodes.py:57`:
+
         ```python
         MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
             "TrendsQuery": TrendsQuery,
@@ -177,9 +192,9 @@ NOTE: this won't extend query types generation. For that, talk to the Max AI tea
         }
         ```
 
-3. **Create the formatter class**:
+4. **Create the formatter class**:
 
-    Create a new formatter in `format.py` following the pattern of existing formatters:
+    Create a new formatter in `format/your_formatter.py` following the pattern of existing formatters:
 
     ```python
     class YourNewResultsFormatter:
@@ -195,9 +210,9 @@ NOTE: this won't extend query types generation. For that, talk to the Max AI tea
             pass
     ```
 
-4. **Add tests**:
+5. **Add tests**:
     - Add test cases in `test/test_query_executor.py` for your new query type
-    - Add test cases in `test/test_format.py` for your new formatter
+    - Add test cases in `test/format/test_format.py` for your new formatter
     - Ensure tests cover both successful execution and error handling
 
 ### Taxonomy Agent

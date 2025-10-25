@@ -15,20 +15,15 @@ class TestChargeStripeBuilder(StripeSourceBaseTest):
         # Setup with only charge schema
         self.setup_stripe_external_data_source(schemas=[CHARGE_RESOURCE_NAME])
 
-        queries = list(build(self.stripe_handle))
-
-        # Should build one query for the charge schema
-        self.assertEqual(len(queries), 1)
-
-        charge_query = queries[0]
+        query = build(self.stripe_handle)
         charge_table = self.get_stripe_table_by_schema_name(CHARGE_RESOURCE_NAME)
 
         # Test the query structure
-        self.assertQueryContainsFields(charge_query.query, CHARGE_SCHEMA)
-        self.assertBuiltQueryStructure(charge_query, str(charge_table.id), f"stripe.{self.external_data_source.prefix}")
+        self.assertQueryContainsFields(query.query, CHARGE_SCHEMA)
+        self.assertBuiltQueryStructure(query, str(charge_table.id), f"stripe.{self.external_data_source.prefix}")
 
         # Print and snapshot the generated HogQL query
-        query_sql = charge_query.query.to_hogql()
+        query_sql = query.query.to_hogql()
         self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
     def test_build_with_no_charge_schema(self):
@@ -36,23 +31,19 @@ class TestChargeStripeBuilder(StripeSourceBaseTest):
         # Setup without charge schema
         self.setup_stripe_external_data_source(schemas=[])
 
-        queries = list(build(self.stripe_handle))
-
-        # Should return query anyway
-        self.assertEqual(len(queries), 1)
-
-        charge_query = queries[0]
+        query = build(self.stripe_handle)
 
         # Test the query structure
-        self.assertQueryContainsFields(charge_query.query, CHARGE_SCHEMA)
+        self.assertQueryContainsFields(query.query, CHARGE_SCHEMA)
         self.assertBuiltQueryStructure(
-            charge_query,
-            f"stripe.{self.external_data_source.prefix}.no_source",
+            query,
+            str(self.stripe_handle.source.id),  # type: ignore
             f"stripe.{self.external_data_source.prefix}",
+            expected_test_comments="no_schema",
         )
 
         # Print and snapshot the generated HogQL query
-        query_sql = charge_query.query.to_hogql()
+        query_sql = query.query.to_hogql()
         self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
     def test_build_with_charge_schema_but_no_table(self):
@@ -66,32 +57,27 @@ class TestChargeStripeBuilder(StripeSourceBaseTest):
         charge_schema = self.get_stripe_schema_by_name(CHARGE_RESOURCE_NAME)
         charge_schema.table = None
 
-        queries = list(build(self.stripe_handle))
-
-        # Should return query anyway
-        self.assertEqual(len(queries), 1)
-        charge_query = queries[0]
+        query = build(self.stripe_handle)
 
         # Test the query structure
-        self.assertQueryContainsFields(charge_query.query, CHARGE_SCHEMA)
+        self.assertQueryContainsFields(query.query, CHARGE_SCHEMA)
         self.assertBuiltQueryStructure(
-            charge_query,
-            f"stripe.{self.external_data_source.prefix}.no_table",
+            query,
+            str(self.stripe_handle.source.id),  # type: ignore
             f"stripe.{self.external_data_source.prefix}",
+            expected_test_comments="no_table",
         )
 
         # Print and snapshot the generated HogQL query
-        query_sql = charge_query.query.to_hogql()
+        query_sql = query.query.to_hogql()
         self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
     def test_build_with_no_source(self):
         """Test that build returns empty when source is None."""
         handle = self.create_stripe_handle_without_source()
 
-        queries = list(build(handle))
-
-        # Should return no queries
-        self.assertEqual(len(queries), 0)
+        with self.assertRaises(ValueError):
+            build(handle)
 
     def test_charge_query_currency_conversion(self):
         """Test that charge query includes currency conversion logic."""
@@ -100,10 +86,8 @@ class TestChargeStripeBuilder(StripeSourceBaseTest):
 
         self.setup_stripe_external_data_source(schemas=[CHARGE_RESOURCE_NAME])
 
-        queries = list(build(self.stripe_handle))
-        charge_query = queries[0]
-
-        query_sql = charge_query.query.to_hogql()
+        query = build(self.stripe_handle)
+        query_sql = query.query.to_hogql()
 
         # Check for currency conversion functions in the query
         # The specific implementation may vary, but should include conversion logic
