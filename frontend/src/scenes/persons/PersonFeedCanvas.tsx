@@ -59,6 +59,10 @@ const PersonFeedCanvas = ({ person }: PersonFeedCanvasProps): JSX.Element => {
                         attrs: { personId: id, nodeId: uuid() },
                     },
                     {
+                        type: 'ph-zendesk-tickets',
+                        attrs: { personId: id, nodeId: uuid() },
+                    },
+                    {
                         type: 'ph-issues',
                         attrs: { personId: id, nodeId: uuid() },
                     },

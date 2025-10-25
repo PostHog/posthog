@@ -60,6 +60,7 @@ export enum NotebookNodeType {
     LLMTrace = 'ph-llm-trace',
     Issues = 'ph-issues',
     UsageMetrics = 'ph-usage-metrics',
+    ZendeskTickets = 'ph-zendesk-tickets',
 }
 
 export type NotebookNodeResource = {
