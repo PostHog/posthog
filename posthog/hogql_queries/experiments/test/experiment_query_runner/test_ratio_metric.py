@@ -6,6 +6,8 @@ from posthog.test.base import _create_event, _create_person, flush_persons_and_e
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.schema import (
     ActionsNode,
     EventsNode,
@@ -25,12 +27,14 @@ from posthog.test.test_journeys import journeys_for
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_basic_ratio_metric(self):
+    def test_basic_ratio_metric(self, name, use_new_query_builder):
         """Test basic ratio metric functionality with revenue per purchase event"""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         # Create a ratio metric: total revenue / total purchase events
@@ -163,12 +167,14 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         self.assertIsNotNone(control_variant.numerator_denominator_sum_product)
         self.assertIsNotNone(test_variant.numerator_denominator_sum_product)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_ratio_metric_different_math_types(self):
+    def test_ratio_metric_different_math_types(self, name, use_new_query_builder):
         """Test ratio metric with different math types for numerator and denominator"""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -267,12 +273,14 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.number_of_samples, 2)
         self.assertEqual(test_variant.denominator_sum, 2)  # 2 unique sessions
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_ratio_metric_with_conversion_window(self):
+    def test_ratio_metric_with_conversion_window(self, name, use_new_query_builder):
         """Test ratio metric with conversion window"""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -373,12 +381,14 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.number_of_samples, 3)
         self.assertEqual(test_variant.denominator_sum, 3)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_ratio_metric_zero_denominator(self):
+    def test_ratio_metric_zero_denominator(self, name, use_new_query_builder):
         """Test ratio metric behavior when denominator is zero"""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -473,12 +483,14 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.number_of_samples, 2)
         self.assertEqual(test_variant.denominator_sum, 2)  # 2 special_events
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_ratio_metric_same_event_different_properties(self):
+    def test_ratio_metric_same_event_different_properties(self, name, use_new_query_builder):
         """Test ratio metric using the same event with different math properties"""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -590,12 +602,14 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.number_of_samples, 2)
         self.assertEqual(test_variant.denominator_sum, 19)  # 5 + 6 + 8
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_ratio_metric_action_and_event_sources(self):
+    def test_ratio_metric_action_and_event_sources(self, name, use_new_query_builder):
         """Test ratio metric with action source numerator and event source denominator"""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -714,8 +728,9 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         self.assertIsNotNone(control_variant.numerator_denominator_sum_product)
         self.assertIsNotNone(test_variant.numerator_denominator_sum_product)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @snapshot_clickhouse_queries
-    def test_ratio_metric_with_data_warehouse_sources(self):
+    def test_ratio_metric_with_data_warehouse_sources(self, name, use_new_query_builder):
         """Test ratio metric with ExperimentDataWarehouseNode for both numerator and denominator"""
         from datetime import datetime
 
@@ -725,6 +740,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         experiment = self.create_experiment(
             feature_flag=feature_flag, start_date=datetime(2023, 1, 1), end_date=datetime(2023, 1, 31)
         )
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
