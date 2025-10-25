@@ -1,49 +1,36 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl } from 'kea-router'
 
-import { IconChevronLeft, IconPlus } from '@posthog/icons'
+import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { Conversation, ConversationStatus, ConversationType, ProductKey } from '~/types'
 
 import { maxLogic } from './maxLogic'
-import { formatConversationDate, getConversationUrl } from './utils'
+import { formatConversationDate } from './utils'
 
 export interface ConversationHistoryProps {
     sidePanel?: boolean
 }
 
 export function ConversationHistory({ sidePanel = false }: ConversationHistoryProps): JSX.Element {
-    const { location } = useValues(router)
     const { conversationHistory, conversationHistoryLoading } = useValues(maxLogic)
-    const { toggleConversationHistory, startNewConversation } = useActions(maxLogic)
+    const { toggleConversationHistory, openConversation } = useActions(maxLogic)
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
 
     return (
         <div className="@container/chat-history flex flex-col gap-4 w-full self-center px-4 py-8 grow max-w-screen-lg">
-            {!sidePanel && (
-                <div className="flex items-center gap-4 mb-4">
-                    <LemonButton
-                        size="small"
-                        icon={<IconChevronLeft />}
-                        onClick={() => startNewConversation()}
-                        tooltip="Go back to home"
-                        tooltipPlacement="bottom"
-                    />
-                    <h2 className="text-xl font-bold mb-0">Chat history</h2>
-                </div>
-            )}
             {conversationHistory.length > 0 ? (
                 conversationHistory.map((conversation) => (
                     <ConversationCard
                         key={conversation.id}
                         conversation={conversation}
-                        pathname={location.pathname}
-                        search={location.search}
-                        includeHash={sidePanel}
+                        openConversation={openConversation}
+                        sidePanel={sidePanel}
                     />
                 ))
             ) : conversationHistoryLoading ? (
@@ -63,8 +50,8 @@ export function ConversationHistory({ sidePanel = false }: ConversationHistoryPr
                         productName="Max"
                         productKey={ProductKey.MAX}
                         thingName="chat"
-                        titleOverride="Start chatting with Max"
-                        description="Max is an AI product analyst in PostHog that answers data questions, gets things done in UI, and provides insights from PostHog’s documentation."
+                        titleOverride="Start getting things done with PostHog AI"
+                        description="PostHog AI is an agent that answers data questions, gets things done in UI, and provides insights from PostHog’s documentation."
                         docsURL="https://posthog.com/docs/data/max-ai"
                         actionElementOverride={
                             <LemonButton
@@ -85,21 +72,23 @@ export function ConversationHistory({ sidePanel = false }: ConversationHistoryPr
     )
 }
 
-function ConversationCard({
-    conversation,
-    pathname,
-    search,
-    includeHash,
-}: {
+interface ConversationCardProps {
     conversation: Conversation
-    pathname: string
-    search: string
-    includeHash: boolean
-}): JSX.Element {
+    openConversation: (conversationId: string) => void
+    sidePanel: boolean
+}
+
+function ConversationCard({ conversation, openConversation, sidePanel }: ConversationCardProps): JSX.Element {
     return (
         <Link
             className="p-4 flex flex-row bg-surface-primary rounded-lg gap-2 w-full min-h-14 items-center justify-between"
-            to={getConversationUrl({ pathname, search, conversationId: conversation.id, includeHash })}
+            to={combineUrl(urls.max(conversation.id), { from: 'history' }).url}
+            onClick={(e) => {
+                if (sidePanel) {
+                    e.preventDefault()
+                    openConversation(conversation.id)
+                }
+            }}
         >
             <div className="flex items-center gap-2">
                 <span className="flex-1 line-clamp-1">{conversation.title}</span>

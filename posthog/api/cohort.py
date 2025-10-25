@@ -33,6 +33,7 @@ from posthog.hogql.context import HogQLContext
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import capture_legacy_api_call
+from posthog.api.mixins import FileSystemViewSetMixin
 from posthog.api.person import get_funnel_actor_class
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -61,6 +62,7 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, CohortOrEmpty
+from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.cohort.util import get_all_cohort_dependencies, print_cohort_hogql_query
 from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.feature_flag.flag_matching import (
@@ -190,6 +192,37 @@ class AddPersonsToStaticCohortRequestSerializer(serializers.Serializer):
 
 class RemovePersonRequestSerializer(serializers.Serializer):
     person_id = serializers.UUIDField(required=True, help_text="Person UUID to remove from the cohort")
+
+
+class CohortCalculationHistorySerializer(serializers.ModelSerializer):
+    duration_seconds = serializers.ReadOnlyField()
+    is_completed = serializers.ReadOnlyField()
+    is_successful = serializers.ReadOnlyField()
+    total_query_ms = serializers.ReadOnlyField()
+    total_memory_mb = serializers.ReadOnlyField()
+    total_read_rows = serializers.ReadOnlyField()
+    total_written_rows = serializers.ReadOnlyField()
+    main_query = serializers.ReadOnlyField()
+
+    class Meta:
+        model = CohortCalculationHistory
+        fields = [
+            "id",
+            "filters",
+            "count",
+            "started_at",
+            "finished_at",
+            "queries",
+            "error",
+            "duration_seconds",
+            "is_completed",
+            "is_successful",
+            "total_query_ms",
+            "total_memory_mb",
+            "total_read_rows",
+            "total_written_rows",
+            "main_query",
+        ]
 
 
 class CSVConfig:
@@ -597,11 +630,24 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.is_static = validated_data.get("is_static", cohort.is_static)
         cohort.filters = validated_data.get("filters", cohort.filters)
         cohort.cohort_type = validated_data.get("cohort_type", cohort.cohort_type)
+        cohort.query = validated_data.get("query", cohort.query)
 
         deleted_state = validated_data.get("deleted", None)
 
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state
         if is_deletion_change:
+            if deleted_state:
+                flags_using_cohort = FeatureFlag.objects.filter(
+                    team__project_id=cohort.team.project_id, active=True, deleted=False
+                )
+                flags_with_cohort = [flag for flag in flags_using_cohort if cohort.id in flag.get_cohort_ids()]
+                if flags_with_cohort:
+                    flag_names = [flag.name or flag.key for flag in flags_with_cohort]
+                    raise ValidationError(
+                        f"This cohort is used in {len(flags_with_cohort)} active feature flag(s): {', '.join(flag_names)}. "
+                        "Please remove the cohort from these feature flags before deleting it."
+                    )
+
             relevant_team_ids = Team.objects.filter(project_id=cohort.team.project_id).values_list("id", flat=True)
             cohort.deleted = deleted_state
             if deleted_state:
@@ -635,9 +681,13 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.save()
 
         if not deleted_state:
+            from posthog.tasks.calculate_cohort import insert_cohort_from_query
+
             if cohort.is_static and request.FILES.get("csv"):
                 # You can't update a static cohort using the trend/stickiness thing
                 self._calculate_static_by_csv(request.FILES["csv"], cohort)
+            elif cohort.is_static and validated_data.get("query"):
+                insert_cohort_from_query.delay(cohort.pk, self.context["team_id"])
             else:
                 cohort.enqueue_calculation(initiating_user=request.user)
 
@@ -660,7 +710,7 @@ class CohortSerializer(serializers.ModelSerializer):
         return representation
 
 
-class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class CohortViewSet(FileSystemViewSetMixin, TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Cohort.objects.all()
     serializer_class = CohortSerializer
     scope_object = "cohort"
@@ -962,6 +1012,30 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             page=page,
         )
         return activity_page_response(activity_page, limit, page, request)
+
+    @action(methods=["GET"], detail=True, required_scopes=["cohort:read"])
+    def calculation_history(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "100"))
+        offset = int(request.query_params.get("offset", "0"))
+
+        cohort: Cohort = self.get_object()
+
+        calculation_history = CohortCalculationHistory.objects.filter(cohort=cohort, team=self.team).order_by(
+            "-started_at"
+        )[offset : offset + limit]
+
+        total_count = CohortCalculationHistory.objects.filter(cohort=cohort, team=self.team).count()
+
+        serializer = CohortCalculationHistorySerializer(calculation_history, many=True)
+
+        return Response(
+            {
+                "results": serializer.data,
+                "count": total_count,
+                "next": None if offset + limit >= total_count else f"?limit={limit}&offset={offset + limit}",
+                "previous": None if offset == 0 else f"?limit={limit}&offset={max(0, offset - limit)}",
+            }
+        )
 
     def perform_create(self, serializer):
         serializer.save()

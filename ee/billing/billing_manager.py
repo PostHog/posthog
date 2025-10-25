@@ -327,9 +327,9 @@ class BillingManager:
                 events=usage_summary["events"],
                 exceptions=usage_summary.get("exceptions", {}),
                 recordings=usage_summary["recordings"],
-                surveys=usage_summary.get("surveys", {}),
+                survey_responses=usage_summary.get("survey_responses", {}),
                 rows_synced=usage_summary.get("rows_synced", {}),
-                cdp_invocations=usage_summary.get("cdp_invocations", {}),
+                cdp_trigger_events=usage_summary.get("cdp_trigger_events", {}),
                 rows_exported=usage_summary.get("rows_exported", {}),
                 feature_flag_requests=usage_summary.get("feature_flag_requests", {}),
                 api_queries_read_bytes=usage_summary.get("api_queries_read_bytes", {}),
@@ -459,6 +459,18 @@ class BillingManager:
         )
 
         handle_billing_service_error(res)
+
+        return res.json()
+
+    def switch_plan(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/subscription/switch-plan/",
+            headers=self.get_auth_headers(organization),
+            json=data,
+        )
+
+        handle_billing_service_error(res)
+        self.update_available_product_features(organization)
 
         return res.json()
 

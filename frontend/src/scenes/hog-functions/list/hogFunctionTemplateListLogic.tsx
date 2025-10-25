@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { FeatureFlagKey } from 'lib/constants'
+import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -150,6 +150,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                 return templates
                     .filter((x) => shouldShowHogFunctionTemplate(x, user))
                     .filter((x) => !x.flag || !!featureFlags[x.flag as FeatureFlagKey])
+                    .filter((x) => x.type !== 'source_webhook' || !!featureFlags[FEATURE_FLAGS.CDP_HOG_SOURCES])
                     .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
             },
         ],
@@ -182,7 +183,15 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                 const { search } = filters
 
                 if (search) {
-                    return templatesFuse.search(search).map((x) => x.item)
+                    return templatesFuse
+                        .search(search)
+                        .map((x) => {
+                            if (!customFilterFunction(x.item)) {
+                                return null
+                            }
+                            return x.item
+                        })
+                        .filter(Boolean) as HogFunctionTemplateType[]
                 }
 
                 const [available, comingSoon] = templates.reduce(

@@ -2,6 +2,9 @@ from posthog.hogql import ast
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
+from products.marketing_analytics.backend.hogql_queries.constants import UNIFIED_CONVERSION_GOALS_CTE_ALIAS
+
+from .adapters.factory import MarketingSourceFactory
 from .conversion_goal_processor import ConversionGoalProcessor
 from .marketing_analytics_config import MarketingAnalyticsConfig
 
@@ -86,7 +89,13 @@ class ConversionGoalsAggregator:
             union_query = ast.SelectSetQuery.create_from_queries(conversion_subqueries, "UNION ALL")
 
         # Step 3: Create final aggregation query that sums all conversion goals by campaign/source
-        final_select: list[ast.Expr] = [ast.Field(chain=[field]) for field in self.config.group_by_fields]
+        # First, wrap the union in a subquery to materialize campaign/source fields
+        subquery_alias = "conv"
+
+        final_select: list[ast.Expr] = [
+            ast.Field(chain=[self.config.campaign_field]),
+            ast.Field(chain=[self.config.source_field]),
+        ]
 
         # Add each conversion goal as a summed column
         for processor in self.processors:
@@ -102,11 +111,108 @@ class ConversionGoalsAggregator:
 
         final_query = ast.SelectQuery(
             select=final_select,
-            select_from=ast.JoinExpr(table=union_query),
-            group_by=[ast.Field(chain=[field]) for field in self.config.group_by_fields],
+            select_from=ast.JoinExpr(table=union_query, alias=subquery_alias),
+            group_by=[
+                ast.Field(chain=[self.config.campaign_field]),
+                ast.Field(chain=[self.config.source_field]),
+            ],
         )
 
-        return ast.CTE(name="unified_conversion_goals", expr=final_query, cte_type="subquery")
+        # Now apply campaign name mappings by wrapping in another SELECT
+        campaign_field_expr = ast.Field(chain=[self.config.campaign_field])
+        source_field_expr = ast.Field(chain=[self.config.source_field])
+        mapped_campaign_expr = self._apply_campaign_name_mappings(campaign_field_expr, source_field_expr)
+
+        outer_select: list[ast.Expr] = [
+            ast.Alias(alias=self.config.campaign_field, expr=mapped_campaign_expr),
+            ast.Field(chain=[self.config.source_field]),
+        ]
+
+        # Add conversion goal columns
+        for processor in self.processors:
+            outer_select.append(ast.Field(chain=[self.config.get_conversion_goal_column_name(processor.index)]))
+
+        wrapped_query = ast.SelectQuery(
+            select=outer_select,
+            select_from=ast.JoinExpr(table=final_query),
+        )
+
+        return ast.CTE(name=UNIFIED_CONVERSION_GOALS_CTE_ALIAS, expr=wrapped_query, cte_type="subquery")
+
+    def _apply_campaign_name_mappings(self, campaign_expr: ast.Expr, source_expr: ast.Expr) -> ast.Expr:
+        """Apply campaign name mappings from team config"""
+        # Get team from first processor (all processors have the same team)
+        if not self.processors or not self.processors[0].team:
+            return campaign_expr
+
+        team = self.processors[0].team
+
+        try:
+            campaign_mappings = team.marketing_analytics_config.campaign_name_mappings
+        except Exception:
+            return campaign_expr
+
+        if not campaign_mappings:
+            return campaign_expr
+
+        conditions_and_results: list[ast.Expr] = []
+        lowercase_campaign = ast.Call(name="lower", args=[campaign_expr])
+        lowercase_source = ast.Call(name="lower", args=[source_expr])
+
+        for external_source, source_mappings in campaign_mappings.items():
+            if not source_mappings:
+                continue
+
+            # Get utm_source values for this adapter
+            adapter_class = MarketingSourceFactory._adapter_registry.get(external_source)
+            if not adapter_class:
+                continue
+
+            source_mapping = adapter_class.get_source_identifier_mapping()
+            utm_sources = []
+            for alternatives in source_mapping.values():
+                utm_sources.extend(alternatives)
+
+            if not utm_sources:
+                continue
+
+            # Build source condition once for this adapter
+            source_condition = ast.Call(
+                name="in",
+                args=[
+                    lowercase_source,
+                    ast.Array(exprs=[ast.Constant(value=s.lower()) for s in utm_sources]),
+                ],
+            )
+
+            # Add condition/result pairs for each campaign mapping
+            for clean_name, raw_values in source_mappings.items():
+                if not raw_values:
+                    continue
+
+                campaign_condition = ast.Call(
+                    name="in",
+                    args=[
+                        lowercase_campaign,
+                        ast.Array(exprs=[ast.Constant(value=val.lower()) for val in raw_values]),
+                    ],
+                )
+
+                # Combine source and campaign conditions
+                combined_condition = ast.Call(name="and", args=[source_condition, campaign_condition])
+
+                conditions_and_results.append(combined_condition)
+                conditions_and_results.append(ast.Constant(value=clean_name))
+
+        # If no mappings were added, return original campaign
+        if not conditions_and_results:
+            return campaign_expr
+
+        # Add default case (original campaign)
+        conditions_and_results.append(campaign_expr)
+
+        # Build multiIf with all conditions
+        return ast.Call(name="multiIf", args=conditions_and_results)
 
     def get_conversion_goal_columns(self) -> dict[str, ast.Alias]:
         """Get the column mappings for accessing conversion goals from the unified CTE"""

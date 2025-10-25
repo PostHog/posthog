@@ -13,10 +13,12 @@ export function AppMetricsSparkline(props: AppMetricsLogicProps): JSX.Element {
     const logic = appMetricsLogic(props)
     const { appMetricsTrends, appMetricsTrendsLoading, params } = useValues(logic)
     const { loadAppMetricsTrends } = useActions(logic)
-    const { ref: inViewRef, inView } = useInView()
+    const { ref: inViewRef, inView } = useInView({
+        triggerOnce: true,
+    })
 
     useEffect(() => {
-        if (inStorybookTestRunner() || (inView && !appMetricsTrends && !appMetricsTrendsLoading)) {
+        if (inStorybookTestRunner() || (inView && !appMetricsTrendsLoading)) {
             loadAppMetricsTrends()
         }
     }, [inView]) // oxlint-disable-line react-hooks/exhaustive-deps

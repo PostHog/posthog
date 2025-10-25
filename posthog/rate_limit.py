@@ -348,6 +348,25 @@ class UserOrEmailRateThrottle(SimpleRateThrottle):
 
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
+    def parse_rate(self, rate):
+        """
+        Support custom duration formats like "6/20minutes"
+        """
+        if rate is None:
+            return (None, None)
+
+        num, period = rate.split("/")
+        num_requests = int(num)
+
+        if period.endswith("minutes"):
+            minutes = int(period[:-7])
+            duration = minutes * 60
+        else:
+            # Fall back to default
+            num_requests, duration = super().parse_rate(rate)  # type: ignore
+
+        return (num_requests, duration)
+
 
 class SignupIPThrottle(SimpleRateThrottle):
     """
@@ -422,15 +441,15 @@ class AISustainedRateThrottle(UserRateThrottle):
         return request_allowed
 
 
-class LLMProxyBurstRateThrottle(UserRateThrottle):
-    scope = "llm_proxy_burst"
+class LLMGatewayBurstRateThrottle(UserRateThrottle):
+    scope = "llm_gateway_burst"
     rate = "30/minute"
 
 
-class LLMProxySustainedRateThrottle(UserRateThrottle):
-    # Throttle class that's very aggressive and is used specifically on endpoints that hit OpenAI
+class LLMGatewaySustainedRateThrottle(UserRateThrottle):
+    # Throttle class that's very aggressive and is used specifically on endpoints that hit LLM providers
     # Intended to block slower but sustained bursts of requests, per user
-    scope = "llm_proxy_sustained"
+    scope = "llm_gateway_sustained"
     rate = "500/hour"
 
 
@@ -463,6 +482,26 @@ class WebAnalyticsAPISustainedThrottle(PersonalApiKeyRateThrottle):
 class UserPasswordResetThrottle(UserOrEmailRateThrottle):
     scope = "user_password_reset"
     rate = "6/day"
+
+
+class EmailMFAThrottle(UserOrEmailRateThrottle):
+    scope = "email_mfa"
+    rate = "6/20minutes"
+
+
+class EmailMFAResendThrottle(UserOrEmailRateThrottle):
+    scope = "email_mfa_resend"
+    rate = "1/minute"
+
+    def get_cache_key(self, request, view):
+        from posthog.helpers.two_factor_session import email_mfa_verifier
+
+        user_id = email_mfa_verifier.get_pending_email_mfa_verification_user_id(request)
+        if user_id:
+            ident = hashlib.sha256(str(user_id).encode()).hexdigest()
+            return self.cache_format % {"scope": self.scope, "ident": ident}
+
+        return super().get_cache_key(request, view)
 
 
 class UserAuthenticationThrottle(UserOrEmailRateThrottle):
@@ -503,9 +542,13 @@ class SetupWizardQueryRateThrottle(SimpleRateThrottle):
     def get_cache_key(self, request, view):
         hash = request.headers.get("X-PostHog-Wizard-Hash")
 
-        if not hash:
-            return self.get_ident(request)
-        return f"throttle_wizard_query_{hash}"
+        authorization_header = request.headers.get("Authorization")
+
+        value = (hash or authorization_header or "").strip() or self.get_ident(request)
+
+        sha_hash = hashlib.sha256(value.encode()).hexdigest()
+
+        return f"throttle_wizard_query_{sha_hash}"
 
 
 class BreakGlassBurstThrottle(UserOrEmailRateThrottle):

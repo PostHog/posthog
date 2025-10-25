@@ -13,14 +13,15 @@ use tower::limit::ConcurrencyLimitLayer;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
+use crate::metrics_middleware::track_metrics;
 use crate::test_endpoint;
-use crate::{sinks, time::TimeSource, v0_endpoint};
+use crate::{ai_endpoint, sinks, time::TimeSource, v0_endpoint};
 use common_redis::Client;
 use limiters::token_dropper::TokenDropper;
 
 use crate::config::CaptureMode;
 use crate::limiters::CaptureQuotaLimiter;
-use crate::prometheus::{setup_metrics_recorder, track_metrics};
+use crate::prometheus::setup_metrics_recorder;
 
 const EVENT_BODY_SIZE: usize = 2 * 1024 * 1024; // 2MB
 pub const BATCH_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB, up from the default 2MB used for normal event payloads
@@ -38,6 +39,7 @@ pub struct State {
     pub capture_mode: CaptureMode,
     pub is_mirror_deploy: bool,
     pub verbose_sample_percent: f32,
+    pub ai_max_sum_of_parts_bytes: usize,
 }
 
 #[derive(Clone)]
@@ -113,6 +115,7 @@ pub fn router<
     historical_tokens_keys: Option<String>,
     is_mirror_deploy: bool,
     verbose_sample_percent: f32,
+    ai_max_sum_of_parts_bytes: usize,
 ) -> Router {
     let state = State {
         sink: Arc::new(sink),
@@ -129,6 +132,7 @@ pub fn router<
         capture_mode: capture_mode.clone(),
         is_mirror_deploy,
         verbose_sample_percent,
+        ai_max_sum_of_parts_bytes,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -252,11 +256,26 @@ pub fn router<
         )
         .layer(DefaultBodyLimit::max(RECORDING_BODY_SIZE));
 
+    // AI endpoint body limit is 110% of max sum of parts to account for multipart overhead
+    let ai_body_limit = (state.ai_max_sum_of_parts_bytes as f64 * 1.1) as usize;
+
+    let ai_router = Router::new()
+        .route(
+            "/i/v0/ai",
+            post(ai_endpoint::ai_handler).options(ai_endpoint::options),
+        )
+        .route(
+            "/i/v0/ai/",
+            post(ai_endpoint::ai_handler).options(ai_endpoint::options),
+        )
+        .layer(DefaultBodyLimit::max(ai_body_limit));
+
     let mut router = match capture_mode {
         CaptureMode::Events => Router::new()
             .merge(batch_router)
             .merge(event_router)
-            .merge(test_router),
+            .merge(test_router)
+            .merge(ai_router),
         CaptureMode::Recordings => Router::new().merge(recordings_router),
     };
 

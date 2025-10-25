@@ -9,17 +9,17 @@
 # ---
 # name: TestProductStripeBuilder.test_build_with_no_product_schema
   '''
-  SELECT NULL AS id,
-         NULL AS source_label,
-         NULL AS name
+  SELECT '' AS id,
+         '' AS source_label,
+         '' AS name
   WHERE false
   '''
 # ---
 # name: TestProductStripeBuilder.test_build_with_product_schema_but_no_table
   '''
-  SELECT NULL AS id,
-         NULL AS source_label,
-         NULL AS name
+  SELECT '' AS id,
+         '' AS source_label,
+         '' AS name
   WHERE false
   '''
 # ---

@@ -1,6 +1,5 @@
 import uuid
 from enum import StrEnum
-from typing import Optional
 
 from django.conf import settings
 
@@ -31,7 +30,7 @@ class MergeTreeEngine:
         self.force_unique_zk_path = force_unique_zk_path
         self.kwargs = kwargs
 
-        self.zookeeper_path_key: Optional[str] = None
+        self.zookeeper_path_key: str | None = None
 
     def set_zookeeper_path_key(self, zookeeper_path_key: str):
         "Used in situations where a unique zookeeper path is needed"
@@ -80,15 +79,18 @@ class AggregatingMergeTree(MergeTreeEngine):
 
 
 class Distributed:
-    def __init__(self, data_table: str, sharding_key: Optional[str] = None, cluster: str = settings.CLICKHOUSE_CLUSTER):
+    def __init__(self, data_table: str, sharding_key: str | None = None, cluster: str | None = None):
         self.data_table = data_table
         self.sharding_key = sharding_key
         self.cluster = cluster
 
     def __str__(self):
-        if not self.sharding_key:
-            return f"Distributed('{self.cluster}', '{settings.CLICKHOUSE_DATABASE}', '{self.data_table}')"
+        # Evaluate cluster and database at call time, not at module import time
+        # This is critical for test environments where settings are loaded after module imports
+        cluster = self.cluster if self.cluster is not None else settings.CLICKHOUSE_CLUSTER
+        database = settings.CLICKHOUSE_DATABASE
 
-        return (
-            f"Distributed('{self.cluster}', '{settings.CLICKHOUSE_DATABASE}', '{self.data_table}', {self.sharding_key})"
-        )
+        if not self.sharding_key:
+            return f"Distributed('{cluster}', '{database}', '{self.data_table}')"
+
+        return f"Distributed('{cluster}', '{database}', '{self.data_table}', {self.sharding_key})"

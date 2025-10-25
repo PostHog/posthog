@@ -190,7 +190,11 @@ class PostgresSource(BaseSource[PostgresSourceConfig], SSHTunnelMixin, ValidateD
         return True, None
 
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
+        from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+
         ssh_tunnel = self.make_ssh_tunnel_func(config)
+
+        schema = ExternalDataSchema.objects.get(id=inputs.schema_id)
 
         return postgres_source(
             tunnel=ssh_tunnel,
@@ -205,5 +209,6 @@ class PostgresSource(BaseSource[PostgresSourceConfig], SSHTunnelMixin, ValidateD
             incremental_field=inputs.incremental_field,
             incremental_field_type=inputs.incremental_field_type,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+            chunk_size_override=schema.chunk_size_override,
             team_id=inputs.team_id,
         )

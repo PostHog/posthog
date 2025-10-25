@@ -1,18 +1,45 @@
 import { IconCheck, IconWarning, IconX } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-export const StatusIcon = ({
-    status,
-    message,
-}: {
-    status: 'success' | 'warning' | 'error'
-    message: string
-}): JSX.Element => (
-    <Tooltip title={message}>
-        <div className="flex justify-center">
-            {status === 'success' && <IconCheck className="text-success text-lg" />}
-            {status === 'warning' && <IconWarning className="text-warning text-lg" />}
-            {status === 'error' && <IconX className="text-muted text-lg" />}
-        </div>
-    </Tooltip>
-)
+import { ExternalDataSchemaStatus } from '~/types'
+
+import { MarketingSourceStatus, SourceStatus } from '../../logic/marketingAnalyticsLogic'
+
+export const StatusIcon = ({ status, message }: { status: SourceStatus; message: string }): JSX.Element => {
+    const { tagType, icon } = getStatusDisplay(status)
+
+    return (
+        <Tooltip title={message}>
+            <div className="flex justify-center">
+                {icon && <span className="text-lg">{icon}</span>}
+                {tagType && <LemonTag type={tagType}>{status}</LemonTag>}
+            </div>
+        </Tooltip>
+    )
+}
+
+function getStatusDisplay(status: SourceStatus): {
+    tagType?: 'success' | 'danger' | 'primary'
+    icon?: JSX.Element
+} {
+    switch (status) {
+        case ExternalDataSchemaStatus.Completed:
+            return { tagType: 'success' }
+        case ExternalDataSchemaStatus.Failed:
+            return { tagType: 'danger' }
+        case ExternalDataSchemaStatus.Running:
+            return { tagType: 'primary' }
+        case ExternalDataSchemaStatus.Paused:
+            return { tagType: 'danger' }
+        case ExternalDataSchemaStatus.Cancelled:
+            return { tagType: 'danger' }
+        case MarketingSourceStatus.Warning:
+            return { icon: <IconWarning className="text-warning" /> }
+        case MarketingSourceStatus.Error:
+            return { icon: <IconX className="text-muted" /> }
+        case MarketingSourceStatus.Success:
+            return { icon: <IconCheck className="text-success" /> }
+        default:
+            throw new Error(`Unknown status: ${status}`)
+    }
+}

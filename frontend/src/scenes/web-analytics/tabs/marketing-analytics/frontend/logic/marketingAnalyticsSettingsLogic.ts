@@ -3,15 +3,18 @@ import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
 
-import { MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
+import { AttributionMode, MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
 import { ConversionGoalFilter, MarketingAnalyticsConfig, SourceMap } from '~/queries/schema/schema-general'
 
 import type { marketingAnalyticsSettingsLogicType } from './marketingAnalyticsSettingsLogicType'
-import { generateUniqueName } from './utils'
+import { DEFAULT_ATTRIBUTION_WINDOW_DAYS, generateUniqueName } from './utils'
 
 const createEmptyConfig = (): MarketingAnalyticsConfig => ({
     sources_map: {},
     conversion_goals: [],
+    attribution_window_days: DEFAULT_ATTRIBUTION_WINDOW_DAYS,
+    attribution_mode: AttributionMode.LastTouch,
+    campaign_name_mappings: {},
 })
 
 export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLogicType>([
@@ -38,6 +41,15 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         }),
         removeConversionGoal: (goalId: string) => ({
             goalId,
+        }),
+        updateAttributionWindowWeeks: (weeks: number) => ({
+            weeks,
+        }),
+        updateAttributionMode: (mode: AttributionMode) => ({
+            mode,
+        }),
+        updateCampaignNameMappings: (campaignNameMappings: Record<string, Record<string, string[]>>) => ({
+            campaignNameMappings,
         }),
     }),
     reducers(({ values }) => ({
@@ -118,6 +130,24 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                     }
                     return { ...state, sources_map: updatedSourcesMap }
                 },
+                updateAttributionWindowDays: (state: MarketingAnalyticsConfig | null, { days }) => {
+                    if (!state) {
+                        return { ...createEmptyConfig(), attribution_window_days: days }
+                    }
+                    return { ...state, attribution_window_days: days }
+                },
+                updateAttributionMode: (state: MarketingAnalyticsConfig | null, { mode }) => {
+                    if (!state) {
+                        return { ...createEmptyConfig(), attribution_mode: mode }
+                    }
+                    return { ...state, attribution_mode: mode }
+                },
+                updateCampaignNameMappings: (state: MarketingAnalyticsConfig | null, { campaignNameMappings }) => {
+                    if (!state) {
+                        return { ...createEmptyConfig(), campaign_name_mappings: campaignNameMappings }
+                    }
+                    return { ...state, campaign_name_mappings: campaignNameMappings }
+                },
             },
         ],
         savedMarketingAnalyticsConfig: [
@@ -140,6 +170,18 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                 return marketingAnalyticsConfig?.conversion_goals || []
             },
         ],
+        attribution_window_days: [
+            (s) => [s.marketingAnalyticsConfig],
+            (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => {
+                return marketingAnalyticsConfig?.attribution_window_days ?? DEFAULT_ATTRIBUTION_WINDOW_DAYS
+            },
+        ],
+        attribution_mode: [
+            (s) => [s.marketingAnalyticsConfig],
+            (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => {
+                return marketingAnalyticsConfig?.attribution_mode ?? AttributionMode.LastTouch
+            },
+        ],
     }),
     listeners(({ actions, values }) => {
         const updateCurrentTeam = (): void => {
@@ -154,6 +196,9 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             updateConversionGoals: updateCurrentTeam,
             addOrUpdateConversionGoal: updateCurrentTeam,
             removeConversionGoal: updateCurrentTeam,
+            updateAttributionWindowWeeks: updateCurrentTeam,
+            updateAttributionMode: updateCurrentTeam,
+            updateCampaignNameMappings: updateCurrentTeam,
         }
     }),
     loaders(({ values }) => ({

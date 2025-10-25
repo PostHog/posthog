@@ -367,9 +367,6 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
                 pass
             else:
                 parent_query_paths = list(self.filter_all_leaf_paths(parent_query.id.hex, team=team).all())
-                if not parent_query_paths:
-                    raise UnknownParentError(parent, query)
-
                 parent_paths.extend(parent_query_paths)
                 continue
 

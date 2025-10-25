@@ -367,6 +367,32 @@ describe('survey utils', () => {
                 urlMatchType: undefined,
             })
         })
+
+        it('Remove conditions key if its value is null', () => {
+            const inputSurvey = {
+                type: SurveyType.ExternalSurvey,
+                name: 'Test Survey',
+                questions: [],
+                conditions: null,
+            }
+
+            const result = sanitizeSurvey(inputSurvey)
+
+            expect(result.conditions).toBeUndefined()
+        })
+
+        it('Keep conditions key even if its value is null when option is present', () => {
+            const inputSurvey = {
+                type: SurveyType.ExternalSurvey,
+                name: 'Test Survey',
+                questions: [],
+                conditions: null,
+            }
+
+            const result = sanitizeSurvey(inputSurvey, { keepEmptyConditions: true })
+
+            expect(result.conditions).toBeNull()
+        })
     })
 
     describe('calculateNpsBreakdown', () => {

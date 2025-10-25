@@ -21,28 +21,8 @@ use tracing::debug;
 use uuid::Uuid;
 
 #[derive(Row, Debug, Serialize, Deserialize)]
-pub struct LogRow {
-    team_id: i32,
-    trace_id: [u8; 16],
-    span_id: [u8; 8],
-    trace_flags: u32,
-    timestamp: u64,
-    body: String,
-    message: String,
-    attributes: Vec<(String, String)>,
-    severity_text: String,
-    severity_number: i32,
-    resource_attributes: Vec<(String, String)>,
-    resource_id: String,
-    instrumentation_scope: String,
-    service_name: String,
-    event_name: String,
-}
-
-#[derive(Row, Debug, Serialize, Deserialize)]
 pub struct KafkaLogRow {
     pub uuid: String,
-    pub team_id: i32,
     pub trace_id: String,
     pub span_id: String,
     pub trace_flags: u32,
@@ -70,7 +50,6 @@ pub struct KafkaLogRow {
 
 impl KafkaLogRow {
     pub fn new(
-        team_id: i32,
         record: LogRecord,
         resource: Option<Resource>,
         scope: Option<InstrumentationScope>,
@@ -119,7 +98,7 @@ impl KafkaLogRow {
                 )
             })
             .collect();
-        attributes.extend(resource_attributes);
+        attributes.extend(resource_attributes.clone());
 
         let instrumentation_scope = match scope {
             Some(s) => format!("{}@{}", s.name, s.version),
@@ -141,7 +120,6 @@ impl KafkaLogRow {
 
         let log_row = Self {
             uuid: Uuid::now_v7().to_string(),
-            team_id,
             trace_id: BASE64_STANDARD.encode(trace_id),
             span_id: BASE64_STANDARD.encode(span_id),
             trace_flags,
@@ -151,7 +129,7 @@ impl KafkaLogRow {
             body,
             severity_text,
             severity_number,
-            resource_attributes: HashMap::new(),
+            resource_attributes: resource_attributes.into_iter().collect(),
             instrumentation_scope,
             event_name,
             resource_id,
@@ -179,100 +157,6 @@ impl KafkaLogRow {
     }
 }
 
-impl LogRow {
-    pub fn new(
-        team_id: i32,
-        record: LogRecord,
-        resource: Option<Resource>,
-        scope: Option<InstrumentationScope>,
-    ) -> Result<Self> {
-        // Extract body
-        let body = match record.body {
-            Some(body) => match body.value {
-                Some(value) => match value {
-                    opentelemetry_proto::tonic::common::v1::any_value::Value::StringValue(s) => {
-                        s.clone()
-                    }
-                    _ => format!("{value:?}"),
-                },
-                None => "".to_string(),
-            },
-            None => "".to_string(),
-        };
-
-        let message = try_extract_message(&body).unwrap_or_default();
-
-        let mut severity_text = normalize_severity_text(record.severity_text);
-        let mut severity_number = record.severity_number;
-
-        if let Some(parsed_severity) = try_extract_severity(&body) {
-            severity_text = parsed_severity;
-            severity_number = convert_severity_text_to_number(&severity_text);
-        }
-
-        // severity_number takes priority if both provided
-        if record.severity_number > 0 {
-            severity_text = convert_severity_number_to_text(record.severity_number);
-        } else {
-            severity_number = convert_severity_text_to_number(&severity_text);
-        }
-
-        let resource_id = extract_resource_id(&resource);
-        let resource_attributes = extract_resource_attributes(resource);
-
-        let mut attributes: Vec<(String, String)> = record
-            .attributes
-            .into_iter()
-            .map(|kv| {
-                (
-                    kv.key,
-                    any_value_to_string(kv.value.unwrap_or(AnyValue {
-                        value: Some(Value::StringValue("".to_string())),
-                    })),
-                )
-            })
-            .collect();
-        attributes.extend(resource_attributes.clone());
-
-        let instrumentation_scope = match scope {
-            Some(s) => format!("{}@{}", s.name, s.version),
-            None => "".to_string(),
-        };
-
-        let event_name = extract_string(&attributes, "event.name");
-        let service_name = extract_string(&attributes, "service.name");
-
-        // Trace/span IDs
-        let trace_id = extract_trace_id(&record.trace_id);
-        let span_id = extract_span_id(&record.span_id);
-
-        // Trace flags
-        let trace_flags = record.flags;
-
-        let log_row = Self {
-            // uuid: Uuid::now_v7(),
-            team_id,
-            trace_id,
-            span_id,
-            trace_flags,
-            timestamp: record.time_unix_nano,
-            body,
-            message,
-            attributes,
-            severity_text,
-            severity_number,
-            resource_attributes,
-            instrumentation_scope,
-            event_name,
-            resource_id,
-            service_name,
-        };
-        debug!("log: {log_row:?}");
-
-        Ok(log_row)
-    }
-}
-
 // extract a JSON value as a string. If it's a string, strip the surrounding "quotes"
 fn extract_string_from_map(attributes: &HashMap<String, String>, key: &str) -> String {
     if let Some(value) = attributes.get(key) {
@@ -284,19 +168,6 @@ fn extract_string_from_map(attributes: &HashMap<String, String>, key: &str) -> S
     } else {
         "".to_string()
     }
-}
-
-fn extract_string(attributes: &[(String, String)], key: &str) -> String {
-    for (k, val) in attributes.iter() {
-        if k == key {
-            if let Ok(JsonValue::String(value)) = serde_json::from_str::<JsonValue>(val) {
-                return value.to_string();
-            } else {
-                return val.to_string();
-            }
-        }
-    }
-    "".to_string()
 }
 
 fn extract_json_string(value: String) -> String {
@@ -386,23 +257,6 @@ fn convert_severity_number_to_text(severity_number: i32) -> String {
         24 => "fatal".to_string(),
         _ => "unknown".to_string(),
     }
-}
-
-// TOOD - pull this from PG
-const MESSAGE_KEYS: [&str; 3] = ["message", "msg", "log.message"];
-
-fn try_extract_message(body: &str) -> Option<String> {
-    let Ok(value) = serde_json::from_str::<JsonValue>(body) else {
-        return None;
-    };
-
-    for key in MESSAGE_KEYS {
-        if let Some(JsonValue::String(s)) = value.get(key) {
-            return Some(s.clone());
-        }
-    }
-
-    None
 }
 
 fn extract_resource_attributes(resource: Option<Resource>) -> Vec<(String, String)> {

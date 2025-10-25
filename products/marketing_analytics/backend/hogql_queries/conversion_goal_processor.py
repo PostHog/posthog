@@ -14,6 +14,7 @@ from posthog.hogql.property import action_to_expr, property_to_expr
 
 from posthog.models import Action, Team
 
+from .adapters.factory import MarketingSourceFactory
 from .marketing_analytics_config import MarketingAnalyticsConfig
 
 DAY_IN_SECONDS = 86400
@@ -144,7 +145,7 @@ class ConversionGoalProcessor:
 
     def _generate_array_based_query(self, additional_conditions: list[ast.Expr]) -> ast.SelectQuery:
         """Generate array-based query with attribution logic for Events/Actions"""
-        if self.config.max_attribution_window_days > 0:
+        if self.config.attribution_window_days > 0:
             return self._generate_funnel_query(additional_conditions)
         return self._generate_direct_query(additional_conditions)
 
@@ -158,7 +159,7 @@ class ConversionGoalProcessor:
         where_conditions.extend(additional_conditions)
 
         # Build nested query structure for attribution
-        attribution_window_seconds = self.config.max_attribution_window_days * DAY_IN_SECONDS
+        attribution_window_seconds = self.config.attribution_window_days * DAY_IN_SECONDS
         array_collection = self._build_array_collection_subquery(conversion_event, where_conditions)
         array_join = self._build_array_join_subquery(array_collection, attribution_window_seconds)
         attribution = self._build_attribution_logic_subquery(array_join)
@@ -238,7 +239,7 @@ class ConversionGoalProcessor:
                         self._build_pageview_event_filter(date_conditions, utm_campaign_field, utm_source_field),
                     ]
                 )
-        elif self.goal.kind == "ActionsNode" and self.config.max_attribution_window_days > 0:
+        elif self.goal.kind == "ActionsNode" and self.config.attribution_window_days > 0:
             # For ActionsNode with attribution, we need both action events and pageview events
             action_conditions = self.get_base_where_conditions()
             action_filter = self._build_action_event_filter(action_conditions, date_conditions)
@@ -312,7 +313,7 @@ class ConversionGoalProcessor:
         ]
 
         # Apply extended date conditions for pageviews (attribution window)
-        attribution_window_seconds = self.config.max_attribution_window_days * DAY_IN_SECONDS
+        attribution_window_seconds = self.config.attribution_window_days * DAY_IN_SECONDS
         for date_condition in date_conditions:
             if isinstance(date_condition, ast.CompareOperation):
                 if date_condition.op == ast.CompareOperationOp.GtEq:
@@ -632,7 +633,7 @@ class ConversionGoalProcessor:
         return ast.Alias(
             alias="last_utm_timestamp",
             expr=ast.Call(
-                name=self.config.default_attribution_mode,
+                name=self.config.attribution_mode_operator,
                 args=[
                     ast.Call(
                         name="arrayFilter",
@@ -749,6 +750,41 @@ class ConversionGoalProcessor:
         else:
             return ast.Constant(value=1)
 
+    def _normalize_source_field(self, source_expr: ast.Expr) -> ast.Expr:
+        """
+        Normalize source field to map alternative UTM sources to primary sources.
+        Case-insensitive matching - 'YouTube', 'youtube', 'YOUTUBE' all map to 'google'.
+        """
+        # Convert source to lowercase for case-insensitive matching
+        lowercase_source = ast.Call(name="lower", args=[source_expr])
+
+        # Build nested if expressions for each mapping
+        normalized_expr = source_expr
+
+        source_mappings = MarketingSourceFactory.get_all_source_identifier_mappings()
+        for primary_source, alternative_sources in source_mappings.items():
+            # Skip the primary source itself in the alternatives list
+            alternatives_only = [s.lower() for s in alternative_sources if s != primary_source]
+
+            if alternatives_only:
+                # If lowercase source is in alternatives, return primary; otherwise continue
+                normalized_expr = ast.Call(
+                    name="if",
+                    args=[
+                        ast.Call(
+                            name="in",
+                            args=[
+                                lowercase_source,
+                                ast.Array(exprs=[ast.Constant(value=alt) for alt in alternatives_only]),
+                            ],
+                        ),
+                        ast.Constant(value=primary_source),
+                        normalized_expr,
+                    ],
+                )
+
+        return normalized_expr
+
     def _build_final_aggregation_query(self, attribution_query: ast.SelectQuery) -> ast.SelectQuery:
         """Build final aggregation query with organic defaults"""
         select_columns: list[ast.Expr] = [
@@ -758,7 +794,9 @@ class ConversionGoalProcessor:
             ),
             ast.Alias(
                 alias=self.config.source_field,
-                expr=self._build_organic_default_expr("source_name", self.config.organic_source),
+                expr=self._normalize_source_field(
+                    self._build_organic_default_expr("source_name", self.config.organic_source)
+                ),
             ),
             ast.Alias(
                 alias=self.config.get_conversion_goal_column_name(self.index),
@@ -819,7 +857,9 @@ class ConversionGoalProcessor:
             ),
             ast.Alias(
                 alias=self.config.source_field,
-                expr=ast.Call(name="coalesce", args=[utm_source_expr, ast.Constant(value=self.config.organic_source)]),
+                expr=self._normalize_source_field(
+                    ast.Call(name="coalesce", args=[utm_source_expr, ast.Constant(value=self.config.organic_source)])
+                ),
             ),
             ast.Alias(
                 alias=self.config.get_conversion_goal_column_name(self.index),
@@ -838,12 +878,6 @@ class ConversionGoalProcessor:
             where=where_expr,
             group_by=[ast.Field(chain=[field]) for field in self.config.group_by_fields],
         )
-
-    def generate_cte_query_expr(self, additional_conditions: list[ast.Expr]) -> ast.Expr:
-        """Generate CTE query expression"""
-        cte_name = self.get_cte_name()
-        select_query = self.generate_cte_query(additional_conditions)
-        return ast.Alias(alias=cte_name, expr=select_query)
 
     def generate_join_clause(self, use_full_outer_join: bool = False) -> ast.JoinExpr:
         """Generate JOIN clause for this conversion goal"""

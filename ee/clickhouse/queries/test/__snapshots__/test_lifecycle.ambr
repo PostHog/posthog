@@ -353,7 +353,7 @@
              AND event = '$pageview'
              AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))) - INTERVAL 1 day
              AND timestamp < toDateTime(dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))) + INTERVAL 1 day
-             AND (and(ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), '%example%'), 0), 1))
+             AND (ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), '%example%'), 0))
            GROUP BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id))
         GROUP BY start_of_period,
                  status)
@@ -427,7 +427,7 @@
              AND event = '$pageview'
              AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))) - INTERVAL 1 day
              AND timestamp < toDateTime(dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))) + INTERVAL 1 day
-             AND (and(ifNull(like(nullIf(nullIf(events.`mat_$current_url`, ''), 'null'), '%example%'), 0), 1))
+             AND (ifNull(like(nullIf(nullIf(events.`mat_$current_url`, ''), 'null'), '%example%'), 0))
            GROUP BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id))
         GROUP BY start_of_period,
                  status)

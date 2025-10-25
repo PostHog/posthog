@@ -2,6 +2,7 @@ from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.models.app_metrics2.sql import (
     APP_METRICS2_DATA_TABLE_SQL,
     APP_METRICS2_MV_TABLE_SQL,
+    APP_METRICS2_SHARDED_TABLE,
     DISTRIBUTED_APP_METRICS2_TABLE_SQL,
     KAFKA_APP_METRICS2_TABLE_SQL,
 )
@@ -15,5 +16,5 @@ operations = [
     run_sql_with_exceptions(APP_METRICS2_DATA_TABLE_SQL()),
     run_sql_with_exceptions(DISTRIBUTED_APP_METRICS2_TABLE_SQL()),
     run_sql_with_exceptions(KAFKA_APP_METRICS2_TABLE_SQL()),
-    run_sql_with_exceptions(APP_METRICS2_MV_TABLE_SQL()),
+    run_sql_with_exceptions(APP_METRICS2_MV_TABLE_SQL(target_table=APP_METRICS2_SHARDED_TABLE)),
 ]

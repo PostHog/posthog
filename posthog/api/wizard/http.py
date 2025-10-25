@@ -23,6 +23,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.wizard.utils import json_schema_to_gemini_schema
+from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.cloud_utils import get_api_host
 from posthog.exceptions_capture import capture_exception
 from posthog.models.project import Project
@@ -96,7 +97,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
 
     def dangerously_get_required_scopes(self):
         if self.action == "authenticate":
-            return ["team:read"]
+            return ["project:read"]
 
         return []
 
@@ -152,37 +153,52 @@ class SetupWizardViewSet(viewsets.ViewSet):
 
         hash = request.headers.get("X-PostHog-Wizard-Hash")
         fixture_generation = request.headers.get("X-PostHog-Wizard-Fixture-Generation")
+        trace_id = None
 
-        if not hash:
-            raise AuthenticationFailed("X-PostHog-Wizard-Hash header is required.")
+        if hash:
+            key = f"{SETUP_WIZARD_CACHE_PREFIX}{hash}"
+            wizard_data = cache.get(key)
 
-        key = f"{SETUP_WIZARD_CACHE_PREFIX}{hash}"
-        wizard_data = cache.get(key)
+            # wizard_data should only be mocked during the @posthog/wizard E2E tests, so that fixtures can be generated.
+            mock_wizard_data = settings.DEBUG and fixture_generation
 
-        # wizard_data should only be mocked during the @posthog/wizard E2E tests, so that fixtures can be generated.
-        mock_wizard_data = settings.DEBUG and fixture_generation
+            if mock_wizard_data:
+                wizard_data = {
+                    "project_api_key": "mock-project-api-key",
+                    "host": "http://localhost:8010",
+                    "user_distinct_id": "mock-user-id",
+                }
+                cache.set(key, wizard_data, SETUP_WIZARD_CACHE_TIMEOUT)
 
-        if mock_wizard_data:
-            wizard_data = {
-                "project_api_key": "mock-project-api-key",
-                "host": "http://localhost:8010",
-                "user_distinct_id": "mock-user-id",
-            }
-            cache.set(key, wizard_data, SETUP_WIZARD_CACHE_TIMEOUT)
+            if wizard_data is None:
+                raise AuthenticationFailed("Invalid hash.")
 
-        if wizard_data is None:
-            raise AuthenticationFailed("Invalid hash.")
+            if not wizard_data.get("project_api_key") or not wizard_data.get("host"):
+                raise AuthenticationFailed("Setup wizard not authenticated. Please login first")
 
-        if not wizard_data.get("project_api_key") or not wizard_data.get("host"):
-            raise AuthenticationFailed("Setup wizard not authenticated. Please login first")
+            distinct_id = wizard_data.get("user_distinct_id")
+
+            trace_id = trace_id or hashlib.sha256(hash.encode()).hexdigest()
+
+        else:
+            result = OAuthAccessTokenAuthentication().authenticate(request)
+
+            if not result:
+                raise AuthenticationFailed("Invalid access token.")
+
+            user, _ = result
+
+            if not user:
+                raise AuthenticationFailed("Invalid access token.")
+
+            distinct_id = user.distinct_id
+
+            trace_id = request.headers.get("X-PostHog-Trace-Id") or hashlib.sha256(distinct_id.encode()).hexdigest()
 
         posthog_client = posthoganalytics.default_client
 
         if not posthog_client:
             raise exceptions.ValidationError("PostHog client not found")
-
-        distinct_id = wizard_data.get("user_distinct_id")
-        trace_id = hashlib.sha256(hash.encode()).hexdigest()
 
         system_prompt = (
             "You are a PostHog setup wizard. Only answer messages about setting up PostHog and nothing else."

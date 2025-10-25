@@ -66,11 +66,11 @@ export function InsightEmptyState({
     return (
         <div
             data-attr="insight-empty-state"
-            className="flex flex-col flex-1 rounded p-4 w-full items-center justify-center"
+            className="flex flex-col flex-1 rounded p-4 w-full items-center justify-center text-center text-balance"
         >
             <IconArchive className="text-5xl mb-2 text-tertiary" />
             <h2 className="text-xl leading-tight">{heading}</h2>
-            <p className="text-sm text-center text-balance text-tertiary">{detail}</p>
+            <p className="text-sm text-tertiary">{detail}</p>
         </div>
     )
 }
@@ -501,7 +501,7 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
 
     return (
         <div data-attr="insight-empty-state" className="rounded p-4 h-full w-full">
-            <h2 className="text-xl leading-tight mb-6">
+            <h2 className="text-xl leading-tight mb-6 text-center text-balance">
                 <IconWarning className="text-xl shrink-0 mr-2" />
                 Your query took too long to complete
             </h2>
@@ -534,7 +534,7 @@ export function InsightValidationError({
     return (
         <div
             data-attr="insight-empty-state"
-            className="flex flex-col items-center justify-center gap-2 rounded p-4 h-full w-full"
+            className="flex flex-col items-center justify-center gap-2 rounded p-4 h-full w-full text-center text-balance"
         >
             <IconWarning className="text-4xl shrink-0 text-muted" />
 
@@ -550,7 +550,7 @@ export function InsightValidationError({
                 {/* but rather that it's something with the definition of the query itself */}
             </h2>
 
-            <p className="text-sm text-center text-balance text-muted max-w-120">{detail}</p>
+            <p className="text-sm text-muted max-w-120">{detail}</p>
             <QueryDebuggerButton query={query} />
 
             {detail.includes('Exclusion') && (
@@ -657,12 +657,15 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
     const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
 
     return (
-        <div data-attr="insight-empty-state" className="flex flex-col flex-1 items-center justify-center">
+        <div
+            data-attr="insight-empty-state"
+            className="flex flex-col flex-1 items-center justify-center text-center text-balance"
+        >
             <div className="text-5xl text-muted mb-2">
                 <IconPlusSquare />
             </div>
             <h2 className="text-xl leading-tight font-medium">Add another step!</h2>
-            <p className="mb-0 text-sm text-center text-balance text-muted">
+            <p className="mb-0 text-sm text-muted">
                 <span>You're almost there! Funnels require at least two steps before calculating.</span>
                 {actionable && (
                     <>

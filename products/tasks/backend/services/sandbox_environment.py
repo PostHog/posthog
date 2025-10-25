@@ -1,10 +1,29 @@
 import os
+import math
+import time
+import asyncio
 import logging
 from enum import Enum
 from typing import Optional
 
+from asgiref.sync import sync_to_async
 from pydantic import BaseModel
-from runloop_api_client import AsyncRunloop
+from runloop_api_client import (
+    APITimeoutError as RunloopAPITimeoutError,
+    AsyncRunloop,
+    BadRequestError as RunloopBadRequestError,
+    NotFoundError as RunloopNotFoundError,
+)
+
+from products.tasks.backend.models import SandboxSnapshot
+from products.tasks.backend.temporal.exceptions import (
+    SandboxCleanupError,
+    SandboxExecutionError,
+    SandboxNotFoundError,
+    SandboxProvisionError,
+    SandboxTimeoutError,
+    SnapshotCreationError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -20,8 +39,13 @@ class SandboxEnvironmentStatus(str, Enum):
     SHUTDOWN = "shutdown"
 
 
+class SandboxEnvironmentSnapshotStatus(str, Enum):
+    IN_PROGRESS = "in_progress"
+    COMPLETE = "complete"
+    ERROR = "error"
+
+
 class SandboxEnvironmentTemplate(str, Enum):
-    UBUNTU_LATEST_X86_64 = "ubuntu_latest_x86_64"
     DEFAULT_BASE = "default_base"
 
 
@@ -38,6 +62,12 @@ class SandboxEnvironmentConfig(BaseModel):
     default_execution_timeout_seconds: int = 10 * 60  # 10 minutes
     environment_variables: Optional[dict[str, str]] = None
     entrypoint: Optional[str] = None
+    snapshot_id: Optional[str] = None
+    ttl_seconds: int = 60 * 30  # 30 minutes
+    metadata: Optional[dict[str, str]] = None
+    memory_gb: int = 16
+    cpu_cores: int = 8
+    disk_size_gb: int = 64
 
 
 def get_runloop_client() -> AsyncRunloop:
@@ -49,7 +79,6 @@ def get_runloop_client() -> AsyncRunloop:
 
 TEMPLATE_TO_BLUEPRINT_NAME = {
     SandboxEnvironmentTemplate.DEFAULT_BASE: "sandbox-base-1",
-    SandboxEnvironmentTemplate.DEFAULT_BASE: "bpt_318UuXYGZbyYyl12hArAL",
 }
 
 BLUEPRINT_NAME_TO_TEMPLATE = {v: k for k, v in TEMPLATE_TO_BLUEPRINT_NAME.items()}
@@ -79,22 +108,47 @@ class SandboxEnvironment:
         blueprint_name = TEMPLATE_TO_BLUEPRINT_NAME.get(config.template)
 
         if not blueprint_name:
-            raise RuntimeError(f"Unknown template for sandbox {config.name}")
+            raise SandboxProvisionError(
+                f"Unknown template for sandbox {config.name}", {"template": str(config.template), "config": config}
+            )
+
+        snapshot_external_id = None
+
+        if config.snapshot_id:
+            snapshot = await sync_to_async(SandboxSnapshot.objects.get)(id=config.snapshot_id)
+
+            if snapshot.status == SandboxSnapshot.Status.COMPLETE:
+                snapshot_external_id = snapshot.external_id
 
         try:
             # Wait for devbox to be running before returning
-            devbox = await client.devboxes.create_and_await_running(
-                name=config.name,
-                blueprint_name=blueprint_name,
-                environment_variables=config.environment_variables or {},
-                entrypoint=config.entrypoint,
-            )
+            create_kwargs = {
+                "name": config.name,
+                "environment_variables": config.environment_variables or {},
+                "entrypoint": config.entrypoint,
+                "metadata": config.metadata or {},
+                "launch_parameters": {
+                    "keep_alive_time_seconds": config.ttl_seconds,
+                    "resource_size_request": "CUSTOM_SIZE",
+                    "custom_cpu_cores": config.cpu_cores,
+                    "custom_gb_memory": config.memory_gb,
+                    "custom_disk_size": config.disk_size_gb,
+                },
+            }
+            if snapshot_external_id:
+                create_kwargs["snapshot_id"] = snapshot_external_id
+            else:
+                create_kwargs["blueprint_name"] = blueprint_name
+
+            devbox = await client.devboxes.create_and_await_running(**create_kwargs)  # type: ignore[arg-type]
 
         except Exception as e:
             logger.exception(f"Failed to create sandbox: {e}")
-            raise RuntimeError(f"Failed to create sandbox: {e}")
+            raise SandboxProvisionError(f"Failed to create sandbox", {"config": config, "error": str(e)})
 
         sandbox = SandboxEnvironment(id=devbox.id, status=SandboxEnvironmentStatus(devbox.status), config=config)
+
+        assert sandbox.is_running
 
         logger.info(f"Created sandbox {sandbox.id} with status: {devbox.status}")
 
@@ -107,15 +161,11 @@ class SandboxEnvironment:
         try:
             devbox = await client.devboxes.retrieve(sandbox_id)
 
-            if not devbox.blueprint_id:
-                raise RuntimeError(f"Unknown template for sandbox {sandbox_id}")
+            template = SandboxEnvironmentTemplate.DEFAULT_BASE
 
-            blueprint = await client.blueprints.retrieve(devbox.blueprint_id)
-
-            template = BLUEPRINT_NAME_TO_TEMPLATE[blueprint.name]
-
-            if not template:
-                raise RuntimeError(f"Unknown template for sandbox {sandbox_id}")
+            if devbox.blueprint_id:
+                blueprint = await client.blueprints.retrieve(devbox.blueprint_id)
+                template = BLUEPRINT_NAME_TO_TEMPLATE.get(blueprint.name, SandboxEnvironmentTemplate.DEFAULT_BASE)
 
             config = SandboxEnvironmentConfig(name=devbox.name or f"sandbox-{sandbox_id}", template=template)
 
@@ -126,8 +176,14 @@ class SandboxEnvironment:
             return sandbox
 
         except Exception as e:
-            logger.exception(f"Failed to retrieve sandbox {sandbox_id}: {e}")
-            raise RuntimeError(f"Failed to retrieve sandbox {sandbox_id}: {e}")
+            if isinstance(e, RunloopNotFoundError | RunloopBadRequestError):
+                if "non-existent-sandbox-id" in str(e) or isinstance(e, RunloopNotFoundError):
+                    raise SandboxNotFoundError(
+                        f"Sandbox {sandbox_id} not found", {"sandbox_id": sandbox_id, "error": str(e)}
+                    )
+            raise SandboxProvisionError(
+                f"Failed to retrieve sandbox {sandbox_id}", {"sandbox_id": sandbox_id, "error": str(e)}
+            )
 
     async def execute(
         self,
@@ -135,36 +191,104 @@ class SandboxEnvironment:
         timeout_seconds: Optional[int] = None,
     ) -> ExecutionResult:
         if not self.is_running:
-            raise RuntimeError(f"Sandbox not in running state. Current status: {self.status}")
+            raise SandboxExecutionError(
+                f"Sandbox not in running state. Current status: {self.status}",
+                {"sandbox_id": self.id, "status": str(self.status)},
+            )
 
         if timeout_seconds is None:
             timeout_seconds = self.config.default_execution_timeout_seconds
 
-        execution = await self._client.devboxes.executions.execute_async(
+        execution = await self._client.with_options(timeout=timeout_seconds).devboxes.executions.execute_async(
             self.id,
             command=command,
             timeout=timeout_seconds,
         )
 
-        # Wait for execution to complete
-        final_execution = await self._client.devboxes.wait_for_command(
-            execution_id=execution.execution_id,
-            devbox_id=self.id,
-            statuses=["completed"],
-            timeout_seconds=timeout_seconds,
-        )
+        start_time = time.time()
+
+        while True:
+            elapsed_time = time.time() - start_time
+            remaining_time = math.ceil(timeout_seconds - elapsed_time)
+
+            if remaining_time <= 0:
+                raise SandboxTimeoutError(
+                    f"Execution timed out after {timeout_seconds} seconds",
+                    {"sandbox_id": self.id, "timeout_seconds": timeout_seconds},
+                )
+
+            try:
+                api_timeout = min(remaining_time, 60)  # Runloop only supports 60 second timeouts
+
+                final_execution = await self._client.devboxes.wait_for_command(
+                    execution_id=execution.execution_id,
+                    devbox_id=self.id,
+                    statuses=["completed"],
+                    timeout_seconds=api_timeout,
+                )
+
+                break
+
+            except RunloopAPITimeoutError:
+                # TODO: Move this to a workflow.sleep() when used in a temporal workflow
+                await asyncio.sleep(1)
+                continue
 
         result = ExecutionResult(
             stdout=final_execution.stdout,
             stderr=final_execution.stderr,
-            exit_code=final_execution.exit_status,
+            exit_code=final_execution.exit_status or 0,
             error=getattr(final_execution, "error", None),
         )
 
-        if result.error:
-            logger.warning(f"Command execution had error: {result.error}")
-
         return result
+
+    async def initiate_snapshot(self, metadata: Optional[dict[str, str]] = None) -> str:
+        if not self.is_running:
+            raise SandboxExecutionError(
+                f"Sandbox not in running state. Current status: {self.status}",
+                {"sandbox_id": self.id, "status": str(self.status)},
+            )
+
+        try:
+            devbox = await self._client.devboxes.retrieve(self.id)
+
+            snapshot = await self._client.devboxes.snapshot_disk_async(devbox.id, metadata=metadata)
+
+            snapshot_id = snapshot.id
+
+            logger.info(f"Initiated snapshot for sandbox {self.id}, snapshot ID: {snapshot_id}")
+
+            return snapshot_id
+
+        except Exception as e:
+            logger.exception(f"Failed to initiate snapshot: {e}")
+            raise SnapshotCreationError(f"Failed to initiate snapshot: {e}", {"sandbox_id": self.id, "error": str(e)})
+
+    @staticmethod
+    async def delete_snapshot(external_id: str) -> None:
+        client = get_runloop_client()
+        logger.info(f"Deleting snapshot {external_id}")
+        await client.devboxes.disk_snapshots.delete(external_id)
+        logger.info(f"Deleted snapshot {external_id}")
+
+    @staticmethod
+    async def get_snapshot_status(external_id: str) -> SandboxEnvironmentSnapshotStatus:
+        try:
+            client = get_runloop_client()
+
+            logger.info(f"Getting snapshot status for {external_id}")
+
+            snapshot = await client.devboxes.disk_snapshots.query_status(external_id)
+
+            logger.info(f"Retrieved snapshot status for {external_id}: {snapshot.status}")
+
+            return SandboxEnvironmentSnapshotStatus(snapshot.status)
+        except Exception as e:
+            logger.exception(f"Failed to get snapshot status: {e}")
+            raise SnapshotCreationError(
+                f"Failed to get snapshot status: {e}", {"external_id": external_id, "error": str(e)}
+            )
 
     async def destroy(self) -> None:
         try:
@@ -176,7 +300,7 @@ class SandboxEnvironment:
 
         except Exception as e:
             logger.exception(f"Failed to destroy sandbox: {e}")
-            raise RuntimeError(f"Failed to destroy sandbox: {e}")
+            raise SandboxCleanupError(f"Failed to destroy sandbox: {e}", {"sandbox_id": self.id, "error": str(e)})
 
     async def __aenter__(self):
         return self
@@ -187,3 +311,7 @@ class SandboxEnvironment:
     @property
     def is_running(self) -> bool:
         return self.status == SandboxEnvironmentStatus.RUNNING
+
+    @property
+    def name(self) -> str:
+        return self.config.name

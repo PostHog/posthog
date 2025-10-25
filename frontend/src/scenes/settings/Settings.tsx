@@ -8,12 +8,12 @@ import React from 'react'
 import { IconChevronDown, IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonButtonProps, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
-import { getAccessControlDisabledReason } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconChevronRight, IconLink } from 'lib/lemon-ui/icons'
 import { inStorybookTestRunner } from 'lib/utils'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 

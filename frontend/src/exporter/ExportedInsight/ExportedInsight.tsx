@@ -3,6 +3,7 @@ import './ExportedInsight.scss'
 import clsx from 'clsx'
 import { BindLogic, useMountedLogic } from 'kea'
 
+import { Logo } from 'lib/brand/Logo'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import {
@@ -18,7 +19,6 @@ import { Query } from '~/queries/Query/Query'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
 import { isDataTableNode, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
-import { Logo } from '~/toolbar/assets/Logo'
 import { ChartDisplayType, DataColorThemeModel, InsightLogicProps, InsightModel } from '~/types'
 
 export function ExportedInsight({

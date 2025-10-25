@@ -2,11 +2,18 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
-import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
+import { batchExportSceneLogic } from './BatchExportScene'
+import {
+    BatchExportConfigurationLogicProps,
+    batchExportConfigurationLogic,
+    getDefaultConfiguration,
+} from './batchExportConfigurationLogic'
 
 export function BatchExportConfigurationSaveButton(): JSX.Element {
-    const { isNew, isConfigurationSubmitting, configurationChanged } = useValues(batchExportConfigurationLogic)
-    const { submitConfiguration } = useActions(batchExportConfigurationLogic)
+    const { logicProps } = useValues(batchExportSceneLogic)
+    const logic = batchExportConfigurationLogic(logicProps as BatchExportConfigurationLogicProps)
+    const { isNew, isConfigurationSubmitting, configurationChanged } = useValues(logic)
+    const { submitConfiguration } = useActions(logic)
     return (
         <LemonButton
             type="primary"
@@ -28,8 +35,10 @@ export function BatchExportConfigurationSaveButton(): JSX.Element {
 }
 
 export function BatchExportConfigurationClearChangesButton(): JSX.Element | null {
-    const { isNew, isConfigurationSubmitting, configurationChanged } = useValues(batchExportConfigurationLogic)
-    const { resetConfiguration } = useActions(batchExportConfigurationLogic)
+    const { logicProps } = useValues(batchExportSceneLogic)
+    const logic = batchExportConfigurationLogic(logicProps as BatchExportConfigurationLogicProps)
+    const { isNew, isConfigurationSubmitting, configurationChanged, savedConfiguration, service } = useValues(logic)
+    const { resetConfiguration } = useActions(logic)
 
     if (!configurationChanged) {
         return null
@@ -39,7 +48,11 @@ export function BatchExportConfigurationClearChangesButton(): JSX.Element | null
         <LemonButton
             type="secondary"
             htmlType="reset"
-            onClick={() => resetConfiguration()}
+            onClick={() =>
+                isNew && service
+                    ? resetConfiguration(getDefaultConfiguration(service))
+                    : resetConfiguration(savedConfiguration)
+            }
             disabledReason={
                 !configurationChanged ? 'No changes' : isConfigurationSubmitting ? 'Saving in progress…' : undefined
             }
@@ -49,23 +62,3 @@ export function BatchExportConfigurationClearChangesButton(): JSX.Element | null
         </LemonButton>
     )
 }
-
-// const buttons = (
-//     <>
-//         <LemonButton
-//             type="secondary"
-//             htmlType="reset"
-//             onClick={() =>
-//                 isNew && service
-//                     ? resetConfiguration(getDefaultConfiguration(service))
-//                     : resetConfiguration(savedConfiguration)
-//             }
-//             disabledReason={
-//                 !configurationChanged ? 'No changes' : isConfigurationSubmitting ? 'Saving in progress…' : undefined
-//             }
-//         >
-//             {isNew ? 'Reset' : 'Cancel'}
-//         </LemonButton>
-
-//     </>
-// )

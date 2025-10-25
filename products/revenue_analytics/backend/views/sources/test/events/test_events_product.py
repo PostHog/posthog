@@ -7,63 +7,48 @@ from products.revenue_analytics.backend.views.sources.test.events.base import Ev
 class TestProductEventsBuilder(EventsSourceBaseTest):
     def setUp(self):
         super().setUp()
-        self.setup_revenue_analytics_events()
+        self.events = self.setup_revenue_analytics_events()
 
     def test_build_product_queries_even_for_events_without_product_property(self):
         """Test building product queries even for events without productProperty configured."""
-        handle = SourceHandle(type="events", team=self.team)
+        # Test purchase event (no productProperty)
+        handle = SourceHandle(type="events", team=self.team, event=self.events[0])
+        query = build(handle)
+        self.assertBuiltQueryStructure(
+            query,
+            self.PURCHASE_EVENT_NAME,
+            "revenue_analytics.events.purchase",
+            expected_test_comments="no_property",
+        )
 
-        queries = list(build(handle))
-
-        # Should build one query per configured event including the one without productProperty
-        self.assertEqual(len(queries), 2)
+        query_sql = query.query.to_hogql()
+        self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
         # Test subscription_charge event (has productProperty)
-        key = self.SUBSCRIPTION_CHARGE_EVENT_NAME
-        subscription_charge_query = next(query for query in queries if query.key == key)
+        handle = SourceHandle(type="events", team=self.team, event=self.events[1])
+        query = build(handle)
         self.assertBuiltQueryStructure(
-            subscription_charge_query,
-            key,
+            query,
+            self.SUBSCRIPTION_CHARGE_EVENT_NAME,
             "revenue_analytics.events.subscription_charge",
         )
 
-        query_sql = subscription_charge_query.query.to_hogql()
+        query_sql = query.query.to_hogql()
         self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
-
-        # Test purchase event (no productProperty)
-        key = f"{self.PURCHASE_EVENT_NAME}.no_property"
-        purchase_query = next(query for query in queries if query.key == key)
-        self.assertBuiltQueryStructure(purchase_query, key, "revenue_analytics.events.purchase")
-
-        query_sql = purchase_query.query.to_hogql()
-        self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
-
-    def test_build_with_no_events_configured(self):
-        """Test that build returns empty list when no events are configured."""
-        # Clear revenue analytics events
-        self.clear_events()
-
-        handle = SourceHandle(type="events", team=self.team)
-        queries = list(build(handle))
-
-        self.assertEqual(len(queries), 0)
 
     def test_query_structure_contains_required_fields(self):
         """Test that the generated query contains all required fields."""
-        handle = SourceHandle(type="events", team=self.team)
+        handle = SourceHandle(type="events", team=self.team, event=self.events[1])
 
-        queries = list(build(handle))
-        query = sorted(queries, key=lambda x: x.key)[1]
-
+        query = build(handle)
         self.assertQueryContainsFields(query.query, PRODUCT_SCHEMA)
         self.assertQueryMatchesSnapshot(query.query.to_hogql(), replace_all_numbers=True)
 
     def test_product_fields_mapping(self):
         """Test that product-specific fields are properly mapped."""
-        handle = SourceHandle(type="events", team=self.team)
+        handle = SourceHandle(type="events", team=self.team, event=self.events[1])
 
-        queries = list(build(handle))
-        query = sorted(queries, key=lambda x: x.key)[1]
+        query = build(handle)
         query_sql = query.query.to_hogql()
 
         # Should map product_id from events properties
@@ -72,7 +57,7 @@ class TestProductEventsBuilder(EventsSourceBaseTest):
     def test_with_custom_product_property(self):
         """Test product query with custom productProperty name."""
         # Configure event with custom product property
-        self.configure_events(
+        [event_config] = self.configure_events(
             [
                 {
                     "eventName": "purchase",
@@ -84,13 +69,9 @@ class TestProductEventsBuilder(EventsSourceBaseTest):
             ]
         )
 
-        handle = SourceHandle(type="events", team=self.team)
-        queries = list(build(handle))
-
-        self.assertEqual(len(queries), 1)
-
-        purchase_query = queries[0]
-        query_sql = purchase_query.query.to_hogql()
+        handle = SourceHandle(type="events", team=self.team, event=event_config)
+        query = build(handle)
+        query_sql = query.query.to_hogql()
 
         # Should use the custom property name
         self.assertIn("properties.item_id AS product_id", query_sql)
@@ -98,7 +79,7 @@ class TestProductEventsBuilder(EventsSourceBaseTest):
     def test_multiple_events_with_different_product_properties(self):
         """Test building product queries for multiple events with different productProperty names."""
         # Configure multiple events with different product properties
-        self.configure_events(
+        [event_config1, event_config2] = self.configure_events(
             [
                 {
                     "eventName": "purchase",
@@ -117,17 +98,13 @@ class TestProductEventsBuilder(EventsSourceBaseTest):
             ]
         )
 
-        handle = SourceHandle(type="events", team=self.team)
-        queries = list(build(handle))
-
-        # Should build queries for both events
-        self.assertEqual(len(queries), 2)
-
         # Verify each query uses the correct product property
-        purchase_query = queries[0]
-        purchase_sql = purchase_query.query.to_hogql()
+        handle = SourceHandle(type="events", team=self.team, event=event_config1)
+        query = build(handle)
+        purchase_sql = query.query.to_hogql()
         self.assertIn("properties.item_id AS product_id", purchase_sql)
 
-        subscription_query = queries[1]
-        subscription_sql = subscription_query.query.to_hogql()
+        handle = SourceHandle(type="events", team=self.team, event=event_config2)
+        query = build(handle)
+        subscription_sql = query.query.to_hogql()
         self.assertIn("properties.service_id AS product_id", subscription_sql)

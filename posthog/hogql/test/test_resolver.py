@@ -24,7 +24,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import print_ast, print_prepared_ast
+from posthog.hogql.printer import prepare_and_print_ast, print_prepared_ast
 from posthog.hogql.resolver import ResolutionError, resolve_types
 from posthog.hogql.test.utils import pretty_dataclasses
 from posthog.hogql.visitor import clone_expr
@@ -42,11 +42,11 @@ class TestResolver(BaseTest):
 
     def _print_hogql(self, select: str):
         expr = self._select(select)
-        return print_ast(
+        return prepare_and_print_ast(
             expr,
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             "hogql",
-        )
+        )[0]
 
     def setUp(self):
         self.database = create_hogql_database(team=self.team)
@@ -677,7 +677,7 @@ class TestResolver(BaseTest):
         )
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
 
-        node2 = self._select("select recording_button('12345', 'active')")
+        node2 = self._select("select recordingButton('12345', 'active')")
         node2 = cast(ast.SelectQuery, resolve_types(node2, self.context, dialect="clickhouse"))
         assert node == node2
 
@@ -688,7 +688,7 @@ class TestResolver(BaseTest):
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
 
         node2 = self._select(
-            "select explain_csp_report({'violated_directive': 'script-src', 'original_policy': 'script-src https://example.com'})"
+            "select explainCSPReport({'violated_directive': 'script-src', 'original_policy': 'script-src https://example.com'})"
         )
         node2 = cast(ast.SelectQuery, resolve_types(node2, self.context, dialect="clickhouse"))
         assert node == node2

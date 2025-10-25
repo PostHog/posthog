@@ -206,6 +206,8 @@ const BarChartWithLine: React.FC<{ data: DataPoint[] }> = ({ data }) => {
                     },
                 },
                 plugins: {
+                    // @ts-expect-error Types of library are out of date
+                    crosshair: false,
                     datalabels: { display: false },
                 },
             }

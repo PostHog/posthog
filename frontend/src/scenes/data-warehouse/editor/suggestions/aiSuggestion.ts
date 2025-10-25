@@ -39,7 +39,7 @@ export const aiSuggestionOnReject = (
     values: multitabEditorLogicType['values']
 ): void => {
     actions.reportAIQueryRejected()
-    // Revert to the original query content (before Max's suggestion and before any user edits)
+    // Revert to the original query content (before AI's suggestion and before any user edits)
     // This is stored in suggestionPayload.originalValue when the suggestion was created
     const originalContent = values.suggestionPayload?.originalValue || values.queryInput
     actions.setQueryInput(originalContent)

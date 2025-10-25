@@ -1,4 +1,4 @@
-import { Hub, LogLevel } from '../../src/types'
+import { Hub } from '../../src/types'
 import { processError } from '../../src/utils/db/error'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { loadPlugin } from '../../src/worker/plugins/loadPlugin'
@@ -29,7 +29,7 @@ describe('plugins', () => {
     let hub: Hub
 
     beforeEach(async () => {
-        hub = await createHub({ LOG_LEVEL: LogLevel.Info })
+        hub = await createHub({ LOG_LEVEL: 'info' })
         console.warn = jest.fn() as any
         await resetTestDatabase()
     })

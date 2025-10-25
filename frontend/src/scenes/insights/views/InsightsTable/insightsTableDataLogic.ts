@@ -29,11 +29,11 @@ export const insightsTableDataLogic = kea<insightsTableDataLogicType>([
     selectors({
         /** Only allow table aggregation options when the math is total volume
          * otherwise double counting will happen when the math is set to unique.
-         * Except when view type is Table */
+         * Except when view type is Table or WorldMap */
         allowAggregation: [
             (s) => [s.isTrends, s.display, s.series],
             (isTrends, display, series) => {
-                if (isTrends && display === ChartDisplayType.ActionsTable) {
+                if (isTrends && (display === ChartDisplayType.ActionsTable || display === ChartDisplayType.WorldMap)) {
                     return true
                 }
 

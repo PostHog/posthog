@@ -463,7 +463,7 @@
                         count(DISTINCT e.actor_id) AS counts,
                         e.breakdown_value AS breakdown_value
                  FROM
-                   (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                   (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                            if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                            ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
                     FROM events AS e SAMPLE 1
@@ -490,7 +490,7 @@
                  CROSS JOIN
                    (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
                     FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC')))) AS numbers) AS d
-                 WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
+                 WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
                  GROUP BY d.timestamp,
                           breakdown_value
                  ORDER BY d.timestamp ASC)

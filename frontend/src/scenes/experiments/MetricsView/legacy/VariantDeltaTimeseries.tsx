@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { Chart, ChartConfiguration } from 'lib/Chart'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -13,6 +13,7 @@ const LOWER_BOUND = [0.06, 0.07, 0.06, 0.08, 0.07, 0.09, 0.09, 0.1, 0.115, 0.113
 export const VariantDeltaTimeseries = (): JSX.Element => {
     const { closeVariantDeltaTimeseriesModal } = useActions(modalsLogic)
     const { isVariantDeltaTimeseriesModalOpen } = useValues(modalsLogic)
+    const chartRef = useRef<Chart | null>(null)
 
     useEffect(() => {
         if (isVariantDeltaTimeseriesModalOpen) {
@@ -124,8 +125,15 @@ export const VariantDeltaTimeseries = (): JSX.Element => {
                     },
                 }
 
-                new Chart(ctx, config)
+                chartRef.current = new Chart(ctx, config)
             }, 0)
+        }
+
+        return () => {
+            if (chartRef.current) {
+                chartRef.current.destroy()
+                chartRef.current = null
+            }
         }
     }, [isVariantDeltaTimeseriesModalOpen])
 

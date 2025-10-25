@@ -395,10 +395,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
             if (productKey !== values.productKey) {
                 actions.setProductKey(productKey as ProductKey)
+                // Reset onboarding steps so they can be populated upon render in the component.
+                actions.setAllOnboardingSteps([])
             }
-
-            // Reset onboarding steps so they can be populated upon render in the component.
-            actions.setAllOnboardingSteps([])
 
             if (step) {
                 // when loading specific steps, like plans, we need to make sure we have a billing response before we can continue

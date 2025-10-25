@@ -40,21 +40,23 @@ class BillingNode(AssistantNode):
         return AssistantNodeName.BILLING
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        billing_context = self._get_billing_context(config)
+        billing_context = self.context_manager.get_billing_context()
         if not billing_context:
             return PartialAssistantState(
                 messages=[
                     AssistantToolCallMessage(
                         content="No billing information available", id=str(uuid4()), tool_call_id=str(uuid4())
                     )
-                ]
+                ],
+                root_tool_call_id=None,
             )
         formatted_billing_context = self._format_billing_context(billing_context)
         tool_call_id = cast(str, state.root_tool_call_id)
         return PartialAssistantState(
             messages=[
                 AssistantToolCallMessage(content=formatted_billing_context, tool_call_id=tool_call_id, id=str(uuid4())),
-            ]
+            ],
+            root_tool_call_id=None,
         )
 
     def _format_billing_context(self, billing_context: MaxBillingContext) -> str:

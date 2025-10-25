@@ -1,0 +1,8 @@
+{% extends "admin/change_form.html" %}
+
+{% block extrahead %}
+  {{ block.super }}
+  {# This template ensures Django admin works with CSP nonce requirements #}
+  {# Team admin includes inline formsets (GroupTypeMapping, TeamMarketingAnalyticsConfig) #}
+  {# which require this template override for CSP compliance #}
+{% endblock %}

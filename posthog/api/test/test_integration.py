@@ -5,9 +5,9 @@ from django.test.client import Client as HttpClient
 
 from rest_framework import status
 
-from posthog.api.test.test_team import create_team
 from posthog.models.integration import PRIVATE_CHANNEL_WITHOUT_ACCESS, EmailIntegration, Integration, SlackIntegration
 from posthog.models.organization import Organization
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -365,20 +365,10 @@ class TestEmailIntegration:
             self.team.id,
             self.user,
         )
-        other_team = create_team(organization=self.organization)
-        integrationOtherTeam = EmailIntegration.create_native_integration(
-            {
-                "email": "me@otherdomain.com",
-                "name": "Me",
-            },
-            other_team.id,
-            self.user,
-        )
 
         assert not integration1.config["verified"]
         assert not integration2.config["verified"]
         assert not integrationOtherDomain.config["verified"]
-        assert not integrationOtherTeam.config["verified"]
 
         email_integration = EmailIntegration(integration1)
         verification_result = email_integration.verify()
@@ -387,12 +377,10 @@ class TestEmailIntegration:
         integration1.refresh_from_db()
         integration2.refresh_from_db()
         integrationOtherDomain.refresh_from_db()
-        integrationOtherTeam.refresh_from_db()
 
         assert integration1.config["verified"]
         assert integration2.config["verified"]
         assert not integrationOtherDomain.config["verified"]
-        assert not integrationOtherTeam.config["verified"]
 
 
 class TestDatabricksIntegration:
@@ -486,3 +474,198 @@ class TestDatabricksIntegration:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == expected_error_message
+
+
+class TestIntegrationAPIKeyAccess:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(self.organization, "test@posthog.com", "test")
+
+        self.github_integration = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            config={"installation_id": "12345"},
+            sensitive_config={"access_token": "test-token"},
+        )
+
+        self.twilio_integration = Integration.objects.create(
+            team=self.team,
+            kind="twilio",
+            config={"account_sid": "test_sid"},
+            sensitive_config={"auth_token": "twilio-token"},
+        )
+
+    def test_list_integrations_without_scope_fails(self, client: HttpClient):
+        key_value = "test_key_123"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["feature_flag:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "integration:read" in response.json()["detail"]
+
+    def test_list_integrations_with_scope_succeeds(self, client: HttpClient):
+        key_value = "test_key_123"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["kind"] == "github"
+
+    def test_list_integrations_only_shows_github_for_api_keys(self, client: HttpClient):
+        key_value = "test_key_123"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["kind"] == "github"
+        assert all(integration["kind"] == "github" for integration in results)
+
+    def test_retrieve_github_integration_with_scope_succeeds(self, client: HttpClient):
+        key_value = "test_key_123"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["kind"] == "github"
+
+    def test_retrieve_non_github_integration_with_api_key_fails(self, client: HttpClient):
+        key_value = "test_key_123"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.twilio_integration.id}/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @patch("posthog.models.integration.GitHubIntegration.list_repositories")
+    def test_github_repos_with_scope_succeeds(self, mock_list_repos, client: HttpClient):
+        mock_list_repos.return_value = ["repo1", "repo2"]
+
+        key_value = "test_key_123"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/github_repos/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["repositories"] == ["repo1", "repo2"]
+
+    def test_github_repos_without_scope_fails(self, client: HttpClient):
+        key_value = "test_key_123"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["feature_flag:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/github_repos/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "integration:read" in response.json()["detail"]
+
+    def test_create_integration_with_api_key_fails(self, client: HttpClient):
+        key_value = "test_key_123"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations/",
+            {"kind": "github", "config": {"installation_id": "99999"}},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "integration:write" in response.json()["detail"]
+
+    def test_delete_integration_with_api_key_fails(self, client: HttpClient):
+        key_value = "test_key_123"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.delete(
+            f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "integration:write" in response.json()["detail"]
+
+    def test_session_auth_shows_all_integrations(self, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.get(f"/api/environments/{self.team.pk}/integrations/")
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 2
+        kinds = [integration["kind"] for integration in results]
+        assert "github" in kinds
+        assert "twilio" in kinds

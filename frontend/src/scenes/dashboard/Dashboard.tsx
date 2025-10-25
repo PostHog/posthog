@@ -7,6 +7,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
+import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { cn } from 'lib/utils/css-classes'
@@ -24,6 +25,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
+import { teamLogic } from '../teamLogic'
 import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardOverridesBanner } from './DashboardOverridesBanner'
@@ -68,7 +70,15 @@ function DashboardScene(): JSX.Element {
         accessDeniedToDashboard,
         hasVariables,
     } = useValues(dashboardLogic)
+    const { currentTeamId } = useValues(teamLogic)
     const { setDashboardMode, reportDashboardViewed, abortAnyRunningQuery } = useActions(dashboardLogic)
+
+    useFileSystemLogView({
+        type: 'dashboard',
+        ref: dashboard?.id,
+        enabled: Boolean(currentTeamId && dashboard?.id && !dashboardFailedToLoad && !accessDeniedToDashboard),
+        deps: [currentTeamId, dashboard?.id, dashboardFailedToLoad, accessDeniedToDashboard],
+    })
 
     useOnMountEffect(() => {
         reportDashboardViewed()

@@ -142,8 +142,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
 
     listeners(({ actions, values }) => ({
         getPlaylistSuccess: ({ playlist }) => {
-            if (values.playlist?.derived_name !== values.derivedName) {
-                // This keeps the derived name up to date if the playlist changes
+            if (!values.playlist?.is_synthetic && values.playlist?.derived_name !== values.derivedName) {
                 actions.updatePlaylist({ derived_name: values.derivedName }, true)
             }
 

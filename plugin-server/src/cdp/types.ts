@@ -225,13 +225,14 @@ export interface HogFunctionTiming {
     duration_ms: number
 }
 
+// IMPORTANT: All queue names should be lowercase and only [A-Z0-9] characters are allowed.
 export const CYCLOTRON_INVOCATION_JOB_QUEUES = [
     'hog',
-    'hog_overflow',
+    'hogoverflow',
     'hogflow',
-    'delay_10m',
-    'delay_60m',
-    'delay_24h',
+    'delay10m',
+    'delay60m',
+    'delay24h',
 ] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 

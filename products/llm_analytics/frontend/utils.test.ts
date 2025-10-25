@@ -1,7 +1,14 @@
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { AnthropicInputMessage, OpenAICompletionMessage } from './types'
-import { formatLLMEventTitle, looksLikeXml, normalizeMessage, normalizeMessages } from './utils'
+import {
+    formatLLMEventTitle,
+    getSessionID,
+    looksLikeXml,
+    normalizeMessage,
+    normalizeMessages,
+    parseOpenAIToolCalls,
+} from './utils'
 
 describe('LLM Analytics utils', () => {
     it('normalizeOutputMessage: parses OpenAI message', () => {
@@ -9,7 +16,7 @@ describe('LLM Analytics utils', () => {
             role: 'assistant',
             content: 'Hello, world!',
         }
-        expect(normalizeMessage(message)).toEqual([
+        expect(normalizeMessage(message, 'user')).toEqual([
             {
                 role: 'assistant',
                 content: 'Hello, world!',
@@ -21,15 +28,13 @@ describe('LLM Analytics utils', () => {
         const message = {
             role: 'assistant',
         }
-        // When no defaultRole is provided, it defaults to 'user'
-        expect(normalizeMessage(message)).toEqual([
+        expect(normalizeMessage(message, 'user')).toEqual([
             {
-                role: 'user',
+                role: 'assistant',
                 content: JSON.stringify(message),
             },
         ])
 
-        // When 'assistant' is provided as defaultRole, it uses that
         expect(normalizeMessage(message, 'assistant')).toEqual([
             {
                 role: 'assistant',
@@ -61,7 +66,7 @@ describe('LLM Analytics utils', () => {
                 },
             ],
         }
-        expect(normalizeMessage(message)).toEqual([
+        expect(normalizeMessage(message, 'user')).toEqual([
             {
                 role: 'assistant',
                 content: '',
@@ -94,7 +99,7 @@ describe('LLM Analytics utils', () => {
             tool_call_id: '456',
         }
 
-        expect(normalizeMessage(message)).toEqual([
+        expect(normalizeMessage(message, 'user')).toEqual([
             {
                 role: 'tool',
                 content: 'response',
@@ -104,15 +109,13 @@ describe('LLM Analytics utils', () => {
     })
 
     it('normalizeOutputMessage: parses a string message', () => {
-        // When no defaultRole is provided, it defaults to 'user'
-        expect(normalizeMessage('foo')).toEqual([
+        expect(normalizeMessage('foo', 'user')).toEqual([
             {
                 role: 'user',
                 content: 'foo',
             },
         ])
 
-        // When 'assistant' is provided as defaultRole, it uses that
         expect(normalizeMessage('foo', 'assistant')).toEqual([
             {
                 role: 'assistant',
@@ -208,7 +211,7 @@ describe('LLM Analytics utils', () => {
             ],
         }
 
-        expect(normalizeMessage(message)).toEqual([
+        expect(normalizeMessage(message, 'user')).toEqual([
             {
                 role: 'user',
                 content: 'foo',
@@ -231,7 +234,7 @@ describe('LLM Analytics utils', () => {
                 },
             ],
         }
-        expect(normalizeMessage(message)).toEqual([
+        expect(normalizeMessage(message, 'user')).toEqual([
             {
                 role: 'user',
                 content: 'foo',
@@ -259,7 +262,7 @@ describe('LLM Analytics utils', () => {
             ],
         }
 
-        expect(normalizeMessage(message)).toEqual([
+        expect(normalizeMessage(message, 'assistant')).toEqual([
             {
                 role: 'assistant',
                 content: [
@@ -278,6 +281,148 @@ describe('LLM Analytics utils', () => {
                 ],
             },
         ])
+    })
+
+    describe('role preservation in nested content', () => {
+        it('preserves assistant role when recursing into nested array content with output_text', () => {
+            // This is the bug we fixed - messages with role + array content should preserve the role
+            // Now output_text is properly recognized and content is preserved as array
+            const message = {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'output_text',
+                        text: 'Hello! How can I help you?',
+                    },
+                ],
+            }
+
+            const result = normalizeMessage(message, 'user')
+
+            expect(result).toHaveLength(1)
+            expect(result[0].role).toBe('assistant') // Role is preserved!
+            expect(result[0].content).toEqual([
+                {
+                    type: 'output_text',
+                    text: 'Hello! How can I help you?',
+                },
+            ])
+        })
+
+        it('preserves system role when recursing into nested array content with output_text', () => {
+            const message = {
+                role: 'system',
+                content: [
+                    {
+                        type: 'output_text',
+                        text: 'You are a helpful assistant.',
+                    },
+                ],
+            }
+
+            const result = normalizeMessage(message, 'user')
+
+            expect(result).toHaveLength(1)
+            expect(result[0].role).toBe('system') // Role is preserved!
+            expect(result[0].content).toEqual([
+                {
+                    type: 'output_text',
+                    text: 'You are a helpful assistant.',
+                },
+            ])
+        })
+
+        it('preserves role even when defaultRole is different', () => {
+            const assistantMessage = {
+                role: 'assistant',
+                content: [{ type: 'output_text', text: 'Response' }],
+            }
+
+            // Even though defaultRole is 'user', the actual role 'assistant' should be preserved
+            const result = normalizeMessage(assistantMessage, 'user')
+
+            expect(result).toHaveLength(1)
+            expect(result[0].role).toBe('assistant') // Key test: role is preserved despite different defaultRole
+            expect(result[0].content).toEqual([{ type: 'output_text', text: 'Response' }])
+        })
+
+        it('preserves input_text content type', () => {
+            const message = {
+                role: 'user',
+                content: [{ type: 'input_text', text: 'What is the weather?' }],
+            }
+
+            const result = normalizeMessage(message, 'user')
+
+            expect(result).toHaveLength(1)
+            expect(result[0].role).toBe('user')
+            expect(result[0].content).toEqual([{ type: 'input_text', text: 'What is the weather?' }])
+        })
+
+        it('uses defaultRole when message has no role property', () => {
+            const messageWithoutRole = {
+                type: 'output_text',
+                text: 'Some text',
+            }
+
+            const result = normalizeMessage(messageWithoutRole, 'assistant')
+
+            expect(result).toHaveLength(1)
+            expect(result[0].role).toBe('assistant')
+            // Without a role wrapper, output_text falls through to unsupported and gets stringified
+            expect(result[0].content).toBe('{"type":"output_text","text":"Some text"}')
+        })
+
+        it('handles Anthropic tool result with nested content and preserves role', () => {
+            const toolResultMessage = {
+                type: 'tool_result',
+                tool_use_id: 'tool_123',
+                content: [
+                    {
+                        type: 'text',
+                        text: 'Weather is sunny',
+                    },
+                ],
+            }
+
+            const result = normalizeMessage(toolResultMessage, 'tool')
+
+            expect(result).toHaveLength(1)
+            expect(result[0].role).toBe('tool')
+            expect(result[0].content).toBe('Weather is sunny')
+            expect(result[0].tool_call_id).toBe('tool_123')
+        })
+
+        it('preserves custom/unknown roles', () => {
+            const customRoleMessage = {
+                role: 'custom_agent',
+                content: [{ type: 'text', text: 'Custom response' }],
+            }
+
+            const result = normalizeMessage(customRoleMessage, 'user')
+
+            // Unknown roles should be preserved as-is (lowercased)
+            expect(result).toHaveLength(1)
+            expect(result[0].role).toBe('custom_agent')
+            expect(result[0].content).toEqual([{ type: 'text', text: 'Custom response' }])
+        })
+
+        it('handles LiteLLM choice wrapper and preserves nested role', () => {
+            const liteLLMChoice = {
+                finish_reason: 'stop',
+                index: 0,
+                message: {
+                    role: 'assistant',
+                    content: [{ type: 'text', text: 'Response from LiteLLM' }],
+                },
+            }
+
+            const result = normalizeMessage(liteLLMChoice, 'user')
+
+            expect(result).toHaveLength(1)
+            expect(result[0].role).toBe('assistant')
+            expect(result[0].content).toEqual([{ type: 'text', text: 'Response from LiteLLM' }])
+        })
     })
 
     describe('looksLikeXml', () => {
@@ -518,7 +663,7 @@ describe('LLM Analytics utils', () => {
 
         describe('normalizeMessage', () => {
             it('should handle LiteLLM choice format', () => {
-                const result = normalizeMessage(litellmChoice)
+                const result = normalizeMessage(litellmChoice, 'user')
 
                 expect(result).toHaveLength(1)
                 expect(result[0]).toMatchObject({
@@ -549,7 +694,7 @@ describe('LLM Analytics utils', () => {
                     },
                 }
 
-                const result = normalizeMessage(choiceWithTools)
+                const result = normalizeMessage(choiceWithTools, 'user')
 
                 expect(result).toHaveLength(1)
                 expect(result[0].role).toBe('assistant')
@@ -602,6 +747,235 @@ describe('LLM Analytics utils', () => {
 
                 expect(result).toHaveLength(0)
             })
+        })
+
+        describe('Role normalization', () => {
+            it('should preserve system role in array-based content', () => {
+                const systemMessage = {
+                    role: 'system',
+                    content: [{ type: 'text', text: 'You are a helpful assistant.' }],
+                }
+
+                const result = normalizeMessage(systemMessage, 'user')
+
+                expect(result).toHaveLength(1)
+                expect(result[0].role).toBe('system')
+                expect(result[0].content).toEqual([{ type: 'text', text: 'You are a helpful assistant.' }])
+            })
+
+            it('should preserve system role in string content', () => {
+                const systemMessage = {
+                    role: 'system',
+                    content: 'You are a helpful assistant.',
+                }
+
+                const result = normalizeMessage(systemMessage, 'user')
+
+                expect(result).toHaveLength(1)
+                expect(result[0].role).toBe('system')
+                expect(result[0].content).toBe('You are a helpful assistant.')
+            })
+
+            it('should map known provider roles', () => {
+                const humanMessage = {
+                    role: 'human',
+                    content: 'Hello',
+                }
+
+                const result = normalizeMessage(humanMessage, 'user')
+
+                expect(result).toHaveLength(1)
+                expect(result[0].role).toBe('user')
+                expect(result[0].content).toBe('Hello')
+            })
+        })
+    })
+
+    describe('parseOpenAIToolCalls', () => {
+        it('should parse valid JSON arguments in tool calls', () => {
+            const toolCalls = [
+                {
+                    type: 'function' as const,
+                    id: 'call-123',
+                    function: {
+                        name: 'test_function',
+                        arguments: '{"key": "value", "number": 42}',
+                    },
+                },
+            ]
+
+            const result = parseOpenAIToolCalls(toolCalls)
+
+            expect(result).toEqual([
+                {
+                    type: 'function',
+                    id: 'call-123',
+                    function: {
+                        name: 'test_function',
+                        arguments: { key: 'value', number: 42 },
+                    },
+                },
+            ])
+        })
+
+        it('should handle malformed JSON arguments gracefully', () => {
+            const toolCalls = [
+                {
+                    type: 'function' as const,
+                    id: 'call-456',
+                    function: {
+                        name: 'test_function',
+                        arguments: 'invalid json {not valid}',
+                    },
+                },
+            ]
+
+            const result = parseOpenAIToolCalls(toolCalls)
+
+            // Should keep the original string if parsing fails
+            expect(result).toEqual([
+                {
+                    type: 'function',
+                    id: 'call-456',
+                    function: {
+                        name: 'test_function',
+                        arguments: 'invalid json {not valid}',
+                    },
+                },
+            ])
+        })
+
+        it('should handle mixed valid and invalid JSON in multiple tool calls', () => {
+            const toolCalls = [
+                {
+                    type: 'function' as const,
+                    id: 'call-1',
+                    function: {
+                        name: 'func1',
+                        arguments: '{"valid": "json"}',
+                    },
+                },
+                {
+                    type: 'function' as const,
+                    id: 'call-2',
+                    function: {
+                        name: 'func2',
+                        arguments: 'not valid json',
+                    },
+                },
+            ]
+
+            const result = parseOpenAIToolCalls(toolCalls)
+
+            expect(result).toEqual([
+                {
+                    type: 'function',
+                    id: 'call-1',
+                    function: {
+                        name: 'func1',
+                        arguments: { valid: 'json' },
+                    },
+                },
+                {
+                    type: 'function',
+                    id: 'call-2',
+                    function: {
+                        name: 'func2',
+                        arguments: 'not valid json',
+                    },
+                },
+            ])
+        })
+    })
+
+    describe('getSessionID', () => {
+        const baseEvent = (overrides: Partial<LLMTraceEvent> = {}): LLMTraceEvent => ({
+            id: 'event-id',
+            event: '$ai_span',
+            properties: {},
+            createdAt: '2024-01-01T00:00:00Z',
+            ...overrides,
+        })
+
+        const baseTrace = (events: LLMTraceEvent[]): LLMTrace => ({
+            id: 'trace-id',
+            createdAt: '2024-01-01T00:00:00Z',
+            person: {
+                uuid: 'person-id',
+                created_at: '2024-01-01T00:00:00Z',
+                properties: {},
+                distinct_id: 'distinct-id',
+            },
+            events,
+        })
+
+        it('returns the direct session id when the event has one', () => {
+            const event = baseEvent({
+                properties: {
+                    $session_id: 'session-123',
+                },
+            })
+
+            expect(getSessionID(event)).toEqual('session-123')
+        })
+
+        it('derives session id from children when $ai_trace lacks direct value', () => {
+            const traceEvent = baseEvent({
+                id: 'trace-event',
+                event: '$ai_trace',
+                properties: {},
+            })
+            const childEvents = [
+                baseEvent({
+                    id: 'child-1',
+                    properties: { $session_id: 'session-abc' },
+                }),
+                baseEvent({
+                    id: 'child-2',
+                    properties: { $session_id: 'session-abc' },
+                }),
+            ]
+
+            expect(getSessionID(traceEvent, childEvents)).toEqual('session-abc')
+        })
+
+        it('returns null when child session ids conflict', () => {
+            const traceEvent = baseEvent({
+                id: 'trace-event',
+                event: '$ai_trace',
+            })
+            const childEvents = [
+                baseEvent({
+                    id: 'child-1',
+                    properties: { $session_id: 'session-abc' },
+                }),
+                baseEvent({
+                    id: 'child-2',
+                    properties: { $session_id: 'session-def' },
+                }),
+            ]
+
+            expect(getSessionID(traceEvent, childEvents)).toBeNull()
+        })
+
+        it('uses consistent child session id for pseudo traces', () => {
+            const childEvents = [
+                baseEvent({ id: 'child-1', properties: { $session_id: 'session-xyz' } }),
+                baseEvent({ id: 'child-2', properties: { $session_id: 'session-xyz' } }),
+            ]
+            const trace = baseTrace(childEvents)
+
+            expect(getSessionID(trace)).toEqual('session-xyz')
+        })
+
+        it('returns null for pseudo traces with mixed session ids', () => {
+            const childEvents = [
+                baseEvent({ id: 'child-1', properties: { $session_id: 'session-xyz' } }),
+                baseEvent({ id: 'child-2', properties: { $session_id: 'session-abc' } }),
+            ]
+            const trace = baseTrace(childEvents)
+
+            expect(getSessionID(trace)).toBeNull()
         })
     })
 })

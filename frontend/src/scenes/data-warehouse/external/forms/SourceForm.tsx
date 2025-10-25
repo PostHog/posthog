@@ -184,7 +184,7 @@ const sourceFieldToElement = (
         return (
             <LemonField key={field.name} name={field.name} label={field.label}>
                 {({ value, onChange }) => (
-                    <div className="bg-[white] p-2 border rounded-[var(--radius)]">
+                    <div className="bg-fill-input p-2 border rounded-[var(--radius)]">
                         <LemonFileInput
                             value={value}
                             accept={field.fileFormat.format}

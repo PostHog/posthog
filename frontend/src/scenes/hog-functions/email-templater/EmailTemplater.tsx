@@ -147,7 +147,7 @@ function NativeEmailIntegrationChoice({
     const onChangeIntegration = (integrationId: number): void => {
         if (integrationId === -1) {
             // Open new integration modal
-            window.open(urls.messaging('channels'), '_blank')
+            window.open(urls.workflows('channels'), '_blank')
             return
         }
         const integration = integrationsOfKind?.find((x) => x.id === integrationId)
@@ -165,7 +165,7 @@ function NativeEmailIntegrationChoice({
                 <LemonButton
                     size="small"
                     type="tertiary"
-                    to={urls.messaging('channels')}
+                    to={urls.workflows('channels')}
                     targetBlank
                     className="m-1"
                     icon={<IconExternal />}
@@ -245,7 +245,7 @@ function NativeEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Elem
     const { setEmailEditorRef, onEmailEditorReady, setIsModalOpen, applyTemplate } = useActions(emailTemplaterLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const isMessagingProductEnabled = featureFlags[FEATURE_FLAGS.MESSAGING]
+    const isWorkflowsProductEnabled = featureFlags[FEATURE_FLAGS.WORKFLOWS]
 
     return (
         <>
@@ -299,7 +299,7 @@ function NativeEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Elem
 
                 {mode === 'full' ? (
                     <>
-                        {isMessagingProductEnabled && (
+                        {isWorkflowsProductEnabled && (
                             <div className="flex gap-2 items-center px-2 py-1 border-b">
                                 <span className="flex-1">Start from a template (optional)</span>
                                 <LemonSelect
@@ -335,7 +335,7 @@ function NativeEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Elem
                                     stockImages: false,
                                 },
                                 projectId: unlayerEditorProjectId,
-                                customJS: isMessagingProductEnabled ? [unsubscribeLinkToolCustomJs] : [],
+                                customJS: isWorkflowsProductEnabled ? [unsubscribeLinkToolCustomJs] : [],
                             }}
                         />
                     </>

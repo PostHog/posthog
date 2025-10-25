@@ -185,6 +185,7 @@ where
         config.historical_tokens_keys,
         config.is_mirror_deploy,
         config.verbose_sample_percent,
+        config.ai_max_sum_of_parts_bytes,
     );
 
     // run our app with hyper

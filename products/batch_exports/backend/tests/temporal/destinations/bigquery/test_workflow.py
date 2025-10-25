@@ -46,7 +46,7 @@ from products.batch_exports.backend.tests.temporal.destinations.bigquery.utils i
     TEST_TIME,
     assert_clickhouse_records_in_bigquery,
 )
-from products.batch_exports.backend.tests.temporal.utils import mocked_start_batch_export_run
+from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
 
 pytestmark = [
     SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS,

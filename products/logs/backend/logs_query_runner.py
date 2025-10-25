@@ -1,6 +1,5 @@
 import json
 import datetime as dt
-from zoneinfo import ZoneInfo
 
 from posthog.schema import (
     CachedLogsQueryResponse,
@@ -86,7 +85,6 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                 )
 
     def _calculate(self) -> LogsQueryResponse:
-        self.modifiers.convertToProjectTimezone = False
         self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
         response = self.paginator.execute_hogql_query(
             query_type="LogsQuery",
@@ -288,5 +286,4 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             interval=interval_type,
             interval_count=int(interval_count),
             now=dt.datetime.now(),
-            timezone_info=ZoneInfo("UTC"),
         )

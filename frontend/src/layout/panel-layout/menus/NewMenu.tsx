@@ -6,6 +6,7 @@ import { IconChevronRight, IconFolder } from '@posthog/icons'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
+    ContextMenuGroup,
     ContextMenuItem,
     ContextMenuSeparator,
     ContextMenuSub,
@@ -13,6 +14,7 @@ import {
     ContextMenuSubTrigger,
 } from 'lib/ui/ContextMenu/ContextMenu'
 import {
+    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuSeparator,
     DropdownMenuSub,
@@ -37,9 +39,9 @@ export function NewMenu({ type, item, createFolder }: NewMenuProps): JSX.Element
     const MenuSub = type === 'context' ? ContextMenuSub : DropdownMenuSub
     const MenuSubTrigger = type === 'context' ? ContextMenuSubTrigger : DropdownMenuSubTrigger
     const MenuSubContent = type === 'context' ? ContextMenuSubContent : DropdownMenuSubContent
-
+    const MenuSubGroup = type === 'context' ? ContextMenuGroup : DropdownMenuGroup
     return (
-        <>
+        <MenuSubGroup>
             {createFolder && item ? (
                 <>
                     <MenuItem
@@ -70,32 +72,34 @@ export function NewMenu({ type, item, createFolder }: NewMenuProps): JSX.Element
                                 </ButtonPrimitive>
                             </MenuSubTrigger>
                             <MenuSubContent>
-                                {treeItem.children.map((child) => (
-                                    <MenuItem
-                                        key={child.id}
-                                        asChild
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            const folder = item?.record?.path
-                                            if (folder) {
-                                                setLastNewFolder(folder)
-                                            }
-                                            if (child.record?.href) {
-                                                router.actions.push(
-                                                    typeof child.record.href === 'function'
-                                                        ? child.record.href(child.record.ref)
-                                                        : child.record.href
-                                                )
-                                            }
-                                        }}
-                                        data-attr={`tree-item-menu-new-sub-menu-${child.name}-button`}
-                                    >
-                                        <ButtonPrimitive menuItem className="capitalize">
-                                            {child.icon}
-                                            {child.name}
-                                        </ButtonPrimitive>
-                                    </MenuItem>
-                                ))}
+                                <MenuSubGroup>
+                                    {treeItem.children.map((child) => (
+                                        <MenuItem
+                                            key={child.id}
+                                            asChild
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                const folder = item?.record?.path
+                                                if (folder) {
+                                                    setLastNewFolder(folder)
+                                                }
+                                                if (child.record?.href) {
+                                                    router.actions.push(
+                                                        typeof child.record.href === 'function'
+                                                            ? child.record.href(child.record.ref)
+                                                            : child.record.href
+                                                    )
+                                                }
+                                            }}
+                                            data-attr={`tree-item-menu-new-sub-menu-${child.name}-button`}
+                                        >
+                                            <ButtonPrimitive menuItem className="capitalize">
+                                                {child.icon}
+                                                {child.name}
+                                            </ButtonPrimitive>
+                                        </MenuItem>
+                                    ))}
+                                </MenuSubGroup>
                             </MenuSubContent>
                         </MenuSub>
                     )
@@ -126,6 +130,6 @@ export function NewMenu({ type, item, createFolder }: NewMenuProps): JSX.Element
                     </MenuItem>
                 )
             })}
-        </>
+        </MenuSubGroup>
     )
 }

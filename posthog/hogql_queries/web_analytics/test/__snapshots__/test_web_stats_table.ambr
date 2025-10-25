@@ -563,7 +563,28 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_cohort_test_filters
   '''
-  /* cohort_calculation: */
+  /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage,
+  exception
+  FROM query_log_archive
+  WHERE lc_cohort_id = 99999
+    AND team_id = 99999
+    AND query LIKE '%cohort_calc:00000000%'
+    AND type IN ('QueryFinish',
+                 'ExceptionWhileProcessing')
+    AND event_date >= 'today'
+    AND event_time >= 'today 00:00:00'
+  ORDER BY event_time DESC
+  '''
+# ---
+# name: TestWebStatsTableQueryRunner.test_cohort_test_filters.1
+  '''
+  
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -571,9 +592,9 @@
     AND version = 0
   '''
 # ---
-# name: TestWebStatsTableQueryRunner.test_cohort_test_filters.1
+# name: TestWebStatsTableQueryRunner.test_cohort_test_filters.2
   '''
-  /* cohort_calculation: */
+  
   SELECT timestamp
   from events
   WHERE team_id = 99999
@@ -582,9 +603,8 @@
   limit 1
   '''
 # ---
-# name: TestWebStatsTableQueryRunner.test_cohort_test_filters.2
+# name: TestWebStatsTableQueryRunner.test_cohort_test_filters.3
   '''
-  /* cohort_calculation: */
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
          tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,

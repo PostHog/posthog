@@ -1,5 +1,6 @@
 from .credential import *
 from .data_modeling_job import *
+from .datawarehouse_managed_viewset import *
 from .datawarehouse_saved_query import *
 from .datawarehouse_saved_query_draft import *
 from .external_data_job import *

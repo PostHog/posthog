@@ -11,7 +11,8 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/RevenueAnalyticsScene'),
             projectBased: true,
             defaultDocsPath: '/docs/revenue-analytics',
-            activityScope: 'RevenueAnalytics',
+            iconType: 'revenue_analytics',
+            description: 'Track and analyze your revenue metrics to understand your business performance and growth.',
         },
     },
     routes: {
@@ -27,6 +28,7 @@ export const manifest: ProductManifest = {
             href: urls.revenueAnalytics(),
             type: 'revenue',
             tags: ['beta'],
+            sceneKey: 'RevenueAnalytics',
         },
     ],
     fileSystemTypes: {
@@ -40,10 +42,11 @@ export const manifest: ProductManifest = {
     },
     treeItemsMetadata: [
         {
-            path: 'Revenue settings',
-            category: 'Definitions',
+            path: 'Revenue definitions',
+            category: 'Schema',
             iconType: 'revenue_analytics_metadata' as FileSystemIconType,
             href: urls.revenueSettings(),
+            sceneKey: 'RevenueAnalytics',
         },
     ],
 }

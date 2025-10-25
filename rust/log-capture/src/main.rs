@@ -1,13 +1,11 @@
-use opentelemetry_proto::tonic::collector::logs::v1::logs_service_server::LogsServiceServer;
-use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceServiceServer;
 use std::time::Duration;
-use tonic_web::GrpcWebLayer;
-use tower::Layer as TowerLayer;
 
-use axum::routing::get;
+use axum::{routing::get, routing::post, Router};
+use capture::metrics_middleware::track_metrics;
 use common_metrics::{serve, setup_metrics_routes};
 use log_capture::config::Config;
 use log_capture::kafka::KafkaSink;
+use log_capture::service::export_logs_http;
 use log_capture::service::Service;
 use std::future::ready;
 
@@ -52,30 +50,51 @@ async fn main() {
         .await
         .expect("failed to start Kafka sink");
 
-    let bind = format!("{}:{}", config.host, config.port);
+    let management_router = Router::new()
+        .route("/", get(index))
+        .route("/_readiness", get(index))
+        .route(
+            "/_liveness",
+            get(move || ready(health_registry.get_status())),
+        );
+    let management_router = setup_metrics_routes(management_router);
+    let management_bind = format!("{}:{}", config.management_host, config.management_port);
+    info!("Healthcheck and metrics listening on {}", management_bind);
 
-    // Initialize ClickHouse writer and logs service
-    let logs_service = match Service::new(config.clone(), kafka_sink).await {
+    let logs_service = match Service::new(kafka_sink).await {
         Ok(service) => service,
         Err(e) => {
             error!("Failed to initialize log service: {}", e);
             panic!("Could not start log capture service: {e}");
         }
     };
+    let http_bind = format!("{}:{}", config.host, config.port);
+    info!("Listening on {}", http_bind);
 
-    let router = tonic::service::Routes::new(GrpcWebLayer::new().layer(tonic_web::enable(
-        LogsServiceServer::new(logs_service.clone()),
-    )))
-    .add_service(tonic_web::enable(TraceServiceServer::new(logs_service)))
-    .prepare()
-    .into_axum_router()
-    .route("/", get(index))
-    .route("/_readiness", get(index))
-    .route(
-        "/_liveness",
-        get(move || ready(health_registry.get_status())),
-    );
-    let router = setup_metrics_routes(router);
+    let http_router = Router::new()
+        .route("/v1/logs", post(export_logs_http))
+        .with_state(logs_service)
+        .layer(axum::middleware::from_fn(track_metrics));
 
-    serve(router, &bind).await.unwrap();
+    let http_server = tokio::spawn(async move {
+        if let Err(e) = serve(http_router, &http_bind).await {
+            error!("HTTP server failed: {}", e);
+        }
+    });
+
+    let mgmt_server = tokio::spawn(async move {
+        if let Err(e) = serve(management_router, &management_bind).await {
+            error!("Management server failed: {}", e);
+        }
+    });
+
+    // Wait for any server to finish
+    tokio::select! {
+        _ = http_server => {
+            error!("HTTP server stopped unexpectedly");
+        }
+        _ = mgmt_server => {
+            error!("Management server stopped unexpectedly");
+        }
+    }
 }

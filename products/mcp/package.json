@@ -1,0 +1,31 @@
+{
+    "name": "posthog-mcp-monorepo",
+    "version": "0.0.0",
+    "private": true,
+    "scripts": {
+        "dev": "cd typescript && pnpm dev",
+        "build": "cd typescript && pnpm build",
+        "inspector": "cd typescript && pnpm inspector",
+        "schema:build:json": "tsx typescript/scripts/generate-tool-schema.ts",
+        "test": "cd typescript && pnpm test",
+        "test:integration": "cd typescript && pnpm test:integration",
+        "schema:build:python": "bash python/scripts/generate-pydantic-models.sh",
+        "schema:build": "pnpm run schema:build:json && pnpm run schema:build:python",
+        "format": "prettier --write . && oxlint --fix --fix-suggestions --quiet .",
+        "lint": "prettier --check . && oxlint .",
+        "format:python": "cd python && uv run ruff format .",
+        "lint:python": "cd python && uv run ruff check --fix .",
+        "test:python": "cd python && uv run pytest tests/ -v",
+        "typecheck": "cd typescript && pnpm typecheck",
+        "typecheck:python": "cd python && uvx ty check",
+        "docker:build": "docker build -t posthog-mcp .",
+        "docker:run": "docker run -i --rm --env POSTHOG_AUTH_HEADER=${POSTHOG_AUTH_HEADER} --env POSTHOG_REMOTE_MCP_URL=${POSTHOG_REMOTE_MCP_URL:-https://mcp.posthog.com/mcp} posthog-mcp",
+        "docker:inspector": "npx @modelcontextprotocol/inspector docker run -i --rm --env POSTHOG_AUTH_HEADER=${POSTHOG_AUTH_HEADER} --env POSTHOG_REMOTE_MCP_URL=${POSTHOG_REMOTE_MCP_URL:-https://mcp.posthog.com/mcp} posthog-mcp"
+    },
+    "devDependencies": {
+        "oxlint": "^1.8.0",
+        "prettier": "^3.4.2",
+        "tsx": "^4.20.3"
+    },
+    "packageManager": "pnpm@9.15.5+sha256.8472168c3e1fd0bff287e694b053fccbbf20579a3ff9526b6333beab8df65a8d"
+}

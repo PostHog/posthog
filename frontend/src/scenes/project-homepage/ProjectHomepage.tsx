@@ -19,7 +19,6 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 
-import { PosthogStoriesContainer } from '~/layout/navigation/PosthogStories/PosthogStoriesContainer'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -58,13 +57,6 @@ function HomePageContent(): JSX.Element {
                 <span className="hidden" data-attr="person-read-test-flag-active">
                     Person read test flag is active: {String(personReadTestFlag)}
                 </span>
-            )}
-
-            {featureFlags[FEATURE_FLAGS.POSTHOG_STORIES] && (
-                <>
-                    <PosthogStoriesContainer />
-                    <SceneDivider />
-                </>
             )}
 
             <SceneTitleSection
@@ -129,7 +121,12 @@ export function ProjectHomepage(): JSX.Element {
     // if there is no numeric dashboard id, the dashboard logic will throw...
     // so we check it here first
     if (dashboardLogicProps?.id) {
-        return <HomePageContent />
+        // We add padding because the scene has layout: 'app-raw'
+        return (
+            <div className="p-4">
+                <HomePageContent />
+            </div>
+        )
     }
     return <NewTabScene source="homepage" />
 }

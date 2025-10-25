@@ -90,30 +90,6 @@ def insight_funnels_use_udf_trends(team: Team) -> bool:
     )
 
 
-def llm_analytics_traces_query_v2(team: Team) -> bool:
-    """
-    Use the v2 implementation of the traces query runner for LLM Analytics.
-    """
-    return posthoganalytics.feature_enabled(
-        "llma-traces-query-v2",
-        str(team.uuid),
-        groups={
-            "organization": str(team.organization_id),
-            "project": str(team.id),
-        },
-        group_properties={
-            "organization": {
-                "id": str(team.organization_id),
-            },
-            "project": {
-                "id": str(team.id),
-            },
-        },
-        only_evaluate_locally=False,
-        send_feature_flag_events=False,
-    )
-
-
 def insight_api_use_legacy_queries(team: Team) -> bool:
     """
     Use the legacy implementation of insight api calculation endpoints.

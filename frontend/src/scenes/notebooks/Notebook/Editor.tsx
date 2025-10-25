@@ -29,6 +29,8 @@ import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeFlagCodeExample } from '../Nodes/NotebookNodeFlagCodeExample'
 import { NotebookNodeGroup } from '../Nodes/NotebookNodeGroup'
 import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
+import { NotebookNodeIssues } from '../Nodes/NotebookNodeIssues'
+import { NotebookNodeLLMTrace } from '../Nodes/NotebookNodeLLMTrace'
 import { NotebookNodeLatex } from '../Nodes/NotebookNodeLatex'
 import { NotebookNodeMap } from '../Nodes/NotebookNodeMap'
 import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
@@ -40,6 +42,7 @@ import { NotebookNodeRecording } from '../Nodes/NotebookNodeRecording'
 import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
 import { NotebookNodeSurvey } from '../Nodes/NotebookNodeSurvey'
 import { NotebookNodeTaskCreate } from '../Nodes/NotebookNodeTaskCreate'
+import { NotebookNodeUsageMetrics } from '../Nodes/NotebookNodeUsageMetrics'
 import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
 import { insertionSuggestionsLogic } from '../Suggestions/insertionSuggestionsLogic'
 import { NotebookEditor } from '../types'
@@ -133,6 +136,9 @@ export function Editor(): JSX.Element {
         NotebookNodePersonFeed,
         NotebookNodeMap,
         NotebookNodeTaskCreate,
+        NotebookNodeLLMTrace,
+        NotebookNodeIssues,
+        NotebookNodeUsageMetrics,
     ]
 
     if (hasCollapsibleSections) {

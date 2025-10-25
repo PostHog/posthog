@@ -14,23 +14,15 @@ class TestSubscriptionStripeBuilder(StripeSourceBaseTest):
         """Test building subscription query when subscription schema exists."""
         # Setup with only subscription schema
         self.setup_stripe_external_data_source(schemas=[SUBSCRIPTION_RESOURCE_NAME])
-
-        queries = list(build(self.stripe_handle))
-
-        # Should build one query for the subscription schema
-        self.assertEqual(len(queries), 1)
-
-        subscription_query = queries[0]
         subscription_table = self.get_stripe_table_by_schema_name(SUBSCRIPTION_RESOURCE_NAME)
 
         # Test the query structure
-        self.assertQueryContainsFields(subscription_query.query, SUBSCRIPTION_SCHEMA)
-        self.assertBuiltQueryStructure(
-            subscription_query, str(subscription_table.id), f"stripe.{self.external_data_source.prefix}"
-        )
+        query = build(self.stripe_handle)
+        self.assertQueryContainsFields(query.query, SUBSCRIPTION_SCHEMA)
+        self.assertBuiltQueryStructure(query, str(subscription_table.id), f"stripe.{self.external_data_source.prefix}")
 
         # Print and snapshot the generated HogQL query
-        query_sql = subscription_query.query.to_hogql()
+        query_sql = query.query.to_hogql()
         self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
     def test_build_with_no_subscription_schema(self):
@@ -38,22 +30,18 @@ class TestSubscriptionStripeBuilder(StripeSourceBaseTest):
         # Setup without subscription schema
         self.setup_stripe_external_data_source(schemas=[])
 
-        queries = list(build(self.stripe_handle))
-
-        # Should return no queries
-        self.assertEqual(len(queries), 1)
-        subscription_query = queries[0]
-
         # Test the query structure
-        self.assertQueryContainsFields(subscription_query.query, SUBSCRIPTION_SCHEMA)
+        query = build(self.stripe_handle)
+        self.assertQueryContainsFields(query.query, SUBSCRIPTION_SCHEMA)
         self.assertBuiltQueryStructure(
-            subscription_query,
-            f"stripe.{self.external_data_source.prefix}.no_source",
+            query,
+            str(self.stripe_handle.source.id),  # type: ignore
             f"stripe.{self.external_data_source.prefix}",
+            expected_test_comments="no_schema",
         )
 
         # Print and snapshot the generated HogQL query
-        query_sql = subscription_query.query.to_hogql()
+        query_sql = query.query.to_hogql()
         self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
     def test_build_with_subscription_schema_but_no_table(self):
@@ -67,41 +55,33 @@ class TestSubscriptionStripeBuilder(StripeSourceBaseTest):
         subscription_schema = self.get_stripe_schema_by_name(SUBSCRIPTION_RESOURCE_NAME)
         subscription_schema.table = None
 
-        queries = list(build(self.stripe_handle))
-
-        # Should return no queries
-        self.assertEqual(len(queries), 1)
-        subscription_query = queries[0]
-
         # Test the query structure
-        self.assertQueryContainsFields(subscription_query.query, SUBSCRIPTION_SCHEMA)
+        query = build(self.stripe_handle)
+        self.assertQueryContainsFields(query.query, SUBSCRIPTION_SCHEMA)
         self.assertBuiltQueryStructure(
-            subscription_query,
-            f"stripe.{self.external_data_source.prefix}.no_table",
+            query,
+            str(self.stripe_handle.source.id),  # type: ignore
             f"stripe.{self.external_data_source.prefix}",
+            expected_test_comments="no_table",
         )
 
         # Print and snapshot the generated HogQL query
-        query_sql = subscription_query.query.to_hogql()
+        query_sql = query.query.to_hogql()
         self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
     def test_build_with_no_source(self):
         """Test that build returns none when source is None."""
         handle = self.create_stripe_handle_without_source()
 
-        queries = list(build(handle))
-
-        # Should return no queries
-        self.assertEqual(len(queries), 0)
+        with self.assertRaises(ValueError):
+            build(handle)
 
     def test_subscription_query_contains_required_fields(self):
         """Test that the generated query contains all required subscription fields."""
         self.setup_stripe_external_data_source(schemas=[SUBSCRIPTION_RESOURCE_NAME])
 
-        queries = list(build(self.stripe_handle))
-        subscription_query = queries[0]
-
-        query_sql = subscription_query.query.to_hogql()
+        query = build(self.stripe_handle)
+        query_sql = query.query.to_hogql()
 
         # Check for specific fields in the query based on the subscription schema
         self.assertIn("id", query_sql)

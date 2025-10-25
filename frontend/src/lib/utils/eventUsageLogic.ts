@@ -491,6 +491,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportExperimentFeatureFlagModalOpened: () => ({}),
         reportExperimentFeatureFlagSelected: (featureFlagKey: string) => ({ featureFlagKey }),
+        reportExperimentTimeseriesViewed: (experimentId: ExperimentIdType, metric: ExperimentMetric) => ({
+            experimentId,
+            metric,
+        }),
+        reportExperimentTimeseriesRecalculated: (experimentId: ExperimentIdType, metric: ExperimentMetric) => ({
+            experimentId,
+            metric,
+        }),
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -561,6 +569,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportActivationSideBarTaskClicked: (key: string) => ({ key }),
         reportBillingUpgradeClicked: (plan: string) => ({ plan }),
         reportBillingDowngradeClicked: (plan: string) => ({ plan }),
+        reportBillingAddonPlanSwitchStarted: (
+            fromProduct: string,
+            toProduct: string,
+            reason: 'upgrade' | 'downgrade'
+        ) => ({
+            fromProduct,
+            toProduct,
+            reason,
+        }),
         reportRoleCreated: (role: string) => ({ role }),
         reportFlagsCodeExampleInteraction: (optionType: string) => ({
             optionType,
@@ -1118,6 +1135,24 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportExperimentFeatureFlagSelected: ({ featureFlagKey }: { featureFlagKey: string }) => {
             posthog.capture('experiment feature flag selected', { feature_flag_key: featureFlagKey })
         },
+        reportExperimentTimeseriesViewed: ({
+            experimentId,
+            metric,
+        }: {
+            experimentId: ExperimentIdType
+            metric: ExperimentMetric
+        }) => {
+            posthog.capture('experiment timeseries viewed', { experiment_id: experimentId, metric })
+        },
+        reportExperimentTimeseriesRecalculated: ({
+            experimentId,
+            metric,
+        }: {
+            experimentId: ExperimentIdType
+            metric: ExperimentMetric
+        }) => {
+            posthog.capture('experiment timeseries recalculated', { experiment_id: experimentId, metric })
+        },
         reportPropertyGroupFilterAdded: () => {
             posthog.capture('property group filter added')
         },
@@ -1242,6 +1277,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportBillingDowngradeClicked: ({ plan }) => {
             posthog.capture('billing downgrade button clicked', {
                 plan,
+            })
+        },
+        reportBillingAddonPlanSwitchStarted: ({ fromProduct, toProduct, reason }) => {
+            const eventName =
+                reason === 'upgrade'
+                    ? 'billing addon subscription upgrade clicked'
+                    : 'billing addon subscription downgrade clicked'
+            posthog.capture(eventName, {
+                from_product: fromProduct,
+                to_product: toProduct,
             })
         },
         reportRoleCreated: ({ role }) => {

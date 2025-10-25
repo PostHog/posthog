@@ -1,26 +1,12 @@
-import { getMetricValues, resetMetrics } from '../../../tests/helpers/metrics'
-import { Hub, IncomingEventWithTeam } from '../../types'
-import { captureIngestionWarning } from '../../worker/ingestion/utils'
+import { IncomingEventWithTeam } from '../../types'
 import { PipelineResultType, drop, ok } from '../pipelines/results'
 import { createValidateEventUuidStep } from './validate-event-uuid'
 
-// Mock the captureIngestionWarning function
-jest.mock('../../../src/worker/ingestion/utils')
-const mockCaptureIngestionWarning = captureIngestionWarning as jest.MockedFunction<typeof captureIngestionWarning>
-
 describe('createValidateEventUuidStep', () => {
-    let mockHub: Hub
     let mockEventWithTeam: IncomingEventWithTeam
     let step: ReturnType<typeof createValidateEventUuidStep>
 
     beforeEach(() => {
-        resetMetrics()
-        mockHub = {
-            db: {
-                kafkaProducer: {} as any,
-            } as any,
-        } as Hub
-
         mockEventWithTeam = {
             event: {
                 token: 'test-token-123',
@@ -38,10 +24,12 @@ describe('createValidateEventUuidStep', () => {
                 person_processing_opt_out: false,
             } as any,
             message: {} as any,
-            headers: {},
+            headers: {
+                force_disable_person_processing: false,
+            },
         }
 
-        step = createValidateEventUuidStep(mockHub)
+        step = createValidateEventUuidStep()
         jest.clearAllMocks()
     })
 
@@ -50,7 +38,6 @@ describe('createValidateEventUuidStep', () => {
         const result = await step(input)
 
         expect(result).toEqual(ok(input))
-        expect(mockCaptureIngestionWarning).not.toHaveBeenCalled()
     })
 
     it('should return drop when UUID is invalid', async () => {
@@ -59,12 +46,17 @@ describe('createValidateEventUuidStep', () => {
 
         const result = await step(input)
 
-        expect(result).toEqual(drop('Event has invalid UUID'))
-        expect(mockCaptureIngestionWarning).toHaveBeenCalledWith(
-            mockHub.db.kafkaProducer,
-            1,
-            'skipping_event_invalid_uuid',
-            { eventUuid: '"invalid-uuid"' }
+        expect(result).toEqual(
+            drop(
+                'invalid_uuid',
+                [],
+                [
+                    {
+                        type: 'skipping_event_invalid_uuid',
+                        details: { eventUuid: '"invalid-uuid"' },
+                    },
+                ]
+            )
         )
     })
 
@@ -74,12 +66,17 @@ describe('createValidateEventUuidStep', () => {
 
         const result = await step(input)
 
-        expect(result).toEqual(drop('Event has invalid UUID'))
-        expect(mockCaptureIngestionWarning).toHaveBeenCalledWith(
-            mockHub.db.kafkaProducer,
-            1,
-            'skipping_event_invalid_uuid',
-            { eventUuid: 'null' }
+        expect(result).toEqual(
+            drop(
+                'empty_uuid',
+                [],
+                [
+                    {
+                        type: 'skipping_event_invalid_uuid',
+                        details: { eventUuid: 'null' },
+                    },
+                ]
+            )
         )
     })
 
@@ -89,12 +86,17 @@ describe('createValidateEventUuidStep', () => {
 
         const result = await step(input)
 
-        expect(result).toEqual(drop('Event has invalid UUID'))
-        expect(mockCaptureIngestionWarning).toHaveBeenCalledWith(
-            mockHub.db.kafkaProducer,
-            1,
-            'skipping_event_invalid_uuid',
-            { eventUuid: undefined }
+        expect(result).toEqual(
+            drop(
+                'empty_uuid',
+                [],
+                [
+                    {
+                        type: 'skipping_event_invalid_uuid',
+                        details: { eventUuid: undefined },
+                    },
+                ]
+            )
         )
     })
 
@@ -104,63 +106,38 @@ describe('createValidateEventUuidStep', () => {
 
         const result = await step(input)
 
-        expect(result).toEqual(drop('Event has invalid UUID'))
-        expect(mockCaptureIngestionWarning).toHaveBeenCalledWith(
-            mockHub.db.kafkaProducer,
-            1,
-            'skipping_event_invalid_uuid',
-            { eventUuid: '""' }
+        expect(result).toEqual(
+            drop(
+                'empty_uuid',
+                [],
+                [
+                    {
+                        type: 'skipping_event_invalid_uuid',
+                        details: { eventUuid: '""' },
+                    },
+                ]
+            )
         )
     })
 
-    it('should increment metrics when UUID is invalid', async () => {
-        mockEventWithTeam.event.uuid = 'invalid-uuid'
-        const input = { eventWithTeam: mockEventWithTeam }
-
-        await step(input)
-
-        const metrics = await getMetricValues('ingestion_event_dropped_total')
-        expect(metrics).toEqual([
-            {
-                labels: {
-                    drop_cause: 'invalid_uuid',
-                    event_type: 'analytics',
-                },
-                value: 1,
-            },
-        ])
-    })
-
-    it('should increment metrics with empty_uuid when UUID is null', async () => {
-        mockEventWithTeam.event.uuid = null as any
-        const input = { eventWithTeam: mockEventWithTeam }
-
-        await step(input)
-
-        const metrics = await getMetricValues('ingestion_event_dropped_total')
-        expect(metrics).toEqual([
-            {
-                labels: {
-                    drop_cause: 'empty_uuid',
-                    event_type: 'analytics',
-                },
-                value: 1,
-            },
-        ])
-    })
-
-    it('should handle different team IDs', async () => {
+    it('should include warning in result when UUID is invalid', async () => {
         mockEventWithTeam.team.id = 999
         mockEventWithTeam.event.uuid = 'invalid-uuid'
         const input = { eventWithTeam: mockEventWithTeam }
 
-        await step(input)
+        const result = await step(input)
 
-        expect(mockCaptureIngestionWarning).toHaveBeenCalledWith(
-            mockHub.db.kafkaProducer,
-            999,
-            'skipping_event_invalid_uuid',
-            { eventUuid: '"invalid-uuid"' }
+        expect(result).toEqual(
+            drop(
+                'invalid_uuid',
+                [],
+                [
+                    {
+                        type: 'skipping_event_invalid_uuid',
+                        details: { eventUuid: '"invalid-uuid"' },
+                    },
+                ]
+            )
         )
     })
 

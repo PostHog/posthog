@@ -1,6 +1,6 @@
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -59,12 +59,10 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
     @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
-    @patch("posthog.session_recordings.session_recording_api.get_realtime_snapshots")
     def test_snapshots_source_parameter_validation(
         self,
         source,
         expected_status,
-        mock_realtime_snapshots,
         mock_list_objects,
         mock_presigned_url,
         mock_get_session_recording,
@@ -74,7 +72,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
 
         # Basic mocking for successful cases
-        mock_realtime_snapshots.return_value = []
         mock_list_objects.return_value = []
         mock_presigned_url.return_value = None
 
@@ -94,10 +91,10 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
     @patch("posthog.session_recordings.session_recording_api.list_blocks")
-    @patch("posthog.session_recordings.session_recording_api.session_recording_v2_object_storage.client")
+    @patch("posthog.session_recordings.session_recording_api.session_recording_v2_object_storage.async_client")
     def test_blob_v2_with_blob_keys_works(
         self,
-        mock_client,
+        mock_async_client,
         mock_list_blocks,
         mock_get_session_recording,
         _mock_exists,
@@ -116,13 +113,15 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         ]
         mock_list_blocks.return_value = mock_blocks
 
-        # Mock the client fetch_block method
-        mock_client_instance = MagicMock()
-        mock_client.return_value = mock_client_instance
-        mock_client_instance.fetch_block.side_effect = [
-            '{"timestamp": 1000, "type": "snapshot1"}',
-            '{"timestamp": 2000, "type": "snapshot2"}',
-        ]
+        # Mock the async client context manager
+        mock_storage = MagicMock()
+        mock_storage.fetch_block = AsyncMock(
+            side_effect=[
+                '{"timestamp": 1000, "type": "snapshot1"}',
+                '{"timestamp": 2000, "type": "snapshot2"}',
+            ]
+        )
+        mock_async_client.return_value.__aenter__.return_value = mock_storage
 
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=0&end_blob_key=1"
 
@@ -131,9 +130,9 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert response.headers.get("content-type") == "application/jsonl"
 
         # Verify the client was called with correct block URLs
-        assert mock_client_instance.fetch_block.call_count == 2
-        mock_client_instance.fetch_block.assert_any_call("http://test.com/block0")
-        mock_client_instance.fetch_block.assert_any_call("http://test.com/block1")
+        assert mock_storage.fetch_block.call_count == 2
+        mock_storage.fetch_block.assert_any_await("http://test.com/block0")
+        mock_storage.fetch_block.assert_any_await("http://test.com/block1")
 
     @parameterized.expand(
         [
@@ -408,3 +407,173 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             {"timestamp": 2000, "type": "snapshot2"}
         """
         )
+
+    @parameterized.expand(
+        [
+            (True, "application/jsonl", 2, 0),
+            (False, "application/octet-stream", 0, 2),
+        ]
+    )
+    @patch("posthog.session_recordings.session_recording_api.session_recording_v2_object_storage.async_client")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks")
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    def test_blob_v2_decompress_parameter(
+        self,
+        decompress,
+        expected_content_type,
+        expected_fetch_block_calls,
+        expected_fetch_block_bytes_calls,
+        mock_get_session_recording,
+        _mock_exists,
+        mock_list_blocks,
+        mock_async_client,
+    ) -> None:
+        import snappy
+
+        session_id = str(uuid7())
+
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+
+        mock_blocks = [
+            MagicMock(url="http://test.com/block0"),
+            MagicMock(url="http://test.com/block1"),
+        ]
+        mock_list_blocks.return_value = mock_blocks
+
+        test_data_1 = '{"timestamp": 1000, "type": "snapshot1"}'
+        test_data_2 = '{"timestamp": 2000, "type": "snapshot2"}'
+        compressed_data_1 = snappy.compress(test_data_1.encode("utf-8"))
+        compressed_data_2 = snappy.compress(test_data_2.encode("utf-8"))
+
+        mock_storage = MagicMock()
+        mock_storage.fetch_block = AsyncMock(side_effect=[test_data_1, test_data_2])
+        mock_storage.fetch_block_bytes = AsyncMock(side_effect=[compressed_data_1, compressed_data_2])
+        mock_async_client.return_value.__aenter__.return_value = mock_storage
+
+        decompress_param = f"&decompress={str(decompress).lower()}"
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=0&end_blob_key=1{decompress_param}"
+
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.headers.get("content-type") == expected_content_type
+        assert mock_storage.fetch_block.call_count == expected_fetch_block_calls
+        assert mock_storage.fetch_block_bytes.call_count == expected_fetch_block_bytes_calls
+
+    @patch("posthog.session_recordings.session_recording_api.session_recording_v2_object_storage.async_client")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks")
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    def test_blob_v2_decompress_defaults_to_true(
+        self,
+        mock_get_session_recording,
+        _mock_exists,
+        mock_list_blocks,
+        mock_async_client,
+    ) -> None:
+        session_id = str(uuid7())
+
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+
+        mock_blocks = [MagicMock(url="http://test.com/block0")]
+        mock_list_blocks.return_value = mock_blocks
+
+        mock_storage = MagicMock()
+        mock_storage.fetch_block = AsyncMock(return_value='{"timestamp": 1000, "type": "snapshot1"}')
+        mock_storage.fetch_block_bytes = AsyncMock()
+        mock_async_client.return_value.__aenter__.return_value = mock_storage
+
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=0&end_blob_key=0"
+
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+
+        assert mock_storage.fetch_block.call_count == 1
+        assert mock_storage.fetch_block_bytes.call_count == 0
+
+    @patch("posthog.session_recordings.session_recording_api.session_recording_v2_object_storage.async_client")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks")
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    def test_blob_v2_decompress_false_returns_length_prefixed_format(
+        self,
+        mock_get_session_recording,
+        _mock_exists,
+        mock_list_blocks,
+        mock_async_client,
+    ) -> None:
+        """Test that decompress=false returns proper length-prefixed binary format"""
+        import struct
+
+        import snappy
+
+        session_id = str(uuid7())
+
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+
+        mock_blocks = [
+            MagicMock(url="http://test.com/block0"),
+            MagicMock(url="http://test.com/block1"),
+            MagicMock(url="http://test.com/block2"),
+        ]
+        mock_list_blocks.return_value = mock_blocks
+
+        test_data_1 = '{"timestamp": 1000, "type": "snapshot1"}'
+        test_data_2 = '{"timestamp": 2000, "type": "snapshot2"}'
+        test_data_3 = '{"timestamp": 3000, "type": "snapshot3"}'
+        compressed_data_1 = snappy.compress(test_data_1.encode("utf-8"))
+        compressed_data_2 = snappy.compress(test_data_2.encode("utf-8"))
+        compressed_data_3 = snappy.compress(test_data_3.encode("utf-8"))
+
+        mock_storage = MagicMock()
+        mock_storage.fetch_block_bytes = AsyncMock(
+            side_effect=[compressed_data_1, compressed_data_2, compressed_data_3]
+        )
+        mock_async_client.return_value.__aenter__.return_value = mock_storage
+
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=0&end_blob_key=2&decompress=false"
+
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.headers.get("content-type") == "application/octet-stream"
+
+        response_bytes = response.content
+        offset = 0
+
+        block_1_length = struct.unpack(">I", response_bytes[offset : offset + 4])[0]
+        offset += 4
+        assert block_1_length == len(compressed_data_1)
+
+        block_1_data = response_bytes[offset : offset + block_1_length]
+        offset += block_1_length
+        assert block_1_data == compressed_data_1
+        assert snappy.decompress(block_1_data).decode("utf-8") == test_data_1
+
+        block_2_length = struct.unpack(">I", response_bytes[offset : offset + 4])[0]
+        offset += 4
+        assert block_2_length == len(compressed_data_2)
+
+        block_2_data = response_bytes[offset : offset + block_2_length]
+        offset += block_2_length
+        assert block_2_data == compressed_data_2
+        assert snappy.decompress(block_2_data).decode("utf-8") == test_data_2
+
+        block_3_length = struct.unpack(">I", response_bytes[offset : offset + 4])[0]
+        offset += 4
+        assert block_3_length == len(compressed_data_3)
+
+        block_3_data = response_bytes[offset : offset + block_3_length]
+        offset += block_3_length
+        assert block_3_data == compressed_data_3
+        assert snappy.decompress(block_3_data).decode("utf-8") == test_data_3
+
+        assert offset == len(response_bytes)

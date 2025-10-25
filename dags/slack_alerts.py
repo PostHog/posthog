@@ -4,6 +4,7 @@ from django.conf import settings
 
 import dagster
 import dagster_slack
+from dagster import DagsterRunStatus, RunsFilter
 
 from dags.common import JobOwners
 
@@ -15,6 +16,13 @@ notification_channel_per_team = {
     JobOwners.TEAM_GROWTH.value: "#alerts-growth",
     JobOwners.TEAM_EXPERIMENTS.value: "#alerts-experiments",
     JobOwners.TEAM_MAX_AI.value: "#alerts-max-ai",
+    JobOwners.TEAM_DATA_WAREHOUSE.value: "#alerts-data-warehouse",
+}
+
+CONSECUTIVE_FAILURE_THRESHOLDS = {
+    "web_pre_aggregate_current_day_hourly_job": 3,
+    "web_pre_aggregate_job": 3,
+    "web_pre_aggregate_daily_job": 3,
 }
 
 
@@ -39,6 +47,36 @@ def get_job_owner_for_alert(failed_run: dagster.DagsterRun, error_message: str) 
     return job_owner
 
 
+def should_suppress_alert(context: dagster.RunFailureSensorContext, job_name: str, threshold: int) -> bool:
+    try:
+        run_records = context.instance.get_run_records(
+            RunsFilter(
+                job_name=job_name,
+            ),
+            limit=threshold,
+        )
+
+        if len(run_records) < threshold:
+            context.log.info(
+                f"Job {job_name} has {len(run_records)} run(s), suppressing alert until {threshold} consecutive failures"
+            )
+            return True
+
+        all_failed = all(record.dagster_run.status == DagsterRunStatus.FAILURE for record in run_records)
+
+        if all_failed:
+            context.log.warning(f"Job {job_name} has {threshold} consecutive failures, sending alert")
+            return False
+        else:
+            context.log.info(f"Job {job_name} does not have {threshold} consecutive failures, suppressing alert")
+            return True
+
+    except Exception as e:
+        # If we fail to check run history, err on the side of sending the alert
+        context.log.exception(f"Failed to check consecutive failures for {job_name}: {str(e)}")
+        return False
+
+
 @dagster.run_failure_sensor(default_status=dagster.DefaultSensorStatus.RUNNING, monitor_all_code_locations=True)
 def notify_slack_on_failure(context: dagster.RunFailureSensorContext, slack: dagster_slack.SlackResource):
     """Send a notification to Slack when any job fails."""
@@ -58,6 +96,12 @@ def notify_slack_on_failure(context: dagster.RunFailureSensorContext, slack: dag
     if tags.get("disable_slack_notifications"):
         context.log.debug("Skipping Slack notification for %s, notifications are disabled", job_name)
         return
+
+    # Check if this job has a consecutive failure threshold configured
+    threshold = CONSECUTIVE_FAILURE_THRESHOLDS.get(job_name, 1)
+    if threshold > 1:
+        if should_suppress_alert(context, job_name, threshold):
+            return
 
     # Construct Dagster URL based on environment
     dagster_domain = settings.DAGSTER_DOMAIN if settings.DAGSTER_DOMAIN else "dagster.localhost"

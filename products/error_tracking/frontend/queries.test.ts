@@ -21,6 +21,7 @@ describe('queries', () => {
                     columns: ['error', 'users', 'occurrences'],
                     limit: 4,
                     volumeResolution: 20,
+                    personId: undefined,
                 })
                 expect(actual).toMatchSnapshot()
             })

@@ -1,0 +1,209 @@
+{
+    "id": 27,
+    "short_id": "eGJCmxwx",
+    "name": "",
+    "derived_name": "Yay, Nay on Pageview count & Pageleave count",
+    "filters": {},
+    "query": {
+        "kind": "InsightVizNode",
+        "source": {
+            "kind": "TrendsQuery",
+            "series": [
+                {
+                    "kind": "EventsNode",
+                    "math": "total",
+                    "name": "$pageview",
+                    "event": "$pageview"
+                },
+                {
+                    "kind": "EventsNode",
+                    "math": "total",
+                    "name": "$pageleave",
+                    "event": "$pageleave"
+                }
+            ],
+            "version": 2,
+            "trendsFilter": {
+                "formulaNodes": [
+                    {
+                        "formula": "A",
+                        "custom_name": "Yay"
+                    },
+                    {
+                        "formula": "B",
+                        "custom_name": "Nay"
+                    }
+                ]
+            }
+        }
+    },
+    "order": null,
+    "deleted": false,
+    "dashboards": [8],
+    "dashboard_tiles": [
+        {
+            "id": 23,
+            "dashboard_id": 8,
+            "deleted": null
+        }
+    ],
+    "last_refresh": "2025-09-10T10:05:51.892789Z",
+    "cache_target_age": "2025-09-10T16:05:51.892789Z",
+    "next_allowed_client_refresh": "2025-09-10T10:20:51.892789Z",
+    "result": [
+        {
+            "data": [463, 0, 0, 0, 0, 0, 0, 0],
+            "labels": [
+                "3-Sep-2025",
+                "4-Sep-2025",
+                "5-Sep-2025",
+                "6-Sep-2025",
+                "7-Sep-2025",
+                "8-Sep-2025",
+                "9-Sep-2025",
+                "10-Sep-2025"
+            ],
+            "days": [
+                "2025-09-03",
+                "2025-09-04",
+                "2025-09-05",
+                "2025-09-06",
+                "2025-09-07",
+                "2025-09-08",
+                "2025-09-09",
+                "2025-09-10"
+            ],
+            "count": 463.0,
+            "label": "Yay",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": [],
+                "filter_test_accounts": false,
+                "date_to": "2025-09-10T23:59:59.999999Z",
+                "date_from": "2025-09-03T00:00:00Z",
+                "entity_type": "events",
+                "interval": "day",
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "formulaNodes": [
+                    {
+                        "custom_name": "Yay",
+                        "formula": "A"
+                    },
+                    {
+                        "custom_name": "Nay",
+                        "formula": "B"
+                    }
+                ],
+                "resultCustomizationBy": "value",
+                "showAlertThresholdLines": false,
+                "showLegend": false,
+                "showMultipleYAxes": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "yAxisScaleType": "linear"
+            },
+            "action": null,
+            "order": 0
+        },
+        {
+            "data": [464, 0, 0, 0, 0, 0, 0, 0],
+            "labels": [
+                "3-Sep-2025",
+                "4-Sep-2025",
+                "5-Sep-2025",
+                "6-Sep-2025",
+                "7-Sep-2025",
+                "8-Sep-2025",
+                "9-Sep-2025",
+                "10-Sep-2025"
+            ],
+            "days": [
+                "2025-09-03",
+                "2025-09-04",
+                "2025-09-05",
+                "2025-09-06",
+                "2025-09-07",
+                "2025-09-08",
+                "2025-09-09",
+                "2025-09-10"
+            ],
+            "count": 464.0,
+            "label": "Nay",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": [],
+                "filter_test_accounts": false,
+                "date_to": "2025-09-10T23:59:59.999999Z",
+                "date_from": "2025-09-03T00:00:00Z",
+                "entity_type": "events",
+                "interval": "day",
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "formulaNodes": [
+                    {
+                        "custom_name": "Yay",
+                        "formula": "A"
+                    },
+                    {
+                        "custom_name": "Nay",
+                        "formula": "B"
+                    }
+                ],
+                "resultCustomizationBy": "value",
+                "showAlertThresholdLines": false,
+                "showLegend": false,
+                "showMultipleYAxes": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "yAxisScaleType": "linear"
+            },
+            "action": null,
+            "order": 1
+        }
+    ],
+    "hasMore": false,
+    "columns": null,
+    "created_at": "2025-09-10T09:58:18.041036Z",
+    "created_by": {
+        "id": 1,
+        "uuid": "01991002-f681-0000-3a79-5f5390bbd0aa",
+        "distinct_id": "DaK9sopaQBC0ySDYzf8u5Z2k4ECapaWSjC9TrC2dDbh",
+        "first_name": "Employee 427",
+        "last_name": "",
+        "email": "test@posthog.com",
+        "is_email_verified": null,
+        "hedgehog_config": null,
+        "role_at_organization": null
+    },
+    "description": "",
+    "updated_at": "2025-09-10T10:05:55.730751Z",
+    "favorited": false,
+    "saved": true,
+    "last_modified_at": "2025-09-10T10:05:55.730214Z",
+    "last_modified_by": {
+        "id": 1,
+        "uuid": "01991002-f681-0000-3a79-5f5390bbd0aa",
+        "distinct_id": "DaK9sopaQBC0ySDYzf8u5Z2k4ECapaWSjC9TrC2dDbh",
+        "first_name": "Employee 427",
+        "last_name": "",
+        "email": "test@posthog.com",
+        "is_email_verified": null,
+        "hedgehog_config": null,
+        "role_at_organization": null
+    },
+    "is_sample": false,
+    "effective_restriction_level": 21,
+    "effective_privilege_level": 37,
+    "user_access_level": "manager",
+    "timezone": "UTC",
+    "is_cached": true,
+    "query_status": null,
+    "hogql": "SELECT\n    arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-09-03 00:00:00')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-09-03 00:00:00')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-09-10 23:59:59')), toIntervalDay(1)))), 1))) AS date,\n    arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> equals(x, _match_date), _days_for_count), _index), 1))), date) AS total\nFROM\n    (SELECT\n        sum(total) AS count,\n        day_start\n    FROM\n        (SELECT\n            count() AS total,\n            toStartOfDay(timestamp) AS day_start\n        FROM\n            events AS e SAMPLE 1\n        WHERE\n            and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2025-09-03 00:00:00')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2025-09-10 23:59:59'))), equals(event, '$pageview'))\n        GROUP BY\n            day_start)\n    GROUP BY\n        day_start\n    ORDER BY\n        day_start ASC)\nORDER BY\n    arraySum(total) DESC\nLIMIT 50000\nUNION ALL\nSELECT\n    arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-09-03 00:00:00')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-09-03 00:00:00')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-09-10 23:59:59')), toIntervalDay(1)))), 1))) AS date,\n    arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> equals(x, _match_date), _days_for_count), _index), 1))), date) AS total\nFROM\n    (SELECT\n        sum(total) AS count,\n        day_start\n    FROM\n        (SELECT\n            count() AS total,\n            toStartOfDay(timestamp) AS day_start\n        FROM\n            events AS e SAMPLE 1\n        WHERE\n            and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2025-09-03 00:00:00')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2025-09-10 23:59:59'))), equals(event, '$pageleave'))\n        GROUP BY\n            day_start)\n    GROUP BY\n        day_start\n    ORDER BY\n        day_start ASC)\nORDER BY\n    arraySum(total) DESC\nLIMIT 50000",
+    "types": null,
+    "alerts": [],
+    "tags": [],
+    "filters_hash": "cache_2ce5edb9d3895c0316630912538f2145"
+}

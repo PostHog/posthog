@@ -953,12 +953,6 @@ const destinationDefinitions: DestinationConfig[] = [
         category: ['Marketing'],
     },
     {
-        name: 'Userlist',
-        id: 'coming-soon-userlist',
-        icon_url: '/static/coming-soon-destinations/Userlist.png',
-        category: ['Marketing'],
-    },
-    {
         name: 'Vero',
         id: 'coming-soon-vero',
         icon_url: '/static/coming-soon-destinations/Vero.svg',

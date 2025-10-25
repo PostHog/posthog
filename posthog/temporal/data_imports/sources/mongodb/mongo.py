@@ -44,7 +44,8 @@ def get_indexes(connection_string: str, collection_name: str) -> list[str]:
 
             index_cursor = collection.list_indexes()
         return [field for index in index_cursor for field in index["key"].keys()]
-    except Exception:
+    except Exception as e:
+        capture_exception(e)
         return []
 
 
@@ -127,6 +128,7 @@ def mongo_client(connection_string: str, connection_params: dict[str, Any]) -> I
 
     if connection_params["tls"]:
         connection_kwargs["tls"] = True
+        connection_kwargs["tlsCAFile"] = certifi.where()
 
     client = MongoClient(**connection_kwargs)
 

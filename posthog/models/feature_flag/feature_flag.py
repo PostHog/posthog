@@ -20,7 +20,7 @@ from posthog.models.file_system.file_system_representation import FileSystemRepr
 from posthog.models.property import GroupTypeIndex
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.signals import mutable_receiver
-from posthog.models.utils import RootTeamMixin
+from posthog.models.utils import RootTeamMixin, UUIDModel
 
 FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 
@@ -93,6 +93,12 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     # JSON including evaluation_tags, and when we deserialize, we store them here
     # temporarily to avoid N+1 queries when accessing evaluation tags.
     _evaluation_tag_names: Optional[list[str]] = None
+
+    last_called_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Last time this feature flag was called (from $feature_flag_called events)",
+    )
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
@@ -426,6 +432,37 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             serializer_data["filters"] = {**current_filters, "groups": current_groups + new_groups}
         elif payload["operation"] == "update_status":
             serializer_data["active"] = payload["value"]
+        elif payload["operation"] == "update_variants":
+            current_filters = self.get_filters()
+            variant_data = payload["value"]
+
+            new_variants = variant_data.get("variants", [])
+            new_payloads = variant_data.get("payloads", {})
+
+            # Validate variant rollout percentages before proceeding
+            if new_variants:
+                total_rollout = sum(variant.get("rollout_percentage", 0) for variant in new_variants)
+                if total_rollout != 100:
+                    raise ValueError(f"Invalid variant rollout percentages: sum is {total_rollout}, must be 100")
+
+            # Validate payload keys match variant keys
+            variant_keys = {v.get("key") for v in new_variants}
+            payload_keys = set(new_payloads.keys()) if new_payloads else set()
+
+            # Only validate payload-variant key matching if both exist and are non-empty
+            # Allow no payloads (for variants without payloads) or empty variants
+            if payload_keys and variant_keys and not payload_keys.issubset(variant_keys):
+                invalid_keys = payload_keys - variant_keys
+                raise ValueError(f"Payload keys {invalid_keys} don't match variant keys {variant_keys}")
+
+            updated_multivariate = current_filters.get("multivariate", {})
+            updated_multivariate["variants"] = new_variants
+
+            serializer_data["filters"] = {
+                **current_filters,
+                "multivariate": updated_multivariate,
+                "payloads": new_payloads,
+            }
         else:
             raise Exception(f"Unrecognized operation: {payload['operation']}")
 
@@ -461,6 +498,8 @@ class FeatureFlagHashKeyOverride(models.Model):
     hash_key = models.CharField(max_length=400)
 
     class Meta:
+        # migrations managed via rust/persons_migrations
+        managed = False
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "person", "feature_flag_key"],
@@ -607,3 +646,22 @@ class FeatureFlagEvaluationTag(models.Model):
 
     def __str__(self) -> str:
         return f"{self.feature_flag.key} - {self.tag.name}"
+
+
+class TeamDefaultEvaluationTag(UUIDModel):
+    """
+    Defines default evaluation tags that will be automatically applied to new feature flags in a team.
+    These tags serve as default evaluation environments that can be configured at the team/organization level.
+    When a new feature flag is created and the team has default_evaluation_environments_enabled=True,
+    these tags will be automatically added as evaluation tags for the new flag.
+    """
+
+    team = models.ForeignKey("Team", on_delete=models.CASCADE, related_name="default_evaluation_tags")
+    tag = models.ForeignKey("Tag", on_delete=models.CASCADE, related_name="team_defaults")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [["team", "tag"]]
+
+    def __str__(self) -> str:
+        return f"{self.team.name} - {self.tag.name}"

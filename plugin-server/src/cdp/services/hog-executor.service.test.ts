@@ -990,6 +990,7 @@ describe('Hog Executor', () => {
                     headers: {},
                     json: () => Promise.resolve({}),
                     text: () => Promise.resolve(''),
+                    dump: () => Promise.resolve(),
                 })
             })
 

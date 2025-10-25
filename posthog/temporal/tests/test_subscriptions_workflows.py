@@ -47,6 +47,7 @@ async def subscriptions_worker(temporal_client: Client):
         yield  # allow the test to run while the worker is active
 
 
+@patch("ee.tasks.subscriptions.get_metric_meter")
 @patch("ee.tasks.subscriptions.send_slack_subscription_report")
 @patch("ee.tasks.subscriptions.send_email_subscription_report")
 @patch("ee.tasks.subscriptions.generate_assets_async")
@@ -56,6 +57,7 @@ async def test_subscription_delivery_scheduling(
     mock_gen_assets: MagicMock,
     mock_send_email: MagicMock,
     mock_send_slack: MagicMock,
+    mock_metric_meter: MagicMock,
     temporal_client: Client,
     subscriptions_worker,
     team,
@@ -145,6 +147,7 @@ async def test_subscription_delivery_scheduling(
     assert delivered_sub_ids == {subscriptions[0].id, subscriptions[1].id}
 
 
+@patch("ee.tasks.subscriptions.get_metric_meter")
 @patch("posthoganalytics.feature_enabled", return_value=True)
 @patch("ee.tasks.subscriptions.get_slack_integration_for_team", return_value=None)
 @patch("ee.tasks.subscriptions.send_email_subscription_report")
@@ -155,6 +158,7 @@ async def test_does_not_schedule_subscription_if_item_is_deleted(
     mock_gen_assets: MagicMock,
     mock_send_email: MagicMock,
     mock_send_slack: MagicMock,
+    mock_metric_meter: MagicMock,
     temporal_client: Client,
     subscriptions_worker,
     team,
@@ -205,6 +209,7 @@ async def test_does_not_schedule_subscription_if_item_is_deleted(
     assert mock_send_email.call_count == 0 and mock_send_slack.call_count == 0
 
 
+@patch("ee.tasks.subscriptions.get_metric_meter")
 @patch("posthoganalytics.feature_enabled", return_value=True)
 @patch("ee.tasks.subscriptions.send_email_subscription_report")
 @patch("ee.tasks.subscriptions.generate_assets_async")
@@ -212,6 +217,7 @@ async def test_does_not_schedule_subscription_if_item_is_deleted(
 async def test_handle_subscription_value_change_email(
     mock_gen_assets: MagicMock,
     mock_send_email: MagicMock,
+    mock_metric_meter: MagicMock,
     temporal_client: Client,
     subscriptions_worker,
     team,
@@ -269,6 +275,7 @@ async def test_handle_subscription_value_change_email(
     ]
 
 
+@patch("ee.tasks.subscriptions.get_metric_meter")
 @patch("posthoganalytics.feature_enabled", return_value=True)
 @patch("ee.tasks.subscriptions.get_slack_integration_for_team", return_value=None)
 @patch("ee.tasks.subscriptions.generate_assets_async")
@@ -276,6 +283,7 @@ async def test_handle_subscription_value_change_email(
 async def test_deliver_subscription_report_slack(
     mock_gen_assets: MagicMock,
     mock_send_slack: MagicMock,
+    mock_metric_meter: MagicMock,
     temporal_client: Client,
     subscriptions_worker,
     team,

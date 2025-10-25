@@ -6,8 +6,9 @@ import { PaginationManual, Sorting } from '@posthog/lemon-ui'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { objectClean, objectsEqual } from 'lib/utils'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { notebooksModel } from '~/models/notebooksModel'
-import { Breadcrumb } from '~/types'
+import { ActivityScope, Breadcrumb } from '~/types'
 
 import { NotebookListItemType, NotebookNodeType } from '../types'
 import type { notebooksTableLogicType } from './notebooksTableLogicType'
@@ -149,6 +150,12 @@ export const notebooksTableLogic = kea<notebooksTableLogicType>([
                     iconType: 'notebook',
                 },
             ],
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            () => [],
+            (): SidePanelSceneContext => ({
+                activity_scope: ActivityScope.NOTEBOOK,
+            }),
         ],
     }),
 ])

@@ -94,7 +94,10 @@ export function cleanupTooltip(id: string): void {
         if (instance.hideTimeout) {
             clearTimeout(instance.hideTimeout)
         }
-        instance.element.remove()
+        queueMicrotask(() => {
+            instance.root.unmount()
+            instance.element.remove()
+        })
         tooltipInstances.delete(id)
     }
 }

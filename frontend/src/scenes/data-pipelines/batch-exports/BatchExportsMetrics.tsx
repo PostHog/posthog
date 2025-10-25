@@ -12,9 +12,19 @@ export const BATCH_EXPORT_METRICS_INFO: Record<string, { name: string; descripti
         description: 'Total number of runs processed successfully',
         color: getColorVar('success'),
     },
+    rows_exported: {
+        name: 'Rows exported',
+        description: 'Total number of rows successfully exported',
+        color: getColorVar('success'),
+    },
     failed: {
         name: 'Failure',
         description: 'Total number of runs that had errors during processing',
+        color: getColorVar('danger'),
+    },
+    failed_billing: {
+        name: 'Billing limit',
+        description: 'Total number of runs that failed due to exceeding billing limit',
         color: getColorVar('danger'),
     },
     canceled: {
@@ -23,10 +33,12 @@ export const BATCH_EXPORT_METRICS_INFO: Record<string, { name: string; descripti
         color: getColorVar('warning'),
     },
 }
+
 export function BatchExportsMetrics({ id }: { id: string }): JSX.Element {
     const logicKey = `batch-exports-metrics-${id}`
     const logic = appMetricsLogic({
         logicKey,
+        loadOnMount: true,
         loadOnChanges: true,
         forceParams: {
             appSource: 'batch_export',
@@ -45,7 +57,7 @@ export function BatchExportsMetrics({ id }: { id: string }): JSX.Element {
             </div>
 
             <div className="flex flex-row gap-2 flex-wrap justify-center">
-                {['succeeded', 'failed', 'canceled'].map((key) => (
+                {['succeeded', 'rows_exported', 'failed', 'failed_billing', 'canceled'].map((key) => (
                     <AppMetricSummary
                         key={key}
                         name={BATCH_EXPORT_METRICS_INFO[key].name}

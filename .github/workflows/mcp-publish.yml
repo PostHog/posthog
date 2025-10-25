@@ -1,0 +1,85 @@
+name: 'MCP Publish'
+
+on:
+    push:
+        branches:
+            - master
+    workflow_dispatch:
+permissions:
+    contents: read
+
+jobs:
+    changes:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        name: Determine need to run MCP publish
+        outputs:
+            mcp: ${{ steps.filter.outputs.mcp }}
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
+              id: filter
+              with:
+                  filters: |
+                      mcp:
+                        - 'mcp/**'
+                        - '.github/workflows/mcp-ci.yml'
+                        - '.github/workflows/mcp-publish.yml'
+
+    check-package-version:
+        name: Check package version and detect an update
+        runs-on: ubuntu-24.04
+        needs: changes
+        permissions:
+            contents: read
+        if: needs.changes.outputs.mcp == 'true' || github.event_name == 'workflow_dispatch'
+        outputs:
+            committed-version: ${{ steps.check-package-version.outputs.committed-version }}
+            published-version: ${{ steps.check-package-version.outputs.published-version }}
+            is-new-version: ${{ steps.check-package-version.outputs.is-new-version }}
+        steps:
+            - name: Checkout the repository
+              uses: actions/checkout@v4
+
+            - name: Check package version and detect an update
+              id: check-package-version
+              uses: PostHog/check-package-version@v2
+              with:
+                  path: products/mcp/typescript/
+
+    release:
+        name: Publish release if new version
+        runs-on: ubuntu-24.04
+        needs: check-package-version
+        if: needs.check-package-version.outputs.is-new-version == 'true'
+        permissions:
+            contents: read
+        env:
+            COMMITTED_VERSION: ${{ needs.check-package-version.outputs.committed-version }}
+            PUBLISHED_VERSION: ${{ needs.check-package-version.outputs.published-version }}
+        steps:
+            - name: Checkout the repository
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - name: Set up Node 22
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  registry-url: https://registry.npmjs.org
+
+            - name: Install pnpm
+              run: npm install -g pnpm
+
+            - name: Install package.json dependencies with pnpm
+              run: pnpm install
+
+            - name: Build the package
+              run: cd products/mcp/typescript && pnpm build
+
+            - name: Publish the package in the npm registry
+              run: cd products/mcp/typescript && pnpm publish --access public
+              env:
+                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

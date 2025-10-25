@@ -5041,9 +5041,15 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
             event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
-            self.assertDictContainsSubset({"breakdown_value": "person1", "aggregated_value": 1}, event_response[0])
-            self.assertDictContainsSubset({"breakdown_value": "person2", "aggregated_value": 1}, event_response[1])
-            self.assertDictContainsSubset({"breakdown_value": "person3", "aggregated_value": 1}, event_response[2])
+            self.assertLessEqual(
+                {"breakdown_value": "person1", "aggregated_value": 1}.items(), event_response[0].items()
+            )
+            self.assertLessEqual(
+                {"breakdown_value": "person2", "aggregated_value": 1}.items(), event_response[1].items()
+            )
+            self.assertLessEqual(
+                {"breakdown_value": "person3", "aggregated_value": 1}.items(), event_response[2].items()
+            )
 
         with freeze_time("2020-01-04T13:01:01Z"):
             event_response = self._run(
@@ -5067,9 +5073,15 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
             event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
-            self.assertDictContainsSubset({"breakdown_value": ["person1"], "aggregated_value": 1}, event_response[0])
-            self.assertDictContainsSubset({"breakdown_value": ["person2"], "aggregated_value": 1}, event_response[1])
-            self.assertDictContainsSubset({"breakdown_value": ["person3"], "aggregated_value": 1}, event_response[2])
+            self.assertLessEqual(
+                {"breakdown_value": ["person1"], "aggregated_value": 1}.items(), event_response[0].items()
+            )
+            self.assertLessEqual(
+                {"breakdown_value": ["person2"], "aggregated_value": 1}.items(), event_response[1].items()
+            )
+            self.assertLessEqual(
+                {"breakdown_value": ["person3"], "aggregated_value": 1}.items(), event_response[2].items()
+            )
 
     @also_test_with_materialized_columns(person_properties=["name"])
     def test_breakdown_by_person_property_pie_with_event_dau_filter(self):
@@ -5111,8 +5123,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
             event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
             self.assertEqual(len(event_response), 2)
-            self.assertDictContainsSubset({"breakdown_value": "person1", "aggregated_value": 1}, event_response[0])
-            self.assertDictContainsSubset({"breakdown_value": "person2", "aggregated_value": 1}, event_response[1])
+            self.assertLessEqual(
+                {"breakdown_value": "person1", "aggregated_value": 1}.items(), event_response[0].items()
+            )
+            self.assertLessEqual(
+                {"breakdown_value": "person2", "aggregated_value": 1}.items(), event_response[1].items()
+            )
 
         # multiple breakdowns
         with freeze_time("2020-01-04T13:01:01Z"):
@@ -5132,8 +5148,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
             event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
             self.assertEqual(len(event_response), 2)
-            self.assertDictContainsSubset({"breakdown_value": ["person1"], "aggregated_value": 1}, event_response[0])
-            self.assertDictContainsSubset({"breakdown_value": ["person2"], "aggregated_value": 1}, event_response[1])
+            self.assertLessEqual(
+                {"breakdown_value": ["person1"], "aggregated_value": 1}.items(), event_response[0].items()
+            )
+            self.assertLessEqual(
+                {"breakdown_value": ["person2"], "aggregated_value": 1}.items(), event_response[1].items()
+            )
 
     @also_test_with_materialized_columns(person_properties=["name"])
     def test_filter_test_accounts_cohorts(self):
@@ -5502,8 +5522,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertDictContainsSubset({"count": 2, "breakdown_value": "2"}, event_response[0])
-        self.assertDictContainsSubset({"count": 1, "breakdown_value": "1"}, event_response[1])
+        self.assertLessEqual({"count": 2, "breakdown_value": "2"}.items(), event_response[0].items())
+        self.assertLessEqual({"count": 1, "breakdown_value": "1"}.items(), event_response[1].items())
         self.assertEntityResponseEqual(event_response, action_response)
 
         # multiple
@@ -5529,8 +5549,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertDictContainsSubset({"count": 2, "breakdown_value": ["2"]}, event_response[0])
-        self.assertDictContainsSubset({"count": 1, "breakdown_value": ["1"]}, event_response[1])
+        self.assertLessEqual({"count": 2, "breakdown_value": ["2"]}.items(), event_response[0].items())
+        self.assertLessEqual({"count": 1, "breakdown_value": ["1"]}.items(), event_response[1].items())
         self.assertEntityResponseEqual(event_response, action_response)
 
     @also_test_with_materialized_columns(["$some_property"])
@@ -6970,7 +6990,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 0,
                 0,
                 0,
-                1,
+                0,
                 1,
             ],
         )
@@ -7086,15 +7106,60 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        # p0 falls out of the window at noon, p1 and p2 are counted because the next 24 hours are included.
-        # FIXME: This is isn't super intuitive, in particular for hour-by-hour queries, but currently
-        # necessary, because there's a presentation issue: in monthly/weekly graphs data points are formatted as
-        # D-MMM-YYYY, so if a user sees e.g. 1-Jan-2077, they'll likely expect the active users count to be for
-        # the first day of the month, and not the last. If they saw just Jan-2077, the more general case would work.
         self.assertEqual(
             result[0]["data"],
-            [3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0],
+            [1, 1, 1, 1, 1, 1, 3, 3, 3, 3, 3, 3],
         )
+
+    def test_weekly_active_users_hourly_full_week(self):
+        self._create_person(team_id=self.team.pk, distinct_ids=["p0"])
+        self._create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p0",
+            timestamp="2020-01-03T10:59:59Z",
+            properties={"key": "val"},
+        )
+        self._create_person(team_id=self.team.pk, distinct_ids=["p1"])
+        self._create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-03T11:00:00Z",
+            properties={"key": "val"},
+        )
+        self._create_person(team_id=self.team.pk, distinct_ids=["p2"])
+        self._create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-03T11:00:01Z",
+            properties={"key": "val"},
+        )
+
+        data = {
+            "date_from": "2020-01-03T00:00:00Z",
+            "date_to": "2020-01-11T17:00:00Z",
+            "interval": "hour",
+            "events": [
+                {
+                    "id": "$pageview",
+                    "type": "events",
+                    "order": 0,
+                    "math": "weekly_active",
+                }
+            ],
+        }
+
+        filter = Filter(team=self.team, data=data)
+        result = self._run(filter, self.team)
+        self.assertEqual(24 * 7 * 3, sum(result[0]["data"]))
+        self.assertEqual("2020-01-03 10:00:00", result[0]["days"][10])
+        self.assertEqual(1, result[0]["data"][10])
+        self.assertEqual("2020-01-03 11:00:00", result[0]["days"][11])
+        self.assertTrue(all(x == 3 for x in result[0]["data"][11:178]))
+        self.assertEqual(2, result[0]["data"][178])
+        self.assertEqual("2020-01-10 10:00:00", result[0]["days"][178])
 
     def test_weekly_active_users_daily_based_on_action_with_zero_person_ids(self):
         # only a person-on-event test

@@ -685,7 +685,8 @@ class DashboardsViewSet(
         dashboard.last_accessed_at = now()
         dashboard.save(update_fields=["last_accessed_at"])
         serializer = DashboardSerializer(dashboard, context=self.get_serializer_context())
-        return Response(serializer.data)
+        response = Response(serializer.data)
+        return response
 
     # ******************************************
     # /projects/:id/dashboard/:id/stream_tiles

@@ -3,6 +3,7 @@ from functools import partial
 from uuid import UUID
 
 import pytest
+from freezegun import freeze_time
 
 from clickhouse_driver import Client
 
@@ -13,9 +14,13 @@ from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 from dags.deletes import (
     AdhocEventDeletesDictionary,
     AdhocEventDeletesTable,
+    MonthlyCleanupConfig,
     PendingDeletesDictionary,
     PendingDeletesTable,
+    cleanup_old_events_by_partition,
     deletes_job,
+    find_partitions_to_cleanup,
+    monthly_old_events_cleanup_job,
 )
 
 
@@ -404,3 +409,217 @@ def test_full_job_adhoc_event_deletes(cluster: ClickhouseCluster):
     # Verify the temporary tables were cleaned up
     deletes_dict = AdhocEventDeletesDictionary(source=AdhocEventDeletesTable())
     assert not any(cluster.map_all_hosts(deletes_dict.exists).result().values())
+
+
+@pytest.mark.django_db
+def test_find_partitions_to_cleanup(cluster: ClickhouseCluster):
+    from dagster import build_op_context
+
+    now = datetime.now()
+    old_timestamp = now - timedelta(days=400)
+    recent_timestamp = now - timedelta(days=30)
+
+    team_ids = [100, 101, 102]
+    events = []
+    for team_id in team_ids:
+        events.extend(
+            [(team_id, f"distinct_id_{team_id}_{i}", UUID(int=team_id * 1000 + i), old_timestamp) for i in range(10)]
+        )
+        events.extend(
+            [
+                (team_id, f"distinct_id_{team_id}_{i}", UUID(int=team_id * 1000 + 100 + i), recent_timestamp)
+                for i in range(5)
+            ]
+        )
+
+    def insert_events(client: Client) -> None:
+        client.execute(
+            """INSERT INTO writable_events (team_id, distinct_id, uuid, timestamp)
+            VALUES
+            """,
+            events,
+        )
+
+    cluster.any_host(insert_events).result()
+
+    config = MonthlyCleanupConfig(team_ids=team_ids, min_age_months=13)
+    context = build_op_context()
+
+    partitions = find_partitions_to_cleanup(context, config, cluster)
+
+    assert len(partitions) > 0
+    for partition in partitions:
+        partition_date = datetime.strptime(str(partition), "%Y%m")
+        months_diff = (now.year - partition_date.year) * 12 + (now.month - partition_date.month)
+        assert months_diff >= 13
+
+
+@pytest.mark.django_db
+def test_cleanup_old_events_by_partition(cluster: ClickhouseCluster):
+    from dagster import build_op_context
+
+    now = datetime.now()
+    old_timestamp = now - timedelta(days=400)
+    recent_timestamp = now - timedelta(days=30)
+
+    team_ids = [200, 201]
+    old_events = [
+        (team_id, f"old_{team_id}_{i}", UUID(int=team_id * 1000 + i), old_timestamp)
+        for team_id in team_ids
+        for i in range(50)
+    ]
+    recent_events = [
+        (team_id, f"recent_{team_id}_{i}", UUID(int=team_id * 1000 + 100 + i), recent_timestamp)
+        for team_id in team_ids
+        for i in range(50)
+    ]
+
+    def insert_events(client: Client) -> None:
+        client.execute(
+            """INSERT INTO writable_events (team_id, distinct_id, uuid, timestamp)
+            VALUES
+            """,
+            old_events + recent_events,
+        )
+
+    cluster.any_host(insert_events).result()
+
+    def count_events_by_age(client: Client) -> tuple[int, int]:
+        old_result = client.execute(
+            f"""
+            SELECT count(*)
+            FROM writable_events
+            WHERE team_id IN ({', '.join(str(t) for t in team_ids)})
+            AND age('month', timestamp, now()) >= 13
+            """
+        )
+        recent_result = client.execute(
+            f"""
+            SELECT count(*)
+            FROM writable_events
+            WHERE team_id IN ({', '.join(str(t) for t in team_ids)})
+            AND age('month', timestamp, now()) < 13
+            """
+        )
+        return (old_result[0][0], recent_result[0][0])
+
+    old_count_before, recent_count_before = cluster.any_host(count_events_by_age).result()
+    assert old_count_before == len(old_events)
+    assert recent_count_before == len(recent_events)
+
+    config = MonthlyCleanupConfig(team_ids=team_ids, min_age_months=13)
+    context = build_op_context()
+
+    partitions = find_partitions_to_cleanup(context, config, cluster)
+    cleanup_old_events_by_partition(context, config, cluster, partitions)
+
+    old_count_after, recent_count_after = cluster.any_host(count_events_by_age).result()
+    assert old_count_after == 0
+    assert recent_count_after == len(recent_events)
+
+
+@pytest.mark.django_db
+@freeze_time("2025-09-15")
+def test_cleanup_old_events_delete_query_format(cluster: ClickhouseCluster, snapshot):
+    from unittest.mock import patch
+
+    from dagster import build_op_context
+
+    from posthog.clickhouse.cluster import LightweightDeleteMutationRunner
+
+    now = datetime.now()
+    old_timestamp = now - timedelta(days=400)
+
+    team_ids = [400, 401]
+    old_events = [
+        (team_id, f"old_{team_id}_{i}", UUID(int=team_id * 1000 + i), old_timestamp)
+        for team_id in team_ids
+        for i in range(10)
+    ]
+
+    def insert_events(client: Client) -> None:
+        client.execute(
+            """INSERT INTO writable_events (team_id, distinct_id, uuid, timestamp)
+            VALUES
+            """,
+            old_events,
+        )
+
+    cluster.any_host(insert_events).result()
+
+    config = MonthlyCleanupConfig(team_ids=team_ids, min_age_months=13)
+    context = build_op_context()
+
+    partitions = find_partitions_to_cleanup(context, config, cluster)
+    assert len(partitions) > 0
+
+    captured_delete_statements = []
+    original_call = LightweightDeleteMutationRunner.__call__
+
+    def capture_delete_statement(self, client: Client):
+        commands = self.get_all_commands()
+        statement = self.get_statement(commands)
+        captured_delete_statements.append(statement)
+        return original_call(self, client)
+
+    with patch.object(LightweightDeleteMutationRunner, "__call__", capture_delete_statement):
+        cleanup_old_events_by_partition(context, config, cluster, partitions)
+
+    assert len(captured_delete_statements) > 0
+
+    assert captured_delete_statements == snapshot
+
+
+@pytest.mark.django_db
+def test_monthly_old_events_cleanup_job(cluster: ClickhouseCluster):
+    now = datetime.now()
+    old_timestamp = now - timedelta(days=400)
+    recent_timestamp = now - timedelta(days=30)
+
+    team_ids = [300, 301, 302]
+    old_events = [
+        (team_id, f"old_{team_id}_{i}", UUID(int=team_id * 1000 + i), old_timestamp)
+        for team_id in team_ids
+        for i in range(100)
+    ]
+    recent_events = [
+        (team_id, f"recent_{team_id}_{i}", UUID(int=team_id * 1000 + 100 + i), recent_timestamp)
+        for team_id in team_ids
+        for i in range(50)
+    ]
+
+    def insert_events(client: Client) -> None:
+        client.execute(
+            """INSERT INTO writable_events (team_id, distinct_id, uuid, timestamp)
+            VALUES
+            """,
+            old_events + recent_events,
+        )
+
+    cluster.any_host(insert_events).result()
+
+    def count_all_events(client: Client) -> int:
+        result = client.execute(
+            f"""
+            SELECT count(*)
+            FROM writable_events
+            WHERE team_id IN ({', '.join(str(t) for t in team_ids)})
+            """
+        )
+        return result[0][0]
+
+    events_before = cluster.any_host(count_all_events).result()
+    assert events_before == len(old_events) + len(recent_events)
+
+    monthly_old_events_cleanup_job.execute_in_process(
+        run_config={
+            "ops": {
+                "find_partitions_to_cleanup": {"config": {"team_ids": team_ids, "min_age_months": 13}},
+                "cleanup_old_events_by_partition": {"config": {"team_ids": team_ids, "min_age_months": 13}},
+            }
+        },
+        resources={"cluster": cluster},
+    )
+
+    events_after = cluster.any_host(count_all_events).result()
+    assert events_after == len(recent_events)

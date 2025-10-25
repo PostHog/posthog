@@ -1,3 +1,4 @@
+import datetime
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional, cast
@@ -36,6 +37,9 @@ class DatabaseField(FieldOrTable):
 
         return UnknownType()
 
+    def default_value(self) -> Any:
+        return 0
+
 
 class IntegerDatabaseField(DatabaseField):
     def get_constant_type(self) -> "ConstantType":
@@ -64,6 +68,9 @@ class StringDatabaseField(DatabaseField):
 
         return StringType(nullable=self.is_nullable())
 
+    def default_value(self) -> Any:
+        return ""
+
 
 class UnknownDatabaseField(DatabaseField):
     def get_constant_type(self) -> "ConstantType":
@@ -78,12 +85,18 @@ class StringJSONDatabaseField(DatabaseField):
 
         return StringJSONType(nullable=self.is_nullable())
 
+    def default_value(self) -> Any:
+        return ""
+
 
 class StringArrayDatabaseField(DatabaseField):
     def get_constant_type(self) -> "ConstantType":
         from posthog.hogql.ast import StringArrayType
 
         return StringArrayType(nullable=self.is_nullable())
+
+    def default_value(self) -> Any:
+        return ""
 
 
 class FloatArrayDatabaseField(DatabaseField):
@@ -92,12 +105,18 @@ class FloatArrayDatabaseField(DatabaseField):
 
         return FloatType(nullable=self.is_nullable())
 
+    def default_value(self) -> Any:
+        return ""
+
 
 class DateDatabaseField(DatabaseField):
     def get_constant_type(self) -> "ConstantType":
         from posthog.hogql.ast import DateType
 
         return DateType(nullable=self.is_nullable())
+
+    def default_value(self) -> Any:
+        return datetime.date.fromtimestamp(0)
 
 
 class DateTimeDatabaseField(DatabaseField):
@@ -106,6 +125,9 @@ class DateTimeDatabaseField(DatabaseField):
 
         return DateTimeType(nullable=self.is_nullable())
 
+    def default_value(self) -> Any:
+        return datetime.datetime.fromtimestamp(0)
+
 
 class BooleanDatabaseField(DatabaseField):
     def get_constant_type(self) -> "ConstantType":
@@ -113,12 +135,18 @@ class BooleanDatabaseField(DatabaseField):
 
         return BooleanType(nullable=self.is_nullable())
 
+    def default_value(self) -> Any:
+        return False
+
 
 class UUIDDatabaseField(DatabaseField):
     def get_constant_type(self) -> "ConstantType":
         from posthog.hogql.ast import UUIDType
 
         return UUIDType(nullable=self.is_nullable())
+
+    def default_value(self) -> Any:
+        return "00000000-0000-0000-0000-000000000000"
 
 
 class ExpressionField(DatabaseField):

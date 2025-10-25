@@ -4,13 +4,13 @@ use std::{
 };
 
 use chrono::Utc;
+use common_types::format::parse_datetime_assuming_utc;
 use tracing::warn;
 
 use crate::{
     app_context::AppContext,
     error::{PipelineResult, UnhandledError},
     issue_resolution::{resolve_issue, Issue},
-    pipeline::parse_ts_assuming_utc,
     types::FingerprintedErrProps,
 };
 
@@ -39,13 +39,14 @@ pub async fn do_issue_processing(
                 .clone()
                 .unwrap_or(fingerprinted.exception_list[0].exception_message.clone());
 
-            let event_timestamp = parse_ts_assuming_utc(&event.timestamp).unwrap_or_else(|e| {
-                warn!(
-                    event = event.uuid.to_string(),
-                    "Failed to get event timestamp, using current time, error: {:?}", e
-                );
-                Utc::now()
-            });
+            let event_timestamp =
+                parse_datetime_assuming_utc(&event.timestamp).unwrap_or_else(|e| {
+                    warn!(
+                        event = event.uuid.to_string(),
+                        "Failed to get event timestamp, using current time, error: {:?}", e
+                    );
+                    Utc::now()
+                });
 
             let m_context = context.clone();
             let m_props = fingerprinted.clone();
