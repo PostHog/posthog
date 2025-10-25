@@ -30,6 +30,7 @@ import { SidePanelTab } from '~/types'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from '../../components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '../../components/Assignee/AssigneeSelect'
+import { MiniBreakdowns } from '../../components/Breakdowns/MiniBreakdowns'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { ExternalReferences } from '../../components/ExternalReferences'
 import { StatusIndicator } from '../../components/Indicators'
@@ -77,6 +78,7 @@ export const ErrorTrackingIssueScenePanel = ({ showActions = true }: { showActio
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
     const hasSimilarIssues = useFeatureFlag('ERROR_TRACKING_RELATED_ISSUES')
     const hasDiscussions = useFeatureFlag('DISCUSSIONS')
+    const hasNewIssueLayout = useFeatureFlag('ERROR_TRACKING_ISSUE_LAYOUT_V2')
     const { openSidePanel } = useActions(sidePanelLogic)
 
     return issue ? (
@@ -139,6 +141,7 @@ export const ErrorTrackingIssueScenePanel = ({ showActions = true }: { showActio
             {hasIssueSplitting && <IssueFingerprints />}
             {hasTasks && <IssueTasks />}
             <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
+            {hasNewIssueLayout && <IssueBreakdowns />}
             {hasSimilarIssues && <SimilarIssues />}
         </div>
     ) : null
@@ -315,6 +318,14 @@ const IssueFingerprints = (): JSX.Element => {
                     {issueFingerprintsLoading ? <Spinner /> : `${pluralize(issueFingerprints.length, 'fingerprint')}`}
                 </ButtonPrimitive>
             </Link>
+        </ScenePanelLabel>
+    )
+}
+
+const IssueBreakdowns = (): JSX.Element => {
+    return (
+        <ScenePanelLabel title="Breakdowns">
+            <MiniBreakdowns />
         </ScenePanelLabel>
     )
 }
