@@ -28,6 +28,8 @@ from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryEr
 from posthog.hogql.escape_sql import (
     escape_clickhouse_identifier,
     escape_clickhouse_string,
+    escape_duckdb_identifier,
+    escape_duckdb_string,
     escape_hogql_identifier,
     escape_hogql_string,
     safe_identifier,
@@ -108,7 +110,7 @@ def to_printed_hogql(query: ast.Expr, team: Team, modifiers: HogQLQueryModifiers
 def prepare_and_print_ast(
     node: _T_AST,
     context: HogQLContext,
-    dialect: Literal["hogql", "clickhouse"],
+    dialect: Literal["hogql", "clickhouse", "duckdb"],
     stack: list[ast.SelectQuery] | None = None,
     settings: HogQLGlobalSettings | None = None,
     pretty: bool = False,
@@ -129,7 +131,7 @@ def prepare_and_print_ast(
 def prepare_ast_for_printing(
     node: _T_AST,  # node is mutated
     context: HogQLContext,
-    dialect: Literal["hogql", "clickhouse"],
+    dialect: Literal["hogql", "clickhouse", "duckdb"],
     stack: list[ast.SelectQuery] | None = None,
     settings: HogQLGlobalSettings | None = None,
 ) -> _T_AST | None:
@@ -207,7 +209,7 @@ def prepare_ast_for_printing(
 def print_prepared_ast(
     node: _T_AST,
     context: HogQLContext,
-    dialect: Literal["hogql", "clickhouse"],
+    dialect: Literal["hogql", "clickhouse", "duckdb"],
     stack: list[ast.SelectQuery] | None = None,
     settings: HogQLGlobalSettings | None = None,
     pretty: bool = False,
@@ -280,7 +282,7 @@ class _Printer(Visitor[str]):
     def __init__(
         self,
         context: HogQLContext,
-        dialect: Literal["hogql", "clickhouse"],
+        dialect: Literal["hogql", "clickhouse", "duckdb"],
         stack: list[AST] | None = None,
         settings: HogQLGlobalSettings | None = None,
         pretty: bool = False,
@@ -335,7 +337,7 @@ class _Printer(Visitor[str]):
         return ret
 
     def visit_select_query(self, node: ast.SelectQuery):
-        if self.dialect == "clickhouse":
+        if self.dialect in ("clickhouse", "duckdb"):
             if not self.context.enable_select_queries:
                 raise InternalHogQLError("Full SELECT queries are disabled if context.enable_select_queries is False")
             if not self.context.team_id:
@@ -358,7 +360,7 @@ class _Printer(Visitor[str]):
         next_join = node.select_from
         while isinstance(next_join, ast.JoinExpr):
             if next_join.type is None:
-                if self.dialect == "clickhouse":
+                if self.dialect in ("clickhouse", "duckdb"):
                     raise InternalHogQLError(
                         "Printing queries with a FROM clause is not permitted before type resolution"
                     )
@@ -623,6 +625,24 @@ class _Printer(Visitor[str]):
         return self.visit(node.expr)
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
+        if self.dialect == "duckdb":
+            # DuckDB uses standard SQL operators
+            left = self.visit(node.left)
+            right = self.visit(node.right)
+            if node.op == ast.ArithmeticOperationOp.Add:
+                return f"({left} + {right})"
+            elif node.op == ast.ArithmeticOperationOp.Sub:
+                return f"({left} - {right})"
+            elif node.op == ast.ArithmeticOperationOp.Mult:
+                return f"({left} * {right})"
+            elif node.op == ast.ArithmeticOperationOp.Div:
+                return f"({left} / {right})"
+            elif node.op == ast.ArithmeticOperationOp.Mod:
+                return f"({left} % {right})"
+            else:
+                raise ImpossibleASTError(f"Unknown ArithmeticOperationOp {node.op}")
+
+        # ClickHouse and HogQL use function syntax
         if node.op == ast.ArithmeticOperationOp.Add:
             return f"plus({self.visit(node.left)}, {self.visit(node.right)})"
         elif node.op == ast.ArithmeticOperationOp.Sub:
@@ -648,6 +668,22 @@ class _Printer(Visitor[str]):
         if self.dialect == "hogql":
             return f"and({', '.join([self.visit(expr) for expr in node.exprs])})"
 
+        if self.dialect == "duckdb":
+            # DuckDB uses infix AND operator
+            exprs: list[str] = []
+            for expr in node.exprs:
+                printed = self.visit(expr)
+                if printed == "false":  # optimization 2
+                    return "false"
+                if printed != "true":  # optimization 1
+                    exprs.append(printed)
+            if len(exprs) == 0:
+                return "true"
+            elif len(exprs) == 1:
+                return exprs[0]
+            return f"({' AND '.join(exprs)})"
+
+        # ClickHouse uses function syntax
         exprs: list[str] = []
         for expr in node.exprs:
             printed = self.visit(expr)
@@ -673,6 +709,22 @@ class _Printer(Visitor[str]):
         if self.dialect == "hogql":
             return f"or({', '.join([self.visit(expr) for expr in node.exprs])})"
 
+        if self.dialect == "duckdb":
+            # DuckDB uses infix OR operator
+            exprs: list[str] = []
+            for expr in node.exprs:
+                printed = self.visit(expr)
+                if printed == "true":  # optimization 1
+                    return "true"
+                if printed != "false":  # optimization 2
+                    exprs.append(printed)
+            if len(exprs) == 0:
+                return "false"
+            elif len(exprs) == 1:
+                return exprs[0]
+            return f"({' OR '.join(exprs)})"
+
+        # ClickHouse uses function syntax
         exprs: list[str] = []
         for expr in node.exprs:
             printed = self.visit(expr)
@@ -687,7 +739,23 @@ class _Printer(Visitor[str]):
         return f"or({', '.join(exprs)})"
 
     def visit_not(self, node: ast.Not):
-        return f"not({self.visit(node.expr)})"
+        expr = self.visit(node.expr)
+
+        # Optimize constant boolean NOT operations
+        if self.dialect == "duckdb":
+            if expr == "true":
+                return "false"
+            elif expr == "false":
+                return "true"
+            # DuckDB uses prefix NOT operator
+            return f"(NOT {expr})"
+
+        # ClickHouse/HogQL optimization
+        if expr == "1":
+            return "0"
+        elif expr == "0":
+            return "1"
+        return f"not({expr})"
 
     def visit_tuple_access(self, node: ast.TupleAccess):
         visited_tuple = self.visit(node.tuple)
@@ -974,10 +1042,13 @@ class _Printer(Visitor[str]):
 
         # Can we compare constants?
         if isinstance(node.left, ast.Constant) and isinstance(node.right, ast.Constant) and constant_lambda is not None:
-            return "1" if constant_lambda(node.left.value, node.right.value) else "0"
+            result = constant_lambda(node.left.value, node.right.value)
+            if self.dialect == "duckdb":
+                return "true" if result else "false"
+            return "1" if result else "0"
 
         # Special cases when we should not add any null checks
-        if in_join_constraint or self.dialect == "hogql" or not_nullable:
+        if in_join_constraint or self.dialect in ("hogql", "duckdb") or not_nullable:
             return op
 
         # Special optimization for "Eq" operator
@@ -1042,6 +1113,9 @@ class _Printer(Visitor[str]):
         if self.dialect == "hogql":
             # Inline everything in HogQL
             return self._print_escaped_string(node.value)
+        elif self.dialect == "duckdb":
+            # Inline everything in DuckDB like HogQL
+            return self._print_escaped_string(node.value)
         elif (
             node.value is None
             or isinstance(node.value, bool)
@@ -1073,6 +1147,16 @@ class _Printer(Visitor[str]):
                 return "*"
             # When printing HogQL, we print the properties out as a chain as they are.
             return ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])
+        elif self.dialect == "duckdb":
+            if node.chain == ["*"]:
+                return "*"
+            # DuckDB prints fields using its own identifier escaping
+            return ".".join(
+                [
+                    self._print_identifier(str(identifier)) if not isinstance(identifier, int) else str(identifier)
+                    for identifier in node.chain
+                ]
+            )
 
         if node.type is not None:
             if isinstance(node.type, ast.LazyJoinType) or isinstance(node.type, ast.VirtualTableType):
@@ -1874,6 +1958,8 @@ class _Printer(Visitor[str]):
     def _print_identifier(self, name: str) -> str:
         if self.dialect == "clickhouse":
             return escape_clickhouse_identifier(name)
+        elif self.dialect == "duckdb":
+            return escape_duckdb_identifier(name)
         return escape_hogql_identifier(name)
 
     def _print_hogql_identifier_or_index(self, name: str | int) -> str:
@@ -1887,6 +1973,8 @@ class _Printer(Visitor[str]):
     ) -> str:
         if self.dialect == "clickhouse":
             return escape_clickhouse_string(name, timezone=self._get_timezone())
+        elif self.dialect == "duckdb":
+            return escape_duckdb_string(name, timezone=self._get_timezone())
         return escape_hogql_string(name, timezone=self._get_timezone())
 
     def _unsafe_json_extract_trim_quotes(self, unsafe_field: str, unsafe_args: list[str]) -> str:
