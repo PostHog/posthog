@@ -608,6 +608,7 @@ describe('processEvent', () => {
             [false, team.id],
             'testTag'
         )
+        team = await getFirstTeam(hub)
 
         await processEvent(
             '2',
