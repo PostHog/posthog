@@ -22,6 +22,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'dashboard', objectPlural: 'dashboards' },
     { key: 'dashboard_template', objectPlural: 'dashboard templates' },
     { key: 'dataset', objectPlural: 'datasets' },
+    { key: 'desktop_recording', objectPlural: 'desktop recordings' },
     { key: 'early_access_feature', objectPlural: 'early access features' },
     { key: 'endpoint', objectPlural: 'endpoints' },
     { key: 'event_definition', objectPlural: 'event definitions' },
