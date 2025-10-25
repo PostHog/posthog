@@ -483,6 +483,8 @@ export const billingProductLogic = kea<billingProductLogicType>([
 
                 const displayNameOverrides: Record<string, string> = {
                     session_replay: 'Web session replay',
+                    data_warehouse: 'Synced rows',
+                    data_warehouse_historical: 'Free historical synced rows',
                 }
 
                 const mainProduct = product as BillingProductV2Type
