@@ -6,20 +6,11 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
+import { StatusTagSetting } from 'scenes/data-warehouse/utils'
 import { urls } from 'scenes/urls'
-
-import { ExternalDataJobStatus } from '~/types'
 
 import { availableSourcesDataLogic } from '../new/availableSourcesDataLogic'
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
-
-export const StatusTagSetting: Record<ExternalDataJobStatus, 'primary' | 'success' | 'danger'> = {
-    [ExternalDataJobStatus.Running]: 'primary',
-    [ExternalDataJobStatus.Completed]: 'success',
-    [ExternalDataJobStatus.Failed]: 'danger',
-    [ExternalDataJobStatus.BillingLimits]: 'danger',
-    [ExternalDataJobStatus.BillingLimitTooLow]: 'danger',
-}
 
 export function DataWarehouseManagedSourcesTable(): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading, sourceReloadingById } =
