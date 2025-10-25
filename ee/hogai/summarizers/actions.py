@@ -1,9 +1,11 @@
 from collections import defaultdict
 
-from posthog.models.action.action import Action, ActionStepJSON, ActionStepMatching
+from ee.hogai.summarizers.utils import Summarizer
+from posthog.models import Action, Team
+from posthog.models.action.action import ActionStepJSON, ActionStepMatching
 
 from .property_filters import (
-    PropertyFilterCollectionDescriber,
+    PropertyFilterCollectionSummarizer,
     PropertyFilterTaxonomyEntry,
     retrieve_hardcoded_taxonomy,
 )
@@ -15,12 +17,13 @@ ACTION_MATCH_FILTER_VERBOSE_NAME: dict[ActionStepMatching, str] = {
 }
 
 
-class ActionSummarizer:
+class ActionSummarizer(Summarizer):
     _action: Action
     _taxonomy: set[PropertyFilterTaxonomyEntry]
     _step_descriptions: list[str]
 
-    def __init__(self, action: Action):
+    def __init__(self, team: Team, action: Action):
+        super().__init__(team)
         self._action = action
         self._taxonomy = set()
         self._step_descriptions = []
@@ -30,8 +33,7 @@ class ActionSummarizer:
             self._step_descriptions.append(step_desc)
             self._taxonomy.update(used_events)
 
-    @property
-    def summary(self) -> str:
+    def _generate_summary(self) -> str:
         steps = "\n\nOR\n\n".join(self._step_descriptions)
         description = f"Name: {self._action.name}\nDescription: {self._action.description or '-'}\n\n{steps}"
         return description
@@ -79,9 +81,9 @@ class ActionSummarizer:
             description.append(url_desc)
 
         if step.properties:
-            property_desc, used_properties = PropertyFilterCollectionDescriber(filters=step.properties).describe()
-            description.append(property_desc)
-            taxonomy.update(used_properties)
+            prop_summarizer = PropertyFilterCollectionSummarizer(self._team, step.properties)
+            description.append(prop_summarizer.summary)
+            taxonomy.update(prop_summarizer.taxonomy)
 
         conditions = " AND ".join(description)
         return f"Match group {index + 1}: {conditions}", taxonomy
