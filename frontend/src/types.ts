@@ -298,17 +298,18 @@ export type WithAccessControl = {
 }
 
 export enum AccessControlResourceType {
-    Project = 'project',
-    Organization = 'organization',
     Action = 'action',
+    Dashboard = 'dashboard',
+    Experiment = 'experiment',
+    ExternalDataSource = 'external_data_source',
     FeatureFlag = 'feature_flag',
     Insight = 'insight',
-    Dashboard = 'dashboard',
     Notebook = 'notebook',
-    SessionRecording = 'session_recording',
+    Organization = 'organization',
+    Project = 'project',
     RevenueAnalytics = 'revenue_analytics',
+    SessionRecording = 'session_recording',
     Survey = 'survey',
-    Experiment = 'experiment',
     WebAnalytics = 'web_analytics',
 }
 
@@ -4543,6 +4544,7 @@ export type APIScopeObject =
     | 'event_definition'
     | 'experiment'
     | 'export'
+    | 'external_data_source'
     | 'feature_flag'
     | 'group'
     | 'hog_function'
@@ -4682,6 +4684,7 @@ export enum ActivityScope {
     EARLY_ACCESS_FEATURE = 'EarlyAccessFeature',
     COMMENT = 'Comment',
     COHORT = 'Cohort',
+    DATA_WAREHOUSE_SOURCE = 'DataWarehouseSource',
     TEAM = 'Team',
     ORGANIZATION = 'Organization',
     ORGANIZATION_MEMBERSHIP = 'OrganizationMembership',
@@ -4815,6 +4818,7 @@ export interface ExternalDataSource {
     sync_frequency: DataWarehouseSyncInterval
     job_inputs: Record<string, any>
     revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig
+    user_access_level: AccessControlLevel
 }
 
 export interface DataModelingJob {
