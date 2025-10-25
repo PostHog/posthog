@@ -42,6 +42,7 @@ from products.error_tracking.backend.api import (
     ErrorTrackingSymbolSetViewSet,
     GitProviderFileLinksViewSet,
 )
+from products.desktop_recordings.backend.api import DesktopRecordingViewSet
 from products.llm_analytics.backend.api import (
     DatasetItemViewSet,
     DatasetViewSet,
@@ -874,6 +875,13 @@ environments_router.register(
     r"user_interviews",
     UserInterviewViewSet,
     "environment_user_interviews",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"desktop_recordings",
+    DesktopRecordingViewSet,
+    "environment_desktop_recordings",
     ["team_id"],
 )
 

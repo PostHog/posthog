@@ -4541,6 +4541,7 @@ export type APIScopeObject =
     | 'dashboard'
     | 'dashboard_template'
     | 'dataset'
+    | 'desktop_recording'
     | 'early_access_feature'
     | 'endpoint'
     | 'error_tracking'
