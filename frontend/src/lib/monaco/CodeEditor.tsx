@@ -2,8 +2,8 @@ import './CodeEditor.scss'
 
 import MonacoEditor, { type EditorProps, Monaco, DiffEditor as MonacoDiffEditor, loader } from '@monaco-editor/react'
 import { BuiltLogic, useMountedLogic, useValues } from 'kea'
-import { IDisposable, editor, editor as importedEditor } from 'monaco-editor'
 import * as monaco from 'monaco-editor'
+import { IDisposable, editor, editor as importedEditor } from 'monaco-editor'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -241,28 +241,37 @@ export function CodeEditor({
         initEditor(monaco, editor, editorProps, options ?? {}, builtCodeEditorLogic)
 
         // Override Monaco's suggestion widget styling to prevent truncation
+        const styleId = 'monaco-suggestion-widget-fix'
         const overrideSuggestionWidgetStyling = (): void => {
-            const style = document.createElement('style')
-            style.textContent = `
-            .monaco-editor .suggest-widget .monaco-list .monaco-list-row.string-label>.contents>.main>.left>.monaco-icon-label {
-               flex-shrink: 0;
+            // Only add style tag if it doesn't already exist
+            if (!document.getElementById(styleId)) {
+                const style = document.createElement('style')
+                style.id = styleId
+                style.textContent = `
+                .monaco-editor .suggest-widget .monaco-list .monaco-list-row.string-label>.contents>.main>.left>.monaco-icon-label {
+                   flex-shrink: 0;
+                }
+                `
+                document.head.appendChild(style)
             }
-
-            `
-            document.head.appendChild(style)
         }
 
-        // Apply styling immediately and also when suggestion widget appears
+        // Apply styling immediately
         overrideSuggestionWidgetStyling()
 
         // Monitor for suggestion widget creation and apply styling
         const observer = new MutationObserver(() => {
-            const suggestWidget = document.querySelector('.monaco-editor .suggest-widget')
+            const suggestWidget = editor.getDomNode()?.querySelector('.suggest-widget')
             if (suggestWidget) {
                 overrideSuggestionWidgetStyling()
             }
         })
-        observer.observe(document.body, { childList: true, subtree: true })
+
+        // Observe only the editor's DOM node, not entire document.body
+        const editorDomNode = editor.getDomNode()
+        if (editorDomNode) {
+            observer.observe(editorDomNode, { childList: true, subtree: true })
+        }
 
         // Clean up observer
         monacoDisposables.current.push({
