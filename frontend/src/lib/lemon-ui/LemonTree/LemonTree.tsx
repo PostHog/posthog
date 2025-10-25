@@ -783,11 +783,16 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 walkTreeItems(data, defaultSelectedFolderOrNodeId)
             }
 
-            // Remove duplicates and update parent state if callback provided
+            // Remove duplicates
             const uniqueIds = [...new Set(ids)]
-            onSetExpandedItemIds && onSetExpandedItemIds(uniqueIds)
             return uniqueIds
         })
+
+        // Notify parent of initial expanded state after mount to avoid setState-during-render
+        useEffect(() => {
+            onSetExpandedItemIds?.(expandedItemIdsState)
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, []) // Only run on mount with initial state
 
         // Flatten visible tree items for keyboard navigation
         const getVisibleItems = useCallback((): TreeDataItem[] => {
