@@ -25,3 +25,4 @@ You can authenticate with PostHog interactively for using the CLI locally, but i
 - `POSTHOG_CLI_HOST`: The PostHog host to connect to [default: https://us.posthog.com]
 - `POSTHOG_CLI_TOKEN`: [A posthog person API key.](https://posthog.com/docs/api#private-endpoint-authentication)
 - `POSTHOG_CLI_ENV_ID`: The ID number of the project/environment to connect to. E.g. the "2" in `https://us.posthog.com/project/2`
+

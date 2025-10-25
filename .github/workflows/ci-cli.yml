@@ -1,11 +1,13 @@
 name: CI CLI
 permissions:
     contents: read
+    pull-requests: write
 on:
     pull_request:
         paths:
             - 'cli/**'
             - '.github/workflows/ci-cli.yml'
+            - 'docs/**'
 
 jobs:
     check-lockfile:
@@ -73,3 +75,112 @@ jobs:
 
             - name: Check formatting
               run: cargo fmt --all -- --check
+
+    trigger-docs-preview:
+        name: Trigger docs preview (PoC)
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout PR branch
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event.pull_request.head.ref }}
+
+            - name: Trigger Vercel build with inline env
+              id: trigger-build
+              env:
+                  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+                  VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+                  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+              run: |
+                  if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_TEAM_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
+                    echo "⚠️ Vercel secrets not configured, skipping"
+                    exit 0
+                  fi
+
+                  PR_BRANCH="${{ github.event.pull_request.head.ref }}"
+
+                  echo "📢 Triggering Vercel deployment for posthog.com@source-git (gatsby-source-git)"
+                  echo "   Monorepo branch: $PR_BRANCH (per-deployment env)"
+
+                  PAYLOAD='{
+                    "name": "posthog-com",
+                    "project": "'"$VERCEL_PROJECT_ID"'",
+                    "gitSource": {
+                      "type": "github",
+                      "repoId": "260550412",
+                      "ref": "source-git"
+                    },
+                    "build": {
+                      "env": {
+                        "GATSBY_POSTHOG_BRANCH": "'"$PR_BRANCH"'"
+                      }
+                    }
+                  }'
+
+                  RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://api.vercel.com/v13/deployments?teamId=${VERCEL_TEAM_ID}" \
+                    -H "Authorization: Bearer $VERCEL_TOKEN" \
+                    -H "Content-Type: application/json" \
+                    -d "$PAYLOAD")
+
+                  HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+                  BODY=$(echo "$RESPONSE" | head -n-1)
+
+                  if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 201 ]; then
+                    DEPLOYMENT_URL=$(echo "$BODY" | jq -r '.url // empty')
+                    echo "✅ Successfully triggered Vercel preview build"
+                    echo "trigger_status=success" >> $GITHUB_OUTPUT
+                    if [ -n "$DEPLOYMENT_URL" ]; then
+                      echo "   Preview URL: https://${DEPLOYMENT_URL}"
+                      echo "deployment_url=https://${DEPLOYMENT_URL}" >> $GITHUB_OUTPUT
+                    fi
+                  else
+                    echo "❌ Failed to trigger preview build (HTTP $HTTP_CODE)"
+                    echo "$BODY" | jq '.' 2>/dev/null || echo "$BODY"
+                    echo "trigger_status=failed" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Comment on PR
+              if: always()
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const prNumber = ${{ github.event.pull_request.number }};
+                      const triggerStatus = "${{ steps.trigger-build.outputs.trigger_status }}";
+                      const deploymentUrl = "${{ steps.trigger-build.outputs.deployment_url }}";
+
+                      // Delete old preview comments
+                      const comments = await github.rest.issues.listComments({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        issue_number: prNumber
+                      });
+
+                      for (const comment of comments.data) {
+                        if (comment.user.login === 'github-actions[bot]' &&
+                            (comment.body.includes('Docs Preview') || comment.body.includes('Docs Preview Build'))) {
+                          await github.rest.issues.deleteComment({
+                            owner: context.repo.owner,
+                            repo: context.repo.repo,
+                            comment_id: comment.id
+                          });
+                        }
+                      }
+
+                      let message = '';
+
+                      if (triggerStatus === 'success') {
+                        const baseUrl = deploymentUrl || 'https://posthog.com';
+                        message = '## Docs Preview\n\n' +
+                                  'Preview: ' + baseUrl + '\n\n' +
+                                  '*Preview will be ready in ~2 minutes*';
+                      } else {
+                        message = '## Docs Preview Build Failed\n\n' +
+                                  'Preview build could not be triggered. Check the GitHub Action logs for details.';
+                      }
+
+                      github.rest.issues.createComment({
+                        issue_number: prNumber,
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        body: message
+                      });
