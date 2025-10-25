@@ -10,7 +10,7 @@ from langchain_core.runnables import RunnableConfig
 
 from ee.hogai.llm_traces_summaries.find_similar_traces import LLMTracesSummarizerFinder
 from ee.models.llm_traces_summaries import LLMTraceSummary
-from posthog.schema import AssistantToolCallMessage, DateRange, NotebookUpdateMessage
+from posthog.schema import AssistantToolCallMessage, DateRange, EmbeddingDistance, NotebookUpdateMessage
 
 from posthog.sync import database_sync_to_async
 from products.notebooks.backend.util import (
@@ -21,7 +21,6 @@ from products.notebooks.backend.util import (
 )
 
 from ee.hogai.graph.base import AssistantNode
-from ee.hogai.llm_traces_summaries.summarize_traces import LLMTracesSummarizer
 from ee.hogai.session_summaries.session_group.summary_notebooks import (
     create_empty_notebook_for_summary,
     update_notebook_from_summary_content,
@@ -29,6 +28,13 @@ from ee.hogai.session_summaries.session_group.summary_notebooks import (
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantNodeName
 from ee.hogai.utils.types.composed import MaxNodeName
+
+# TODO: Move to a Temporal job
+# trace_summarizer = LLMTracesSummarizer(team=self._team)
+# await trace_summarizer.summarize_traces_for_date_range(
+#     # Check the last day, by default? # date_from="-1dStart", date_to="-1dEnd"
+#     date_range=DateRange(date_from="-30d", date_to="-1d")  # TODO: Use proper date range
+# )
 
 
 class LLMTracesSummarizationNode(AssistantNode):
@@ -71,31 +77,21 @@ class LLMTracesSummarizationNode(AssistantNode):
             summary_title=_create_notebook_title(query=llm_traces_summarization_query),
         )
         state.notebook_short_id = notebook.short_id
-        # await self._stream_notebook_content(
-        #     content=_prepare_initial_notebook_state(query=llm_traces_summarization_query), state=state
-        # )
         try:
-            # Trying to generate embeddings through Olly's service
-            # test_results = embedding_testing_func(text=llm_traces_summarization_query, team_id=self._team.id)
-            # Search for similar traces
-            # EmbeddingSearcher.prepare_input_data(
-            #     question=llm_traces_summarization_query,
-            #     top=5,
-            # )
-            trace_summarizer = LLMTracesSummarizer(team=self._team)
-            await trace_summarizer.summarize_traces_for_date_range(
-                # Check the last day, by default? # date_from="-1dStart", date_to="-1dEnd"
-                date_range=DateRange(date_from="-30d", date_to="-1d")  # TODO: Use proper date range
-            )
             traces_finder = LLMTracesSummarizerFinder(team=self._team)
-            test_similar_documents = await database_sync_to_async(traces_finder.find_top_similar_traces_for_query)(
-                query=llm_traces_summarization_query,
+            similar_traces = await database_sync_to_async(traces_finder.find_top_similar_traces_for_query)(
+                # TODO: Revert after testing
+                # query=llm_traces_summarization_query,
+                query="MP4",
                 request_id=str(conversation_id),
                 top=10,
-                date_range=DateRange(date_from="-30d"), # Including now to search recent embeddings
+                date_range=DateRange(date_from="-30d"),  # Including now to search recent embeddings
                 summary_type=LLMTraceSummary.LLMTraceSummaryType.ISSUES_SEARCH,
             )
-            similar_documents: list[dict[str, str]] = []
+            # Format found traces into readable/printable documents, while remove excessive context
+            similar_documents: list[dict[str, str]] = self._format_similar_traces_into_documents(
+                similar_traces=similar_traces
+            )
             if not similar_documents:
                 return self._create_error_response("No similar traces found", state)
             notebook_content = _prepare_basic_llm_summary_notebook_content(
@@ -122,6 +118,21 @@ class LLMTracesSummarizationNode(AssistantNode):
         except Exception as err:
             self._log_failure("LLM traces summarization failed", conversation_id, start_time, err)
             return self._create_error_response(self._base_error_instructions, state)
+
+    def _format_similar_traces_into_documents(
+        self, similar_traces: dict[str, tuple[EmbeddingDistance, LLMTraceSummary]]
+    ) -> list[dict[str, str]]:
+        documents = []
+        for trace_id, (distance, summary) in similar_traces.items():
+            documents.append(
+                {
+                    "trace_id": trace_id,
+                    "trace_summary": summary.summary,
+                    # Providing cosine similarity score info to the LLM, so it can better assess the relevance of the trace
+                    "cosine_similarity": 1 - distance.distance,
+                }
+            )
+        return documents
 
     def _create_error_response(self, message: str, state: AssistantState) -> PartialAssistantState:
         return PartialAssistantState(
@@ -189,12 +200,3 @@ def _prepare_basic_llm_summary_notebook_content(summaries: list[dict[str, str]],
         "type": "doc",
         "content": content,
     }
-
-
-def _prepare_initial_notebook_state(query: str):
-    content = []
-    # Title
-    content.append(create_heading_with_text(_create_notebook_title(query=query), 1))
-    # Initial content
-    content.append(create_paragraph_with_content([create_text_content("📖 Reading through traces intensively...")]))
-    return {"type": "doc", "content": content}

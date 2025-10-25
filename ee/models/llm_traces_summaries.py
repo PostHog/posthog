@@ -7,6 +7,7 @@ from posthog.models.utils import UUIDTModel
 class LLMTraceSummary(UUIDTModel):
     class Meta:
         indexes = [
+            # TODO: Include summary type in the index also?
             models.Index(fields=["team", "trace_id"]),
         ]
         constraints = [

@@ -13,8 +13,8 @@ from django.utils import timezone
 
 DOCUMENT_EMBEDDINGS_TOPIC = "document_embeddings_input"
 LLM_TRACES_SUMMARIES_PRODUCT = "llm-analytics"
-LLM_TRACES_SUMMARIES_DOCUMENT_TYPE_PREFIX = "trace-summary"
-LLM_TRACES_SUMMARIES_SEARCH_QUERY_DOCUMENT_TYPE_PREFIX = "trace-summary-search-query"
+LLM_TRACES_SUMMARIES_DOCUMENT_TYPE = "llm-trace-summary"
+LLM_TRACES_SUMMARIES_SEARCH_QUERY_DOCUMENT_TYPE = "trace-summary-search-query"
 
 
 class LLMTracesSummarizerEmbedder:
@@ -27,17 +27,14 @@ class LLMTracesSummarizerEmbedder:
 
     def embed_summaries(self, summarized_traces: dict[str, str], summary_type: LLMTraceSummary.LLMTraceSummaryType):
         """Generated embeddings for all summaries of stringified traces."""
-        summary_document_type = self.generate_document_type(
-            prefix=LLM_TRACES_SUMMARIES_DOCUMENT_TYPE_PREFIX, summary_type=summary_type
-        )
         # Add all the summaries to the Kafka producer to be stored in ClickHouse
         for trace_id, summary in summarized_traces.items():
             self._embed_document(
                 content=summary,
                 document_id=trace_id,
-                document_type=summary_document_type,
+                document_type=LLM_TRACES_SUMMARIES_DOCUMENT_TYPE,
                 product=LLM_TRACES_SUMMARIES_PRODUCT,
-                rendering="backend",
+                rendering=summary_type.value,
             )
         # No immediate results needed, so return nothing
         return None
@@ -49,16 +46,13 @@ class LLMTracesSummarizerEmbedder:
         Generate and return embeddings for the search query to get the most similar summaries.
         We expect query to come either from conversation or from a search request.
         """
-        summary_search_query_document_type = self.generate_document_type(
-            prefix=LLM_TRACES_SUMMARIES_SEARCH_QUERY_DOCUMENT_TYPE_PREFIX, summary_type=summary_type
-        )
         # Embed the search query and store the timestamp it was generated at
         timestamp = self._embed_document(
             content=query,
             document_id=request_id,
-            document_type=summary_search_query_document_type,
+            document_type=LLM_TRACES_SUMMARIES_SEARCH_QUERY_DOCUMENT_TYPE,
             product=LLM_TRACES_SUMMARIES_PRODUCT,
-            rendering="backend",
+            rendering=summary_type.value,
         )
         # Check if the embeddings are ready
         # TODO: Understand a better, more predictable way to check if the embeddings are ready
@@ -68,7 +62,7 @@ class LLMTracesSummarizerEmbedder:
         attempts = 0
         while attempts < max_attempts:
             embeddings_ready = self._check_embedding_exists(
-                document_id=request_id, document_type=summary_search_query_document_type
+                document_id=request_id, document_type=LLM_TRACES_SUMMARIES_SEARCH_QUERY_DOCUMENT_TYPE
             )
             if embeddings_ready:
                 break
@@ -101,10 +95,10 @@ class LLMTracesSummarizerEmbedder:
         )
         return result[0][0] > 0
 
-    @staticmethod
-    def generate_document_type(prefix: str, summary_type: LLMTraceSummary.LLMTraceSummaryType) -> str:
-        """Combine the prefix with the summary type to explicitly specify the document type for better searching"""
-        return f"{prefix}_{summary_type.value}"
+    # @staticmethod
+    # def generate_document_type(prefix: str, summary_type: LLMTraceSummary.LLMTraceSummaryType) -> str:
+    #     """Combine the prefix with the summary type to explicitly specify the document type for better searching"""
+    #     return f"{prefix}_{summary_type.value}"
 
     def _embed_document(
         self, content: str, document_id: str, document_type: str, rendering: str, product: str
