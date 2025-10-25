@@ -96,6 +96,24 @@ SESSION_PROPERTY_TO_FIELD = {
     "$end_pathname": "end_pathname",
 }
 
+
+def get_all_preaggregated_table_supported_properties() -> set[str]:
+    """
+    Returns a set of all property names supported by preaggregated tables from the web analytics module
+    for faster queries.
+
+    This is used to determine which properties should be shown with a "optimized for new query engine" badge in the UI.
+    """
+    return set().union(
+        BASE_SUPPORTED_PROPERTIES.keys(),
+        PATH_PROPERTIES.keys(),
+        VIRTUAL_PROPERTIES.keys(),
+        STATS_TABLE_SPECIFIC_PROPERTIES.keys(),
+        EVENT_PROPERTY_TO_FIELD.keys(),
+        SESSION_PROPERTY_TO_FIELD.keys(),
+    )
+
+
 WEB_ANALYTICS_TRENDS_SUPPORTED_FILTERS = {
     **BASE_SUPPORTED_PROPERTIES,
     **ATTRIBUTION_PROPERTIES,

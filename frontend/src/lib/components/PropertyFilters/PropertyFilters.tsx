@@ -52,6 +52,7 @@ export interface PropertyFiltersProps {
     exactMatchFeatureFlagCohortOperators?: boolean
     hideBehavioralCohorts?: boolean
     addFilterDocLink?: string
+    enablePreaggregatedTableHints?: boolean
     operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
 }
 
@@ -86,6 +87,7 @@ export function PropertyFilters({
     exactMatchFeatureFlagCohortOperators = false,
     hideBehavioralCohorts,
     addFilterDocLink,
+    enablePreaggregatedTableHints = false,
     operatorAllowlist,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
@@ -156,6 +158,7 @@ export function PropertyFilters({
                                             size={buttonSize}
                                             addFilterDocLink={addFilterDocLink}
                                             editable={editable}
+                                            enablePreaggregatedTableHints={enablePreaggregatedTableHints}
                                             operatorAllowlist={operatorAllowlist}
                                         />
                                     )}
