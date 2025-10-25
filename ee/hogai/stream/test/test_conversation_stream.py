@@ -19,10 +19,10 @@ from ee.hogai.stream.redis_stream import (
     ConversationEvent,
     ConversationRedisStream,
     MessageEvent,
-    StatusEvent,
     StatusPayload,
     StreamError,
     StreamEvent,
+    StreamStatusEvent,
 )
 from ee.hogai.utils.types import AssistantMode
 from ee.hogai.utils.types.base import AssistantOutput
@@ -263,7 +263,7 @@ class TestConversationStreamManager(BaseTest):
 
     async def test_redis_stream_to_assistant_output_unknown_event(self):
         """Test conversion with unknown event type."""
-        status_data = StatusEvent(type="status", payload=StatusPayload(status="complete"))
+        status_data = StreamStatusEvent(payload=StatusPayload(status="complete"))
         event = StreamEvent(event=status_data)
 
         result = await self.manager._redis_stream_to_assistant_output(event)

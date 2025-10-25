@@ -34,6 +34,7 @@ from posthog.models import Team
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 from ee.hogai.utils.types import AssistantMessageUnion
+from ee.hogai.utils.types.base import AssistantDispatcherEvent
 
 
 def remove_line_breaks(line: str) -> str:
@@ -117,13 +118,16 @@ def find_start_message(messages: Sequence[AssistantMessageUnion], start_id: str 
 def should_output_assistant_message(candidate_message: AssistantMessageUnion) -> bool:
     """
     This is used to filter out messages that are not useful for the user.
-    Filter out tool calls without a UI payload and empty assistant messages.
+    Filter out empty assistant messages and context messages.
     """
-    if isinstance(candidate_message, AssistantToolCallMessage) and candidate_message.ui_payload is None:
-        return False
-
-    if isinstance(candidate_message, AssistantMessage) and not candidate_message.content:
-        return False
+    if isinstance(candidate_message, AssistantMessage):
+        if (
+            (candidate_message.tool_calls is None or len(candidate_message.tool_calls) == 0)
+            and len(candidate_message.content) == 0
+            and candidate_message.meta is None
+        ):
+            # Empty assistant message
+            return False
 
     # Filter out context messages
     if isinstance(candidate_message, ContextMessage):
@@ -263,10 +267,14 @@ def build_dashboard_url(team: Team, id: int) -> str:
 
 
 def extract_stream_update(update: Any) -> Any:
+    # Handle old LangGraph tuple format
     if update[1] == "custom":
         # Custom streams come from a tool call
         # If it's a LangGraph-based chunk, we remove the first two elements, which are "custom" and the parent graph namespace
         update = update[2]
+
+    if isinstance(update, AssistantDispatcherEvent):
+        return update
 
     update = update[1:]  # we remove the first element, which is the node/subgraph node name
     return update

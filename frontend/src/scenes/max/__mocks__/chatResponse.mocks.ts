@@ -4,7 +4,6 @@ import {
     AssistantMessage,
     AssistantMessageType,
     HumanMessage,
-    ReasoningMessage,
 } from '~/queries/schema/schema-assistant-messages'
 
 import { MaxContextType } from '../maxTypes'
@@ -21,16 +20,22 @@ export const humanMessage: HumanMessage = {
     id: 'human-1',
 }
 
-const reasoningMessage1: ReasoningMessage = {
-    type: AssistantMessageType.Reasoning,
-    content: 'Picking relevant events and properties',
+const reasoningMessage1: AssistantMessage = {
+    type: AssistantMessageType.Assistant,
+    content: '',
     id: 'reasoning-1',
+    meta: {
+        thinking: [{ thinking: 'Picking relevant events and properties' }],
+    },
 }
 
-const reasoningMessage2: ReasoningMessage = {
-    type: AssistantMessageType.Reasoning,
-    content: 'Generating trends',
+const reasoningMessage2: AssistantMessage = {
+    type: AssistantMessageType.Assistant,
+    content: '',
     id: 'reasoning-2',
+    meta: {
+        thinking: [{ thinking: 'Generating trends' }],
+    },
 }
 
 function generateChunk(events: string[]): string {

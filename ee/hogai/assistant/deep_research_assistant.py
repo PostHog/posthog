@@ -2,16 +2,7 @@ from collections.abc import AsyncGenerator
 from typing import Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel
-
-from posthog.schema import (
-    AssistantMessage,
-    HumanMessage,
-    MaxBillingContext,
-    ReasoningMessage,
-    TaskExecutionMessage,
-    VisualizationMessage,
-)
+from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext, VisualizationMessage
 
 from posthog.models import Team, User
 
@@ -71,51 +62,14 @@ class DeepResearchAssistant(BaseAssistant):
             DeepResearchNodeName.TASK_EXECUTOR,
         }
 
-    @property
-    def VERBOSE_NODES(self) -> set[MaxNodeName]:
-        return self.STREAMING_NODES | {
-            DeepResearchNodeName.PLANNER_TOOLS,
-            DeepResearchNodeName.TASK_EXECUTOR,
-        }
-
-    @property
-    def THINKING_NODES(self) -> set[MaxNodeName]:
-        return {
-            DeepResearchNodeName.ONBOARDING,
-            DeepResearchNodeName.NOTEBOOK_PLANNING,
-            DeepResearchNodeName.PLANNER,
-            DeepResearchNodeName.REPORT,
-        }
-
-    def _should_persist_stream_message(self, message: BaseModel, node_name: MaxNodeName) -> bool:
-        """
-        Only persist discrete, low-frequency stream events.
-        Avoid persisting chunked AssistantMessage text to reduce DB write volume.
-        Persisting reasoning and task execution messages from deep research.
-        """
-        if isinstance(node_name, DeepResearchNodeName):
-            if isinstance(message, ReasoningMessage):
-                return True
-            if isinstance(message, TaskExecutionMessage):
-                return True
-        return False
-
-    def _should_persist_commentary_message(self, node_name: MaxNodeName) -> bool:
-        """Persist complete commentary lines emitted by planner/task executor tools."""
-        if isinstance(node_name, DeepResearchNodeName):
-            return node_name in {
-                DeepResearchNodeName.PLANNER,
-                DeepResearchNodeName.TASK_EXECUTOR,
-            }
-        return False
-
     def get_initial_state(self) -> DeepResearchState:
         if self._latest_message:
             return DeepResearchState(
                 messages=[self._latest_message],
                 start_id=self._latest_message.id,
                 graph_status=None,
-                notebook_short_id=None,
+                conversation_notebooks=[],
+                current_run_notebooks=None,
             )
         else:
             return DeepResearchState(messages=[])
