@@ -68,13 +68,13 @@ from posthog.hogql_queries.utils.formula_ast import FormulaAST
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_from_series
+from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property_definition import PropertyDefinition
-from posthog.queries.util import correct_result_for_sampling
+from posthog.queries.util import correct_result_for_sampling, get_earliest_timestamp
 from posthog.utils import multisort
 from posthog.warehouse.models.util import get_view_or_table_by_name
 
@@ -672,10 +672,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
     @cached_property
     def _earliest_timestamp(self) -> datetime:
-        return get_earliest_timestamp_from_series(
-            team=self.team,
-            series=[series.series for series in self.series],
-        )
+        return get_earliest_timestamp(self.team.id)
 
     @cached_property
     def query_date_range(self):
