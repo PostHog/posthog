@@ -90,13 +90,6 @@ class LLMTracesSummarizationNode(AssistantNode):
             )
             # Search for LLM traces with similar topics
             traces_summarizer = LLMTracesSummarizer(team=self._team)
-
-            # Test generating summaries and embeddings
-            # TODO: Remove after testing
-            await traces_summarizer.summarize_traces_for_date_range(
-                date_range=DateRange(date_from="-7d"),
-            )
-
             similar_traces = await database_sync_to_async(traces_summarizer.find_top_similar_traces_for_query)(
                 query=extracted_topics_str,
                 request_id=str(conversation_id),
