@@ -95,19 +95,22 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
         
         if variable_ids:
             insight_vars = InsightVariable.objects.filter(team_id=team.pk, id__in=variable_ids).all()
-            
+
+            # Create a dictionary for efficient O(1) lookup instead of O(n) loop
+            insight_vars_dict = {str(v.id): v for v in insight_vars}
+
             for var_data in query_variables.values():
                 variable_id = var_data.get("variableId")
                 code_name = var_data.get("code_name")
-                
+
                 if variable_id and code_name:
-                    # Find the corresponding InsightVariable to get default value
-                    insight_var = next((v for v in insight_vars if str(v.id) == variable_id), None)
+                    # Find the corresponding InsightVariable to get default value using O(1) lookup
+                    insight_var = insight_vars_dict.get(variable_id)
                     default_value = insight_var.default_value if insight_var else None
-                    
+
                     # Use the provided value or fall back to default
                     value = var_data.get("value", default_value)
-                    
+
                     hogql_variables.append(HogQLVariable(
                         variableId=variable_id,
                         code_name=code_name,
