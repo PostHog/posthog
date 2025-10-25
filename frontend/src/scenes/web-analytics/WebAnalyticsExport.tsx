@@ -10,9 +10,13 @@ import { copyTableToCsv, copyTableToExcel, copyTableToJson } from '~/queries/nod
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import {
     DataTableNode,
+    EventsHeatMapColumnAggregationResult,
+    EventsHeatMapDataResult,
+    EventsHeatMapRowAggregationResult,
     InsightVizNode,
     NodeKind,
     QuerySchema,
+    TrendsQuery,
     TrendsQueryResponse,
     WebExternalClicksTableQuery,
     WebGoalsQuery,
@@ -30,7 +34,7 @@ import {
     isWebTrendsQuery,
 } from '~/queries/utils'
 import { getDisplayColumnName } from '~/scenes/web-analytics/tiles/WebAnalyticsTile'
-import { ExporterFormat, InsightLogicProps } from '~/types'
+import { ChartDisplayType, ExporterFormat, InsightLogicProps } from '~/types'
 
 import { insightDataLogic } from '../insights/insightDataLogic'
 
@@ -46,6 +50,106 @@ const webTrendsMetricDisplayNames: Record<WebTrendsMetric, string> = {
     [WebTrendsMetric.BOUNCES]: 'Bounces',
     [WebTrendsMetric.SESSION_DURATION]: 'Session duration',
     [WebTrendsMetric.TOTAL_SESSIONS]: 'Total sessions',
+}
+
+function getCalendarHeatmapTableData(
+    response: TrendsQueryResponse,
+    rowLabels: string[],
+    columnLabels: string[]
+): string[][] {
+    const firstResult = (response as any)?.results?.[0]
+    const heatmapData = firstResult?.calendar_heatmap_data
+
+    if (!heatmapData || !heatmapData.data) {
+        return []
+    }
+
+    const data = heatmapData.data || []
+    const rowAggregations = heatmapData.rowAggregations || []
+    const columnAggregations = heatmapData.columnAggregations || []
+    const allAggregations = heatmapData.allAggregations || 0
+
+    const numRows = rowLabels.length
+    const numCols = columnLabels.length
+
+    // Create matrix from sparse data
+    const matrix: number[][] = Array(numRows)
+        .fill(0)
+        .map(() => Array(numCols).fill(0))
+    data.forEach((item: EventsHeatMapDataResult) => {
+        if (item.row < numRows && item.column < numCols) {
+            matrix[item.row][item.column] = item.value
+        }
+    })
+
+    // Create row aggregations map
+    const rowAggMap: Record<number, number> = {}
+    rowAggregations.forEach((item: EventsHeatMapRowAggregationResult) => {
+        rowAggMap[item.row] = item.value
+    })
+
+    // Create column aggregations array
+    const colAggArray: number[] = Array(numCols).fill(0)
+    columnAggregations.forEach((item: EventsHeatMapColumnAggregationResult) => {
+        if (item.column < numCols) {
+            colAggArray[item.column] = item.value
+        }
+    })
+
+    // Build table with headers
+    const headers = ['', ...columnLabels, 'All']
+    const dataRows = rowLabels.map((rowLabel, rowIndex) => {
+        const rowValues = matrix[rowIndex].map(String)
+        const rowTotal = rowAggMap[rowIndex] != null ? String(rowAggMap[rowIndex]) : ''
+        return [rowLabel, ...rowValues, rowTotal]
+    })
+
+    const aggregationRow = ['All', ...colAggArray.map(String), String(allAggregations)]
+
+    return [headers, ...dataRows, aggregationRow]
+}
+
+function copyCalendarHeatmapToCsv(response: TrendsQueryResponse, rowLabels: string[], columnLabels: string[]): void {
+    try {
+        const tableData = getCalendarHeatmapTableData(response, rowLabels, columnLabels)
+        const csv = Papa.unparse(tableData)
+        void copyToClipboard(csv, 'table')
+    } catch {
+        lemonToast.error('Copy failed!')
+    }
+}
+
+function copyCalendarHeatmapToJson(response: TrendsQueryResponse, rowLabels: string[], columnLabels: string[]): void {
+    try {
+        const tableData = getCalendarHeatmapTableData(response, rowLabels, columnLabels)
+        const headers = tableData[0]
+        const rows = tableData.slice(1)
+
+        const jsonData = rows.map((row) => {
+            return headers.reduce(
+                (acc, header, index) => {
+                    acc[header] = row[index]
+                    return acc
+                },
+                {} as Record<string, any>
+            )
+        })
+
+        const json = JSON.stringify(jsonData, null, 4)
+        void copyToClipboard(json, 'table')
+    } catch {
+        lemonToast.error('Copy failed!')
+    }
+}
+
+function copyCalendarHeatmapToExcel(response: TrendsQueryResponse, rowLabels: string[], columnLabels: string[]): void {
+    try {
+        const tableData = getCalendarHeatmapTableData(response, rowLabels, columnLabels)
+        const tsv = Papa.unparse(tableData, { delimiter: '\t' })
+        void copyToClipboard(tsv, 'table')
+    } catch {
+        lemonToast.error('Copy failed!')
+    }
 }
 
 function getWebAnalyticsTableData(
@@ -306,32 +410,47 @@ function copyTrendsToExcel(response: TrendsQueryResponse): void {
 }
 
 export function WebAnalyticsExport({ query, insightProps }: WebAnalyticsExportProps): JSX.Element | null {
+    // For queries, use insightDataLogic - must be called before any early returns
     const builtInsightDataLogic = insightDataLogic(insightProps)
     const { insightDataRaw } = useValues(builtInsightDataLogic)
 
     const isTableQuery = query.kind === NodeKind.DataTableNode
+
     const insightVizSource = query.kind === NodeKind.InsightVizNode ? (query as InsightVizNode).source : null
     const isWebTrendsViz = insightVizSource && isWebTrendsQuery(insightVizSource)
     const isTrendsViz = insightVizSource && isTrendsQuery(insightVizSource)
+    const isCalendarHeatmap =
+        isTrendsViz && (insightVizSource as TrendsQuery)?.trendsFilter?.display === ChartDisplayType.CalendarHeatmap
 
+    // WebOverview uses dataNodeLogic directly and isn't compatible with this export component
+    // TODO: Add separate export support for WebOverview
     if (!isTableQuery && !isWebTrendsViz && !isTrendsViz) {
         return null
     }
 
-    if (!insightDataRaw) {
+    // Use the insight data
+    const responseData = insightDataRaw
+
+    if (!responseData) {
         return null
     }
 
     let hasData = false
     if (isTableQuery) {
-        const tableResponse = insightDataRaw as WebStatsTableQueryResponse
+        const tableResponse = responseData as WebStatsTableQueryResponse
         hasData = tableResponse.results && tableResponse.results.length > 0
     } else if (isWebTrendsViz) {
-        const trendsResponse = insightDataRaw as WebTrendsQueryResponse
+        const trendsResponse = responseData as WebTrendsQueryResponse
         hasData = trendsResponse.results && trendsResponse.results.length > 0
     } else if (isTrendsViz) {
-        const trendsResponse = insightDataRaw as TrendsQueryResponse
-        hasData = trendsResponse.results && trendsResponse.results.length > 0
+        const trendsResponse = responseData as TrendsQueryResponse
+        if (isCalendarHeatmap) {
+            const firstResult = (trendsResponse as any)?.results?.[0]
+            const heatmapData = firstResult?.calendar_heatmap_data
+            hasData = heatmapData && heatmapData.data && heatmapData.data.length > 0
+        } else {
+            hasData = trendsResponse.results && trendsResponse.results.length > 0
+        }
     }
 
     if (!hasData) {
@@ -340,7 +459,7 @@ export function WebAnalyticsExport({ query, insightProps }: WebAnalyticsExportPr
 
     const handleCopy = (format: ExporterFormat): void => {
         if (isTableQuery) {
-            const tableResponse = insightDataRaw as WebStatsTableQueryResponse
+            const tableResponse = responseData as WebStatsTableQueryResponse
             const columns = (tableResponse.columns as string[]) || []
             const dataTableQuery = query as DataTableNode
             const source = dataTableQuery.source
@@ -388,7 +507,7 @@ export function WebAnalyticsExport({ query, insightProps }: WebAnalyticsExportPr
                 }
             }
         } else if (isWebTrendsViz) {
-            const trendsResponse = insightDataRaw as WebTrendsQueryResponse
+            const trendsResponse = responseData as WebTrendsQueryResponse
             const insightVizNode = query as InsightVizNode
             const trendsQuery = insightVizNode.source
 
@@ -408,18 +527,36 @@ export function WebAnalyticsExport({ query, insightProps }: WebAnalyticsExportPr
                     break
             }
         } else if (isTrendsViz) {
-            const trendsResponse = insightDataRaw as TrendsQueryResponse
+            const trendsResponse = responseData as TrendsQueryResponse
 
-            switch (format) {
-                case ExporterFormat.CSV:
-                    copyTrendsToCsv(trendsResponse)
-                    break
-                case ExporterFormat.JSON:
-                    copyTrendsToJson(trendsResponse)
-                    break
-                case ExporterFormat.XLSX:
-                    copyTrendsToExcel(trendsResponse)
-                    break
+            if (isCalendarHeatmap) {
+                // For active hours heatmap: rows are days (Sun-Sat), columns are hours (0-23)
+                const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+                const hourLabels = Array.from({ length: 24 }, (_, i) => String(i))
+
+                switch (format) {
+                    case ExporterFormat.CSV:
+                        copyCalendarHeatmapToCsv(trendsResponse, dayLabels, hourLabels)
+                        break
+                    case ExporterFormat.JSON:
+                        copyCalendarHeatmapToJson(trendsResponse, dayLabels, hourLabels)
+                        break
+                    case ExporterFormat.XLSX:
+                        copyCalendarHeatmapToExcel(trendsResponse, dayLabels, hourLabels)
+                        break
+                }
+            } else {
+                switch (format) {
+                    case ExporterFormat.CSV:
+                        copyTrendsToCsv(trendsResponse)
+                        break
+                    case ExporterFormat.JSON:
+                        copyTrendsToJson(trendsResponse)
+                        break
+                    case ExporterFormat.XLSX:
+                        copyTrendsToExcel(trendsResponse)
+                        break
+                }
             }
         }
     }
