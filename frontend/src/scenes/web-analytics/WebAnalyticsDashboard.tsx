@@ -42,8 +42,9 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { QuerySchema } from '~/queries/schema/schema-general'
-import { ProductKey } from '~/types'
+import { InsightLogicProps, ProductKey } from '~/types'
 
+import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
 import { WebAnalyticsPageReportsCTA } from './WebAnalyticsPageReportsCTA'
 import { MarketingAnalyticsFilters } from './tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
@@ -106,6 +107,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
     const { getNewInsightUrl } = useValues(webAnalyticsLogic)
 
     const buttonsRow = [
+        <WebAnalyticsExport key="export-button" query={query} insightProps={insightProps} />,
         tile.canOpenInsight ? (
             <LemonButton
                 key="open-insight-button"
@@ -207,6 +209,7 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
                 canOpenInsight: !!tab.canOpenInsight,
                 query: tab.query,
                 docs: tab.docs,
+                insightProps: tab.insightProps,
             }))}
             tileId={tile.tileId}
             getNewInsightUrl={getNewInsightUrl}
@@ -254,6 +257,7 @@ export const WebTabs = ({
         canOpenInsight: boolean
         query: QuerySchema
         docs: LearnMorePopoverProps | undefined
+        insightProps: InsightLogicProps
     }[]
     setActiveTabId: (id: string) => void
     getNewInsightUrl: (tileId: TileId, tabId: string) => string | undefined
@@ -269,7 +273,16 @@ export const WebTabs = ({
 
     const isVisualizationToggleEnabled = [TileId.SOURCES, TileId.DEVICES, TileId.PATHS].includes(tileId)
 
+    const activeTabData = tabs.find((t) => t.id === activeTabId)
+
     const buttonsRow = [
+        activeTab && activeTabData ? (
+            <WebAnalyticsExport
+                key="export-button"
+                query={activeTabData.query}
+                insightProps={activeTabData.insightProps}
+            />
+        ) : null,
         activeTab?.canOpenInsight && newInsightUrl ? (
             <LemonButton
                 key="open-insight-button"
