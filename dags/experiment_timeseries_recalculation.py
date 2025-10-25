@@ -142,9 +142,9 @@ def experiment_timeseries_recalculation(context: AssetExecutionContext) -> dict[
             ExperimentMetricResult.objects.update_or_create(
                 experiment_id=experiment.id,
                 metric_uuid=recalculation_request.metric.get("uuid"),
-                fingerprint=fingerprint,
                 query_to=query_to_utc,
                 defaults={
+                    "fingerprint": fingerprint,
                     "query_from": experiment.start_date,
                     "status": ExperimentMetricResult.Status.COMPLETED,
                     "result": result.model_dump(),
