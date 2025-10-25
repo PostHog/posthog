@@ -51,7 +51,22 @@ export function HogQLDebug({ query, setQuery, queryKey, modifiers }: HogQLDebugP
                     </>
                 ) : (
                     <>
-                        <QueryTabs query={query} response={response} setQuery={setQuery} queryKey={queryKey} />
+                        <QueryTabs
+                            query={query}
+                            response={response}
+                            setQuery={setQuery}
+                            queryKey={queryKey}
+                            onLoadQuery={(queryString) => {
+                                try {
+                                    const parsed = JSON.parse(queryString)
+                                    if (parsed.kind === 'HogQLQuery') {
+                                        setQuery(parsed)
+                                    }
+                                } catch (e) {
+                                    console.error('Failed to parse query from log', e)
+                                }
+                            }}
+                        />
                     </>
                 )}
             </div>
