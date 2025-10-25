@@ -172,6 +172,22 @@ class TestQueryDateRange(APIBaseTest):
         self.assertEqual(date_to.tzinfo, ZoneInfo("Europe/Berlin"))
         self.assertEqual(date_to_utc.tzinfo, ZoneInfo("UTC"))
 
+    def test_relative_week_date_with_monday_as_week_start_day(self):
+        now = parser.isoparse("2025-10-08T00:00:00.000Z")
+        self.team.week_start_day = WeekStartDay.MONDAY
+        date_range = DateRange(date_from="-1wStart", date_to="-1wEnd")
+        query_date_range = QueryDateRange(team=self.team, date_range=date_range, interval=IntervalType.DAY, now=now)
+        self.assertEqual(query_date_range.date_from(), parser.isoparse("2025-09-29T00:00:00Z"))
+        self.assertEqual(query_date_range.date_to(), parser.isoparse("2025-10-05T23:59:59.999999Z"))
+
+    def test_relative_week_date_with_sunday_as_week_start_day(self):
+        now = parser.isoparse("2025-10-08T00:00:00.000Z")
+        self.team.week_start_day = WeekStartDay.SUNDAY
+        date_range = DateRange(date_from="-1wStart", date_to="-1wEnd")
+        query_date_range = QueryDateRange(team=self.team, date_range=date_range, interval=IntervalType.DAY, now=now)
+        self.assertEqual(query_date_range.date_from(), parser.isoparse("2025-09-28T00:00:00Z"))
+        self.assertEqual(query_date_range.date_to(), parser.isoparse("2025-10-04T23:59:59.999999Z"))
+
 
 class TestQueryDateRangeWithIntervals(APIBaseTest):
     def setUp(self):
