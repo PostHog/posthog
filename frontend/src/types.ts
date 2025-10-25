@@ -5856,6 +5856,39 @@ export interface DataWarehouseActivityRecord {
     workflow_run_id?: string
 }
 
+export type HeatmapType = 'screenshot' | 'iframe' | 'recording'
+export type HeatmapStatus = 'processing' | 'completed' | 'failed'
+
+export interface HeatmapScreenshotType {
+    id: number
+    name: string
+    short_id: string
+    url: string
+    data_url: string | null
+    type: HeatmapType
+    width: number
+    status: HeatmapStatus
+    has_content: boolean
+    created_at: string
+    updated_at: string
+    exception?: string
+    error?: string // Added for error responses from content endpoint
+    created_by?: UserBasicType | null
+}
+
+export type HeatmapScreenshotContentResponse =
+    | { success: true; data: Response } // 200: PNG image data
+    | { success: false; data: HeatmapScreenshotType } // 202/404/501: JSON with screenshot metadata
+
+export interface HeatmapSavedFilters {
+    order: string
+    search: string
+    createdBy: number | 'All users'
+    page: number
+    limit: number
+    offset: number
+}
+
 export interface DataWarehouseDashboardDataSource {
     id: string
     name: string

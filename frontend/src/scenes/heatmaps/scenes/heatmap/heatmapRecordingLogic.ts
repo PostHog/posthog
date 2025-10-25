@@ -6,10 +6,10 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import type { heatmapsSceneLogicType } from './heatmapsSceneLogicType'
+import type { heatmapRecordingLogicType } from './heatmapRecordingLogicType'
 
-export const heatmapsSceneLogic = kea<heatmapsSceneLogicType>([
-    path(['scenes', 'heatmaps', 'heatmapsSceneLogic']),
+export const heatmapRecordingLogic = kea<heatmapRecordingLogicType>([
+    path(['scenes', 'heatmaps', 'scenes', 'heatmap', 'heatmapRecordingLogic']),
     selectors(() => ({
         breadcrumbs: [
             () => [],
