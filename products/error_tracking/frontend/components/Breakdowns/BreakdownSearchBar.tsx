@@ -61,11 +61,13 @@ export function BreakdownSearchBar(): JSX.Element {
                 </LemonButton>
             </Popover>
             <div className="flex-1" />
-            <TestAccountFilter
-                size="small"
-                filters={{ filter_test_accounts: filterTestAccounts }}
-                onChange={({ filter_test_accounts }) => setFilterTestAccounts(filter_test_accounts || false)}
-            />
+            <div>
+                <TestAccountFilter
+                    size="small"
+                    filters={{ filter_test_accounts: filterTestAccounts }}
+                    onChange={({ filter_test_accounts }) => setFilterTestAccounts(filter_test_accounts || false)}
+                />
+            </div>
         </div>
     )
 }

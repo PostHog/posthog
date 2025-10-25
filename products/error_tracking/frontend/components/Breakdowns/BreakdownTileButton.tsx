@@ -86,7 +86,7 @@ function BreakdownPreview({
                         <Spinner className="text-xs" />
                     </div>
                 ) : properties.length === 0 || hasOnlyNullBreakdown ? (
-                    <div className="text-muted text-xs">No data</div>
+                    <div className="text-muted text-xs h-4 flex items-center justify-center">No data</div>
                 ) : (
                     <BreakdownStackedBar properties={properties} totalCount={totalCount} propertyName={property} />
                 )}
