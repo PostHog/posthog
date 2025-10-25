@@ -95,7 +95,6 @@ class LLMTraceSummarizerGenerator:
     async def _generate_trace_summary(self, trace_id: str, stringified_trace: str) -> str | Exception:
         prompt = GENERATE_STRINGIFIED_TRACE_SUMMARY_PROMPT.format(stringified_trace=stringified_trace)
         try:
-            # response_text = await self._provider.get_async_response(prompt=prompt, system="")
             self._provider.validate_model(self._model_id)
             config_kwargs = self._provider.prepare_config_kwargs(system="")
             response = await self._client.aio.models.generate_content(

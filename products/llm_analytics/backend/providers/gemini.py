@@ -2,6 +2,7 @@ import json
 import uuid
 import logging
 from collections.abc import Generator
+from typing import Any
 
 from django.conf import settings
 
@@ -92,11 +93,11 @@ class GeminiProvider:
         temperature: float | None = None,
         max_tokens: int | None = None,
         tools: list[dict] | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         effective_temperature = temperature if temperature is not None else GeminiConfig.TEMPERATURE
         effective_max_tokens = max_tokens  # May be None; Gemini API uses max_output_tokens
         # Build config with conditionals
-        config_kwargs = {
+        config_kwargs: dict[str, Any] = {
             "temperature": effective_temperature,
         }
         if system:
@@ -192,41 +193,4 @@ class GeminiProvider:
             raise
         except Exception as err:
             logger.exception(f"Unexpected error when getting response: {err}")
-            raise
-
-    async def get_async_response(
-        self,
-        system: str,
-        prompt: str,
-        temperature: float | None = None,
-        max_tokens: int | None = None,
-        tools: list[dict] | None = None,
-        distinct_id: str = "",
-        trace_id: str | None = None,
-        properties: dict | None = None,
-        groups: dict | None = None,
-    ) -> str:
-        """
-        Get direct string response from Gemini API for a provided string prompt (no streaming).
-        """
-        self.validate_model(self.model_id)
-        try:
-            config_kwargs = self.prepare_config_kwargs(
-                system=system, temperature=temperature, max_tokens=max_tokens, tools=tools
-            )
-            response = await self.client.aio.models.generate_content(
-                model=self.model_id,
-                contents=prompt,
-                config=GenerateContentConfig(**config_kwargs),
-                posthog_distinct_id=distinct_id,
-                posthog_trace_id=trace_id or str(uuid.uuid4()),
-                posthog_properties={**(properties or {}), "ai_product": "playground"},
-                posthog_groups=groups or {},
-            )
-            return response.text
-        except APIError as err:
-            logger.exception(f"Gemini API error when getting async response: {err}")
-            raise
-        except Exception as err:
-            logger.exception(f"Unexpected error when getting async response: {err}")
             raise
