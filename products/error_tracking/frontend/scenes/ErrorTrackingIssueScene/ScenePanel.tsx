@@ -78,6 +78,7 @@ export const ErrorTrackingIssueScenePanel = ({ showActions = true }: { showActio
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
     const hasSimilarIssues = useFeatureFlag('ERROR_TRACKING_RELATED_ISSUES')
     const hasDiscussions = useFeatureFlag('DISCUSSIONS')
+    const hasNewIssueLayout = useFeatureFlag('ERROR_TRACKING_ISSUE_LAYOUT_V2')
     const { openSidePanel } = useActions(sidePanelLogic)
 
     return issue ? (
@@ -140,7 +141,7 @@ export const ErrorTrackingIssueScenePanel = ({ showActions = true }: { showActio
             {hasIssueSplitting && <IssueFingerprints />}
             {hasTasks && <IssueTasks />}
             <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
-            <IssueBreakdowns />
+            {hasNewIssueLayout && <IssueBreakdowns />}
             {hasSimilarIssues && <SimilarIssues />}
         </div>
     ) : null
