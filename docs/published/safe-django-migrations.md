@@ -1,4 +1,8 @@
-# Safe Django Migration Guide
+---
+title: Safe Django Migrations
+showTitle: true
+noindex: true
+---
 
 This guide explains how to safely perform dangerous Django migration operations in production with PostgreSQL. Each section covers a risky operation and provides step-by-step instructions for the safe approach.
 
