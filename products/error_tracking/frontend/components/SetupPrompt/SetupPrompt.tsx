@@ -11,7 +11,13 @@ import { ProductKey } from '~/types'
 
 import { exceptionIngestionLogic } from './exceptionIngestionLogic'
 
-export const ErrorTrackingSetupPrompt = ({ children }: { children: React.ReactNode }): JSX.Element => {
+export const ErrorTrackingSetupPrompt = ({
+    children,
+    className,
+}: {
+    children: React.ReactNode
+    className?: string
+}): JSX.Element => {
     const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(exceptionIngestionLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const exceptionAutocaptureEnabled = currentTeam && currentTeam.autocapture_exceptions_opt_in
@@ -21,13 +27,13 @@ export const ErrorTrackingSetupPrompt = ({ children }: { children: React.ReactNo
             <Spinner />
         </div>
     ) : !hasSentExceptionEvent && !exceptionAutocaptureEnabled ? (
-        <IngestionStatusCheck />
+        <IngestionStatusCheck className={className} />
     ) : (
         <>{children}</>
     )
 }
 
-const IngestionStatusCheck = (): JSX.Element | null => {
+const IngestionStatusCheck = ({ className }: { className?: string }): JSX.Element | null => {
     const { addProductIntent, updateCurrentTeam } = useActions(teamLogic)
 
     return (
@@ -38,6 +44,7 @@ const IngestionStatusCheck = (): JSX.Element | null => {
             description="To start capturing exceptions you need to enable exception autocapture. Exception autocapture only applies to the JS SDK. Installation for other platforms are described in the docs."
             isEmpty={true}
             productKey={ProductKey.ERROR_TRACKING}
+            className={className}
             actionElementOverride={
                 <>
                     <LemonButton
