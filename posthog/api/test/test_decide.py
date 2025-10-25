@@ -628,6 +628,58 @@ class TestDecide(BaseTest, QueryMatchingTest):
             assert response.status_code == 200
             assert response.json()["sessionRecording"] == make_session_recording_decide_response(expected)
 
+    @parameterized.expand(
+        [
+            [
+                "sample rate 0.0 excludes all teams",
+                "new-recorder",
+                [],
+                0.0,
+            ],
+            [
+                "sample rate 1.0 includes all teams",
+                "new-recorder",
+                [],
+                1.0,
+            ],
+            [
+                "allowlist bypasses sample rate when sampled out",
+                "new-recorder",
+                [],
+                0.0,
+            ],
+        ]
+    )
+    def test_session_recording_script_config_with_sample_rate(
+        self,
+        _name: str,
+        rrweb_script_name: str,
+        team_allow_list: list[str],
+        sample_rate: float,
+    ) -> None:
+        self._update_team(
+            {
+                "session_recording_opt_in": True,
+            }
+        )
+
+        if "bypasses sample rate" in _name:
+            team_allow_list.append(f"{self.team.id}")
+
+        with self.settings(
+            SESSION_REPLAY_RRWEB_SCRIPT=rrweb_script_name,
+            SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS=team_allow_list,
+            SESSION_REPLAY_RRWEB_SCRIPT_SAMPLE_RATE=sample_rate,
+        ):
+            response = self._post_decide(api_version=3)
+            assert response.status_code == 200
+            result = response.json()["sessionRecording"]
+
+            if "0.0" in _name and "bypasses" not in _name:
+                assert result.get("scriptConfig") is None
+            elif "1.0" in _name or "bypasses" in _name:
+                assert result.get("scriptConfig") == {"script": rrweb_script_name}
+
     def test_exception_autocapture_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
