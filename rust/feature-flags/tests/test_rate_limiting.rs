@@ -585,6 +585,107 @@ async fn test_both_rate_limiters_together() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_ip_rate_limit_respects_x_forwarded_for() -> Result<()> {
+    // Test that IP rate limiting properly isolates different client IPs from X-Forwarded-For header
+    // This test demonstrates the bug where all requests appear to come from the same IP (load balancer)
+    let mut config = Config::default_test_config();
+    config.flags_ip_rate_limit_enabled = FlexBool(true);
+    config.flags_ip_burst_size = 3;
+    config.flags_ip_replenish_rate = 0.1;
+
+    // Set up team and token
+    let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(redis_client.clone())
+        .await
+        .unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, "user123".to_string(), None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+    let client = reqwest::Client::new();
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": "user123",
+    });
+
+    // First IP: 1.2.3.4 - make 3 requests (should all succeed within burst limit)
+    for i in 1..=3 {
+        let response = client
+            .post(format!("http://{}/flags", server.addr))
+            .header("content-type", "application/json")
+            .header("X-Forwarded-For", "1.2.3.4")
+            .json(&payload)
+            .send()
+            .await?;
+
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "Request {i} from IP 1.2.3.4 should succeed (within burst limit)"
+        );
+    }
+
+    // Second IP: 5.6.7.8 - make 3 requests
+    // EXPECTED: These should succeed because it's a different IP with its own bucket
+    // ACTUAL BUG: These will be rate limited because all requests share the load balancer's IP bucket
+    for i in 1..=3 {
+        let response = client
+            .post(format!("http://{}/flags", server.addr))
+            .header("content-type", "application/json")
+            .header("X-Forwarded-For", "5.6.7.8")
+            .json(&payload)
+            .send()
+            .await?;
+
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "Request {i} from IP 5.6.7.8 should succeed (different IP, separate bucket)"
+        );
+    }
+
+    // Verify that each IP still has its own rate limit
+    // First IP should now be rate limited (4th request)
+    let response = client
+        .post(format!("http://{}/flags", server.addr))
+        .header("content-type", "application/json")
+        .header("X-Forwarded-For", "1.2.3.4")
+        .json(&payload)
+        .send()
+        .await?;
+
+    assert_eq!(
+        response.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "4th request from IP 1.2.3.4 should be rate limited"
+    );
+
+    // Second IP should also now be rate limited (4th request)
+    let response = client
+        .post(format!("http://{}/flags", server.addr))
+        .header("content-type", "application/json")
+        .header("X-Forwarded-For", "5.6.7.8")
+        .json(&payload)
+        .send()
+        .await?;
+
+    assert_eq!(
+        response.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "4th request from IP 5.6.7.8 should be rate limited"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_ip_rate_limit_disabled() -> Result<()> {
     // Verify IP rate limiting is disabled by default
     let mut config = Config::default_test_config();
