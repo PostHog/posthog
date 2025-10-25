@@ -29,13 +29,16 @@ import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, isObject, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+import { ProductKey } from '~/types'
 
 import { ConversationMessagesDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
@@ -573,6 +576,7 @@ const EventContent = React.memo(
         eventMetadata?: Record<string, unknown>
     }): JSX.Element => {
         const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
+        const { addProductIntent } = useActions(teamLogic)
         const { featureFlags } = useValues(featureFlagLogic)
 
         const [viewMode, setViewMode] = useState(TraceViewMode.Conversation)
@@ -609,6 +613,18 @@ const EventContent = React.memo(
             }
 
             setupPlaygroundFromEvent({ model, input, tools })
+        }
+
+        const handleViewReplay = (): void => {
+            addProductIntent({
+                product_type: ProductKey.SESSION_REPLAY,
+                intent_context: ProductIntentContext.LLM_ANALYTICS_TRACE_VIEW_REPLAY,
+                metadata: {
+                    trace_id: trace.id,
+                    event_id: event?.id,
+                    session_id: sessionId,
+                },
+            })
         }
 
         return (
@@ -701,14 +717,16 @@ const EventContent = React.memo(
                                         />
                                     )}
                                     {hasSessionRecording && (
-                                        <ViewRecordingButton
-                                            inModal
-                                            type="secondary"
-                                            size="xsmall"
-                                            data-attr="llm-analytics"
-                                            sessionId={sessionId || undefined}
-                                            timestamp={removeMilliseconds(event.createdAt)}
-                                        />
+                                        <div onClick={handleViewReplay}>
+                                            <ViewRecordingButton
+                                                inModal
+                                                type="secondary"
+                                                size="xsmall"
+                                                data-attr="llm-analytics"
+                                                sessionId={sessionId || undefined}
+                                                timestamp={removeMilliseconds(event.createdAt)}
+                                            />
+                                        </div>
                                     )}
                                 </div>
                             )}
