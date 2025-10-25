@@ -1,6 +1,6 @@
 from collections.abc import Iterable
 from datetime import datetime, timedelta
-from typing import Optional, Union, cast
+from typing import Optional, Union
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
@@ -308,20 +308,18 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
 
     def revenue_subqueries(self, schema: RevenueAnalyticsSchema) -> Iterable[SavedQuery]:
         for view_name in self.database.get_view_names():
-            # Ignore the `.all.` queries and match on the suffix
-            # To be extra sure we aren't including user-defined queries we also assert they're managed by the Revenue Analytics managed viewset (if flag is enabled)
-            if ".all." not in view_name and (
-                view_name.endswith(schema.source_suffix) or view_name.endswith(schema.events_suffix)
-            ):
+            if view_name.endswith(schema.source_suffix) or view_name.endswith(schema.events_suffix):
                 # Handle both the old way (`RevenueAnalyticsBaseView`) and the feature-flagged way (`SavedQuery` via managed viewsets)
                 # Once the `managed-viewsets` feature flag is fully rolled out we can remove the first check
+                # To be extra sure we aren't including user-defined queries we also assert they're managed by the Revenue Analytics managed viewset
                 table = self.database.get_table(view_name)
                 if isinstance(table, RevenueAnalyticsBaseView):
                     yield table
-                else:
-                    table = cast(SavedQuery, table)
-                    if table.managed_viewset_kind == DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS:
-                        yield table
+                elif (
+                    isinstance(table, SavedQuery)
+                    and table.managed_viewset_kind == DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
+                ):
+                    yield table
 
     @cached_property
     def query_date_range(self):
