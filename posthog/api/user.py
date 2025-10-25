@@ -45,7 +45,6 @@ from posthog.api.utils import (
     unparsed_hostname_in_allowed_url_list,
 )
 from posthog.auth import (
-    OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
     TemporaryTokenAuthentication,
@@ -412,7 +411,7 @@ class UserViewSet(
     scope_object = "user"
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
     permission_classes = [
         IsAuthenticated,
         APIScopePermission,
@@ -552,12 +551,7 @@ class UserViewSet(
         methods=["GET", "PATCH"],
         detail=True,
         throttle_classes=[],
-        authentication_classes=[
-            TemporaryTokenAuthentication,
-            SessionAuthentication,
-            PersonalAPIKeyAuthentication,
-            OAuthAccessTokenAuthentication,
-        ],
+        authentication_classes=[TemporaryTokenAuthentication, SessionAuthentication, PersonalAPIKeyAuthentication],
     )
     def hedgehog_config(self, request, **kwargs):
         instance = self.get_object()
