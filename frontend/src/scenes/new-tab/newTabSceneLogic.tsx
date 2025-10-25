@@ -77,6 +77,7 @@ export interface NewTabCategoryItem {
 }
 
 const PAGINATION_LIMIT = 5
+const PREFETCH_LIMIT = 10 // Load this many, but only show PAGINATION_LIMIT initially
 
 function getIconForFileSystemItem(fs: FileSystemImport): JSX.Element {
     // If the item has a direct icon property, use it with color wrapper
@@ -106,7 +107,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         onSubmit: true,
         setSelectedCategory: (category: NEW_TAB_CATEGORY_ITEMS) => ({ category }),
         loadRecents: true,
-        loadMoreRecents: true,
         prefetchNextRecents: true,
         showMoreRecents: true,
         debouncedPersonSearch: (searchTerm: string) => ({ searchTerm }),
@@ -145,24 +145,23 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     const currentRecents = values.recents
                     const currentlyExpanded = values.recentsExpanded
 
-                    // For refresh: maintain current view, for initial load: use default limit
-                    const isRefresh = currentRecents.results.length > 0
-                    const currentTotalLoaded =
-                        isRefresh && currentlyExpanded ? currentRecents.totalLoaded : PAGINATION_LIMIT
+                    // Always start with prefetch amount unless user has expanded and we need to maintain view
+                    const shouldMaintainExpandedView = currentRecents.results.length > 0 && currentlyExpanded
+                    const loadLimit = shouldMaintainExpandedView ? currentRecents.totalLoaded : PREFETCH_LIMIT
 
                     const response = await api.fileSystem.list({
                         search: searchTerm,
-                        limit: currentTotalLoaded + 1, // Load current amount + 1 to check if there are more
+                        limit: loadLimit,
                         orderBy: '-last_viewed_at',
                         notType: 'folder',
                     })
                     breakpoint()
                     const recents = {
                         searchTerm,
-                        results: response.results.slice(0, currentTotalLoaded),
-                        hasMore: response.results.length > currentTotalLoaded,
-                        lastCount: Math.min(response.results.length, currentTotalLoaded),
-                        totalLoaded: Math.min(response.results.length, currentTotalLoaded),
+                        results: response.results,
+                        hasMore: response.results.length === loadLimit, // If we got exactly what we asked for, there might be more
+                        lastCount: response.results.length,
+                        totalLoaded: response.results.length,
                     }
                     if ('sessionStorage' in window && searchTerm === '') {
                         try {
@@ -176,33 +175,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     }
                     return recents
                 },
-                loadMoreRecents: async (_, breakpoint) => {
-                    const currentRecents = values.recents
-                    const searchTerm = values.search.trim()
-                    const offset = currentRecents.totalLoaded || 0
-
-                    const response = await api.fileSystem.list({
-                        search: searchTerm,
-                        limit: 5 + 1, // Load 5 more + 1 to check if there are more
-                        offset: offset,
-                        orderBy: '-last_viewed_at',
-                        notType: 'folder',
-                    })
-                    breakpoint()
-
-                    const newResults = response.results.slice(0, 5)
-                    const hasMore = response.results.length > 5
-
-                    const updatedRecents = {
-                        searchTerm,
-                        results: [...currentRecents.results, ...newResults],
-                        hasMore: hasMore,
-                        lastCount: newResults.length,
-                        totalLoaded: currentRecents.totalLoaded + newResults.length,
-                    }
-
-                    return updatedRecents
-                },
             },
         ],
         recentsPrefetchedBatch: [
@@ -215,25 +187,23 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                     const response = await api.fileSystem.list({
                         search: searchTerm,
-                        limit: 5 + 1, // Load 5 more + 1 to check if there are more
+                        limit: PAGINATION_LIMIT,
                         offset: offset,
                         orderBy: '-last_viewed_at',
                         notType: 'folder',
                     })
                     breakpoint()
 
-                    const newResults = response.results.slice(0, 5)
-                    const hasMore = response.results.length > 5
-
-                    const prefetchedBatch = {
+                    const newResults = response.results
+                    const updatedRecents = {
                         searchTerm,
                         results: [...currentRecents.results, ...newResults],
-                        hasMore: hasMore,
+                        hasMore: newResults.length === PAGINATION_LIMIT, // If we got exactly 5, there might be more
                         lastCount: newResults.length,
                         totalLoaded: currentRecents.totalLoaded + newResults.length,
                     }
 
-                    return prefetchedBatch
+                    return updatedRecents
                 },
             },
         ],
@@ -1231,17 +1201,19 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             if (prefetchedBatch) {
                 // Use prefetched data instantly
                 actions.loadRecentsSuccess(prefetchedBatch)
-                // Prefetch the next batch in background
+                // Clear prefetch and start loading next batch
+                actions.prefetchNextRecentsSuccess(null)
                 actions.prefetchNextRecents()
             } else {
-                // Fallback to loading if no prefetch available
-                actions.loadMoreRecents()
+                // No prefetched data yet, trigger prefetch for first time
+                actions.prefetchNextRecents()
             }
         },
         loadRecentsSuccess: () => {
-            // Prefetch next batch when recents load successfully and we have more
+            // Only prefetch if we have fewer items than the initial prefetch amount
+            // This prevents auto-prefetch on initial load (which loads 10 items)
             const recents = values.recents
-            if (recents.hasMore && !values.recentsPrefetchedBatch) {
+            if (recents.hasMore && !values.recentsPrefetchedBatch && recents.totalLoaded > PREFETCH_LIMIT) {
                 actions.prefetchNextRecents()
             }
         },
