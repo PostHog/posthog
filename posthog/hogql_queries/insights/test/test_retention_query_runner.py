@@ -5665,6 +5665,101 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(cohort_row["values"][0]["count"], 1)  # Interval 0
         self.assertEqual(cohort_row["values"][1]["count"], 0)  # Interval 1
 
+    def test_custom_brackets_day_period(self):
+        """
+        Validate custom bracket logic with day periods. Brackets start from Day 1 (Day 0 is the cohort day).
+
+        Setup:
+        - p1: start Day 0, returns Day 1, 5, 16  -> contributes to brackets [1-4], [5-14], [15-17]
+        - p2: start Day 0, returns Day 4, 10     -> contributes to brackets [1-4], [5-14]
+        - p3: start Day 0, no returns            -> cohort only
+
+        Expectations for Day 0 cohort with brackets [4, 10, 3] (i.e. Day 1-4, Day 5-14, Day 15-17):
+        counts: [cohort_size=3, bracket1=2, bracket2=2, bracket3=1]
+        labels: ['Day 0', 'Day 1-4', 'Day 5-14', 'Day 15-17']
+        """
+
+        # People
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["p3"])
+
+        # Events - all are $pageview (default start/return entity in runner)
+        _create_events(
+            self.team,
+            [
+                # p1: start + returns across 3 brackets
+                ("p1", _date(0)),
+                ("p1", _date(1)),  # Day 1  -> bracket 1
+                ("p1", _date(5)),  # Day 5  -> bracket 2
+                ("p1", _date(16)),  # Day 16 -> bracket 3
+                # p2: start + returns across first two brackets
+                ("p2", _date(0)),
+                ("p2", _date(4)),  # Day 4  -> bracket 1
+                ("p2", _date(10)),  # Day 10 -> bracket 2
+                # p3: start only
+                ("p3", _date(0)),
+            ],
+        )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(20)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 21,
+                    "retentionCustomBrackets": [4, 10, 3],
+                },
+            }
+        )
+
+        # Find Day 0 row
+        day0_row = next(row for row in result if row["label"] == "Day 0")
+
+        # Column labels should reflect custom brackets
+        self.assertEqual(
+            [v["label"] for v in day0_row["values"]],
+            ["Day 0", "Day 1-4", "Day 5-14", "Day 15-17"],
+        )
+
+        # Counts per bracket for Day 0 cohort
+        self.assertEqual([v["count"] for v in day0_row["values"]], [3, 2, 2, 1])
+
+    def test_custom_brackets_day_period_single_day_bracket_label(self):
+        """
+        Bracket of size 1 should render as a single day label (e.g. 'Day 7') not a range.
+        """
+
+        _create_person(team_id=self.team.pk, distinct_ids=["a1"])  # start Day 0
+        _create_events(
+            self.team,
+            [
+                ("a1", _date(0)),
+                ("a1", _date(7)),  # Day 7 -> should fall into single-day bracket
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 11,
+                    "retentionCustomBrackets": [7, 2],  # Day 1-7, Day 8-9
+                },
+            }
+        )
+
+        day0_row = next(row for row in result if row["label"] == "Day 0")
+        # Expect labels Day 0, Day 1-7, Day 8-9
+        self.assertEqual(
+            [v["label"] for v in day0_row["values"]],
+            ["Day 0", "Day 1-7", "Day 8-9"],
+        )
+        # Counts: cohort size 1, returned in first bracket once, none in second
+        self.assertEqual([v["count"] for v in day0_row["values"]], [1, 1, 0])
+
     def test_retention_24h_window_weekly_cohorts(self):
         # Test 24-hour windows with weekly retention cohorts
         # Week period with 24h windows uses 7-day (168 hour) rolling windows

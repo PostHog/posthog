@@ -3,6 +3,7 @@ import { connect, kea, key, path, props, selectors } from 'kea'
 import { QUnitType, dayjs } from 'lib/dayjs'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { dateOptionPlurals } from 'scenes/retention/constants'
 import { ProcessedRetentionPayload, RetentionTrendPayload } from 'scenes/retention/types'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -172,6 +173,34 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                 }
                 // Return series with matching breakdown value
                 return trendSeries.filter((series) => series.breakdown_value === selectedBreakdownValue)
+            },
+        ],
+
+        xAxisLabels: [
+            (s) => [s.retentionFilter, s.results],
+            (retentionFilter, results) => {
+                if (!retentionFilter || !results) {
+                    return []
+                }
+                const { period, retentionCustomBrackets } = retentionFilter
+                const unit = dateOptionPlurals[period || 'Day']
+
+                if (retentionCustomBrackets) {
+                    const labels = ['Day 0']
+                    let cumulativeTotal = 1
+                    for (const bracketSize of retentionCustomBrackets) {
+                        const start = cumulativeTotal
+                        const end = cumulativeTotal + bracketSize - 1
+                        if (start === end) {
+                            labels.push(`${unit} ${start}`)
+                        } else {
+                            labels.push(`${unit} ${start}-${end}`)
+                        }
+                        cumulativeTotal += bracketSize
+                    }
+                    return labels
+                }
+                return results?.[0]?.values.map((_, i) => `${period} ${i}`)
             },
         ],
     }),

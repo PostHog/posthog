@@ -114,21 +114,30 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
             },
         ],
 
+        tableHeaders: [
+            (s) => [s.results],
+            (results) => {
+                if (results.length > 0 && results[0].values.length > 0) {
+                    return results[0].values.map((value) => value.label)
+                }
+                return []
+            },
+        ],
         tableRowsSplitByBreakdownValue: [
             (s) => [s.tableRows],
-            (tableRows): Record<string, RetentionTableRow[]> =>
-                tableRows.reduce(
+            (tableRows) => {
+                return tableRows.reduce(
                     (acc, row) => {
                         const breakdownValue = row.breakdown_value ?? NO_BREAKDOWN_VALUE
                         acc[breakdownValue] = [...(acc[breakdownValue] || []), row]
                         return acc
                     },
                     {} as Record<string, RetentionTableRow[]>
-                ),
+                )
+            },
         ],
     }),
 ])
-
 // Helper function to auto-expand a single breakdown
 function autoExpandSingleBreakdown(
     tableRowsSplitByBreakdownValue: Record<string, RetentionTableRow[]>,

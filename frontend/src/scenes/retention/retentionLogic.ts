@@ -21,6 +21,7 @@ const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 export const OVERALL_MEAN_KEY = '__overall__'
 export const DEFAULT_RETENTION_TOTAL_INTERVALS = 8
 export const RETENTION_EMPTY_BREAKDOWN_VALUE = '(empty)'
+export const MAX_BRACKETS = 30
 
 // Define a type for the output of the retentionMeans selector
 export interface MeanRetentionValue {
@@ -47,12 +48,57 @@ export const retentionLogic = kea<retentionLogicType>([
     })),
     actions({
         setSelectedBreakdownValue: (value: string | number | boolean | null) => ({ value }),
+        setLocalCustomBrackets: (brackets: (string | number)[]) => ({ brackets }),
+        updateLocalCustomBracket: (index: number, value: number | undefined) => ({ index, value }),
+        addCustomBracket: () => ({}),
+        removeCustomBracket: (index: number) => ({ index }),
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         updateBreakdownFilter: () => {
             // Reset selected breakdown value when breakdown filter changes
             // This prevents the dropdown from showing invalid cohort IDs
             actions.setSelectedBreakdownValue(null)
+        },
+        updateLocalCustomBracket: async (_, breakpoint) => {
+            await breakpoint(300)
+            const { localCustomBrackets, retentionFilter } = values
+            const numericBrackets = localCustomBrackets
+                .map((b) => (typeof b === 'string' ? parseInt(b, 10) : b))
+                .filter((b): b is number => !isNaN(Number(b)) && Number(b) > 0)
+
+            if (JSON.stringify(numericBrackets) !== JSON.stringify(retentionFilter?.retentionCustomBrackets || [])) {
+                actions.updateInsightFilter({
+                    retentionCustomBrackets: numericBrackets.length > 0 ? numericBrackets : undefined,
+                })
+            }
+        },
+        updateInsightFilter: ({ insightFilter }) => {
+            const retentionFilter = insightFilter as RetentionFilter
+            if (retentionFilter.retentionCustomBrackets !== undefined) {
+                const { localCustomBrackets } = values
+                const numericLocal = localCustomBrackets
+                    .map((b) => (typeof b === 'string' ? parseInt(b, 10) : b))
+                    .filter((b): b is number => !isNaN(Number(b)) && Number(b) > 0)
+
+                const incomingBrackets = retentionFilter.retentionCustomBrackets || []
+
+                if (JSON.stringify(numericLocal) !== JSON.stringify(incomingBrackets)) {
+                    actions.setLocalCustomBrackets([...incomingBrackets, ''])
+                }
+            }
+        },
+        removeCustomBracket: async (_, breakpoint) => {
+            await breakpoint(300)
+            const { localCustomBrackets, retentionFilter } = values
+            const numericBrackets = localCustomBrackets
+                .map((b) => (typeof b === 'string' ? parseInt(b, 10) : b))
+                .filter((b): b is number => !isNaN(Number(b)) && Number(b) > 0)
+
+            if (JSON.stringify(numericBrackets) !== JSON.stringify(retentionFilter?.retentionCustomBrackets || [])) {
+                actions.updateInsightFilter({
+                    retentionCustomBrackets: numericBrackets.length > 0 ? numericBrackets : undefined,
+                })
+            }
         },
     })),
     reducers({
@@ -60,6 +106,31 @@ export const retentionLogic = kea<retentionLogicType>([
             null as string | number | boolean | null,
             {
                 setSelectedBreakdownValue: (_, { value }) => value,
+            },
+        ],
+        localCustomBrackets: [
+            [] as (string | number)[],
+            {
+                setLocalCustomBracks: (_, { brackets }) => brackets,
+                updateLocalCustomBracket: (state, { index, value }) => {
+                    const newBrackets = [...state]
+                    newBrackets[index] = value ?? ''
+                    return newBrackets
+                },
+                addCustomBracket: (state) => {
+                    if (state.length >= MAX_BRACKETS) {
+                        return state
+                    }
+                    return [...state, '']
+                },
+                removeCustomBracket: (state, { index }) => {
+                    const newBrackets = [...state]
+                    newBrackets.splice(index, 1)
+                    if (newBrackets.filter((b) => b !== '').length === 0) {
+                        return ['']
+                    }
+                    return newBrackets
+                },
             },
         ],
     }),
@@ -121,7 +192,9 @@ export const retentionLogic = kea<retentionLogicType>([
                     return {}
                 }
 
-                const { totalIntervals = DEFAULT_RETENTION_TOTAL_INTERVALS, meanRetentionCalculation } = retentionFilter
+                const { meanRetentionCalculation } = retentionFilter
+                const numIntervals = results.length > 0 ? results[0].values.length : 0
+
                 const groupedByBreakdown: Record<string, ProcessedRetentionPayload[]> = {}
 
                 if (hasValidBreakdown) {
@@ -151,7 +224,7 @@ export const retentionLogic = kea<retentionLogicType>([
                         ? 'Overall'
                         : (breakdownRows[0]?.breakdown_value ?? null)
 
-                    for (let intervalIndex = 0; intervalIndex < totalIntervals; intervalIndex++) {
+                    for (let intervalIndex = 0; intervalIndex < numIntervals; intervalIndex++) {
                         const validRows = breakdownRows.filter(
                             (row) =>
                                 row.values[intervalIndex] && // Ensure data for this interval exists
