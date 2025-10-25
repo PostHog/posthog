@@ -39,6 +39,7 @@ defs = dagster.Definitions(
         web_preaggregated_hourly.web_pre_aggregate_current_day_hourly_schedule,
         web_preaggregated.web_pre_aggregate_historical_schedule,
         web_preaggregated.web_pre_aggregate_current_day_schedule,
+        web_preaggregated.web_analytics_v2_backfill_schedule,
     ],
     resources=resources,
 )
