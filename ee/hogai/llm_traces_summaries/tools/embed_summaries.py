@@ -96,11 +96,6 @@ class LLMTracesSummarizerEmbedder:
         )
         return result[0][0] > 0
 
-    # @staticmethod
-    # def generate_document_type(prefix: str, summary_type: LLMTraceSummary.LLMTraceSummaryType) -> str:
-    #     """Combine the prefix with the summary type to explicitly specify the document type for better searching"""
-    #     return f"{prefix}_{summary_type.value}"
-
     def _embed_document(
         self, content: str, document_id: str, document_type: str, rendering: str, product: str
     ) -> datetime:

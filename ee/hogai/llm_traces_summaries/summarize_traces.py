@@ -4,7 +4,6 @@
 # TODO: 4. Generate embeddings (should be included in the previous step)
 # TODO: 5. Clusterize embeddings, return groups/singles/and group centroids
 
-
 from posthog.schema import DateRange
 
 from posthog.models.team.team import Team
@@ -64,7 +63,7 @@ class LLMTracesSummarizer:
         date_range: DateRange,
         summary_type: LLMTraceSummary.LLMTraceSummaryType,
     ):
-        """Search all summarized traces for the query and return the top similar traces."""
+        """Search all summarized traces withi the date range for the query and return the top similar traces."""
         finder = LLMTracesSummarizerFinder(team=self._team)
         return finder.find_top_similar_traces_for_query(
             query=query,
