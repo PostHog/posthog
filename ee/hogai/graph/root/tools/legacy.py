@@ -208,7 +208,7 @@ class llm_traces_summarization(BaseModel):
         - This will be used to find relevant LLM traces.
         - Always pass the user's complete, unmodified query.
         - Examples:
-          * 'find LLM traces with Google Tag Manager issues' 
+          * 'find LLM traces with Google Tag Manager issues'
           * 'search LLM traces to find cases with MP4 export'
           * and similar
         """
