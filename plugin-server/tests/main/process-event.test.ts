@@ -356,6 +356,7 @@ describe('processEvent', () => {
             [true],
             'testTag'
         )
+        team = await getFirstTeam(hub)
         await createPerson(hub, team, ['asdfasdfasdf'])
 
         await processEvent(
