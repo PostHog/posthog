@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { BuiltLogic, useValues } from 'kea'
+
 import { uuid } from 'lib/utils'
 
 import { NotebookNodeChildRenderer } from '../Nodes/NodeWrapper'

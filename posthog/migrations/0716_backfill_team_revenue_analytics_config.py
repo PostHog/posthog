@@ -1,4 +1,5 @@
 from django.db import migrations
+
 import structlog
 
 logger = structlog.get_logger(__name__)

@@ -7,10 +7,10 @@ import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import {
+    insertHogFunction as _insertHogFunction,
     createClickhousePerson,
     createHogFunction,
     createKafkaMessage,
-    insertHogFunction as _insertHogFunction,
 } from '../_tests/fixtures'
 import { HogFunctionType } from '../types'
 import { CdpPersonUpdatesConsumer } from './cdp-person-updates-consumer'

@@ -1,20 +1,30 @@
-from datetime import datetime, timedelta, UTC
 import time
+import socket
+from datetime import UTC, datetime, timedelta
 from typing import Optional
-from unittest.mock import patch, MagicMock
+
+import pytest
+from freezegun import freeze_time
+from posthog.test.base import BaseTest, override_settings
+from unittest.mock import MagicMock, patch
 
 from django.db import connection
-from freezegun import freeze_time
-import pytest
+
+from disposable_email_domains import blocklist as disposable_email_domains_list
+from rest_framework.exceptions import ValidationError
+
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import (
+    DatabricksIntegration,
+    DatabricksIntegrationError,
+    EmailIntegration,
+    GitHubIntegration,
+    GoogleCloudIntegration,
     Integration,
     OauthIntegration,
     SlackIntegration,
-    GoogleCloudIntegration,
-    GitHubIntegration,
 )
-from posthog.test.base import BaseTest
+from posthog.models.team.team import Team
 
 
 def get_db_field_value(field, model_id):
@@ -562,3 +572,81 @@ class TestGitHubIntegrationModel(BaseTest):
         assert integration.sensitive_config == {
             "access_token": "ACCESS_TOKEN",
         }
+
+
+class TestDatabricksIntegrationModel(BaseTest):
+    @patch("posthog.models.integration.socket.socket")
+    def test_integration_from_config_with_valid_config(self, mock_socket):
+        mock_socket.return_value.connect.return_value = None
+        integration = DatabricksIntegration.integration_from_config(
+            team_id=self.team.pk,
+            server_hostname="databricks.com",
+            client_id="client_id",
+            client_secret="client_secret",
+            created_by=self.user,
+        )
+        assert integration.team == self.team
+        assert integration.created_by == self.user
+        assert integration.config == {"server_hostname": "databricks.com"}
+        assert integration.sensitive_config == {"client_id": "client_id", "client_secret": "client_secret"}
+
+    @patch("posthog.models.integration.socket.socket")
+    def test_integration_from_config_with_invalid_server_hostname(self, mock_socket):
+        # this is the error raised when the server hostname is invalid
+        mock_socket.return_value.connect.side_effect = socket.gaierror(
+            8, "nodename nor servname provided, or not known"
+        )
+        with pytest.raises(
+            DatabricksIntegrationError, match="Databricks integration error: could not connect to hostname 'invalid'"
+        ):
+            DatabricksIntegration.integration_from_config(
+                team_id=self.team.pk,
+                server_hostname="invalid",
+                client_id="client_id",
+                client_secret="client_secret",
+                created_by=self.user,
+            )
+
+
+class TestEmailIntegrationDomainValidation(BaseTest):
+    @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
+    def test_successful_domain_creation_ses(self, mock_create_email_domain):
+        mock_create_email_domain.return_value = {"status": "success", "domain": "successdomain.com"}
+        config = {"email": "user@successdomain.com", "name": "Test User", "provider": "ses"}
+        integration = EmailIntegration.create_native_integration(config, team_id=self.team.id, created_by=self.user)
+        assert integration.team == self.team
+        assert integration.config["email"] == "user@successdomain.com"
+        assert integration.config["provider"] == "ses"
+        assert integration.config["domain"] == "successdomain.com"
+        assert integration.config["name"] == "Test User"
+        assert integration.config["verified"] is False
+
+    @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
+    def test_duplicate_domain_in_another_team(self):
+        # Create an integration with a domain in another team
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        config = {"email": "user@example.com", "name": "Test User"}
+        EmailIntegration.create_native_integration(config, team_id=other_team.id, created_by=self.user)
+
+        # Attempt to create the same domain in this team should raise ValidationError
+        with pytest.raises(ValidationError) as exc:
+            EmailIntegration.create_native_integration(config, team_id=self.team.id, created_by=self.user)
+        assert "already exists in another project" in str(exc.value)
+
+    @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
+    def test_unsupported_email_domain(self):
+        # Test with a free email domain
+        config = {"email": "user@gmail.com", "name": "Test User"}
+
+        with pytest.raises(ValidationError) as exc:
+            EmailIntegration.create_native_integration(config, team_id=self.team.id, created_by=self.user)
+        assert "not supported" in str(exc.value)
+
+        # Test with a disposable email domain
+        disposable_domain = next(iter(disposable_email_domains_list))
+        config = {"email": f"user@{disposable_domain}", "name": "Test User"}
+
+        with pytest.raises(ValidationError) as exc:
+            EmailIntegration.create_native_integration(config, team_id=self.team.id, created_by=self.user)
+        assert disposable_domain in str(exc.value)
+        assert "not supported" in str(exc.value)

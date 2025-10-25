@@ -1,5 +1,6 @@
-import { StorageExtension } from '@posthog/plugin-scaffold'
 import { Counter, Summary } from 'prom-client'
+
+import { StorageExtension } from '@posthog/plugin-scaffold'
 
 import { Hub, PluginConfig } from '../../../types'
 import { PostgresUse } from '../../../utils/db/postgres'

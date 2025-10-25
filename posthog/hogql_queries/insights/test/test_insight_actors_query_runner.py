@@ -1,27 +1,7 @@
-from typing import Any, Optional
 import re
+from typing import Any, Optional
 
 from freezegun import freeze_time
-
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
-from posthog.models.group.util import create_group
-from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.team import WeekStartDay
-from posthog.schema import (
-    HogQLQueryModifiers,
-    PersonsArgMaxVersion,
-    ActorsQuery,
-    InsightActorsQuery,
-    PersonPropertyFilter,
-    TrendsQuery,
-    DateRange,
-    EventsNode,
-    MathGroupTypeIndex,
-    BaseMathType,
-)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -30,12 +10,34 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from posthog.schema import (
+    ActorsQuery,
+    BaseMathType,
+    DateRange,
+    EventsNode,
+    HogQLQueryModifiers,
+    InsightActorsQuery,
+    MathGroupTypeIndex,
+    PersonPropertyFilter,
+    PersonsArgMaxVersion,
+    TrendsQuery,
+)
+
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
+from posthog.models.group.util import create_group
+from posthog.models.team import WeekStartDay
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
 
 class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def _create_test_groups(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
         create_group(

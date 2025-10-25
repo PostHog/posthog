@@ -2,19 +2,13 @@ from dataclasses import dataclass
 from functools import cache
 from typing import Optional, Union
 
+from posthog.schema import CustomChannelField, CustomChannelOperator, CustomChannelRule, DefaultChannelTypes
 
 from posthog.hogql import ast
 from posthog.hogql.database.models import ExpressionField
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.timings import HogQLTimings
-from posthog.schema import (
-    CustomChannelRule,
-    CustomChannelOperator,
-    CustomChannelField,
-    DefaultChannelTypes,
-)
-
 
 # Create a virtual field that categories the type of channel that a user was acquired through. Use GA4's definitions as
 # a starting point, but also add some custom logic to handle some edge cases that GA4 doesn't handle.
@@ -78,7 +72,7 @@ def _initial_domain_type_expr() -> ast.Expr:
 if(
     {referring_domain} = '$direct',
     '$direct',
-    hogql_lookupDomainType({referring_domain})
+    lookupDomainType({referring_domain})
 )
 """
     )
@@ -293,14 +287,14 @@ def _initial_default_channel_rules_expr():
                 {gad_source} IS NOT NULL
             ),
             coalesce(
-                hogql_lookupPaidSourceType({source}),
+                lookupPaidSourceType({source}),
                 if(
                     match({campaign}, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
                     'Paid Shopping',
                     NULL
                 ),
-                hogql_lookupPaidMediumType({medium}),
-                hogql_lookupPaidSourceType({referring_domain}),
+                lookupPaidMediumType({medium}),
+                lookupPaidSourceType({referring_domain}),
                 multiIf (
                     {gad_source} = '1',
                     'Paid Search',
@@ -324,14 +318,14 @@ def _initial_default_channel_rules_expr():
             'Direct',
 
             coalesce(
-                hogql_lookupOrganicSourceType({source}),
+                lookupOrganicSourceType({source}),
                 if(
                     match({campaign}, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
                     'Organic Shopping',
                     NULL
                 ),
-                hogql_lookupOrganicMediumType({medium}),
-                hogql_lookupOrganicSourceType({referring_domain}),
+                lookupOrganicMediumType({medium}),
+                lookupOrganicSourceType({referring_domain}),
                 multiIf(
                     match({campaign}, '^(.*video.*)$'),
                     'Organic Video',

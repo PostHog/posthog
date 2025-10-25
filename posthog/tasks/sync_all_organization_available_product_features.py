@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from typing import cast
-from posthog.cloud_utils import is_cloud
 
+from posthog.cloud_utils import is_cloud
 from posthog.models.organization import Organization
 
 

@@ -1,11 +1,11 @@
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import {
+    PerformanceMeasures,
+    TimingBar,
     calculatePerformanceParts,
     perfDescriptions,
-    PerformanceMeasures,
     perfSections,
-    TimingBar,
 } from 'scenes/session-recordings/apm/waterfall/TimingBar'
 
 import { PerformanceEvent } from '~/types'

@@ -1,24 +1,27 @@
-import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { BindLogic, useActions, useValues } from 'kea'
-import { featureFlagLogic, FeatureFlagLogicProps } from 'scenes/feature-flags/featureFlagLogic'
-import { IconRecording, IconSurveys } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { notebookNodeLogic } from './notebookNodeLogic'
-import { buildPlaylistContent } from './NotebookNodePlaylist'
-import { buildCodeExampleContent } from './NotebookNodeFlagCodeExample'
-import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
-import { buildEarlyAccessFeatureContent } from './NotebookNodeEarlyAccessFeature'
-import { notebookNodeFlagLogic } from './NotebookNodeFlagLogic'
-import { buildSurveyContent } from './NotebookNodeSurvey'
+import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
-import { NotFound } from 'lib/components/NotFound'
+
 import { IconFlag, IconRocket } from '@posthog/icons'
-import { INTEGER_REGEX_MATCH_GROUPS } from './utils'
+import { LemonDivider } from '@posthog/lemon-ui'
+
+import { NotFound } from 'lib/components/NotFound'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { IconRecording, IconSurveys } from 'lib/lemon-ui/icons'
+import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
+import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { urls } from 'scenes/urls'
+
 import { NotebookNodeProps, NotebookNodeType } from '../types'
+import { buildEarlyAccessFeatureContent } from './NotebookNodeEarlyAccessFeature'
+import { buildCodeExampleContent } from './NotebookNodeFlagCodeExample'
+import { notebookNodeFlagLogic } from './NotebookNodeFlagLogic'
+import { buildPlaylistContent } from './NotebookNodePlaylist'
+import { buildSurveyContent } from './NotebookNodeSurvey'
+import { notebookNodeLogic } from './notebookNodeLogic'
+import { INTEGER_REGEX_MATCH_GROUPS, OPTIONAL_PROJECT_NON_CAPTURE_GROUP } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagAttributes>): JSX.Element => {
     const { id } = attributes
@@ -152,7 +155,7 @@ export const NotebookNodeFlag = createPostHogWidgetNode<NotebookNodeFlagAttribut
         id: {},
     },
     pasteOptions: {
-        find: urls.featureFlag(INTEGER_REGEX_MATCH_GROUPS),
+        find: OPTIONAL_PROJECT_NON_CAPTURE_GROUP + urls.featureFlag(INTEGER_REGEX_MATCH_GROUPS),
         getAttributes: async (match) => {
             return { id: match[1] as FeatureFlagLogicProps['id'] }
         },

@@ -40,8 +40,8 @@ pub enum CookielessManagerError {
     #[error("Invalid identify count: {0}")]
     InvalidIdentifyCount(String),
 
-    #[error("Redis error: {0}")]
-    RedisError(String),
+    #[error("Redis error(key={0}): {1}")]
+    RedisError(String, String),
 }
 
 /// Configuration for the CookielessManager
@@ -301,20 +301,15 @@ impl CookielessManager {
         let redis_key = get_redis_identifies_key(hash, team_id);
 
         // Try to get the count from Redis
-        match self.redis_client.get(redis_key).await {
-            Ok(count_str) => {
-                // Parse the count string to a u64
-                count_str
-                    .parse::<u64>()
-                    .map_err(|e| CookielessManagerError::InvalidIdentifyCount(e.to_string()))
-            }
+        match self.redis_client.scard(redis_key.clone()).await {
+            Ok(count) => Ok(count),
             Err(common_redis::CustomRedisError::NotFound) => {
                 // If the key doesn't exist, the count is 0
                 Ok(0)
             }
             Err(e) => {
                 // If there's a Redis error, propagate it
-                Err(CookielessManagerError::RedisError(e.to_string()))
+                Err(CookielessManagerError::RedisError(redis_key, e.to_string()))
             }
         }
     }
@@ -342,12 +337,12 @@ pub fn extract_root_domain(url: &str) -> Result<String, CookielessManagerError> 
     // Check if it's an IPv6 address
     if let Ok(IpAddr::V6(ipv6)) = url.parse::<IpAddr>() {
         // Return the normalized form of the IPv6 address in brackets
-        return Ok(format!("[{}]", ipv6));
+        return Ok(format!("[{ipv6}]"));
     }
 
     // Add a fake protocol if none exists
     let input = if !url.contains("://") {
-        format!("http://{}", url)
+        format!("http://{url}")
     } else {
         url.to_string()
     };
@@ -364,7 +359,7 @@ pub fn extract_root_domain(url: &str) -> Result<String, CookielessManagerError> 
     // Check if the hostname is an IP address
     if hostname.parse::<IpAddr>().is_ok() {
         return match port {
-            Some(p) => Ok(format!("{}:{}", hostname, p)),
+            Some(p) => Ok(format!("{hostname}:{p}")),
             None => Ok(hostname.to_string()),
         };
     }
@@ -383,7 +378,7 @@ pub fn extract_root_domain(url: &str) -> Result<String, CookielessManagerError> 
 
     // Add the port back if it exists
     match port {
-        Some(p) => Ok(format!("{}:{}", domain, p)),
+        Some(p) => Ok(format!("{domain}:{p}")),
         None => Ok(domain),
     }
 }
@@ -425,6 +420,8 @@ pub fn get_redis_identifies_key(hash: &[u8], team_id: TeamId) -> String {
 
 #[cfg(test)]
 mod tests {
+    // TODO these tests should really hit a real redis rather than a mocked one
+
     use super::*;
     use common_redis::MockRedisClient;
     use serde_json::Value;
@@ -525,7 +522,7 @@ mod tests {
                 let expected_root_domain = test_case["expected_root_domain"].as_str().unwrap();
 
                 let result = extract_root_domain(host).unwrap();
-                assert_eq!(result, expected_root_domain, "Failed for host: {}", host);
+                assert_eq!(result, expected_root_domain, "Failed for host: {host}");
             }
         } else {
             panic!("extract_root_domain_tests not found in test_cases.json");
@@ -549,7 +546,7 @@ mod tests {
         let mut mock_redis = MockRedisClient::new();
         let salt_base64 = "AAAAAAAAAAAAAAAAAAAAAA=="; // 16 bytes of zeros
         let today = Utc::now().format("%Y-%m-%d").to_string();
-        let redis_key = format!("cookieless_salt:{}", today);
+        let redis_key = format!("cookieless_salt:{today}");
         mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
         let redis_client = Arc::new(mock_redis);
 
@@ -616,7 +613,7 @@ mod tests {
         let mut mock_redis = MockRedisClient::new();
         let salt_base64 = "AAAAAAAAAAAAAAAAAAAAAA=="; // 16 bytes of zeros
         let today = Utc::now().format("%Y-%m-%d").to_string();
-        let redis_key = format!("cookieless_salt:{}", today);
+        let redis_key = format!("cookieless_salt:{today}");
         mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
         let redis_client = Arc::new(mock_redis.clone());
 
@@ -836,7 +833,7 @@ mod tests {
         let redis_key = get_redis_identifies_key(&hash, team_id);
 
         // Set up the mock to return a count of 3
-        mock_redis = mock_redis.get_ret(&redis_key, Ok("3".to_string()));
+        mock_redis = mock_redis.scard_ret(&redis_key, Ok(3));
         let redis_client = Arc::new(mock_redis);
 
         // Create a CookielessManager
@@ -893,7 +890,7 @@ mod tests {
         let mut mock_redis = MockRedisClient::new();
         let salt_base64 = "AAAAAAAAAAAAAAAAAAAAAA=="; // 16 bytes of zeros
         let today = Utc::now().format("%Y-%m-%d").to_string();
-        let redis_key = format!("cookieless_salt:{}", today);
+        let redis_key = format!("cookieless_salt:{today}");
         mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
 
         // Create an event
@@ -930,7 +927,7 @@ mod tests {
         let identifies_key = get_redis_identifies_key(&base_hash, 1);
 
         // Set up the mock to return a count of 2
-        mock_redis = mock_redis.get_ret(&identifies_key, Ok("2".to_string()));
+        mock_redis = mock_redis.scard_ret(&identifies_key, Ok(2));
         let redis_client = Arc::new(mock_redis);
 
         // Create a CookielessManager
@@ -973,7 +970,7 @@ mod tests {
         let mut mock_redis = MockRedisClient::new();
         let salt_base64 = "AAAAAAAAAAAAAAAAAAAAAA=="; // 16 bytes of zeros
         let today = Utc::now().format("%Y-%m-%d").to_string();
-        let redis_key = format!("cookieless_salt:{}", today);
+        let redis_key = format!("cookieless_salt:{today}");
         mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
         let redis_client = Arc::new(mock_redis);
 
@@ -1053,7 +1050,7 @@ mod tests {
         let mut mock_redis = MockRedisClient::new();
         let salt_base64 = "AAAAAAAAAAAAAAAAAAAAAA=="; // 16 bytes of zeros
         let today = Utc::now().format("%Y-%m-%d").to_string();
-        let redis_key = format!("cookieless_salt:{}", today);
+        let redis_key = format!("cookieless_salt:{today}");
         mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
         let redis_client = Arc::new(mock_redis);
 
@@ -1087,5 +1084,38 @@ mod tests {
 
         // Check that we got a distinct ID
         assert!(result.starts_with(COOKIELESS_DISTINCT_ID_PREFIX));
+    }
+
+    #[tokio::test]
+    async fn test_includes_key_in_redis_error() {
+        // Create a mock Redis client
+        let mut mock_redis = MockRedisClient::new();
+        let hash = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+        let team_id = 1;
+        let redis_key = get_redis_identifies_key(&hash, team_id);
+
+        // Set up the mock to return an error
+        mock_redis = mock_redis.scard_ret(
+            &redis_key,
+            Err(common_redis::CustomRedisError::Other(
+                "Some Redis error".to_string(),
+            )),
+        );
+        let redis_client = Arc::new(mock_redis);
+
+        // Create a CookielessManager
+        let config = CookielessConfig::default();
+        let manager = CookielessManager::new(config, redis_client);
+
+        // Get the error
+        let result = manager
+            .get_identify_count(&hash, team_id)
+            .await
+            .unwrap_err();
+
+        // Check that the error string includes the Redis key and the error message
+        let error_str = result.to_string();
+        assert!(error_str.contains(&redis_key));
+        assert!(error_str.contains("Some Redis error"));
     }
 }

@@ -1,30 +1,34 @@
 # ruff: noqa: T201
 import json
 from dataclasses import dataclass
-from posthog.ph_client import get_client
+
+from django.db import IntegrityError, transaction
+
 from posthoganalytics import Posthog
+
 from posthog.event_usage import groups
 from posthog.models import (
-    User,
-    Team,
-    Project,
-    Organization,
-    Insight,
-    Dashboard,
-    FeatureFlag,
     Action,
-    Survey,
-    Experiment,
-    Cohort,
     Annotation,
-    EarlyAccessFeature,
-    Notebook,
+    Cohort,
+    Dashboard,
     EventDefinition,
-    PropertyDefinition,
+    Experiment,
+    FeatureFlag,
     GroupTypeMapping,
+    Insight,
+    Organization,
+    Project,
+    PropertyDefinition,
+    Survey,
+    Team,
+    User,
 )
 from posthog.models.organization import OrganizationMembership
-from django.db import transaction, IntegrityError
+from posthog.ph_client import get_client
+
+from products.early_access_features.backend.models import EarlyAccessFeature
+from products.notebooks.backend.models import Notebook
 
 
 @dataclass

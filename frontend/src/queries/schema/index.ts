@@ -4,10 +4,10 @@
 // For some reason Webpack (Storybook) and Sucrase (Jest) don't correctly process enums exported via `export * from ...`
 // (even though our actual app's esbuild setup compiles perfectly well.)
 
-/* oxlint-disable simple-import-sort/exports */
+// sort-imports-ignore
 export * from './schema-assistant-messages'
 export * from './schema-assistant-queries'
 export * from './schema-assistant-replay'
+export * from './schema-assistant-revenue-analytics'
 export * from './schema-general'
 export * from './schema-surveys'
-/* oxlint-enable simple-import-sort/exports */

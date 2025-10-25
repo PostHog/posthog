@@ -1,16 +1,18 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useState } from 'react'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 
-import { ConversionGoalFilter } from '~/queries/schema/schema-general'
+import { IconChevronDown, IconChevronRight } from '@posthog/icons'
+import { LemonInput } from '@posthog/lemon-ui'
+
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { objectsEqual } from 'lib/utils'
 
+import { ConversionGoalFilter } from '~/queries/schema/schema-general'
+
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
+import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { ConversionGoalDropdown } from '../common/ConversionGoalDropdown'
 import { defaultConversionGoalFilter } from '../settings/constants'
-import { LemonInput } from '@posthog/lemon-ui'
-import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 
 export const DraftConversionGoalControls = (): JSX.Element => {
     const { setDraftConversionGoal, setConversionGoalInput, resetConversionGoalInput, saveDraftConversionGoal } =

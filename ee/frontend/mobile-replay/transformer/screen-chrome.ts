@@ -1,18 +1,18 @@
 import {
-    keyboardEvent,
     NodeType,
+    keyboardEvent,
     serializedNodeWithId,
     wireframeNavigationBar,
     wireframeStatusBar,
 } from '../mobile.types'
 import { isLight } from './colors'
 import {
-    _isPositiveInteger,
     BACKGROUND,
     KEYBOARD_ID,
-    makePlaceholderElement,
     NAVIGATION_BAR_ID,
     STATUS_BAR_ID,
+    _isPositiveInteger,
+    makePlaceholderElement,
 } from './transformers'
 import { ConversionContext, ConversionResult } from './types'
 import { asStyleString, makeStylesString } from './wireframeStyle'

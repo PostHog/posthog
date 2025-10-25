@@ -1,5 +1,5 @@
-import collections.abc
 import datetime as dt
+import collections.abc
 from datetime import timedelta
 from math import ceil
 
@@ -7,10 +7,11 @@ from django.db import models
 
 from posthog.clickhouse.client import sync_execute
 from posthog.helpers.encrypted_fields import EncryptedJSONField
-from posthog.models.utils import UUIDModel
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.utils import UUIDTModel
 
 
-class BatchExportDestination(UUIDModel):
+class BatchExportDestination(UUIDTModel):
     """A model for the destination that a PostHog BatchExport will target.
 
     This model answers the question: where are we exporting data? It contains
@@ -28,6 +29,7 @@ class BatchExportDestination(UUIDModel):
         POSTGRES = "Postgres"
         REDSHIFT = "Redshift"
         BIGQUERY = "BigQuery"
+        DATABRICKS = "Databricks"
         HTTP = "HTTP"
         NOOP = "NoOp"
 
@@ -35,9 +37,11 @@ class BatchExportDestination(UUIDModel):
         "S3": {"aws_access_key_id", "aws_secret_access_key"},
         "Snowflake": {"user", "password", "private_key", "private_key_passphrase"},
         "Postgres": {"user", "password"},
-        "Redshift": {"user", "password"},
+        "Redshift": {"user", "password", "aws_access_key_id", "aws_secret_access_key"},
         "BigQuery": {"private_key", "private_key_id", "client_email", "token_uri"},
-        "HTTP": set("token"),
+        # Databricks does not have any secret fields, as we use integrations to store credentials
+        "Databricks": set(),
+        "HTTP": {"token"},
         "NoOp": set(),
     }
 
@@ -60,9 +64,16 @@ class BatchExportDestination(UUIDModel):
         auto_now=True,
         help_text="The timestamp at which this BatchExportDestination was last updated.",
     )
+    integration = models.ForeignKey(
+        "Integration",
+        on_delete=models.SET_NULL,
+        help_text="The integration for this destination.",
+        null=True,
+        blank=True,
+    )
 
 
-class BatchExportRun(UUIDModel):
+class BatchExportRun(UUIDTModel):
     """A model of a single run of a PostHog BatchExport given a time interval.
 
     It is used to keep track of the status and progress of the export
@@ -78,6 +89,7 @@ class BatchExportRun(UUIDModel):
         CONTINUED_AS_NEW = "ContinuedAsNew"
         FAILED = "Failed"
         FAILED_RETRYABLE = "FailedRetryable"
+        FAILED_BILLING = "FailedBilling"
         TERMINATED = "Terminated"
         TIMEDOUT = "TimedOut"
         RUNNING = "Running"
@@ -175,7 +187,7 @@ BATCH_EXPORT_INTERVALS = [
 ]
 
 
-class BatchExport(UUIDModel):
+class BatchExport(ModelActivityMixin, UUIDTModel):
     """
     Defines the configuration of PostHog to export data to a destination,
     either on a schedule (via the interval parameter), or manually by a
@@ -293,7 +305,7 @@ class BatchExport(UUIDModel):
         raise ValueError(f"Invalid interval: '{self.interval}'")
 
 
-class BatchExportBackfill(UUIDModel):
+class BatchExportBackfill(UUIDTModel):
     class Status(models.TextChoices):
         """Possible states of the BatchExportBackfill."""
 

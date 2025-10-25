@@ -1,12 +1,15 @@
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { CodeSnippet } from 'lib/components/CodeSnippet'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { teamLogic } from 'scenes/teamLogic'
-import { Form } from 'kea-forms'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { DefaultEvaluationEnvironments } from './DefaultEvaluationEnvironments'
 import { featureFlagConfirmationSettingsLogic } from './featureFlagConfirmationSettingsLogic'
 
 export type FeatureFlagSettingsProps = {
@@ -104,6 +107,11 @@ export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProp
                     </div>
                 )}
             </div>
+
+            <div className="space-y-2">
+                <DefaultEvaluationEnvironments />
+            </div>
+
             <div className="space-y-2">
                 <FlagsSecureApiKeys />
             </div>

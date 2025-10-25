@@ -3,10 +3,11 @@ package events
 import (
 	"fmt"
 	"log"
+	"slices"
 	"sync/atomic"
 
 	"github.com/gofrs/uuid/v5"
-	"slices"
+	"github.com/posthog/posthog/livestream/metrics"
 )
 
 type Subscription struct {
@@ -86,6 +87,7 @@ func uuidFromDistinctId(teamId int, distinctId string) string {
 func removeSubscription(subID uint64, subs []Subscription) []Subscription {
 	for i, sub := range subs {
 		if subID == sub.SubID {
+			metrics.SubTotal.Dec()
 			return slices.Delete(subs, i, i+1)
 		}
 	}
@@ -97,6 +99,7 @@ func (c *Filter) Run() {
 		select {
 		case newSub := <-c.SubChan:
 			c.subs = append(c.subs, newSub)
+			metrics.SubTotal.Inc()
 		case unSub := <-c.UnSubChan:
 			c.subs = removeSubscription(unSub.SubID, c.subs)
 		case event := <-c.inboundChan:

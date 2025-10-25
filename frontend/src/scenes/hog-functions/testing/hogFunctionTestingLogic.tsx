@@ -1,9 +1,11 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -191,10 +193,13 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
                         }
 
                         return [...values.retries, retry]
-                    } catch (e) {
-                        lemonToast.error(`An unexpected server error occurred while testing the function. ${e}`)
+                    } catch (e: any) {
+                        if (e?.data?.configuration?.filters?.non_field_errors) {
+                            lemonToast.error(`Testing failed: ${e.data.configuration.filters.non_field_errors}`)
+                        } else {
+                            lemonToast.error(`An unexpected server error occurred while testing the function: ${e}`)
+                        }
                     }
-
                     actions.removeLoadingRetry(eventId)
                     return [...values.retries]
                 },

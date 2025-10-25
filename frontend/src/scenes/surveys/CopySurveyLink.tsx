@@ -1,4 +1,5 @@
 import { LemonButton } from '@posthog/lemon-ui'
+
 import { IconLink } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 

@@ -1,5 +1,6 @@
 import { Replayer } from '@posthog/rrweb'
 import { CanvasArg } from '@posthog/rrweb-types'
+
 import { base64ArrayBuffer } from 'lib/utils'
 
 type GLVarMap = Map<string, any[]>

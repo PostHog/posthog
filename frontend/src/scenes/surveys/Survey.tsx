@@ -1,34 +1,32 @@
-import { LemonButton, LemonDivider, LemonTag, lemonToast, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { router } from 'kea-router'
+import { useEffect } from 'react'
+
+import { LemonDivider, LemonTag, Link, lemonToast } from '@posthog/lemon-ui'
+
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { useEffect } from 'react'
-import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
+import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { FeatureFlagFilters, Survey, SurveyMatchType } from '~/types'
 
-import { LOADING_SURVEY_RESULTS_TOAST_ID, NewSurvey, SurveyMatchTypeLabels } from './constants'
 import SurveyEdit from './SurveyEdit'
-import { surveyLogic } from './surveyLogic'
 import { SurveyView } from './SurveyView'
+import { LOADING_SURVEY_RESULTS_TOAST_ID, NewSurvey, SurveyMatchTypeLabels } from './constants'
+import { SurveyLogicProps, surveyLogic } from './surveyLogic'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<SurveyLogicProps> = {
     component: SurveyComponent,
     logic: surveyLogic,
-    paramsToProps: ({ params: { id } }): (typeof surveyLogic)['props'] => ({
-        id: id,
-    }),
+    paramsToProps: ({ params: { id } }) => ({ id }),
     settingSectionId: 'environment-surveys',
 }
 
-export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
+export function SurveyComponent({ id }: SurveyLogicProps): JSX.Element {
     const { editingSurvey, setSelectedPageIndex } = useActions(surveyLogic)
     const { isEditingSurvey, surveyMissing } = useValues(surveyLogic)
 
@@ -62,17 +60,7 @@ export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
 }
 
 export function SurveyForm({ id }: { id: string }): JSX.Element {
-    const { survey, surveyLoading, targetingFlagFilters } = useValues(surveyLogic)
-    const { loadSurvey, editingSurvey } = useActions(surveyLogic)
-
-    const handleCancelClick = (): void => {
-        editingSurvey(false)
-        if (id === 'new') {
-            router.actions.push(urls.surveys())
-        } else {
-            loadSurvey()
-        }
-    }
+    const { survey, targetingFlagFilters } = useValues(surveyLogic)
 
     return (
         <Form
@@ -83,31 +71,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
             className="deprecated-space-y-4"
             enableFormOnSubmit
         >
-            <PageHeader
-                buttons={
-                    <div className="flex items-center gap-2">
-                        <LemonButton
-                            data-attr="cancel-survey"
-                            type="secondary"
-                            loading={surveyLoading}
-                            onClick={handleCancelClick}
-                        >
-                            Cancel
-                        </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            data-attr="save-survey"
-                            htmlType="submit"
-                            loading={surveyLoading}
-                            form="survey"
-                        >
-                            {id === 'new' ? 'Save as draft' : 'Save'}
-                        </LemonButton>
-                    </div>
-                }
-            />
-            <LemonDivider />
-            <SurveyEdit />
+            <SurveyEdit id={id} />
             <LemonDivider />
             <SurveyDisplaySummary id={id} survey={survey} targetingFlagFilters={targetingFlagFilters} />
             <LemonDivider />

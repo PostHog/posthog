@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { IconFilter } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { capitalizeFirstLetter } from 'lib/utils'
 
 import { LogMessage } from '~/queries/schema/schema-general'
@@ -15,6 +17,8 @@ const options: Record<LogMessage['severity_text'], string> = {
     error: 'Error',
     fatal: 'Fatal',
 }
+
+const ALL_LOG_LEVELS = Object.values(options) as LogMessage['severity_text'][]
 
 export const SeverityLevelsFilter = (): JSX.Element => {
     const { severityLevels } = useValues(logsLogic)
@@ -35,7 +39,9 @@ export const SeverityLevelsFilter = (): JSX.Element => {
     }
 
     const displayLevels =
-        severityLevels.length > 0 ? severityLevels.map((l) => capitalizeFirstLetter(l)).join(', ') : 'All levels'
+        severityLevels.length !== ALL_LOG_LEVELS.length && severityLevels.length > 0
+            ? severityLevels.map((l) => capitalizeFirstLetter(l)).join(', ')
+            : 'All levels'
 
     return (
         <span className="rounded bg-surface-primary">

@@ -1,11 +1,13 @@
 import './LemonModal.scss'
 
-import { IconX } from '@posthog/icons'
 import clsx from 'clsx'
-import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useEffect, useRef, useState } from 'react'
 import Modal from 'react-modal'
+
+import { IconX } from '@posthog/icons'
+
+import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 

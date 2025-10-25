@@ -1,16 +1,12 @@
-from ..batch_exports.models import (
-    BatchExport,
-    BatchExportBackfill,
-    BatchExportDestination,
-    BatchExportRun,
-)
+# Need to skip autoimporting because this file is severely prone to circular imports errors
+# You should try and make them alphabetically sorted manually if possible
+# isort: skip_file
+
+from ..batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun
+
 from ..session_recordings.models.session_recording import SessionRecording
-from ..session_recordings.models.session_recording_playlist import (
-    SessionRecordingPlaylist,
-)
-from ..session_recordings.models.session_recording_playlist_item import (
-    SessionRecordingPlaylistItem,
-)
+from ..session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
+from ..session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
 from ..warehouse.models import DataWarehouseTable
 from ._deprecated_prompts import Prompt, PromptSequence, UserPromptState
 from .action import Action
@@ -22,7 +18,7 @@ from .annotation import Annotation
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from .batch_imports import BatchImport
-from .cohort import Cohort, CohortPeople
+from .cohort import Cohort, CohortPeople, CohortCalculationHistory
 from .comment import Comment
 from .dashboard import Dashboard
 from .dashboard_templates import DashboardTemplate
@@ -31,32 +27,19 @@ from .dashboard_tile import DashboardTile, Text
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
-from .error_tracking import (
-    ErrorTrackingIssue,
-    ErrorTrackingIssueFingerprintV2,
-    ErrorTrackingStackFrame,
-    ErrorTrackingSymbolSet,
-    ErrorTrackingIssueAssignment,
-    ErrorTrackingAssignmentRule,
-    ErrorTrackingGroupingRule,
-    ErrorTrackingSuppressionRule,
-)
 from .event.event import Event
 from .event_buffer import EventBuffer
 from .event_definition import EventDefinition
 from .event_property import EventProperty
-from .experiment import (
-    Experiment,
-    ExperimentHoldout,
-    ExperimentSavedMetric,
-    ExperimentToSavedMetric,
-)
+from .experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric, ExperimentToSavedMetric
 from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
 from .surveys.survey import Survey
 from .file_system.file_system import FileSystem
+from .file_system.file_system_view_log import FileSystemViewLog
 from .filters import Filter, RetentionFilter
 from .group import Group
+from .group_usage_metric import GroupUsageMetric
 from .group_type_mapping import GroupTypeMapping
 from .host_definition import HostDefinition
 from .hog_flow import HogFlow
@@ -72,19 +55,13 @@ from .message_template import MessageTemplate
 from .message_category import MessageCategory
 from .message_preferences import MessageRecipientPreference
 from .messaging import MessagingRecord
-from .notebook import Notebook
 from .organization import Organization, OrganizationMembership
 from .organization_domain import OrganizationDomain
+from .organization_integration import OrganizationIntegration
 from .organization_invite import OrganizationInvite, InviteExpiredException
 from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapping
 from .personal_api_key import PersonalAPIKey
-from .plugin import (
-    Plugin,
-    PluginAttachment,
-    PluginConfig,
-    PluginLogEntry,
-    PluginSourceFile,
-)
+from .plugin import Plugin, PluginAttachment, PluginConfig, PluginLogEntry, PluginSourceFile
 from .product_intent import ProductIntent
 from .project import Project
 from .property import Property
@@ -92,6 +69,8 @@ from .property_definition import PropertyDefinition
 from .proxy_record import ProxyRecord
 from .remote_config import RemoteConfig
 from .scheduled_change import ScheduledChange
+from .schema import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
+from .share_password import SharePassword
 from .sharing_configuration import SharingConfiguration
 from .subscription import Subscription
 from .tag import Tag
@@ -104,8 +83,6 @@ from .user_group import UserGroup, UserGroupMembership
 from .user_scene_personalisation import UserScenePersonalisation
 from .web_experiment import WebExperiment
 
-# Products Imports
-from products.early_access_features.backend.models import EarlyAccessFeature
 from .oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 
 __all__ = [
@@ -124,23 +101,15 @@ __all__ = [
     "BatchImport",
     "Cohort",
     "CohortPeople",
+    "CohortCalculationHistory",
     "Dashboard",
     "DashboardTile",
     "DashboardTemplate",
     "DataColorTheme",
     "DeletionType",
-    "EarlyAccessFeature",
     "Element",
     "ElementGroup",
     "Entity",
-    "ErrorTrackingIssue",
-    "ErrorTrackingIssueFingerprintV2",
-    "ErrorTrackingStackFrame",
-    "ErrorTrackingSymbolSet",
-    "ErrorTrackingIssueAssignment",
-    "ErrorTrackingAssignmentRule",
-    "ErrorTrackingGroupingRule",
-    "ErrorTrackingSuppressionRule",
     "Event",
     "EventBuffer",
     "EventDefinition",
@@ -152,8 +121,10 @@ __all__ = [
     "ExportedAsset",
     "FeatureFlag",
     "FileSystem",
+    "FileSystemViewLog",
     "Filter",
     "Group",
+    "GroupUsageMetric",
     "GroupTypeMapping",
     "HogFlow",
     "HogFunction",
@@ -176,6 +147,7 @@ __all__ = [
     "NotificationViewed",
     "Organization",
     "OrganizationDomain",
+    "OrganizationIntegration",
     "OrganizationInvite",
     "OrganizationMembership",
     "OAuthAccessToken",
@@ -200,9 +172,13 @@ __all__ = [
     "ProxyRecord",
     "RetentionFilter",
     "RemoteConfig",
+    "EventSchema",
+    "SchemaPropertyGroup",
+    "SchemaPropertyGroupProperty",
     "SessionRecording",
     "SessionRecordingPlaylist",
     "SessionRecordingPlaylistItem",
+    "SharePassword",
     "SharingConfiguration",
     "Subscription",
     "Survey",

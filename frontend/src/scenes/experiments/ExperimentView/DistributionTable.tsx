@@ -1,3 +1,5 @@
+import { useActions, useValues } from 'kea'
+
 import { IconBalance, IconFlag } from '@posthog/icons'
 import {
     LemonBanner,
@@ -8,18 +10,19 @@ import {
     LemonTable,
     LemonTableColumns,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
-import { featureFlagLogic, FeatureFlagLogicProps } from 'scenes/feature-flags/featureFlagLogic'
+import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+
 import { Experiment, MultivariateFlagVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { VariantTag } from './components'
+import { modalsLogic } from '../modalsLogic'
 import { HoldoutSelector } from './HoldoutSelector'
 import { VariantScreenshot } from './VariantScreenshot'
-import { modalsLogic } from '../modalsLogic'
+import { VariantTag } from './components'
 
 export function DistributionModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
     const { experiment, experimentLoading } = useValues(experimentLogic({ experimentId }))
@@ -134,10 +137,8 @@ export function DistributionModal({ experimentId }: { experimentId: Experiment['
 
 export function DistributionTable(): JSX.Element {
     const { openDistributionModal } = useActions(modalsLogic)
-    const { experimentId, experiment, legacyPrimaryMetricsResults } = useValues(experimentLogic)
+    const { experimentId, experiment } = useValues(experimentLogic)
     const { reportExperimentReleaseConditionsViewed } = useActions(experimentLogic)
-
-    const result = legacyPrimaryMetricsResults?.[0]
 
     const onSelectElement = (variant: string): void => {
         LemonDialog.open({
@@ -165,9 +166,6 @@ export function DistributionTable(): JSX.Element {
             key: 'key',
             title: 'Variant',
             render: function Key(_, item): JSX.Element {
-                if (!result || !result.insight) {
-                    return <span className="font-semibold">{item.key}</span>
-                }
                 return <VariantTag experimentId={experimentId} variantKey={item.key} />
             },
         },

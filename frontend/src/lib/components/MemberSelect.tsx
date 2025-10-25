@@ -1,3 +1,6 @@
+import { useActions, useValues } from 'kea'
+import { useEffect, useMemo, useState } from 'react'
+
 import {
     LemonButton,
     LemonButtonProps,
@@ -6,9 +9,8 @@ import {
     LemonInput,
     ProfilePicture,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { fullName } from 'lib/utils'
-import { useEffect, useMemo, useState } from 'react'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { UserBasicType } from '~/types'

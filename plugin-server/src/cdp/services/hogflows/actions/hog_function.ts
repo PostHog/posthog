@@ -1,42 +1,47 @@
 import { DateTime } from 'luxon'
 
 import { HogFlowAction } from '../../../../schema/hogflow'
-import { Hub } from '../../../../types'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
-    HogFunctionInvocationGlobals,
-    HogFunctionType,
     MinimalLogEntry,
 } from '../../../types'
-import { HogExecutorService } from '../../hog-executor.service'
-import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
-import { findContinueAction } from '../hogflow-utils'
-import { ActionHandler, ActionHandlerResult } from './action.interface'
+import { HogExecutorExecuteAsyncOptions } from '../../hog-executor.service'
+import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
+import { HogFlowFunctionsService } from '../hogflow-functions.service'
+import { actionIdForLogging, findContinueAction } from '../hogflow-utils'
+import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
+
+type FunctionActionType = 'function' | 'function_email' | 'function_sms'
+
+type Action = Extract<HogFlowAction, { type: FunctionActionType }>
 
 export class HogFunctionHandler implements ActionHandler {
     constructor(
-        private hub: Hub,
-        private hogFunctionExecutor: HogExecutorService,
-        private hogFunctionTemplateManager: HogFunctionTemplateManagerService
+        private hogFlowFunctionsService: HogFlowFunctionsService,
+        private recipientPreferencesService: RecipientPreferencesService
     ) {}
 
-    async execute(
-        invocation: CyclotronJobInvocationHogFlow,
-        action: Extract<HogFlowAction, { type: 'function' }>,
-        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
-    ): Promise<ActionHandlerResult> {
-        const functionResult = await this.executeHogFunction(invocation, action)
+    async execute({
+        invocation,
+        action,
+        result,
+        hogExecutorOptions,
+    }: ActionHandlerOptions<Action>): Promise<ActionHandlerResult> {
+        const functionResult = await this.executeHogFunction(invocation, action, hogExecutorOptions)
 
         // Add all logs
         functionResult.logs.forEach((log: MinimalLogEntry) => {
             result.logs.push({
                 level: log.level,
                 timestamp: log.timestamp,
-                message: `[Action:${action.id}] ${log.message}`,
+                message: `${actionIdForLogging(action)} ${log.message}`,
             })
         })
+
+        // Collect captured PostHog events
+        result.capturedPostHogEvents = [...result.capturedPostHogEvents, ...functionResult.capturedPostHogEvents]
 
         if (!functionResult.finished) {
             // Set the state of the function result on the substate of the flow for the next execution
@@ -55,57 +60,35 @@ export class HogFunctionHandler implements ActionHandler {
 
     private async executeHogFunction(
         invocation: CyclotronJobInvocationHogFlow,
-        action: Extract<HogFlowAction, { type: 'function' }>
+        action: Action,
+        hogExecutorOptions?: HogExecutorExecuteAsyncOptions
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        const template = await this.hogFunctionTemplateManager.getHogFunctionTemplate(action.config.template_id)
-
-        if (!template) {
-            throw new Error(`Template '${action.config.template_id}' not found`)
-        }
-
-        const hogFunction: HogFunctionType = {
-            id: invocation.hogFlow.id,
-            team_id: invocation.teamId,
-            name: `${invocation.hogFlow.name} - ${template.name}`,
-            enabled: true,
-            type: 'destination',
-            deleted: false,
-            hog: '<<TEMPLATE>>',
-            bytecode: template.bytecode,
-            inputs: action.config.inputs,
-            inputs_schema: template.inputs_schema,
-            is_addon_required: false,
-            created_at: '',
-            updated_at: '',
-        }
-
-        const teamId = invocation.hogFlow.team_id
-        const projectUrl = `${this.hub.SITE_URL}/project/${teamId}`
-
-        const globals: HogFunctionInvocationGlobals = {
-            source: {
-                name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
-                url: `${projectUrl}/functions/${hogFunction.id}`,
-            },
-            project: {
-                id: hogFunction.team_id,
-                name: '',
-                url: '',
-            },
-            event: invocation.state.event,
-            person: invocation.person,
-        }
-
-        const hogFunctionInvocation: CyclotronJobInvocationHogFunction = {
-            ...invocation,
+        const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config)
+        const hogFunctionInvocation = await this.hogFlowFunctionsService.buildHogFunctionInvocation(
+            invocation,
             hogFunction,
-            state: invocation.state.currentAction?.hogFunctionState ?? {
-                globals: await this.hogFunctionExecutor.buildInputsWithGlobals(hogFunction, globals),
-                timings: [],
-                attempts: 0,
-            },
+            {
+                event: invocation.state.event,
+                person: invocation.person,
+            }
+        )
+
+        if (await this.recipientPreferencesService.shouldSkipAction(hogFunctionInvocation, action)) {
+            return {
+                finished: true,
+                invocation: hogFunctionInvocation,
+                logs: [
+                    {
+                        level: 'info',
+                        timestamp: DateTime.now(),
+                        message: `Recipient opted out for action ${action.id}`,
+                    },
+                ],
+                metrics: [],
+                capturedPostHogEvents: [],
+            }
         }
 
-        return this.hogFunctionExecutor.executeWithAsyncFunctions(hogFunctionInvocation)
+        return this.hogFlowFunctionsService.executeWithAsyncFunctions(hogFunctionInvocation, hogExecutorOptions)
     }
 }

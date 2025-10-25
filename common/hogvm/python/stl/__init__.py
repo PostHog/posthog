@@ -1,32 +1,32 @@
-import dataclasses
-import datetime
-import math
-import time
-from typing import Any, Optional, TYPE_CHECKING
-from collections.abc import Callable
 import re
 import json
+import math
+import time
+import datetime
+import dataclasses
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Optional
 
 import pytz
 
-from .ip import isIPAddressInRange
-from .print import print_hog_string_output
+from ..objects import is_hog_callable, is_hog_closure, is_hog_error, new_hog_error, to_hog_interval
+from ..utils import get_nested_value, like
+from .crypto import md5, sha256, sha256HmacChain
 from .date import (
-    now,
-    toUnixTimestamp,
+    formatDateTime,
     fromUnixTimestamp,
-    toUnixTimestampMilli,
     fromUnixTimestampMilli,
-    toTimeZone,
+    is_hog_date,
+    is_hog_datetime,
+    now,
     toDate,
     toDateTime,
-    formatDateTime,
-    is_hog_datetime,
-    is_hog_date,
+    toTimeZone,
+    toUnixTimestamp,
+    toUnixTimestampMilli,
 )
-from .crypto import sha256, md5, sha256HmacChain
-from ..objects import is_hog_error, new_hog_error, is_hog_callable, is_hog_closure, to_hog_interval
-from ..utils import like, get_nested_value
+from .ip import isIPAddressInRange
+from .print import print_hog_string_output
 
 if TYPE_CHECKING:
     from posthog.models import Team

@@ -1,5 +1,5 @@
-from django.db import migrations, models
 from django.contrib.postgres.operations import AddIndexConcurrently
+from django.db import migrations, models
 
 
 class Migration(migrations.Migration):

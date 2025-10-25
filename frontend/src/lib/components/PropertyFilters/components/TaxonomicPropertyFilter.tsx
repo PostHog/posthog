@@ -1,16 +1,20 @@
 import './TaxonomicPropertyFilter.scss'
 
-import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
+
+import { IconPlusSmall } from '@posthog/icons'
+import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
+
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
 import {
+    PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
     isGroupPropertyFilter,
     isPropertyFilterWithOperator,
-    PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
     propertyFilterTypeToTaxonomicFilterType,
+    sanitizePropertyFilter,
 } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
@@ -20,7 +24,6 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
-import { useMemo } from 'react'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -69,6 +72,7 @@ export function TaxonomicPropertyFilter({
     hideBehavioralCohorts,
     addFilterDocLink,
     editable = true,
+    operatorAllowlist,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || DEFAULT_TAXONOMIC_GROUP_TYPES
@@ -95,7 +99,8 @@ export function TaxonomicPropertyFilter({
         propertyAllowList,
         excludedProperties,
     })
-    const { filter, dropdownOpen, activeTaxonomicGroup } = useValues(logic)
+    const { dropdownOpen, activeTaxonomicGroup } = useValues(logic)
+    const filter = filters[index] ? sanitizePropertyFilter(filters[index]) : null
     const { openDropdown, closeDropdown, selectItem } = useActions(logic)
     const valuePresent = filter?.type === 'cohort' || !!filter?.key
     const showInitialSearchInline =
@@ -182,6 +187,7 @@ export function TaxonomicPropertyFilter({
                     ? (filter?.group_type_index as GroupTypeIndex)
                     : undefined
             }
+            operatorAllowlist={operatorAllowlist}
         />
     )
 

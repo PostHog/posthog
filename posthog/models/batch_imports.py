@@ -1,12 +1,12 @@
+from enum import Enum
+from typing import Self
+
 from django.db import models
 
-from posthog.models.utils import UUIDModel
-from posthog.models.team import Team
-
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
-
-from typing import Self
-from enum import Enum
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.team import Team
+from posthog.models.utils import UUIDTModel
 
 
 class DateRangeExportSource(str, Enum):
@@ -23,7 +23,7 @@ class ContentType(str, Enum):
         return {"type": self.value}
 
 
-class BatchImport(UUIDModel):
+class BatchImport(ModelActivityMixin, UUIDTModel):
     class Status(models.TextChoices):
         COMPLETED = "completed", "Completed"
         FAILED = "failed", "Failed"
@@ -203,4 +203,19 @@ class BatchImportConfigBuilder:
 
     def to_noop(self) -> Self:
         self.batch_import.import_config["sink"] = {"type": "noop"}
+        return self
+
+    def with_import_events(self, import_events: bool = True) -> Self:
+        """Set whether to import events from the source"""
+        self.batch_import.import_config["import_events"] = import_events
+        return self
+
+    def with_generate_identify_events(self, generate_identify_events: bool = True) -> Self:
+        """Set whether to generate identify events for linking user IDs with device IDs (Amplitude specific)"""
+        self.batch_import.import_config["generate_identify_events"] = generate_identify_events
+        return self
+
+    def with_generate_group_identify_events(self, generate_group_identify_events: bool = True) -> Self:
+        """Set whether to generate group identify events from group property changes (Amplitude specific)"""
+        self.batch_import.import_config["generate_group_identify_events"] = generate_group_identify_events
         return self

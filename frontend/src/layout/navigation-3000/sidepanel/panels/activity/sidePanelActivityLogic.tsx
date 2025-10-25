@@ -1,9 +1,10 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+
 import api, { PaginatedResponse } from 'lib/api'
-import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
-import { ActivityLogItem, humanize, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { activityLogTransforms, describerFor } from 'lib/components/ActivityLog/activityLogLogic'
+import { ActivityLogItem, HumanizedActivityLogItem, humanize } from 'lib/components/ActivityLog/humanizeActivity'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { ActivityScope, UserBasicType } from '~/types'
@@ -12,6 +13,18 @@ import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import { SidePanelSceneContext } from '../../types'
 import { sidePanelContextLogic } from '../sidePanelContextLogic'
 import type { sidePanelActivityLogicType } from './sidePanelActivityLogicType'
+
+// ActivityScope values that should not appear in dropdowns
+const HIDDEN_ACTIVITY_SCOPES: ActivityScope[] = [
+    ActivityScope.TAGGED_ITEM, // Handled under ActivityScope.TAG
+    ActivityScope.ORGANIZATION_MEMBERSHIP, // Handled under ActivityScope.ORGANIZATION
+    ActivityScope.ORGANIZATION_INVITE, // Handled under ActivityScope.ORGANIZATION
+    ActivityScope.EXTERNAL_DATA_SCHEMA, // Handled under ActivityScope.EXTERNAL_DATA_SOURCE
+]
+
+const getVisibleActivityScopes = (): ActivityScope[] => {
+    return Object.values(ActivityScope).filter((scope) => !HIDDEN_ACTIVITY_SCOPES.includes(scope))
+}
 
 export type ActivityFilters = {
     scope?: ActivityScope | string
@@ -43,8 +56,8 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
         loadAllActivity: true,
         loadOlderActivity: true,
         maybeLoadOlderActivity: true,
-        setFilters: (filters: ActivityFilters | null) => ({ filters }),
-        setFiltersForCurrentPage: (filters: ActivityFilters | null) => ({ filters }),
+        setActiveFilters: (filters: ActivityFilters | null) => ({ filters }),
+        setContextFromPage: (filters: ActivityFilters | null) => ({ filters }),
     }),
     reducers({
         activeTab: [
@@ -54,17 +67,16 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                 setActiveTab: (_, { tab }) => tab,
             },
         ],
-        filters: [
+        activeFilters: [
             null as ActivityFilters | null,
             {
-                setFilters: (_, { filters }) => filters,
-                setFiltersForCurrentPage: (_, { filters }) => filters,
+                setActiveFilters: (_, { filters }) => filters,
             },
         ],
-        filtersForCurrentPage: [
+        contextFromPage: [
             null as ActivityFilters | null,
             {
-                setFiltersForCurrentPage: (_, { filters }) => filters,
+                setContextFromPage: (_, { filters }) => filters,
             },
         ],
     }),
@@ -73,7 +85,9 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
             null as PaginatedResponse<ActivityLogItem> | null,
             {
                 loadAllActivity: async (_, breakpoint) => {
-                    const response = await api.activity.list(values.filters ?? {})
+                    const filters = values.activeFilters ?? {}
+                    const expandedFilters = activityLogTransforms.expandListScopes(filters)
+                    const response = await api.activity.list(expandedFilters)
 
                     breakpoint()
                     return response
@@ -120,21 +134,27 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
             },
         ],
         allActivityHasNext: [(s) => [s.allActivityResponse], (allActivityResponse) => !!allActivityResponse?.next],
+        visibleActivityScopes: [
+            () => [],
+            (): ActivityScope[] => {
+                return getVisibleActivityScopes()
+            },
+        ],
     }),
 
     subscriptions(({ actions, values }) => ({
         sceneSidePanelContext: (sceneSidePanelContext: SidePanelSceneContext) => {
-            actions.setFiltersForCurrentPage(
-                sceneSidePanelContext
-                    ? {
-                          ...values.filters,
-                          scope: sceneSidePanelContext.activity_scope,
-                          item_id: sceneSidePanelContext.activity_item_id,
-                      }
-                    : null
-            )
+            const newFilters = sceneSidePanelContext
+                ? {
+                      scope: sceneSidePanelContext.activity_scope,
+                      item_id: sceneSidePanelContext.activity_item_id,
+                  }
+                : null
+
+            actions.setContextFromPage(newFilters)
+            actions.setActiveFilters(newFilters)
         },
-        filters: () => {
+        activeFilters: () => {
             if (values.activeTab === SidePanelActivityTab.All) {
                 actions.loadAllActivity()
             }
@@ -142,7 +162,15 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     })),
 
     afterMount(({ actions, values }) => {
-        const activityFilters = values.sceneSidePanelContext
-        actions.setFiltersForCurrentPage(activityFilters ? { ...values.filters, ...activityFilters } : null)
+        const sceneSidePanelContext = values.sceneSidePanelContext
+        const newFilters = sceneSidePanelContext
+            ? {
+                  scope: sceneSidePanelContext.activity_scope,
+                  item_id: sceneSidePanelContext.activity_item_id,
+              }
+            : null
+
+        actions.setContextFromPage(newFilters)
+        actions.setActiveFilters(newFilters)
     }),
 ])

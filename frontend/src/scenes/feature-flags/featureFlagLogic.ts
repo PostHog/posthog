@@ -1,20 +1,21 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { DeepPartialMap, forms, ValidationErrorType } from 'kea-forms'
+import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+
 import api, { PaginatedResponse } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { sum, toParams } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
-import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
-import { featureFlagsLogic, FeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
+import { FeatureFlagsTab, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { projectLogic } from 'scenes/projectLogic'
@@ -23,10 +24,11 @@ import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE } from 'scenes/surveys/con
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import {
@@ -64,13 +66,22 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
+import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
+
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
+import { defaultEvaluationEnvironmentsLogic } from './defaultEvaluationEnvironmentsLogic'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
-import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 
-export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'>
+export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'> & {
+    variants?: MultivariateFlagVariant[]
+    payloads?: Record<string, any>
+}
+
+export type VariantError = {
+    key: string | undefined
+}
 
 const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     operator: 'gt',
@@ -88,6 +99,7 @@ const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
 export const NEW_FLAG: FeatureFlagType = {
     id: null,
     created_at: null,
+    updated_at: null,
     key: '',
     name: '',
     filters: {
@@ -115,6 +127,8 @@ export const NEW_FLAG: FeatureFlagType = {
     version: 0,
     last_modified_by: null,
     evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
+    evaluation_tags: [],
+    _should_create_usage_dashboard: true,
 }
 const NEW_VARIANT = {
     key: '',
@@ -179,14 +193,25 @@ export const variantKeyToIndexFeatureFlagPayloads = (flag: FeatureFlagType): Fea
     }
 }
 
+export const convertIndexBasedPayloadsToVariantKeys = (
+    variants: MultivariateFlagVariant[] = [],
+    payloads?: Record<string | number, JsonType>
+): Record<string, JsonType> => {
+    const newPayloads: Record<string, JsonType> = {}
+    variants.forEach(({ key }, index) => {
+        if (payloads?.[index] !== undefined) {
+            newPayloads[key] = payloads[index]
+        }
+    })
+    return newPayloads
+}
+
 export const indexToVariantKeyFeatureFlagPayloads = (flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> => {
     if (flag.filters?.multivariate) {
-        const newPayloads: Record<string, JsonType> = {}
-        flag.filters.multivariate.variants.forEach(({ key }, index) => {
-            if (flag.filters?.payloads?.[index] !== undefined) {
-                newPayloads[key] = flag.filters.payloads[index]
-            }
-        })
+        const newPayloads = convertIndexBasedPayloadsToVariantKeys(
+            flag.filters.multivariate.variants,
+            flag.filters.payloads || {}
+        )
         return {
             ...flag,
             filters: {
@@ -288,12 +313,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['aggregationLabel'],
             userLogic,
             ['hasAvailableFeature'],
-            dashboardsLogic,
-            ['dashboards'],
+            dashboardsModel,
+            ['nameSortedDashboards as dashboards'],
             organizationLogic,
             ['currentOrganization'],
             enabledFeaturesLogic,
             ['featureFlags as enabledFeatures'],
+            defaultEvaluationEnvironmentsLogic,
+            ['defaultEvaluationEnvironments'],
         ],
         actions: [
             newDashboardLogic({ featureFlagId: typeof props.id === 'number' ? props.id : undefined }),
@@ -304,6 +331,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['closeSidePanel'],
             teamLogic,
             ['addProductIntent'],
+            defaultEvaluationEnvironmentsLogic,
+            ['loadDefaultEvaluationEnvironments'],
         ],
     })),
     actions({
@@ -334,8 +363,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setSchedulePayload: (
             filters: FeatureFlagType['filters'] | null,
             active: FeatureFlagType['active'] | null,
-            errors?: any
-        ) => ({ filters, active, errors }),
+            errors?: any,
+            variants?: MultivariateFlagVariant[] | null,
+            payloads?: Record<string, any> | null
+        ) => ({ filters, active, errors, variants, payloads }),
         setScheduledChangeOperation: (changeType: ScheduledChangeOperationType) => ({ changeType }),
         setAccessDeniedToFeatureFlag: true,
     }),
@@ -628,12 +659,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             {
                 filters: { ...NEW_FLAG.filters },
                 active: NEW_FLAG.active,
+                variants: undefined,
+                payloads: undefined,
             } as ScheduleFlagPayload,
             {
-                setSchedulePayload: (state, { filters, active }) => {
+                setSchedulePayload: (state, { filters, active, variants, payloads }) => {
                     return {
                         filters: filters === null ? state.filters : filters,
                         active: active === null ? state.active : active,
+                        variants: variants === null ? state.variants : variants,
+                        payloads: payloads === null ? state.payloads : payloads,
                     }
                 },
             },
@@ -657,6 +692,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         featureFlag: {
             loadFeatureFlag: async () => {
                 const sourceId = router.values.searchParams.sourceId
+
                 if (props.id === 'new' && sourceId) {
                     // Used when "duplicating a feature flag". This populates the form with the source flag's data.
                     const sourceFlag = await api.featureFlags.get(sourceId)
@@ -683,11 +719,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     // Remove sourceId from URL
                     router.actions.replace(router.values.location.pathname)
 
-                    return {
+                    const duplicatedFlag = {
                         ...NEW_FLAG,
                         ...flagToKeep,
                         key: '',
                     } as FeatureFlagType
+
+                    return variantKeyToIndexFeatureFlagPayloads(duplicatedFlag)
                 }
 
                 if (props.id && props.id !== 'new' && props.id !== 'link') {
@@ -703,9 +741,45 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         throw e
                     }
                 }
+                // For new flags, load default evaluation environments and set default tags
+                if (props.id === 'new') {
+                    // Only load and apply default evaluation environments if BOTH conditions are met:
+                    // 1. The feature flag is enabled globally
+                    // 2. The team has enabled default evaluation environments
+                    const isFeatureEnabled = values.enabledFeatures[FEATURE_FLAGS.DEFAULT_EVALUATION_ENVIRONMENTS]
+                    const isTeamEnabled = values.currentTeam?.default_evaluation_environments_enabled
+
+                    if (isFeatureEnabled && isTeamEnabled) {
+                        try {
+                            actions.loadDefaultEvaluationEnvironments()
+                        } catch (error) {
+                            // If loading default evaluation environments fails, continue with empty tags
+                            console.warn('Failed to load default evaluation environments:', error)
+                        }
+                        const defaultEnvs = values.defaultEvaluationEnvironments
+                        const defaultTags = defaultEnvs?.default_evaluation_tags || []
+
+                        return {
+                            ...NEW_FLAG,
+                            ensure_experience_continuity: values.currentTeam?.flags_persistence_default ?? false,
+                            _should_create_usage_dashboard: true,
+                            tags: defaultTags.map((tag) => tag.name),
+                            evaluation_tags: defaultTags.map((tag) => tag.name),
+                        }
+                    }
+
+                    // If either condition is false, return flag without default tags
+                    return {
+                        ...NEW_FLAG,
+                        ensure_experience_continuity: values.currentTeam?.flags_persistence_default ?? false,
+                        _should_create_usage_dashboard: true,
+                    }
+                }
+
                 return {
                     ...NEW_FLAG,
                     ensure_experience_continuity: values.currentTeam?.flags_persistence_default ?? false,
+                    _should_create_usage_dashboard: true,
                 }
             },
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
@@ -721,9 +795,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             `api/projects/${values.currentProjectId}/feature_flags`,
                             preparedFlag
                         )
-                        if (values.roleBasedAccessEnabled && savedFlag.id) {
-                            featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(savedFlag.id)
-                        }
                         actions.addProductIntent({
                             product_type: ProductKey.FEATURE_FLAGS,
                             intent_context: ProductIntentContext.FEATURE_FLAG_CREATED,
@@ -774,9 +845,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             `api/projects/${values.currentProjectId}/feature_flags`,
                             preparedFlag
                         )
-                        if (values.roleBasedAccessEnabled && savedFlag.id) {
-                            featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(savedFlag.id)
-                        }
                     } else {
                         savedFlag = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`,
@@ -930,18 +998,33 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             createScheduledChange: async () => {
                 const { scheduledChangeOperation, scheduleDateMarker, currentProjectId, schedulePayload } = values
 
-                const fields: Record<ScheduledChangeOperationType, keyof ScheduleFlagPayload> = {
+                const fields: Record<ScheduledChangeOperationType, keyof ScheduleFlagPayload | 'variants'> = {
                     [ScheduledChangeOperationType.UpdateStatus]: 'active',
                     [ScheduledChangeOperationType.AddReleaseCondition]: 'filters',
+                    [ScheduledChangeOperationType.UpdateVariants]: 'variants',
                 }
 
                 if (currentProjectId && scheduledChangeOperation) {
+                    let payloadValue: any
+                    if (scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants) {
+                        const preparedPayload = convertIndexBasedPayloadsToVariantKeys(
+                            schedulePayload.variants,
+                            schedulePayload.payloads
+                        )
+                        payloadValue = {
+                            variants: schedulePayload.variants || [],
+                            payloads: preparedPayload || {},
+                        }
+                    } else {
+                        payloadValue = schedulePayload[fields[scheduledChangeOperation]]
+                    }
+
                     const data = {
                         record_id: values.featureFlag.id,
                         model_name: 'FeatureFlag',
                         payload: {
                             operation: scheduledChangeOperation,
-                            value: schedulePayload[fields[scheduledChangeOperation]],
+                            value: payloadValue,
                         },
                         scheduled_at: scheduleDateMarker.toISOString(),
                     }
@@ -998,11 +1081,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         submitFeatureFlagFailure: async () => {
-            // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
-            setTimeout(
-                () => document.querySelector(`.Field--error`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }),
-                1
-            )
+            scrollToFormError()
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
@@ -1136,19 +1215,40 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         createScheduledChangeSuccess: ({ scheduledChange }) => {
             if (scheduledChange) {
                 lemonToast.success('Change scheduled successfully')
-                actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {})
+                actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {}, null, null)
                 actions.loadScheduledChanges()
                 eventUsageLogic.actions.reportFeatureFlagScheduleSuccess()
             }
         },
-        setScheduledChangeOperation: () => {
+        setScheduledChangeOperation: ({ changeType }) => {
             // reset filters when operation changes
-            actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {})
+            if (changeType === ScheduledChangeOperationType.UpdateVariants && values.featureFlag?.id) {
+                const flagWithKeyBasedPayloads = indexToVariantKeyFeatureFlagPayloads(values.featureFlag)
+                const flagWithIndexBasedPayloads = variantKeyToIndexFeatureFlagPayloads(
+                    flagWithKeyBasedPayloads as FeatureFlagType
+                )
+                const currentVariants = values.featureFlag.filters.multivariate?.variants || []
+                const indexBasedPayloads = flagWithIndexBasedPayloads.filters.payloads || {}
+
+                const filtersWithPayloads = {
+                    ...NEW_FLAG.filters,
+                    payloads: indexBasedPayloads,
+                }
+                actions.setSchedulePayload(
+                    filtersWithPayloads,
+                    NEW_FLAG.active,
+                    {},
+                    currentVariants,
+                    indexBasedPayloads
+                )
+            } else {
+                actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {}, null, null)
+            }
         },
         setActiveTab: ({ tab }) => {
             // reset filters when opening schedule tab, and load scheduled changes
             if (tab === FeatureFlagsTab.SCHEDULE) {
-                actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {})
+                actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {}, null, null)
                 actions.loadScheduledChanges()
             }
         },
@@ -1239,8 +1339,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     key: Scene.FeatureFlags,
                     name: 'Feature Flags',
                     path: urls.featureFlags(),
+                    iconType: 'feature_flag',
                 },
-                { key: [Scene.FeatureFlag, featureFlag.id || 'unknown'], name: featureFlag.key || 'Unnamed' },
+                {
+                    key: [Scene.FeatureFlag, featureFlag.id || 'unknown'],
+                    name: featureFlag.key || (!featureFlag.id ? 'New feature flag' : 'Unnamed'),
+                    iconType: 'feature_flag',
+                },
             ],
         ],
         projectTreeRef: [
@@ -1346,13 +1451,37 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return !experiment?.start_date
             },
         ],
+        properties: [
+            (s) => [s.featureFlag],
+            (featureFlag: FeatureFlagType) => {
+                return featureFlag?.filters?.groups?.flatMap((g) => g.properties ?? []) ?? []
+            },
+        ],
+        variantErrors: [
+            (s) => [s.variants],
+            (variants) => {
+                const errors: VariantError[] = variants.map(({ key: variantKey }: MultivariateFlagVariant) => ({
+                    key: validateFeatureFlagKey(variantKey),
+                }))
+                return errors
+            },
+        ],
     }),
-    urlToAction(({ actions, props }) => ({
-        [urls.featureFlag(props.id ?? 'new')]: (_, __, ___, { method }) => {
+    urlToAction(({ actions, props, values }) => ({
+        [urls.featureFlag(props.id ?? 'new')]: (_, searchParams, ___, { method }) => {
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
             if (method === 'PUSH') {
                 if (props.id) {
+                    // When there is sourceId, we load the feature flag
+                    if (props.id === 'new' && searchParams.sourceId != null) {
+                        actions.loadFeatureFlag()
+                        return
+                    }
+                    // When pushing to `/new` and the feature flag already has default tags loaded, do not load the flag again
+                    if (props.id === 'new' && values.featureFlag.id == null && values.featureFlag.tags?.length > 0) {
+                        return
+                    }
                     actions.loadFeatureFlag()
                 } else {
                     actions.resetFeatureFlag()
@@ -1378,6 +1507,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         } else if (props.id !== 'new') {
             actions.loadFeatureFlag()
             actions.loadFeatureFlagStatus()
+        } else if (props.id === 'new') {
+            // Load default evaluation environments for new flags
+            actions.loadFeatureFlag()
         }
     }),
 ])

@@ -1,18 +1,22 @@
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
     ActivityChange,
     ActivityLogItem,
     ChangeMapping,
-    defaultDescriber,
     Description,
     HumanizedChange,
+    defaultDescriber,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
+import { PathCleanFilterItem } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
+import { keyFromFilter } from 'lib/components/PathCleanFilters/PathCleanFilters'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { Link } from 'lib/lemon-ui/Link'
 import { isObject, pluralize } from 'lib/utils'
+import { CURRENCY_SYMBOL_TO_EMOJI_MAP, CURRENCY_SYMBOL_TO_NAME_MAP } from 'lib/utils/geography/currency'
 import { urls } from 'scenes/urls'
 
+import { CurrencyCode } from '~/queries/schema/schema-general'
 import {
     ActivityScope,
     CorrelationConfigType,
@@ -25,10 +29,6 @@ import {
 import { ThemeName } from '../dataThemeLogic'
 import { marketingAnalyticsConfigurationDescriber } from './marketing_analytics_config/marketingAnalyticsConfigurationDescriber'
 import { revenueAnalyticsConfigurationDescriber } from './revenue_analytics_config/revenueAnalyticsConfigurationDescriber'
-import { CURRENCY_SYMBOL_TO_EMOJI_MAP, CURRENCY_SYMBOL_TO_NAME_MAP } from 'lib/utils/geography/currency'
-import { CurrencyCode } from '~/queries/schema/schema-general'
-import { PathCleanFilterItem } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
-import { keyFromFilter } from 'lib/components/PathCleanFilters/PathCleanFilters'
 
 const isNumberOrNull = (x: unknown): x is number | null => {
     if (typeof x === 'number') {
@@ -96,7 +96,7 @@ function createArrayChangeHandler(
             return null
         }
 
-        const array = change.after as any[]
+        const array = (change.after || []) as any[]
         const displayArray = map ? array.map(map).filter(Boolean) : array
         const fieldNameElement = useEmphasis ? <em>{fieldName}</em> : fieldName
 
@@ -355,6 +355,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
         }
         return { description: [<>{recordCanvasAfter ? 'enabled' : 'disabled'} canvas recording in session replay</>] }
     },
+    session_recording_retention_period: createSimpleValueHandler('session replay data retention'),
 
     // Survey config
     surveys_opt_in: createBooleanToggleHandler('surveys'),
@@ -404,6 +405,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     // Feature flag confirmation config
     feature_flag_confirmation_enabled: createBooleanToggleHandler('feature flag confirmation'),
     feature_flag_confirmation_message: createSimpleValueHandler('feature flag confirmation message'),
+    default_evaluation_environments_enabled: createBooleanToggleHandler('default evaluation environments'),
 
     // Autocapture
     autocapture_exceptions_errors_to_ignore: createArrayChangeHandler('autocapture exceptions errors to ignore'),
@@ -728,8 +730,11 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     effective_membership_level: () => null,
     default_modifiers: () => null,
     is_demo: () => null,
-    access_control: () => null,
     has_group_types: () => null,
+    web_analytics_pre_aggregated_tables_enabled: () => null,
+    web_analytics_pre_aggregated_tables_version: () => null,
+    experiment_recalculation_time: () => null,
+    managed_viewsets: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {

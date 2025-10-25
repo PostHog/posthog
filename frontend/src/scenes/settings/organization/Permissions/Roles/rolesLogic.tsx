@@ -1,24 +1,23 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { teamMembersLogic } from 'scenes/settings/environment/teamMembersLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 
-import { AccessLevel, Resource, RoleMemberType, RoleType, UserBasicType } from '~/types'
+import { RoleMemberType, RoleType, UserBasicType } from '~/types'
 
 import type { rolesLogicType } from './rolesLogicType'
 
 export const rolesLogic = kea<rolesLogicType>([
     path(['scenes', 'organization', 'rolesLogic']),
-    connect(() => ({ values: [teamMembersLogic, ['allMembers']] })),
+    connect(() => ({ values: [membersLogic, ['members']] })),
     actions({
         setCreateRoleModalShown: (shown: boolean) => ({ shown }),
         setRoleInFocus: (role: null | RoleType) => ({ role }),
         setRoleMembersInFocus: (roleMembers: RoleMemberType[]) => ({ roleMembers }),
         setRoleMembersToAdd: (uuids: string[]) => ({ uuids }),
         openCreateRoleModal: true,
-        setPermission: (resource: Resource, access: AccessLevel) => ({ resource, access }),
-        clearPermission: true,
         updateRole: (role: RoleType) => ({ role }),
     }),
     reducers({
@@ -68,7 +67,6 @@ export const rolesLogic = kea<rolesLogicType>([
                 eventUsageLogic.actions.reportRoleCreated(roleName)
                 actions.setRoleMembersInFocus([])
                 actions.setRoleMembersToAdd([])
-                actions.clearPermission()
                 actions.setCreateRoleModalShown(false)
                 return [newRole, ...roles]
             },
@@ -98,7 +96,7 @@ export const rolesLogic = kea<rolesLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         setRoleInFocus: ({ role }) => {
             role && actions.loadRoleMembers({ roleId: role.id })
             actions.setCreateRoleModalShown(true)
@@ -108,23 +106,16 @@ export const rolesLogic = kea<rolesLogicType>([
             actions.setRoleMembersInFocus([])
             actions.setCreateRoleModalShown(true)
         },
-        setCreateRoleModalShown: () => {
-            if (values.roleInFocus) {
-                actions.setPermission(Resource.FEATURE_FLAGS, values.roleInFocus.feature_flags_access_level)
-            } else {
-                actions.setPermission(Resource.FEATURE_FLAGS, AccessLevel.WRITE)
-            }
-        },
         deleteRoleSuccess: () => {
             actions.setCreateRoleModalShown(false)
         },
     })),
     selectors({
         addableMembers: [
-            (s) => [s.allMembers, s.roleMembersInFocus],
-            (allMembers, roleMembersInFocus): UserBasicType[] => {
+            (s) => [s.members, s.roleMembersInFocus],
+            (members, roleMembersInFocus): UserBasicType[] => {
                 const addableMembers: UserBasicType[] = []
-                for (const member of allMembers) {
+                for (const member of members || []) {
                     if (
                         !roleMembersInFocus.some(
                             (roleMember: RoleMemberType) => roleMember.user.uuid === member.user.uuid

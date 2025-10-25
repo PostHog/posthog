@@ -1,3 +1,6 @@
+import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
 import { IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
@@ -10,7 +13,7 @@ import {
     LemonTable,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
+
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { UserSelectItem } from 'lib/components/UserSelectItem'
@@ -18,7 +21,6 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfileBubbles, ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { capitalizeFirstLetter, fullName } from 'lib/utils'
-import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -33,9 +35,7 @@ import {
     RoleType,
 } from '~/types'
 
-import { accessControlLogic, AccessControlLogicProps } from './accessControlLogic'
-import { IconWarning } from '@posthog/icons'
-import clsx from 'clsx'
+import { AccessControlLogicProps, accessControlLogic } from './accessControlLogic'
 
 export function AccessControlObject(props: AccessControlLogicProps): JSX.Element | null {
     const { canEditAccessControls, humanReadableResource } = useValues(accessControlLogic(props))
@@ -54,10 +54,7 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
                                 <Tooltip
                                     title={`You don't have permission to edit access controls for ${suffix}. You must be the creator of it, a Project admin, an Organization admin, or have manager access to the resource.`}
                                 >
-                                    <div className="flex items-center gap-2">
-                                        <IconWarning className={clsx('LemonBanner__icon')} />
-                                        <b>Permission required</b>
-                                    </div>
+                                    <span className="font-medium">Permission required</span>
                                 </Tooltip>
                             </LemonBanner>
                         ) : null}
@@ -371,7 +368,7 @@ function SimplLevelComponent(props: {
     onChange: (newValue: AccessControlLevel) => void
     disabled?: boolean
 }): JSX.Element | null {
-    const { canEditAccessControls } = useValues(accessControlLogic)
+    const { canEditAccessControls, minimumAccessLevel } = useValues(accessControlLogic)
 
     return (
         <LemonSelect
@@ -380,10 +377,16 @@ function SimplLevelComponent(props: {
             value={props.level}
             onChange={(newValue) => props.onChange(newValue as AccessControlLevel)}
             disabledReason={!canEditAccessControls || props.disabled ? 'You cannot edit this' : undefined}
-            options={props.levels.map((level) => ({
-                value: level,
-                label: capitalizeFirstLetter(level ?? ''),
-            }))}
+            options={props.levels.map((level) => {
+                const isDisabled = minimumAccessLevel
+                    ? props.levels.indexOf(level) < props.levels.indexOf(minimumAccessLevel)
+                    : false
+                return {
+                    value: level,
+                    label: capitalizeFirstLetter(level ?? ''),
+                    disabledReason: isDisabled ? 'Not available for this resource type' : undefined,
+                }
+            })}
         />
     )
 }

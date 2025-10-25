@@ -1,5 +1,7 @@
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { cn } from 'lib/utils/css-classes'
+
 export enum ItemName {
     Tables = 'tables',
     Sources = 'sources',
@@ -25,7 +27,7 @@ export function PaginationControls({
     additionalControls,
 }: PaginationControlsProps): JSX.Element {
     return (
-        <div className="mb-4 flex justify-between items-center">
+        <div className={cn('mb-4 flex justify-between items-center mb-0')}>
             {hasMoreItems && (
                 <span className="text-muted text-sm">
                     {`Showing ${

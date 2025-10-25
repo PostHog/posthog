@@ -28,30 +28,23 @@ fn extract_user_friendly_error(
     bucket: &str,
     operation: &str,
 ) -> String {
-    let error_string = format!("{:?}", error);
+    let error_string = format!("{error:?}");
 
     if error_string.contains("InvalidAccessKeyId") {
         "Invalid AWS Access Key ID - please check your credentials".to_string()
     } else if error_string.contains("SignatureDoesNotMatch") {
         "Invalid AWS Secret Access Key - please check your credentials".to_string()
     } else if error_string.contains("AccessDenied") {
-        format!(
-            "Access denied to S3 bucket '{}' - check your permissions",
-            bucket
-        )
+        format!("Access denied to S3 bucket '{bucket}' - check your permissions",)
     } else if error_string.contains("NoSuchBucket") {
-        format!(
-            "S3 bucket '{}' does not exist or you don't have access to it",
-            bucket
-        )
+        format!("S3 bucket '{bucket}' does not exist or you don't have access to it",)
     } else if error_string.contains("InvalidBucketName") {
-        format!("Invalid S3 bucket name '{}'", bucket)
+        format!("Invalid S3 bucket name '{bucket}'")
     } else if error_string.contains("NoSuchKey") {
         "The specified S3 object does not exist".to_string()
     } else if error_string.contains("timeout") || error_string.contains("Timeout") {
         format!(
-            "S3 {} operation timed out - check your network connection and region settings",
-            operation
+            "S3 {operation} operation timed out - check your network connection and region settings",
         )
     } else if error_string.contains("dns") || error_string.contains("DNS") {
         "Failed to connect to S3 - check your endpoint URL and network connection".to_string()
@@ -59,10 +52,7 @@ fn extract_user_friendly_error(
         "Failed to connect to S3 endpoint - check your endpoint URL and network connection"
             .to_string()
     } else {
-        format!(
-            "S3 {} failed - check your credentials, bucket name, and permissions",
-            operation
-        )
+        format!("S3 {operation} failed - check your credentials, bucket name, and permissions",)
     }
 }
 
@@ -117,14 +107,14 @@ impl DataSource for S3Source {
             })?;
 
         let Some(size) = head.content_length else {
-            return Err(Error::msg(format!("No content length for key {}", key)));
+            return Err(Error::msg(format!("No content length for key {key}")));
         };
 
         Ok(Some(size as u64))
     }
 
     async fn get_chunk(&self, key: &str, offset: u64, size: u64) -> Result<Vec<u8>, Error> {
-        let range = format!("bytes={}-{}", offset, offset + size - 1);
+        let range = format!("bytes={offset}-{}", offset + size - 1);
         let get = self
             .client
             .get_object()
@@ -141,8 +131,8 @@ impl DataSource for S3Source {
 
         let data = get.body.collect().await.with_context(|| {
             format!(
-                "Failed to read body data from S3 object s3://{}/{}",
-                self.bucket, key
+                "Failed to read body data from S3 object s3://{0}/{key}",
+                self.bucket,
             )
         })?;
 

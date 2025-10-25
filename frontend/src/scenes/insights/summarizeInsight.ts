@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
+
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
-import { RETENTION_FIRST_TIME } from 'lib/constants'
+import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import {
     getDisplayNameFromEntityFilter,
@@ -8,7 +9,7 @@ import {
     humanizePathsEventTypes,
 } from 'scenes/insights/utils'
 import { retentionOptions } from 'scenes/retention/constants'
-import { apiValueToMathType, MathCategory, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
+import { MathCategory, MathDefinition, apiValueToMathType, mathsLogic } from 'scenes/trends/mathsLogic'
 import { mathsLogicType } from 'scenes/trends/mathsLogicType'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -24,7 +25,6 @@ import {
     Node,
 } from '~/queries/schema/schema-general'
 import {
-    isCalendarHeatmapQuery,
     isDataTableNode,
     isEventsQuery,
     isFunnelsQuery,
@@ -149,6 +149,10 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
         if (query.trendsFilter?.formula) {
             summary = `${query.trendsFilter.formula} on ${summary}`
         }
+        if (query.trendsFilter?.formulaNodes) {
+            const formulas = query.trendsFilter?.formulaNodes.map((node) => node.custom_name || node.formula).join(', ')
+            summary = `${formulas} on ${summary}`
+        }
 
         return summary
     } else if (isFunnelsQuery(query)) {
@@ -159,7 +163,15 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
                 : query.funnelsFilter?.funnelOrderType === StepOrderValue.UNORDERED
                   ? '&'
                   : '→'
-        summary = `${query.series.map((s) => getDisplayNameFromEntityNode(s)).join(` ${linkSymbol} `)} ${
+        summary = `${query.series
+            .map((s) => {
+                let eventName = getDisplayNameFromEntityNode(s)
+                if (s.optionalInFunnel) {
+                    eventName += ' (optional)'
+                }
+                return eventName
+            })
+            .join(` ${linkSymbol} `)} ${
             context.aggregationLabel(query.aggregation_group_type_index, true).singular
         } conversion`
         if (query.funnelsFilter?.funnelVizType === FunnelVizType.TimeToConvert) {
@@ -183,7 +195,7 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
             ` based on doing ${getDisplayNameFromEntityFilter(
                 (query.retentionFilter?.targetEntity || {}) as EntityFilter
             )}` +
-            ` ${retentionOptions[query.retentionFilter?.retentionType || RETENTION_FIRST_TIME]} and returning with ` +
+            ` ${retentionOptions[query.retentionFilter?.retentionType || RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS]} and returning with ` +
             (areTargetAndReturningIdentical
                 ? 'the same event'
                 : getDisplayNameFromEntityFilter((query.retentionFilter?.returningEntity || {}) as EntityFilter))
@@ -213,8 +225,6 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
         return `${capitalizeFirstLetter(
             context.aggregationLabel(query.aggregation_group_type_index, true).singular
         )} lifecycle based on ${getDisplayNameFromEntityNode(query.series[0])}`
-    } else if (isCalendarHeatmapQuery(query)) {
-        return `Calendar heatmap of ${getDisplayNameFromEntityNode(query.series[0])}`
     }
     return ''
 }

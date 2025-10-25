@@ -202,8 +202,7 @@ impl AssignmentRule {
                 }
                 StepOutcome::Finished(res) => {
                     return Err(VmError::Other(format!(
-                        "Assignment rule returned {:?}, expected a boolean value",
-                        res
+                        "Assignment rule returned {res:?}, expected a boolean value"
                     )))
                 }
                 StepOutcome::NativeCall(name, args) => {

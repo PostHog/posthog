@@ -1,13 +1,23 @@
+import { Layouts } from 'react-grid-layout'
+
 import { lemonToast } from '@posthog/lemon-ui'
+
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { currentSessionId } from 'lib/internalMetrics'
-import { shouldCancelQuery, toParams } from 'lib/utils'
-import { Layouts } from 'react-grid-layout'
+import { objectClean, shouldCancelQuery, toParams } from 'lib/utils'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { pollForResults } from '~/queries/query'
-import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
-import { DashboardLayoutSize, InsightModel, QueryBasedInsightModel, TileLayout } from '~/types'
+import { DashboardFilter, HogQLVariable, TileFilters } from '~/queries/schema/schema-general'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    DashboardLayoutSize,
+    InsightModel,
+    QueryBasedInsightModel,
+    TileLayout,
+} from '~/types'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,
@@ -23,7 +33,8 @@ export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 15
 
 export const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
-export const QUERY_VARIABLES_KEY = 'query_variables'
+export const SEARCH_PARAM_QUERY_VARIABLES_KEY = 'query_variables'
+export const SEARCH_PARAM_FILTERS_KEY = 'query_filters'
 
 /**
  * Once a dashboard has more tiles than this,
@@ -108,9 +119,20 @@ export async function getInsightWithRetry(
     methodOptions?: ApiMethodOptions,
     filtersOverride?: DashboardFilter,
     variablesOverride?: Record<string, HogQLVariable>,
+    tileFiltersOverride?: TileFilters,
     maxAttempts: number = 5,
     initialDelay: number = 1200
 ): Promise<QueryBasedInsightModel | null> {
+    // Check if user has access to this insight before making API calls
+    const canViewInsight = insight.user_access_level
+        ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Viewer)
+        : true
+
+    if (!canViewInsight) {
+        // Return the insight as-is without making API calls - it should already have minimal data
+        return insight
+    }
+
     let attempt = 0
 
     while (attempt < maxAttempts) {
@@ -122,6 +144,7 @@ export async function getInsightWithRetry(
                 session_id: currentSessionId(),
                 ...(filtersOverride ? { filters_override: filtersOverride } : {}),
                 ...(variablesOverride ? { variables_override: variablesOverride } : {}),
+                ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
             })}`
             const insightResponse: Response = await api.getResponse(apiUrl, methodOptions)
             const legacyInsight: InsightModel | null = await getJSONOrNull(insightResponse)
@@ -140,6 +163,7 @@ export async function getInsightWithRetry(
                             session_id: currentSessionId(),
                             ...(filtersOverride ? { filters_override: filtersOverride } : {}),
                             ...(variablesOverride ? { variables_override: variablesOverride } : {}),
+                            ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
                         })}`
                         // The async call returns an insight with a query_status object
                         const insightResponse = await api.get(asyncApiUrl, methodOptions)
@@ -154,6 +178,7 @@ export async function getInsightWithRetry(
                                     session_id: currentSessionId(),
                                     ...(filtersOverride ? { filters_override: filtersOverride } : {}),
                                     ...(variablesOverride ? { variables_override: variablesOverride } : {}),
+                                    ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
                                 })}`
                                 const refreshedInsightResponse: Response = await api.getResponse(
                                     cacheUrl,
@@ -216,9 +241,9 @@ export async function getInsightWithRetry(
 export const parseURLVariables = (searchParams: Record<string, any>): Record<string, Partial<HogQLVariable>> => {
     const variables: Record<string, Partial<HogQLVariable>> = {}
 
-    if (searchParams[QUERY_VARIABLES_KEY]) {
+    if (searchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY]) {
         try {
-            const parsedVariables = JSON.parse(searchParams[QUERY_VARIABLES_KEY])
+            const parsedVariables = JSON.parse(searchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY])
             Object.assign(variables, parsedVariables)
         } catch (e) {
             console.error('Failed to parse query_variables from URL:', e)
@@ -232,8 +257,45 @@ export const encodeURLVariables = (variables: Record<string, string>): Record<st
     const encodedVariables: Record<string, string> = {}
 
     if (Object.keys(variables).length > 0) {
-        encodedVariables[QUERY_VARIABLES_KEY] = JSON.stringify(variables)
+        encodedVariables[SEARCH_PARAM_QUERY_VARIABLES_KEY] = JSON.stringify(variables)
     }
 
     return encodedVariables
+}
+
+export const parseURLFilters = (searchParams: Record<string, any>): DashboardFilter => {
+    const filters: DashboardFilter = {}
+
+    if (searchParams[SEARCH_PARAM_FILTERS_KEY]) {
+        try {
+            const parsedFilters = JSON.parse(searchParams[SEARCH_PARAM_FILTERS_KEY])
+            Object.assign(filters, parsedFilters)
+        } catch (e) {
+            console.error(`Failed to parse ${SEARCH_PARAM_FILTERS_KEY} from URL:`, e)
+        }
+    }
+
+    return filters
+}
+
+export const encodeURLFilters = (filters: DashboardFilter): Record<string, string> => {
+    const encodedFilters: Record<string, string> = {}
+
+    if (Object.keys(filters).length > 0) {
+        encodedFilters[SEARCH_PARAM_FILTERS_KEY] = JSON.stringify(objectClean(filters as Record<string, unknown>))
+    }
+
+    return encodedFilters
+}
+
+export function combineDashboardFilters(...filters: DashboardFilter[]): DashboardFilter {
+    return filters.reduce((combined, filter) => {
+        Object.keys(filter).forEach((key) => {
+            const value = (filter as Record<string, any>)[key]
+            if (value !== undefined) {
+                ;(combined as Record<string, any>)[key] = value
+            }
+        })
+        return combined
+    }, {} as DashboardFilter)
 }

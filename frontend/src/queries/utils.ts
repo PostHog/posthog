@@ -1,22 +1,25 @@
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { getAppContext } from 'lib/utils/getAppContext'
 
 import {
     ActionsNode,
     ActorsQuery,
     BreakdownFilter,
-    CalendarHeatmapQuery,
     CompareFilter,
-    DatabaseSchemaQuery,
     DataTableNode,
     DataVisualizationNode,
     DataWarehouseNode,
+    DatabaseSchemaQuery,
     DateRange,
     ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingQuery,
     EventsNode,
     EventsQuery,
+    ExperimentFunnelsQuery,
+    ExperimentMetric,
+    ExperimentTrendsQuery,
     FunnelsQuery,
     GoalLine,
     GroupsQuery,
@@ -31,6 +34,7 @@ import {
     InsightQueryNode,
     InsightVizNode,
     LifecycleQuery,
+    MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
     MathType,
     Node,
@@ -40,11 +44,13 @@ import {
     QuerySchema,
     QueryStatusResponse,
     ResultCustomizationBy,
+    ResultCustomizationByPosition,
+    ResultCustomizationByValue,
     RetentionQuery,
-    RevenueAnalyticsGrowthRateQuery,
+    RevenueAnalyticsGrossRevenueQuery,
+    RevenueAnalyticsMRRQuery,
     RevenueAnalyticsMetricsQuery,
     RevenueAnalyticsOverviewQuery,
-    RevenueAnalyticsRevenueQuery,
     RevenueAnalyticsTopCustomersQuery,
     RevenueExampleDataWarehouseTablesQuery,
     RevenueExampleEventsQuery,
@@ -63,7 +69,6 @@ import {
 import { BaseMathType, ChartDisplayType, IntervalType } from '~/types'
 
 import { LATEST_VERSIONS } from './latest-versions'
-import { getAppContext } from 'lib/utils/getAppContext'
 
 export function isDataNode(node?: Record<string, any> | null): node is EventsQuery | PersonsNode {
     return (
@@ -154,10 +159,10 @@ export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQ
     return node?.kind === NodeKind.HogQLMetadata
 }
 
-export function isRevenueAnalyticsGrowthRateQuery(
+export function isRevenueAnalyticsGrossRevenueQuery(
     node?: Record<string, any> | null
-): node is RevenueAnalyticsGrowthRateQuery {
-    return node?.kind === NodeKind.RevenueAnalyticsGrowthRateQuery
+): node is RevenueAnalyticsGrossRevenueQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsGrossRevenueQuery
 }
 
 export function isRevenueAnalyticsMetricsQuery(
@@ -166,16 +171,14 @@ export function isRevenueAnalyticsMetricsQuery(
     return node?.kind === NodeKind.RevenueAnalyticsMetricsQuery
 }
 
+export function isRevenueAnalyticsMRRQuery(node?: Record<string, any> | null): node is RevenueAnalyticsMRRQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsMRRQuery
+}
+
 export function isRevenueAnalyticsOverviewQuery(
     node?: Record<string, any> | null
 ): node is RevenueAnalyticsOverviewQuery {
     return node?.kind === NodeKind.RevenueAnalyticsOverviewQuery
-}
-
-export function isRevenueAnalyticsRevenueQuery(
-    node?: Record<string, any> | null
-): node is RevenueAnalyticsRevenueQuery {
-    return node?.kind === NodeKind.RevenueAnalyticsRevenueQuery
 }
 
 export function isRevenueAnalyticsTopCustomersQuery(
@@ -204,6 +207,12 @@ export function isMarketingAnalyticsTableQuery(
     node?: Record<string, any> | null
 ): node is MarketingAnalyticsTableQuery {
     return node?.kind === NodeKind.MarketingAnalyticsTableQuery
+}
+
+export function isMarketingAnalyticsAggregatedQuery(
+    node?: Record<string, any> | null
+): node is MarketingAnalyticsAggregatedQuery {
+    return node?.kind === NodeKind.MarketingAnalyticsAggregatedQuery
 }
 
 export function isTracesQuery(node?: Record<string, any> | null): node is TracesQuery {
@@ -238,6 +247,12 @@ export function isErrorTrackingQuery(node?: Record<string, any> | null): node is
     return node?.kind === NodeKind.ErrorTrackingQuery
 }
 
+export function isExperimentMetric(
+    metric: ExperimentMetric | ExperimentFunnelsQuery | ExperimentTrendsQuery
+): metric is ExperimentMetric {
+    return metric.kind === NodeKind.ExperimentMetric
+}
+
 export function isErrorTrackingIssueCorrelationQuery(
     node?: Record<string, any> | null
 ): node is ErrorTrackingIssueCorrelationQuery {
@@ -257,10 +272,6 @@ export function containsHogQLQuery(node?: Record<string, any> | null): boolean {
 
 export function isTrendsQuery(node?: Record<string, any> | null): node is TrendsQuery {
     return node?.kind === NodeKind.TrendsQuery
-}
-
-export function isCalendarHeatmapQuery(node?: Record<string, any> | null): node is CalendarHeatmapQuery {
-    return node?.kind === NodeKind.CalendarHeatmapQuery
 }
 
 export function isFunnelsQuery(node?: Record<string, any> | null): node is FunnelsQuery {
@@ -334,8 +345,7 @@ export function isInsightQueryNode(node?: Record<string, any> | null): node is I
         isRetentionQuery(node) ||
         isPathsQuery(node) ||
         isStickinessQuery(node) ||
-        isLifecycleQuery(node) ||
-        isCalendarHeatmapQuery(node)
+        isLifecycleQuery(node)
     )
 }
 
@@ -459,6 +469,8 @@ export const getShowValuesOnSeries = (query: InsightQueryNode): boolean | undefi
         return query.stickinessFilter?.showValuesOnSeries
     } else if (isTrendsQuery(query)) {
         return query.trendsFilter?.showValuesOnSeries
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.showValuesOnSeries
     }
     return undefined
 }
@@ -482,6 +494,28 @@ export const getShowMultipleYAxes = (query: InsightQueryNode): boolean | undefin
 export const getResultCustomizationBy = (query: InsightQueryNode): ResultCustomizationBy | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.resultCustomizationBy
+    } else if (isStickinessQuery(query)) {
+        return query.stickinessFilter?.resultCustomizationBy
+    }
+    return undefined
+}
+
+export function getResultCustomizations(query: FunnelsQuery): Record<string, ResultCustomizationByValue> | undefined
+export function getResultCustomizations(
+    query: TrendsQuery | StickinessQuery
+): Record<number, ResultCustomizationByPosition> | undefined
+export function getResultCustomizations(
+    query: InsightQueryNode
+): Record<string, ResultCustomizationByValue> | Record<number, ResultCustomizationByPosition> | undefined
+export function getResultCustomizations(
+    query: InsightQueryNode
+): Record<string, ResultCustomizationByValue> | Record<number, ResultCustomizationByPosition> | undefined {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.resultCustomizations
+    } else if (isStickinessQuery(query)) {
+        return query.stickinessFilter?.resultCustomizations
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.resultCustomizations
     }
     return undefined
 }
@@ -489,7 +523,10 @@ export const getResultCustomizationBy = (query: InsightQueryNode): ResultCustomi
 export const getGoalLines = (query: InsightQueryNode): GoalLine[] | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.goalLines
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.goalLines
     }
+
     return undefined
 }
 
@@ -506,7 +543,6 @@ export const nodeKindToFilterProperty: Record<InsightNodeKind, InsightFilterProp
     [NodeKind.PathsQuery]: 'pathsFilter',
     [NodeKind.StickinessQuery]: 'stickinessFilter',
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
-    [NodeKind.CalendarHeatmapQuery]: 'calendarHeatmapFilter',
 }
 
 export function filterKeyForQuery(node: InsightQueryNode): InsightFilterProperty {

@@ -1,4 +1,5 @@
 import { IconServer } from '@posthog/icons'
+
 import {
     IconAndroidOS,
     IconAppleIOS,
@@ -16,15 +17,15 @@ import {
 import { SDKKey } from '~/types'
 
 import {
-    AndroidSnippet,
     APISnippet,
+    AndroidSnippet,
     CSharpSnippet,
     FeatureFlagSnippet,
     FlutterSnippet,
     GolangSnippet,
-    iOSSnippet,
     JSBootstrappingSnippet,
     JSSnippet,
+    JavaSnippet,
     NodeJSSnippet,
     PHPSnippet,
     PythonSnippet,
@@ -32,6 +33,7 @@ import {
     ReactSnippet,
     RubySnippet,
     UTM_TAGS,
+    iOSSnippet,
 } from './FeatureFlagSnippets'
 
 const DOC_BASE_URL = 'https://posthog.com/docs/'
@@ -159,6 +161,14 @@ export const OPTIONS: InstructionOption[] = [
         key: SDKKey.DOTNET,
         Icon: IconCSharp,
     },
+    {
+        value: 'Java',
+        documentationLink: `${DOC_BASE_URL}libraries/java${UTM_TAGS}`,
+        Snippet: JavaSnippet,
+        type: LibraryType.Server,
+        key: SDKKey.JAVA,
+        Icon: IconServer,
+    },
 ]
 
 export const LOCAL_EVALUATION_LIBRARIES: string[] = [
@@ -183,6 +193,7 @@ export const PAYLOAD_LIBRARIES: string[] = [
     SDKKey.FLUTTER,
     SDKKey.DOTNET,
     SDKKey.GO,
+    SDKKey.JAVA,
 ]
 
 export const REMOTE_CONFIGURATION_LIBRARIES: string[] = [

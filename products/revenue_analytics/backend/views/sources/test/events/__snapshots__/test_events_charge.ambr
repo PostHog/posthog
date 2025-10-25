@@ -1,0 +1,87 @@
+# serializer version: 1
+# name: TestChargeEventsBuilder.test_build_charge_queries_with_currency_aware_decimal
+  '''
+  SELECT toString(uuid) AS id,
+         'revenue_analytics.events.purchase' AS source_label,
+         timestamp AS timestamp,
+         distinct_id AS customer_id,
+         NULL AS invoice_id,
+         toString($session_id) AS session_id,
+         event AS event_name,
+         'USD' AS original_currency,
+         toDecimal(events.properties.amount, 10) AS original_amount,
+         in(original_currency,
+            ['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']) AS enable_currency_aware_divider,
+           if(enable_currency_aware_divider, toDecimal(1, 10), toDecimal(100, 10)) AS currency_aware_divider,
+           divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
+           'USD' AS currency,
+           if(isNull('USD'), toDecimal(currency_aware_amount, 10), convertCurrency('USD', 'USD', currency_aware_amount, _toDate(events.timestamp))) AS amount
+  FROM events
+  WHERE and(equals(event, 'purchase'), true, notEquals(amount, NULL))
+  ORDER BY timestamp DESC
+  '''
+# ---
+# name: TestChargeEventsBuilder.test_build_charge_queries_without_currency_aware_decimal
+  '''
+  SELECT toString(uuid) AS id,
+         'revenue_analytics.events.subscription_charge' AS source_label,
+         timestamp AS timestamp,
+         distinct_id AS customer_id,
+         NULL AS invoice_id,
+         toString($session_id) AS session_id,
+         event AS event_name,
+         upper(events.properties.currency) AS original_currency,
+         toDecimal(events.properties.price, 10) AS original_amount,
+         true AS enable_currency_aware_divider,
+                 if(enable_currency_aware_divider, toDecimal(1, 10), toDecimal(100, 10)) AS currency_aware_divider,
+                 divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
+                 'USD' AS currency,
+                 if(isNull(upper(events.properties.currency)), toDecimal(currency_aware_amount, 10), convertCurrency(upper(events.properties.currency), 'USD', currency_aware_amount, _toDate(events.timestamp))) AS amount
+  FROM events
+  WHERE and(equals(event, 'subscription_charge'), true, notEquals(amount, NULL))
+  ORDER BY timestamp DESC
+  '''
+# ---
+# name: TestChargeEventsBuilder.test_currency_aware_decimal_logic
+  '''
+  SELECT toString(uuid) AS id,
+         'revenue_analytics.events.purchase' AS source_label,
+         timestamp AS timestamp,
+         distinct_id AS customer_id,
+         NULL AS invoice_id,
+         toString($session_id) AS session_id,
+         event AS event_name,
+         'USD' AS original_currency,
+         toDecimal(events.properties.amount, 10) AS original_amount,
+         in(original_currency,
+            ['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']) AS enable_currency_aware_divider,
+           if(enable_currency_aware_divider, toDecimal(1, 10), toDecimal(100, 10)) AS currency_aware_divider,
+           divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
+           'USD' AS currency,
+           if(isNull('USD'), toDecimal(currency_aware_amount, 10), convertCurrency('USD', 'USD', currency_aware_amount, _toDate(events.timestamp))) AS amount
+  FROM events
+  WHERE and(equals(event, 'purchase'), true, notEquals(amount, NULL))
+  ORDER BY timestamp DESC
+  '''
+# ---
+# name: TestChargeEventsBuilder.test_currency_aware_decimal_logic.1
+  '''
+  SELECT toString(uuid) AS id,
+         'revenue_analytics.events.subscription_charge' AS source_label,
+         timestamp AS timestamp,
+         distinct_id AS customer_id,
+         NULL AS invoice_id,
+         toString($session_id) AS session_id,
+         event AS event_name,
+         upper(events.properties.currency) AS original_currency,
+         toDecimal(events.properties.price, 10) AS original_amount,
+         true AS enable_currency_aware_divider,
+                 if(enable_currency_aware_divider, toDecimal(1, 10), toDecimal(100, 10)) AS currency_aware_divider,
+                 divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
+                 'USD' AS currency,
+                 if(isNull(upper(events.properties.currency)), toDecimal(currency_aware_amount, 10), convertCurrency(upper(events.properties.currency), 'USD', currency_aware_amount, _toDate(events.timestamp))) AS amount
+  FROM events
+  WHERE and(equals(event, 'subscription_charge'), true, notEquals(amount, NULL))
+  ORDER BY timestamp DESC
+  '''
+# ---

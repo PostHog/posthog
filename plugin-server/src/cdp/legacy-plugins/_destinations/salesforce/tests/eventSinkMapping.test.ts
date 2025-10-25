@@ -3,9 +3,9 @@ import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import {
     EventSink,
     EventToSinkMapping,
-    parseEventSinkConfig,
     SalesforceMeta,
     SalesforcePluginConfig,
+    parseEventSinkConfig,
     sendEventToSalesforce,
     verifyConfig,
 } from '../index'

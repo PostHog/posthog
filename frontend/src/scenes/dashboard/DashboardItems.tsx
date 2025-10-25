@@ -3,21 +3,24 @@ import './DashboardItems.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useRef, useState } from 'react'
+import { Responsive as ReactGridLayout } from 'react-grid-layout'
+
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { useRef, useState } from 'react'
-import { Responsive as ReactGridLayout } from 'react-grid-layout'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { BREAKPOINT_COLUMN_COUNTS, BREAKPOINTS } from 'scenes/dashboard/dashboardUtils'
+import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 import { urls } from 'scenes/urls'
 
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
+import { DashboardMode, DashboardPlacement, DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
 
 export function DashboardItems(): JSX.Element {
     const {
@@ -31,10 +34,10 @@ export function DashboardItems(): JSX.Element {
         highlightedInsightId,
         refreshStatus,
         itemsLoading,
-        temporaryVariables,
+        effectiveEditBarFilters,
+        effectiveDashboardVariableOverrides,
         temporaryBreakdownColors,
         dataColorThemeId,
-        noCache,
     } = useValues(dashboardLogic)
     const {
         updateLayouts,
@@ -42,13 +45,15 @@ export function DashboardItems(): JSX.Element {
         updateTileColor,
         removeTile,
         duplicateTile,
-        triggerDashboardItemRefresh,
+        refreshDashboardItem,
         moveToDashboard,
+        setTileOverride,
     } = useActions(dashboardLogic)
     const { duplicateInsight, renameInsight } = useActions(insightsModel)
     const { push } = useActions(router)
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const otherDashboards = nameSortedDashboards.filter((nsdb) => nsdb.id !== dashboard?.id)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const [resizingItem, setResizingItem] = useState<any>(null)
 
@@ -62,6 +67,15 @@ export function DashboardItems(): JSX.Element {
 
     const { width: gridWrapperWidth, ref: gridWrapperRef } = useResizeObserver()
     const canResizeWidth = !gridWrapperWidth || gridWrapperWidth > BREAKPOINTS['sm']
+
+    const canAccessTileOverrides = !!featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_OVERRIDES]
+    const duplicate = (tile: DashboardTile<QueryBasedInsightModel>, insight: QueryBasedInsightModel): void => {
+        if (canAccessTileOverrides) {
+            duplicateTile(tile)
+        } else {
+            duplicateInsight(insight)
+        }
+    }
 
     return (
         <div className="dashboard-items-wrapper" ref={gridWrapperRef}>
@@ -147,6 +161,7 @@ export function DashboardItems(): JSX.Element {
                             return (
                                 <InsightCard
                                     key={tile.id}
+                                    tile={tile}
                                     insight={insight}
                                     loadingQueued={loadingQueued}
                                     loading={loading}
@@ -155,21 +170,22 @@ export function DashboardItems(): JSX.Element {
                                     highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
                                     updateColor={(color) => updateTileColor(tile.id, color)}
                                     ribbonColor={tile.color}
-                                    refresh={() => triggerDashboardItemRefresh({ tile })}
+                                    refresh={() => refreshDashboardItem({ tile })}
                                     refreshEnabled={!itemsLoading}
                                     rename={() => renameInsight(insight)}
-                                    duplicate={() => duplicateInsight(insight)}
+                                    duplicate={() => duplicate(tile, insight)}
+                                    setOverride={() => setTileOverride(tile)}
                                     showDetailsControls={
                                         placement != DashboardPlacement.Export &&
                                         !getCurrentExporterData()?.hideExtraDetails
                                     }
                                     placement={placement}
                                     loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
-                                    variablesOverride={temporaryVariables}
+                                    filtersOverride={effectiveEditBarFilters}
+                                    variablesOverride={effectiveDashboardVariableOverrides}
                                     // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
                                     breakdownColorOverride={temporaryBreakdownColors}
                                     dataColorThemeId={dataColorThemeId}
-                                    noCache={noCache}
                                     {...commonTileProps}
                                     // NOTE: ReactGridLayout additionally injects its resize handles as `children`!
                                 />
@@ -248,6 +264,14 @@ export function DashboardItems(): JSX.Element {
                         }
                     })}
                 </ReactGridLayout>
+            )}
+            {itemsLoading && (
+                <div className="mt-4 flex items-center justify-center">
+                    <div className="flex items-center gap-2 text-muted">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" />
+                        <span>Loading tiles...</span>
+                    </div>
+                </div>
             )}
         </div>
     )

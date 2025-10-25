@@ -2,30 +2,33 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from unittest.mock import MagicMock, call, patch
-from django.conf import settings
-from asgiref.sync import sync_to_async
 
 import pytest
 from freezegun import freeze_time
+from unittest.mock import MagicMock, call, patch
+
+from django.conf import settings
+
+from asgiref.sync import sync_to_async
 from temporalio.client import Client
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import Worker, UnsandboxedWorkflowRunner
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.instance_setting import set_instance_setting
 from posthog.temporal.subscriptions.subscription_scheduling_workflow import (
-    ScheduleAllSubscriptionsWorkflow,
-    HandleSubscriptionValueChangeWorkflow,
     DeliverSubscriptionReportActivityInputs,
-    deliver_subscription_report_activity,
+    HandleSubscriptionValueChangeWorkflow,
+    ScheduleAllSubscriptionsWorkflow,
     ScheduleAllSubscriptionsWorkflowInputs,
+    deliver_subscription_report_activity,
     fetch_due_subscriptions_activity,
 )
+
+from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
@@ -44,15 +47,17 @@ async def subscriptions_worker(temporal_client: Client):
         yield  # allow the test to run while the worker is active
 
 
+@patch("ee.tasks.subscriptions.get_metric_meter")
 @patch("ee.tasks.subscriptions.send_slack_subscription_report")
 @patch("ee.tasks.subscriptions.send_email_subscription_report")
-@patch("ee.tasks.subscriptions.generate_assets")
+@patch("ee.tasks.subscriptions.generate_assets_async")
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
 async def test_subscription_delivery_scheduling(
     mock_gen_assets: MagicMock,
     mock_send_email: MagicMock,
     mock_send_slack: MagicMock,
+    mock_metric_meter: MagicMock,
     temporal_client: Client,
     subscriptions_worker,
     team,
@@ -73,7 +78,10 @@ async def test_subscription_delivery_scheduling(
         )
         await sync_to_async(DashboardTile.objects.create)(dashboard=dashboard, insight=tile_insight)
 
-    mock_gen_assets.return_value = [insight], [asset]
+    async def mock_generate_assets_async(subscription):
+        return [insight], [asset]
+
+    mock_gen_assets.side_effect = mock_generate_assets_async
 
     await sync_to_async(set_instance_setting)("EMAIL_HOST", "fake_host")
     await sync_to_async(set_instance_setting)("EMAIL_ENABLED", True)
@@ -139,6 +147,7 @@ async def test_subscription_delivery_scheduling(
     assert delivered_sub_ids == {subscriptions[0].id, subscriptions[1].id}
 
 
+@patch("ee.tasks.subscriptions.get_metric_meter")
 @patch("posthoganalytics.feature_enabled", return_value=True)
 @patch("ee.tasks.subscriptions.get_slack_integration_for_team", return_value=None)
 @patch("ee.tasks.subscriptions.send_email_subscription_report")
@@ -149,6 +158,7 @@ async def test_does_not_schedule_subscription_if_item_is_deleted(
     mock_gen_assets: MagicMock,
     mock_send_email: MagicMock,
     mock_send_slack: MagicMock,
+    mock_metric_meter: MagicMock,
     temporal_client: Client,
     subscriptions_worker,
     team,
@@ -199,13 +209,15 @@ async def test_does_not_schedule_subscription_if_item_is_deleted(
     assert mock_send_email.call_count == 0 and mock_send_slack.call_count == 0
 
 
+@patch("ee.tasks.subscriptions.get_metric_meter")
 @patch("posthoganalytics.feature_enabled", return_value=True)
 @patch("ee.tasks.subscriptions.send_email_subscription_report")
-@patch("ee.tasks.subscriptions.generate_assets")
+@patch("ee.tasks.subscriptions.generate_assets_async")
 @pytest.mark.asyncio
 async def test_handle_subscription_value_change_email(
     mock_gen_assets: MagicMock,
     mock_send_email: MagicMock,
+    mock_metric_meter: MagicMock,
     temporal_client: Client,
     subscriptions_worker,
     team,
@@ -223,7 +235,10 @@ async def test_handle_subscription_value_change_email(
         target_value="test_existing@posthog.com,test_new@posthog.com",
     )
 
-    mock_gen_assets.return_value = [insight], [asset]
+    async def mock_generate_assets_async(subscription):
+        return [insight], [asset]
+
+    mock_gen_assets.side_effect = mock_generate_assets_async
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -260,13 +275,15 @@ async def test_handle_subscription_value_change_email(
     ]
 
 
+@patch("ee.tasks.subscriptions.get_metric_meter")
 @patch("posthoganalytics.feature_enabled", return_value=True)
 @patch("ee.tasks.subscriptions.get_slack_integration_for_team", return_value=None)
-@patch("ee.tasks.subscriptions.generate_assets")
+@patch("ee.tasks.subscriptions.generate_assets_async")
 @pytest.mark.asyncio
 async def test_deliver_subscription_report_slack(
     mock_gen_assets: MagicMock,
     mock_send_slack: MagicMock,
+    mock_metric_meter: MagicMock,
     temporal_client: Client,
     subscriptions_worker,
     team,
@@ -285,7 +302,10 @@ async def test_deliver_subscription_report_slack(
         target_value="C12345|#test-channel",
     )
 
-    mock_gen_assets.return_value = [insight], [asset]
+    async def mock_generate_assets_async(subscription):
+        return [insight], [asset]
+
+    mock_gen_assets.side_effect = mock_generate_assets_async
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(

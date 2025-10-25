@@ -1,7 +1,9 @@
+from enum import StrEnum
+
 import structlog
 
-from enum import StrEnum
 from posthog.date_util import thirty_days_ago
+
 from .feature_flag import FeatureFlag
 
 logger = structlog.get_logger(__name__)
@@ -27,6 +29,8 @@ class FeatureFlagStatus(StrEnum):
 #       NOTE: The "inactive" status is not currently used, but may be used in the future to automatically archive flags.
 # - DELETED: The feature flag has been soft deleted.
 # - UNKNOWN: The feature flag is not found in the database.
+#
+# When we update the logic for stale flags, do check/update the function `_filter_request`` in feature_flag.py
 class FeatureFlagStatusChecker:
     def __init__(
         self,

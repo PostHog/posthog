@@ -6,14 +6,15 @@ from uuid import UUID
 
 import dagster
 
+from posthog.clickhouse.cluster import ClickhouseCluster, Query
+from posthog.models.property_definition import PropertyDefinition
+
 from dags.property_definitions import (
     DetectPropertyTypeExpression,
     PropertyDefinitionsConfig,
     property_definitions_ingestion_job,
     setup_job,
 )
-from posthog.clickhouse.cluster import ClickhouseCluster, Query
-from posthog.models.property_definition import PropertyDefinition
 
 
 @dataclass

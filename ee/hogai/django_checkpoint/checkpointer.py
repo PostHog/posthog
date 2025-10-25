@@ -5,6 +5,7 @@ from typing import Any, Optional, cast
 
 from django.db import transaction
 from django.db.models import Prefetch, Q
+
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import (
     WRITES_IDX_MAP,
@@ -19,8 +20,9 @@ from langgraph.checkpoint.base import (
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.serde.types import TASKS, ChannelProtocol
 
-from ee.models.assistant import ConversationCheckpoint, ConversationCheckpointBlob, ConversationCheckpointWrite
 from posthog.sync import database_sync_to_async
+
+from ee.models.assistant import ConversationCheckpoint, ConversationCheckpointBlob, ConversationCheckpointWrite
 
 
 class DjangoCheckpointer(BaseCheckpointSaver[str]):

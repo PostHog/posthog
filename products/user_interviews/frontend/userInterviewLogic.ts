@@ -1,5 +1,6 @@
 import { afterMount, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
@@ -42,11 +43,13 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
                     key: 'UserInterviews',
                     name: 'User interviews',
                     path: urls.userInterviews(),
+                    iconType: 'user_interview',
                 },
                 {
                     key: props.id,
                     name: userInterview?.interviewee_emails?.join(', '),
                     path: urls.userInterview(props.id),
+                    iconType: 'user_interview',
                 },
             ],
         ],

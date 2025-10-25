@@ -1,17 +1,15 @@
 # This module is responsible for adding tags/metadata to outgoing clickhouse queries in a thread-safe manner
-import contextvars
 import uuid
-from enum import StrEnum
+import contextvars
 from collections.abc import Generator
 from contextlib import contextmanager, suppress
-
-from pydantic import BaseModel, ConfigDict
+from enum import StrEnum
 from typing import Any, Optional
 
 # from posthog.clickhouse.client.connection import Workload
 # from posthog.schema import PersonsOnEventsMode
-
 from cachetools import cached
+from pydantic import BaseModel, ConfigDict
 
 
 class AccessMethod(StrEnum):
@@ -24,13 +22,18 @@ class Product(StrEnum):
     BATCH_EXPORT = "batch_export"
     FEATURE_FLAGS = "feature_flags"
     MAX_AI = "max_ai"
+    MESSAGING = "messaging"
+    WORKFLOWS = "workflows"
     PRODUCT_ANALYTICS = "product_analytics"
     REPLAY = "replay"
     SESSION_SUMMARY = "session_summary"
     WAREHOUSE = "warehouse"
+    EXPERIMENTS = "experiments"
+    SDK_DOCTOR = "sdk_doctor"
 
 
 class Feature(StrEnum):
+    BEHAVIORAL_COHORTS = "behavioral_cohorts"
     COHORT = "cohort"
     QUERY = "query"
     INSIGHT = "insight"
@@ -79,6 +82,8 @@ class QueryTags(BaseModel):
     team_id: Optional[int] = None
     user_id: Optional[int] = None
     access_method: Optional[AccessMethod] = None
+    api_key_mask: Optional[str] = None
+    api_key_label: Optional[str] = None
     org_id: Optional[uuid.UUID] = None
     product: Optional[Product] = None
 
@@ -101,7 +106,10 @@ class QueryTags(BaseModel):
     workload: Optional[str] = None  # enum connection.Workload
     dashboard_id: Optional[int] = None
     insight_id: Optional[int] = None
+    exported_asset_id: Optional[int] = None
+    export_format: Optional[str] = None
     chargeable: Optional[int] = None
+    request_name: Optional[str] = None
     name: Optional[str] = None
 
     http_referer: Optional[str] = None
@@ -183,7 +191,7 @@ query_tags: contextvars.ContextVar = contextvars.ContextVar("query_tags")
 @cached(cache={})
 def __get_constant_tags() -> dict[str, str]:
     # import locally to avoid circular imports
-    from posthog.settings import CONTAINER_HOSTNAME, TEST, OTEL_SERVICE_NAME
+    from posthog.settings import CONTAINER_HOSTNAME, OTEL_SERVICE_NAME, TEST
 
     if TEST:
         return {"git_commit": "test", "container_hostname": "test", "service_name": "test"}
@@ -217,8 +225,11 @@ def get_query_tag_value(key: str) -> Optional[Any]:
         return None
 
 
-def update_tags(query_tags: QueryTags):
-    get_query_tags().update(**query_tags.model_dump(exclude_none=True))
+def update_tags(new_query_tags: QueryTags):
+    current_tags = get_query_tags()
+    updated_tags = current_tags.model_copy(deep=True)
+    updated_tags.update(**new_query_tags.model_dump(exclude_none=True))
+    query_tags.set(updated_tags)
 
 
 def tag_queries(**kwargs) -> None:
@@ -228,13 +239,18 @@ def tag_queries(**kwargs) -> None:
 
     :param kwargs: Key->value pairs of tags to be set.
     """
-    get_query_tags().update(**kwargs)
+    current_tags = get_query_tags()
+    updated_tags = current_tags.model_copy(deep=True)
+    updated_tags.update(**kwargs)
+    query_tags.set(updated_tags)
 
 
 def clear_tag(key):
     with suppress(LookupError):
-        qt = query_tags.get()
-        setattr(qt, key, None)
+        current_tags = query_tags.get()
+        updated_tags = current_tags.model_copy(deep=True)
+        setattr(updated_tags, key, None)
+        query_tags.set(updated_tags)
 
 
 def reset_query_tags():

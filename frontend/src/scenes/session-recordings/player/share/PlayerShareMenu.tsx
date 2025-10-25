@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { IconExternal, IconGlobe, IconShare, IconShield } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
 import { PlayerShareLogicProps } from 'scenes/session-recordings/player/share/playerShareLogic'
@@ -46,7 +48,7 @@ export function PlayerShareMenu(): JSX.Element {
             ]}
             buttonSize="xsmall"
         >
-            <LemonButton size="xsmall" icon={<IconShare />}>
+            <LemonButton size="xsmall" icon={<IconShare />} data-attr="session-recording-share-button">
                 Share
             </LemonButton>
         </LemonMenu>

@@ -9,12 +9,7 @@ import numpy as np
 from scipy.stats import norm, truncnorm
 
 from ..shared.enums import DifferenceType
-from ..shared.statistics import (
-    ProportionStatistic,
-    RatioStatistic,
-    SampleMeanStatistic,
-    StatisticError,
-)
+from ..shared.statistics import ProportionStatistic, RatioStatistic, SampleMeanStatistic, StatisticError
 from ..shared.utils import get_mean, get_sample_size, get_variance, validate_test_inputs
 from .priors import GaussianPrior
 
@@ -198,7 +193,8 @@ def credible_interval(posterior_mean: float, posterior_std: float, alpha: float 
     if posterior_std <= 0:
         raise StatisticError("Posterior standard deviation must be positive")
 
-    return tuple(norm.ppf([alpha / 2, 1 - alpha / 2], loc=posterior_mean, scale=posterior_std))
+    bounds = norm.ppf([alpha / 2, 1 - alpha / 2], loc=posterior_mean, scale=posterior_std)
+    return (float(bounds[0]), float(bounds[1]))
 
 
 def calculate_risk(posterior_mean: float, posterior_std: float) -> tuple[float, float]:

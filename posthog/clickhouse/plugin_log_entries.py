@@ -1,11 +1,17 @@
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine, ttl_period
+from posthog import settings
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.table_engines import ReplacingMergeTree
+from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine, ttl_period
+from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_PLUGIN_LOG_ENTRIES
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
-
 
 PLUGIN_LOG_ENTRIES_TABLE = "plugin_log_entries"
+PLUGIN_LOG_ENTRIES_TABLE_MV = f"{PLUGIN_LOG_ENTRIES_TABLE}_mv"
+PLUGIN_LOG_ENTRIES_WRITABLE_TABLE = f"writable_{PLUGIN_LOG_ENTRIES_TABLE}"
+KAFKA_PLUGIN_LOG_ENTRIES_TABLE = f"kafka_{PLUGIN_LOG_ENTRIES_TABLE}"
+
+DROP_KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_PLUGIN_LOG_ENTRIES_TABLE}"
+DROP_PLUGIN_LOG_ENTRIES_TABLE_MV_SQL = f"DROP TABLE IF EXISTS {PLUGIN_LOG_ENTRIES_TABLE_MV}"
+
 PLUGIN_LOG_ENTRIES_TTL_WEEKS = 1
 
 PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL = """
@@ -47,16 +53,17 @@ SETTINGS index_granularity=512
 
 def KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL(on_cluster=True):
     return PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL.format(
-        table_name="kafka_" + PLUGIN_LOG_ENTRIES_TABLE,
+        table_name=KAFKA_PLUGIN_LOG_ENTRIES_TABLE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=kafka_engine(topic=KAFKA_PLUGIN_LOG_ENTRIES),
         extra_fields="",
     )
 
 
-PLUGIN_LOG_ENTRIES_TABLE_MV_SQL = """
-CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name}_mv ON CLUSTER '{cluster}'
-TO {database}.{table_name}
+def PLUGIN_LOG_ENTRIES_TABLE_MV_SQL(on_cluster=True, target_table=PLUGIN_LOG_ENTRIES_WRITABLE_TABLE):
+    return """
+CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {on_cluster_clause}
+TO {target_table}
 AS SELECT
 id,
 team_id,
@@ -69,12 +76,22 @@ message,
 instance_id,
 _timestamp,
 _offset
-FROM {database}.kafka_{table_name}
+FROM {kafka_table}
 """.format(
-    table_name=PLUGIN_LOG_ENTRIES_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
-    database=CLICKHOUSE_DATABASE,
-)
+        target_table=target_table,
+        mv_name=PLUGIN_LOG_ENTRIES_TABLE_MV,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        kafka_table=KAFKA_PLUGIN_LOG_ENTRIES_TABLE,
+    )
+
+
+def PLUGIN_LOG_ENTRIES_WRITABLE_TABLE_SQL():
+    return PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL.format(
+        table_name=PLUGIN_LOG_ENTRIES_WRITABLE_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        engine=Distributed(data_table=PLUGIN_LOG_ENTRIES_TABLE, cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER),
+        extra_fields=KAFKA_COLUMNS,
+    )
 
 
 INSERT_PLUGIN_LOG_ENTRY_SQL = """

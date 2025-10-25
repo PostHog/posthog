@@ -1,8 +1,9 @@
 import { Meta, Story } from '@storybook/react'
 
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
+
 import { VerifyEmail } from './VerifyEmail'
 import { verifyEmailLogic } from './verifyEmailLogic'
-import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const meta: Meta = {
     title: 'Scenes-Other/Verify Email',

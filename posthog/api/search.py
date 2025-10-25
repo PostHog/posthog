@@ -1,16 +1,19 @@
 import re
-from typing import Any, Literal, TypedDict
-from django.db.models import Model, Value, CharField, F, QuerySet
+from typing import Any, Literal, TypedDict, cast
+
+from django.db.models import CharField, F, Model, QuerySet, Value
 from django.db.models.functions import Cast, JSONObject
 from django.http import HttpResponse
-from rest_framework import viewsets, serializers
+
+from rest_framework import serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.helpers.full_text_search import build_rank, process_query
-from posthog.models import Action, Cohort, Insight, Dashboard, FeatureFlag, Experiment, EventDefinition, Survey
-from posthog.models.notebook.notebook import Notebook
+from posthog.models import Action, Cohort, Dashboard, EventDefinition, Experiment, FeatureFlag, Insight, Survey
+
+from products.notebooks.backend.models import Notebook
 
 LIMIT = 25
 
@@ -122,8 +125,14 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # order by rank
         if query:
             qs = qs.order_by("-rank")
+        else:
+            qs = qs.order_by("type", F("_sort_name").asc(nulls_first=True))
 
-        return Response({"results": qs[:LIMIT], "counts": counts})
+        results = cast(list[dict[str, Any]], list(qs[:LIMIT]))
+        for result in results:
+            result.pop("_sort_name", None)
+
+        return Response({"results": results, "counts": counts})
 
 
 def class_queryset(
@@ -136,7 +145,7 @@ def class_queryset(
 ):
     """Builds a queryset for the class."""
     entity_type = class_to_entity_name(klass)
-    values = ["type", "result_id", "extra_fields"]
+    values = ["type", "result_id", "extra_fields", "_sort_name"]
 
     qs: QuerySet[Any] = klass.objects.filter(team__project_id=project_id)  # filter team
     qs = view.user_access_control.filter_queryset_by_access_level(qs)  # filter access level
@@ -158,6 +167,17 @@ def class_queryset(
         qs = qs.annotate(extra_fields=JSONObject(**{field: field for field in extra_fields}))
     else:
         qs = qs.annotate(extra_fields=JSONObject())
+
+    sort_field: str | None = None
+    if extra_fields and "name" in extra_fields:
+        sort_field = "name"
+    elif entity_type == "notebook":
+        sort_field = "title"
+
+    if sort_field:
+        qs = qs.annotate(_sort_name=F(sort_field))
+    else:
+        qs = qs.annotate(_sort_name=Value(None, output_field=CharField()))
 
     # full-text search rank
     if query:

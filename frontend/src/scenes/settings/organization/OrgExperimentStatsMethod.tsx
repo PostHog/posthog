@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -10,6 +11,7 @@ export function OrganizationExperimentStatsMethod(): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { updateOrganization } = useActions(organizationLogic)
 
+    // TODO: This should probably be looking at the Experiment resource access level
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })

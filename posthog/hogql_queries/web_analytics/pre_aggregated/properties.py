@@ -17,6 +17,8 @@ BASE_SUPPORTED_PROPERTIES = {
     "$geoip_subdivision_1_code": "region_code",
     "$geoip_subdivision_1_name": "region_name",
     "$geoip_time_zone": "time_zone",
+    "metadata.loggedIn": "mat_metadata_loggedIn",
+    "metadata.backend": "mat_metadata_backend",
 }
 
 ATTRIBUTION_PROPERTIES = {
@@ -50,6 +52,10 @@ WEB_OVERVIEW_SPECIFIC_PROPERTIES = {
     "$pathname": "entry_pathname",
 }
 
+WEB_TRENDS_SPECIFIC_PROPERTIES = {
+    "$pathname": "pathname",
+}
+
 STATS_TABLE_SUPPORTED_FILTERS = {
     **BASE_SUPPORTED_PROPERTIES,
     **ATTRIBUTION_PROPERTIES,
@@ -81,9 +87,19 @@ EVENT_PROPERTY_TO_FIELD = {
     "utm_term": "utm_term",
     "utm_content": "utm_content",
     "$referring_domain": "referring_domain",
+    "metadata.loggedIn": "mat_metadata_loggedIn",
+    "metadata.backend": "mat_metadata_backend",
 }
 
 SESSION_PROPERTY_TO_FIELD = {
     "$entry_pathname": "entry_pathname",
     "$end_pathname": "end_pathname",
+}
+
+WEB_ANALYTICS_TRENDS_SUPPORTED_FILTERS = {
+    **BASE_SUPPORTED_PROPERTIES,
+    **ATTRIBUTION_PROPERTIES,
+    **PATH_PROPERTIES,
+    **VIRTUAL_PROPERTIES,
+    **WEB_TRENDS_SPECIFIC_PROPERTIES,
 }

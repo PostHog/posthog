@@ -1,17 +1,20 @@
-import { IconBell, IconCheck } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useAsyncActions, useValues } from 'kea'
-import { IconLink } from 'lib/lemon-ui/icons'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { useLayoutEffect, useState } from 'react'
 
-import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
+import { IconBell, IconCheck } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
+
 import { BasicCard } from 'lib/components/Cards/BasicCard'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
+import { IconLink } from 'lib/lemon-ui/icons'
 import { Label } from 'lib/ui/Label/Label'
 
-// Feature previews can be linked to by using hash in the url
-// example external link: https://app.posthog.com/settings/user-feature-previews#llm-observability
+import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
 
+const hasPosthogJsFailedToLoadFeaturePreviews = (): boolean => !!window.POSTHOG_GLOBAL_ERRORS?.onFeatureFlagsLoadError
+
+// Feature previews can be linked to by using hash in the url
+// example external link: https://app.posthog.com/settings/user-feature-previews#llm-analytics
 export function FeaturePreviews(): JSX.Element {
     const { earlyAccessFeatures, rawEarlyAccessFeaturesLoading } = useValues(featurePreviewsLogic)
     const { loadEarlyAccessFeatures } = useActions(featurePreviewsLogic)
@@ -21,6 +24,7 @@ export function FeaturePreviews(): JSX.Element {
     const conceptFeatures = earlyAccessFeatures.filter((f) => f.stage === 'concept')
     const disabledConceptFeatureCount = conceptFeatures.filter((f) => !f.enabled).length
     const betaFeatures = earlyAccessFeatures.filter((f) => f.stage === 'beta')
+    const failedToLoadFeaturePreviews = earlyAccessFeatures.length === 0 && hasPosthogJsFailedToLoadFeaturePreviews()
 
     return (
         <div className="flex flex-col gap-y-8">
@@ -32,6 +36,25 @@ export function FeaturePreviews(): JSX.Element {
                         Note that toggling these features will enable it for your account only. Each individual user in
                         your organization will need to enable it separately.
                     </LemonBanner>
+
+                    {failedToLoadFeaturePreviews && (
+                        <LemonBanner type="warning" className="mb-4">
+                            <div className="flex flex-col gap-2">
+                                <span>
+                                    We couldn't load our internal feature flags. This could be due to the presence of
+                                    adblockers running in your browser or due to a network issue (e.g. slow wifi).
+                                </span>
+                                <span className="italic">
+                                    Note: If you use feature flags for your app, you can avoid this issue for your users
+                                    by using a{' '}
+                                    <Link to="https://posthog.com/docs/advanced/proxy" target="_blank">
+                                        reverse proxy
+                                    </Link>
+                                    .
+                                </span>
+                            </div>
+                        </LemonBanner>
+                    )}
                 </div>
                 <div className="flex flex-col flex-1 gap-2 overflow-y-auto">
                     {rawEarlyAccessFeaturesLoading ? (

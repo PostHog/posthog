@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+
 import { roundToDecimal } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -60,7 +61,6 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
             isStacked={retentionFilter?.display !== ChartDisplayType.ActionsBar}
             trendsFilter={{ aggregationAxisFormat: 'percentage' } as TrendsFilter}
             tooltip={{
-                rowCutoff: 11, // 11 time units is hardcoded into retention insights
                 renderSeries: function _renderCohortPrefix(value) {
                     // If we're showing mean values per breakdown, show the breakdown value directly
                     if (shouldShowMeanPerBreakdown) {

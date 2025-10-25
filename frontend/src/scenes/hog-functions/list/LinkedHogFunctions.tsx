@@ -1,11 +1,12 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { useMemo, useState } from 'react'
+
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { CyclotronJobFiltersType, HogFunctionSubTemplateIdType, HogFunctionTypeType } from '~/types'
 
 import { HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES } from '../sub-templates/sub-templates'
-import { HogFunctionList } from './HogFunctionsList'
 import { HogFunctionTemplateList } from './HogFunctionTemplateList'
+import { HogFunctionList } from './HogFunctionsList'
 
 export type LinkedHogFunctionsProps = {
     type: HogFunctionTypeType

@@ -1,15 +1,17 @@
 import json
 from datetime import datetime
 from typing import Optional, cast
+from zoneinfo import ZoneInfo
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
 
-from zoneinfo import ZoneInfo
-from freezegun import freeze_time
 from rest_framework import status
+
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.constants import FROZEN_POSTHOG_VERSION
-
 from posthog.models import Plugin, PluginConfig, PluginSourceFile
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.organization import Organization, OrganizationMembership
@@ -17,12 +19,8 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.plugins.access import can_configure_plugins, can_globally_manage_plugins, can_install_plugins
 from posthog.plugins.test.mock import mocked_plugin_requests_get
-from posthog.plugins.test.plugin_archives import (
-    HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP,
-    HELLO_WORLD_PLUGIN_GITHUB_ZIP,
-)
+from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP, HELLO_WORLD_PLUGIN_GITHUB_ZIP
 from posthog.queries.app_metrics.test.test_app_metrics import create_app_metric
-from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 
 
 def mocked_plugin_reload(*args, **kwargs):

@@ -1,17 +1,25 @@
-import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { ReadingHog } from 'lib/components/hedgehogs'
+
+import { LemonInput } from '@posthog/lemon-ui'
+
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { ReadingHog } from 'lib/components/hedgehogs'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
+import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/types'
 
-import { IngestionWarning, ingestionWarningsLogic, IngestionWarningSummary } from './ingestionWarningsLogic'
+import { IngestionWarning, IngestionWarningSummary, ingestionWarningsLogic } from './ingestionWarningsLogic'
 
 const WARNING_TYPE_TO_DESCRIPTION = {
     cannot_merge_already_identified: 'Refused to merge an already identified user',
@@ -247,9 +255,16 @@ export function IngestionWarningsView(): JSX.Element {
     const { setSearchQuery } = useActions(ingestionWarningsLogic)
 
     return (
-        <div data-attr="manage-events-table">
-            <div className="flex flex-col deprecated-space-y-2">
-                <div>Data ingestion related warnings from past 30 days.</div>
+        <SceneContent data-attr="manage-events-table">
+            <SceneTitleSection
+                name={sceneConfigurations[Scene.IngestionWarnings].name}
+                description={sceneConfigurations[Scene.IngestionWarnings].description}
+                resourceType={{
+                    type: sceneConfigurations[Scene.IngestionWarnings].iconType || 'default_icon_type',
+                }}
+            />
+            <SceneDivider />
+            <SceneSection>
                 <LemonInput
                     fullWidth
                     value={searchQuery}
@@ -313,7 +328,7 @@ export function IngestionWarningsView(): JSX.Element {
                     }}
                     noSortingCancellation
                 />
-            </div>
+            </SceneSection>
             {showProductIntro && (
                 <ProductIntroduction
                     productName="Ingestion warnings"
@@ -325,7 +340,7 @@ export function IngestionWarningsView(): JSX.Element {
                     customHog={ReadingHog}
                 />
             )}
-        </div>
+        </SceneContent>
     )
 }
 

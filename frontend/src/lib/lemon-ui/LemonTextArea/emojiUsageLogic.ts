@@ -1,6 +1,6 @@
-import { actions, kea, reducers, path, selectors } from 'kea'
-import { now } from 'lib/dayjs'
+import { actions, kea, path, reducers, selectors } from 'kea'
 
+import { now } from 'lib/dayjs'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import type { emojiUsageLogicType } from './emojiUsageLogicType'

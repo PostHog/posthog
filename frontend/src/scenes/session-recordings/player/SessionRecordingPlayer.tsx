@@ -1,38 +1,43 @@
 import './SessionRecordingPlayer.scss'
 
-import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useEffect, useMemo, useRef } from 'react'
 
-import { BuilderHog2, SleepingHog } from 'lib/components/hedgehogs'
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { BuilderHog2 } from 'lib/components/hedgehogs'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
+import useIsHovering from 'lib/hooks/useIsHovering'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import posthog from 'posthog-js'
-import { useEffect, useMemo, useRef } from 'react'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { PlayerFrameCommentOverlay } from 'scenes/session-recordings/player/commenting/PlayerFrameCommentOverlay'
 import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
+import { PlayerFrameCommentOverlay } from 'scenes/session-recordings/player/commenting/PlayerFrameCommentOverlay'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
 
-import { PlayerController } from './controller/PlayerController'
-import { PlayerMeta } from './player-meta/PlayerMeta'
 import { PlayerFrame } from './PlayerFrame'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
-import { playerSettingsLogic } from './playerSettingsLogic'
 import { PlayerSidebar } from './PlayerSidebar'
-import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
-import { SessionRecordingNextConfirmation } from './SessionRecordingNextConfirmation'
+import { ClipOverlay } from './controller/ClipRecording'
+import { PlayerController } from './controller/PlayerController'
+import { PlayerMeta } from './player-meta/PlayerMeta'
+import { PlayerMetaTopSettings } from './player-meta/PlayerMetaTopSettings'
+import { playerSettingsLogic } from './playerSettingsLogic'
+import { sessionRecordingDataCoordinatorLogic } from './sessionRecordingDataCoordinatorLogic'
 import {
     ONE_FRAME_MS,
     PLAYBACK_SPEEDS,
-    sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
     SessionRecordingPlayerMode,
+    sessionRecordingPlayerLogic,
 } from './sessionRecordingPlayerLogic'
 import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecordingPlayerExplorer'
+
+const MAX_PLAYBACK_SPEED = 4
 
 export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogicProps {
     noMeta?: boolean
@@ -91,29 +96,53 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         seekBackward,
         seekForward,
         setSpeed,
+        setSkipInactivitySetting,
         closeExplorer,
+        setIsHovering,
+        allowPlayerChromeToHide,
+        setMuted,
     } = useActions(sessionRecordingPlayerLogic(logicProps))
-    const { isNotFound, isRecentAndInvalid, isLikelyPastTTL } = useValues(sessionRecordingDataLogic(logicProps))
-    const { loadSnapshots } = useActions(sessionRecordingDataLogic(logicProps))
-    const { isFullScreen, explorerMode, isBuffering, isCommenting } = useValues(sessionRecordingPlayerLogic(logicProps))
-    const { setPlayNextAnimationInterrupted, setIsCommenting } = useActions(sessionRecordingPlayerLogic(logicProps))
+    const { isNotFound, isRecentAndInvalid } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
+    const { loadSnapshots } = useActions(sessionRecordingDataCoordinatorLogic(logicProps))
+    const {
+        isFullScreen,
+        explorerMode,
+        isBuffering,
+        isCommenting,
+        quickEmojiIsOpen,
+        showingClipParams,
+        resolution,
+        isMuted,
+    } = useValues(sessionRecordingPlayerLogic(logicProps))
+    const {
+        setPlayNextAnimationInterrupted,
+        setIsCommenting,
+        takeScreenshot,
+        setQuickEmojiIsOpen,
+        setShowingClipParams,
+    } = useActions(sessionRecordingPlayerLogic(logicProps))
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
-    const { isVerticallyStacked, sidebarOpen } = useValues(playerSettingsLogic)
+    const { isVerticallyStacked, sidebarOpen, isCinemaMode } = useValues(playerSettingsLogic)
+    const { setIsCinemaMode } = useActions(playerSettingsLogic)
 
-    const isScreenshotMode = mode === SessionRecordingPlayerMode.Screenshot
+    // For export modes, we don't want to show the player elements
+    const hidePlayerElements =
+        mode === SessionRecordingPlayerMode.Screenshot || mode === SessionRecordingPlayerMode.Video
 
-    useEffect(
-        () => {
-            if (isLikelyPastTTL) {
-                posthog.capture('session loaded past ttl', {
-                    viewedSessionRecording: sessionRecordingId,
-                    recordingStartTime: sessionRecordingData?.start,
-                })
-            }
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [isLikelyPastTTL]
-    )
+    /**
+     * If it's screenshot or video mode, we want to disable inactivity skipping.
+     * For video, we also want to speed up the playback.
+     */
+    useEffect(() => {
+        if (hidePlayerElements) {
+            setSkipInactivitySetting(false)
+        }
+
+        if (mode === SessionRecordingPlayerMode.Video) {
+            // Not the maximum, but 4 for a balance between speed and quality
+            setSpeed(MAX_PLAYBACK_SPEED)
+        }
+    }, [mode, setSkipInactivitySetting, setSpeed, hidePlayerElements, resolution])
 
     useEffect(
         () => {
@@ -135,6 +164,21 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
             },
             c: {
                 action: () => setIsCommenting(!isCommenting),
+            },
+            e: {
+                action: () => setQuickEmojiIsOpen(!quickEmojiIsOpen),
+            },
+            s: {
+                action: () => takeScreenshot(),
+            },
+            x: {
+                action: () => setShowingClipParams(!showingClipParams),
+            },
+            t: {
+                action: () => setIsCinemaMode(!isCinemaMode),
+            },
+            m: {
+                action: () => setMuted(!isMuted),
             },
             space: {
                 action: () => togglePlayPause(),
@@ -185,6 +229,23 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     )
 
     const { draggable, elementProps } = useNotebookDrag({ href: urls.replaySingle(sessionRecordingId) })
+    const showMeta = !(hidePlayerElements || (noMeta && !isFullScreen))
+
+    const isHovering = useIsHovering(playerRef)
+
+    useEffect(() => {
+        // oxlint-disable-next-line exhaustive-deps
+        setIsHovering(isHovering)
+    }, [isHovering])
+
+    useEffect(() => {
+        // just once per recording clear the flag that forces the player chrome to show
+        const timeout = setTimeout(() => {
+            // oxlint-disable-next-line exhaustive-deps
+            allowPlayerChromeToHide()
+        }, 1500)
+        return () => clearTimeout(timeout)
+    }, [sessionRecordingId])
 
     if (isNotFound) {
         return (
@@ -233,44 +294,32 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                             Reload
                                         </LemonButton>
                                     </div>
-                                ) : isLikelyPastTTL ? (
-                                    <div
-                                        className="flex flex-1 flex-col items-center justify-center"
-                                        data-attr="session-recording-player-past-ttl"
-                                    >
-                                        <SleepingHog height={200} />
-                                        <h1>This recording is no longer available</h1>
-                                        <p>
-                                            We store session recordings for a limited time, and this one has expired and
-                                            been deleted.
-                                        </p>
-                                        <div className="text-right">
-                                            <LemonButton
-                                                type="secondary"
-                                                to="https://posthog.com/docs/session-replay/data-retention"
-                                            >
-                                                Learn more about data retention
-                                            </LemonButton>
-                                        </div>
-                                    </div>
                                 ) : (
                                     <div className="flex w-full h-full">
-                                        <div className="flex flex-col flex-1 w-full">
-                                            {isScreenshotMode || (noMeta && !isFullScreen) ? null : <PlayerMeta />}
+                                        <div className="flex flex-col flex-1 w-full relative">
+                                            <div className="relative">
+                                                {showMeta ? (
+                                                    <>
+                                                        <PlayerMeta />
+                                                        <PlayerMetaTopSettings />
+                                                    </>
+                                                ) : null}
+                                            </div>
                                             <div
                                                 className="SessionRecordingPlayer__body"
                                                 draggable={draggable}
                                                 {...elementProps}
                                             >
                                                 <PlayerFrame />
-                                                {!isScreenshotMode ? (
+                                                {!hidePlayerElements ? (
                                                     <>
                                                         <PlayerFrameOverlay />
                                                         <PlayerFrameCommentOverlay />
+                                                        <ClipOverlay />
                                                     </>
                                                 ) : null}
                                             </div>
-                                            {!isScreenshotMode ? <PlayerController /> : null}
+                                            {!hidePlayerElements ? <PlayerController /> : null}
                                         </div>
                                     </div>
                                 )}
@@ -281,7 +330,6 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                     )}
                 </FloatingContainerContext.Provider>
             </div>
-            <SessionRecordingNextConfirmation />
         </BindLogic>
     )
 }

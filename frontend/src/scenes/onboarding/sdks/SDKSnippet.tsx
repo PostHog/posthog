@@ -1,6 +1,8 @@
 import { Link } from 'lib/lemon-ui/Link'
-import { SDKFeatureAnnouncementBanner } from './sdk-install-instructions/components/SDKFeatureAnnouncementBanner'
+
 import { ProductKey, SDK, SDKKey } from '~/types'
+
+import { SDKFeatureAnnouncementBanner } from './sdk-install-instructions/components/SDKFeatureAnnouncementBanner'
 
 export const SDKSnippet = ({
     sdk,
@@ -24,8 +26,8 @@ export const SDKSnippet = ({
                 {/* Only show survey announcements in non surveys product context */}
                 {productKey !== ProductKey.SURVEYS && (
                     <>
-                        {sdk.key === SDKKey.REACT_NATIVE && <AdvertiseSurveysReactNativeBeta productKey={productKey} />}
-                        {sdk.key === SDKKey.IOS && <AdvertiseSurveysIOSBeta productKey={productKey} />}
+                        {sdk.key === SDKKey.REACT_NATIVE && <AdvertiseSurveysReactNative productKey={productKey} />}
+                        {sdk.key === SDKKey.IOS && <AdvertiseSurveysIOS productKey={productKey} />}
                         {sdk.key === SDKKey.FLUTTER && <AdvertiseSurveysFlutterBeta productKey={productKey} />}
                     </>
                 )}
@@ -37,31 +39,31 @@ export const SDKSnippet = ({
 /**
  * Local components to advertise SDK Features
  */
-function AdvertiseSurveysReactNativeBeta({ productKey }: { productKey: ProductKey }): JSX.Element {
+function AdvertiseSurveysReactNative({ productKey }: { productKey: ProductKey }): JSX.Element {
     return (
         <SDKFeatureAnnouncementBanner
             context={`${productKey.toLowerCase()}-onboarding`}
             sdkKey={SDKKey.REACT_NATIVE}
             featureName="Surveys"
-            tagText="Beta"
-            tagType="highlight"
+            tagText="GA"
+            tagType="primary"
             productKey="surveys"
-            description="Surveys is now available for React Native as Beta."
+            description="Surveys is now available for React Native."
             linkText="Learn how to set it up"
         />
     )
 }
 
-function AdvertiseSurveysIOSBeta({ productKey }: { productKey: ProductKey }): JSX.Element {
+function AdvertiseSurveysIOS({ productKey }: { productKey: ProductKey }): JSX.Element {
     return (
         <SDKFeatureAnnouncementBanner
             context={`${productKey.toLowerCase()}-onboarding`}
             sdkKey={SDKKey.IOS}
             featureName="Surveys"
-            tagText="Beta"
-            tagType="highlight"
+            tagText="GA"
+            tagType="primary"
             productKey="surveys"
-            description="Surveys is now available for iOS as Beta."
+            description="Surveys is now available for iOS."
             linkText="Learn how to set it up"
         />
     )

@@ -1,31 +1,27 @@
-import datetime
-import decimal
-import hashlib
 import json
 import math
 import uuid
+import decimal
+import hashlib
+import datetime
 from collections.abc import Iterator, Sequence
 from ipaddress import IPv4Address, IPv6Address
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, cast
 
-import deltalake as deltalake
 import numpy as np
 import orjson
 import pyarrow as pa
+import deltalake as deltalake
 import pyarrow.compute as pc
 from dateutil import parser
 from dlt.common.data_types.typing import TDataType
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from dlt.sources import DltResource
+from structlog.types import FilteringBoundLogger
 
-from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from posthog.temporal.data_imports.pipelines.pipeline.typings import (
-    PartitionFormat,
-    PartitionMode,
-    SourceResponse,
-)
+from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
 
 if TYPE_CHECKING:
     from posthog.warehouse.models import ExternalDataSchema
@@ -338,7 +334,7 @@ def setup_partitioning(
     )
 
     if partition_result is not None:
-        pa_table, partition_mode, updated_partition_keys = partition_result
+        pa_table, partition_mode, partition_format, updated_partition_keys = partition_result
 
         if not schema.partitioning_enabled:
             logger.debug(
@@ -359,7 +355,7 @@ def append_partition_key_to_table(
     partition_mode: PartitionMode | None,
     partition_format: PartitionFormat | None,
     logger: FilteringBoundLogger,
-) -> None | tuple[pa.Table, PartitionMode, list[str]]:
+) -> None | tuple[pa.Table, PartitionMode, PartitionFormat | None, list[str]]:
     """
     Partitions the pyarrow table via one of three methods:
     - md5: Hashes the primary keys into a fixed number of buckets, the least efficient method of partitioning
@@ -376,10 +372,21 @@ def append_partition_key_to_table(
             mode = "md5"
 
         # If there is only one primary key and it's a numerical ID, then bucket by the ID itself instead of hashing it
+        is_partition_key_int = pa.types.is_integer(table.field(normalized_partition_keys[0]).type)
+        are_incrementing_ints = False
+        if is_partition_key_int:
+            min_max: dict[str, int] = cast(
+                dict[str, int], pc.min_max(table.column(normalized_partition_keys[0])).as_py()
+            )
+            min_int_val, max_int_val = min_max["min"], min_max["max"]
+            range_size = max_int_val - min_int_val + 1
+            are_incrementing_ints = table.num_rows / range_size >= 0.2
+
         if (
             partition_size is not None
             and len(normalized_partition_keys) == 1
-            and pa.types.is_integer(table.field(normalized_partition_keys[0]).type)
+            and is_partition_key_int
+            and are_incrementing_ints
         ):
             mode = "numerical"
         # If the table has a created_at-ish timestamp, then we can partition by this
@@ -424,9 +431,14 @@ def append_partition_key_to_table(
                 key = normalized_partition_keys[0]
                 date = row[key]
 
+                if partition_format is None:
+                    partition_format = "month"
+
                 if partition_format == "day":
                     date_format = "%Y-%m-%d"
-                else:
+                elif partition_format == "week":
+                    date_format = "%G-w%V"
+                elif partition_format == "month":
                     date_format = "%Y-%m"
 
                 if isinstance(date, int):
@@ -447,7 +459,7 @@ def append_partition_key_to_table(
     new_column = pa.array(partition_array, type=pa.string())
     logger.debug(f"append_partition_key_to_table: Partition key added with mode={mode}")
 
-    return table.append_column(PARTITION_KEY, new_column), mode, normalized_partition_keys
+    return table.append_column(PARTITION_KEY, new_column), mode, partition_format, normalized_partition_keys
 
 
 def _convert_uuid_to_string(row: dict) -> dict:
@@ -457,10 +469,11 @@ def _convert_uuid_to_string(row: dict) -> dict:
 def _json_dumps(obj: Any) -> str:
     try:
         return orjson.dumps(obj).decode()
-    except TypeError as e:
-        if str(e) == "Integer exceeds 64-bit range":
+    except TypeError:
+        try:
             return json.dumps(obj)
-        raise TypeError(e)
+        except:
+            return str(obj)
 
 
 def table_from_iterator(data_iterator: Iterator[dict], schema: Optional[pa.Schema] = None) -> pa.Table:
@@ -574,6 +587,13 @@ def _python_type_to_pyarrow_type(type_: type, value: Any):
     raise ValueError(f"Python type {type_} has no pyarrow mapping")
 
 
+def _to_list_array(column_data: pa.Array | pa.ChunkedArray | np.ndarray[Any, np.dtype[Any]]):
+    if isinstance(column_data, pa.ChunkedArray):
+        return column_data.combine_chunks().tolist()
+
+    return column_data.tolist()
+
+
 def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -> pa.Table:
     # Support both given schemas and inferred schemas
     if schema is None or len(schema.names) == 0:
@@ -609,7 +629,9 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
     for field_name in columnar_table_data.keys():
         py_type: type = type(None)
-        unique_types_in_column = {type(item) for item in columnar_table_data[field_name].tolist() if item is not None}
+        unique_types_in_column = {
+            type(item) for item in _to_list_array(columnar_table_data[field_name]) if item is not None
+        }
 
         for row in table_data:
             val = row.get(field_name, None)
@@ -637,7 +659,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             # cast string timestamps to datetime objects
             if pa.types.is_timestamp(field.type) and issubclass(py_type, str):
                 timestamp_array = pa.array(
-                    [safe_parse_datetime(s) for s in columnar_table_data[field_name].tolist()], type=field.type
+                    [safe_parse_datetime(s) for s in _to_list_array(columnar_table_data[field_name])], type=field.type
                 )
                 columnar_table_data[field_name] = timestamp_array
                 has_nulls = pc.any(pc.is_null(timestamp_array)).as_py()
@@ -648,7 +670,10 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             # Upscale second timestamps to microsecond
             if pa.types.is_timestamp(field.type) and issubclass(py_type, int) and field.type.unit == "s":
                 timestamp_array = pa.array(
-                    [(s * 1_000_000) if s is not None else None for s in columnar_table_data[field_name].tolist()],
+                    [
+                        (s * 1_000_000) if s is not None else None
+                        for s in _to_list_array(columnar_table_data[field_name])
+                    ],
                     type=pa.timestamp("us"),
                 )
                 columnar_table_data[field_name] = timestamp_array
@@ -659,7 +684,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             # Upscale millisecond timestamps to microsecond
             if pa.types.is_timestamp(field.type) and issubclass(py_type, int) and field.type.unit == "ms":
                 timestamp_array = pa.array(
-                    [(s * 1000) if s is not None else None for s in columnar_table_data[field_name].tolist()],
+                    [(s * 1000) if s is not None else None for s in _to_list_array(columnar_table_data[field_name])],
                     type=pa.timestamp("us"),
                 )
                 columnar_table_data[field_name] = timestamp_array
@@ -682,7 +707,9 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
         # Convert UUIDs to strings
         if issubclass(py_type, uuid.UUID):
-            uuid_str_array = pa.array([None if s is None else str(s) for s in columnar_table_data[field_name].tolist()])
+            uuid_str_array = pa.array(
+                [None if s is None else str(s) for s in _to_list_array(columnar_table_data[field_name])]
+            )
             columnar_table_data[field_name] = uuid_str_array
             py_type = str
             if arrow_schema:
@@ -716,7 +743,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
                 return x
 
-            all_values = columnar_table_data[field_name].tolist()
+            all_values = _to_list_array(columnar_table_data[field_name])
 
             if len(unique_types_in_column) > 1 or issubclass(py_type, decimal.Decimal):
                 # Mixed types: convert all to decimals
@@ -760,7 +787,9 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
         # If one type is a list, then make everything into a list
         if len(unique_types_in_column) > 1 and list in unique_types_in_column:
-            list_array = pa.array([s if isinstance(s, list) else [s] for s in columnar_table_data[field_name].tolist()])
+            list_array = pa.array(
+                [s if isinstance(s, list) else [s] for s in _to_list_array(columnar_table_data[field_name])]
+            )
             columnar_table_data[field_name] = list_array
             py_type = list
             unique_types_in_column = {list}
@@ -772,7 +801,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             json_array = pa.array(
                 [
                     None if s is None else _json_dumps(s) if isinstance(s, dict | list) else s
-                    for s in columnar_table_data[field_name].tolist()
+                    for s in _to_list_array(columnar_table_data[field_name])
                 ]
             )
             columnar_table_data[field_name] = json_array
@@ -784,7 +813,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
         # If there are multiple types that aren't a list, then JSON stringify everything
         if len(unique_types_in_column) > 1:
             json_array = pa.array(
-                [None if s is None else _json_dumps(s) for s in columnar_table_data[field_name].tolist()]
+                [None if s is None else _json_dumps(s) for s in _to_list_array(columnar_table_data[field_name])]
             )
             columnar_table_data[field_name] = json_array
             py_type = str
@@ -795,7 +824,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
         # Convert any dict/lists to json strings to avoid schema mismatches in nested objects
         if issubclass(py_type, dict | list):
             json_str_array = pa.array(
-                [None if s is None else _json_dumps(s) for s in columnar_table_data[field_name].tolist()]
+                [None if s is None else _json_dumps(s) for s in _to_list_array(columnar_table_data[field_name])]
             )
             columnar_table_data[field_name] = json_str_array
             py_type = str
@@ -804,7 +833,9 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
         # Convert IP types to string
         if issubclass(py_type, IPv4Address | IPv6Address):
-            str_array = pa.array([None if s is None else str(s) for s in columnar_table_data[field_name].tolist()])
+            str_array = pa.array(
+                [None if s is None else str(s) for s in _to_list_array(columnar_table_data[field_name])]
+            )
             columnar_table_data[field_name] = str_array
             py_type = str
             if arrow_schema:

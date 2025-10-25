@@ -2,7 +2,7 @@ from typing import Optional
 
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
-from posthog.hogql.utils import is_simple_value, deserialize_hx_ast
+from posthog.hogql.utils import deserialize_hx_ast, is_simple_value
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 
@@ -39,8 +39,9 @@ class ReplacePlaceholders(CloningVisitor):
 
     def visit_placeholder(self, node):
         # avoid circular imports
-        from common.hogvm.python.execute import execute_bytecode
         from posthog.hogql.compiler.bytecode import create_bytecode
+
+        from common.hogvm.python.execute import execute_bytecode
 
         bytecode = create_bytecode(node.expr)
         response = execute_bytecode(bytecode.bytecode, self.placeholders)

@@ -1,39 +1,35 @@
 import abc
-import asyncio
-import collections.abc
-import datetime as dt
 import math
-import operator
-import typing
 import uuid
+import typing
+import asyncio
+import datetime as dt
+import operator
+import collections.abc
+
+from django.conf import settings
 
 import pyarrow as pa
 import temporalio.common
-from django.conf import settings
 
-from posthog.batch_exports.service import (
-    BackfillDetails,
-)
+from posthog.schema import EventPropertyFilter, HogQLQueryModifiers, MaterializationMode
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.property import property_to_expr
+
+from posthog.batch_exports.service import BackfillDetails
 from posthog.models import Team
-from posthog.schema import EventPropertyFilter, HogQLQueryModifiers, MaterializationMode
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_external_logger, get_logger
-from products.batch_exports.backend.temporal.heartbeat import (
-    BatchExportRangeHeartbeatDetails,
-    DateRange,
-)
-from products.batch_exports.backend.temporal.metrics import (
-    get_bytes_exported_metric,
-    get_rows_exported_metric,
-)
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
+
+from products.batch_exports.backend.temporal.heartbeat import BatchExportRangeHeartbeatDetails, DateRange
+from products.batch_exports.backend.temporal.metrics import get_bytes_exported_metric, get_rows_exported_metric
 from products.batch_exports.backend.temporal.record_batch_model import RecordBatchModel
 from products.batch_exports.backend.temporal.sql import (
     SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
@@ -58,8 +54,8 @@ from products.batch_exports.backend.temporal.utils import (
     cast_record_batch_schema_json_columns,
 )
 
-LOGGER = get_logger(__name__)
-EXTERNAL_LOGGER = get_external_logger()
+LOGGER = get_write_only_logger(__name__)
+EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 
 class RecordBatchQueue(asyncio.Queue):
@@ -111,6 +107,19 @@ class RecordBatchQueue(asyncio.Queue):
         number of bytes.
         """
         return self._bytes_size
+
+    def __repr__(self):
+        return f"<{type(self).__name__} at {id(self):#x} {self._format()}>"
+
+    def __str__(self):
+        return f"<{type(self).__name__} {self._format()}>"
+
+    def _format(self) -> str:
+        result = f"record_batches={len(self._queue)}"
+        result += f" bytes={str(self._bytes_size)}"
+        if self.record_batch_schema is not None:
+            result += f" schema='{self.record_batch_schema}'"
+        return result
 
 
 class TaskNotDoneError(Exception):

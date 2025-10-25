@@ -1,28 +1,28 @@
 import json
 from typing import Optional, cast
-from posthog.exceptions_capture import capture_exception
-import structlog
-from django_filters.rest_framework import DjangoFilterBackend
-from django_filters import BaseInFilter, CharFilter, FilterSet
-from django.db.models import QuerySet
-from loginas.utils import is_impersonated_session
+
 from django.db import transaction
+from django.db.models import QuerySet
 
-
-from rest_framework import serializers, viewsets, exceptions, filters
-from rest_framework.serializers import BaseSerializer
-from posthog.api.utils import action
+import structlog
+from django_filters import BaseInFilter, CharFilter, FilterSet
+from django_filters.rest_framework import DjangoFilterBackend
+from loginas.utils import is_impersonated_session
+from rest_framework import exceptions, filters, serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.serializers import BaseSerializer
 
 from posthog.api.app_metrics2 import AppMetricsMixin
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.hog_function_template import HogFunctionTemplateSerializer
 from posthog.api.log_entries import LogEntryMixin
+from posthog.api.mixins import FileSystemViewSetMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-
+from posthog.api.utils import action
 from posthog.cdp.services.icons import CDPIconsService
+from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.validation import (
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
@@ -31,19 +31,18 @@ from posthog.cdp.validation import (
     compile_hog,
     generate_template_bytecode,
 )
-from posthog.cdp.site_functions import get_transpiled_function
-from posthog.constants import AvailableFeature
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail, Change
+from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
+from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.models.hog_functions.hog_function import (
+    TYPES_WITH_JAVASCRIPT_SOURCE,
     HogFunction,
     HogFunctionState,
-    TYPES_WITH_JAVASCRIPT_SOURCE,
     HogFunctionType,
 )
 from posthog.models.plugin import TranspilerError
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
-from posthog.models.hog_function_template import HogFunctionTemplate
 
 # Maximum size of HOG code as a string in bytes (100KB)
 MAX_HOG_CODE_SIZE_BYTES = 100 * 1024
@@ -157,8 +156,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     def to_internal_value(self, data):
         self.initial_data = data
         team = self.context["get_team"]()
-        has_addon = team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES)
-        bypass_addon_check = self.context.get("bypass_addon_check", False)
         is_create = self.context.get("is_create") or (
             self.context.get("view") and self.context["view"].action == "create"
         )
@@ -189,23 +186,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 )
 
                 raise serializers.ValidationError({"template_id": f"No template found for id '{data['template_id']}'"})
-
-        if data["type"] != "transformation" and not has_addon:
-            if not template:
-                raise serializers.ValidationError(
-                    {"template_id": "The Data Pipelines addon is required to create custom functions."}
-                )
-
-            if not bypass_addon_check:
-                # If they don't have the addon, they can only use free templates and can't modify them
-                if not template.free and data["type"] != "internal_destination" and not instance:
-                    raise serializers.ValidationError(
-                        {"template_id": "The Data Pipelines addon is required for this template."}
-                    )
-
-            # Without the addon you can't deviate from the template
-            data["hog"] = template.code
-            data["inputs_schema"] = template.inputs_schema
 
         if is_create:
             # Set defaults for new functions
@@ -265,6 +245,11 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     )
 
         if attrs.get("mappings", None) is not None:
+            # special case for items that migrate to mappings - we want to make sure event filters are not set
+            if attrs.get("filters", None) is not None:
+                attrs["filters"].pop("events", None)
+                attrs["filters"].pop("actions", None)
+
             if hog_type not in ["site_destination", "destination"]:
                 raise serializers.ValidationError({"mappings": "Mappings are only allowed for destinations."})
 
@@ -306,7 +291,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         encrypted_inputs = data.encrypted_inputs or {} if isinstance(data, HogFunction) else {}
         data = super().to_representation(data)
 
-        inputs_schema = data.get("inputs_schema", [])
+        inputs_schema = data.get("inputs_schema", []) or []
         inputs = data.get("inputs") or {}
 
         for schema in inputs_schema:
@@ -403,7 +388,12 @@ class HogFunctionFilterSet(FilterSet):
 
 
 class HogFunctionViewSet(
-    TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, ForbidDestroyModel, viewsets.ModelViewSet
+    FileSystemViewSetMixin,
+    TeamAndOrgViewSetMixin,
+    LogEntryMixin,
+    AppMetricsMixin,
+    ForbidDestroyModel,
+    viewsets.ModelViewSet,
 ):
     scope_object = "hog_function"
     queryset = HogFunction.objects.all()
@@ -614,8 +604,8 @@ class HogFunctionViewSet(
                 raise exceptions.ValidationError(f"HogFunction with id {missing_ids.pop()} does not exist")
 
             # Update orders and create activity logs
-            from django.utils import timezone
             from django.contrib.auth.models import AnonymousUser
+            from django.utils import timezone
 
             current_time = timezone.now()
             user = None if isinstance(request.user, AnonymousUser) else request.user

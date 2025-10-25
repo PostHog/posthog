@@ -1,4 +1,5 @@
-import { HogFunctionTemplate } from '~/cdp/types' // Assuming this path is correct from your initial file
+// Assuming this path is correct from your initial file
+import { HogFunctionTemplate } from '~/cdp/types'
 
 interface DestinationConfig {
     name: string
@@ -952,12 +953,6 @@ const destinationDefinitions: DestinationConfig[] = [
         category: ['Marketing'],
     },
     {
-        name: 'Userlist',
-        id: 'coming-soon-userlist',
-        icon_url: '/static/coming-soon-destinations/Userlist.png',
-        category: ['Marketing'],
-    },
-    {
         name: 'Vero',
         id: 'coming-soon-vero',
         icon_url: '/static/coming-soon-destinations/Vero.svg',
@@ -972,9 +967,9 @@ const destinationDefinitions: DestinationConfig[] = [
 
     // Productivity
     {
-        name: 'ClickUp',
-        id: 'coming-soon-clickup',
-        icon_url: '/static/coming-soon-destinations/ClickUp.svg',
+        name: 'Google Sheets',
+        id: 'coming-soon-google-sheets',
+        icon_url: '/static/coming-soon-destinations/Google_Sheets.svg',
         category: ['Productivity'],
     },
     {

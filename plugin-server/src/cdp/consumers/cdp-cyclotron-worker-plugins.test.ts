@@ -1,21 +1,24 @@
-import { RetryError } from '@posthog/plugin-scaffold'
+import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+
 import { DateTime } from 'luxon'
 
-import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { RetryError } from '@posthog/plugin-scaffold'
+
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { fetch, FetchResponse } from '~/utils/request'
 
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import {
+    insertHogFunction as _insertHogFunction,
     createExampleInvocation,
     createHogExecutionGlobals,
-    insertHogFunction as _insertHogFunction,
 } from '../_tests/fixtures'
 import { DESTINATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
+
 jest.setTimeout(1000)
 
 /**
@@ -27,7 +30,6 @@ describe('CdpCyclotronWorkerPlugins', () => {
     let team: Team
     let fn: HogFunctionType
     let globals: HogFunctionInvocationGlobalsWithInputs
-    let mockFetch: jest.Mock<Promise<FetchResponse>, Parameters<typeof fetch>>
     const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
         const item = await _insertHogFunction(hub.postgres, team.id, {
             ...hogFunction,
@@ -41,6 +43,14 @@ describe('CdpCyclotronWorkerPlugins', () => {
     const intercomPlugin = DESTINATION_PLUGINS_BY_ID['plugin-posthog-intercom-plugin']
 
     beforeEach(async () => {
+        mockFetch.mockResolvedValue({
+            status: 200,
+            json: () => Promise.resolve({}),
+            text: () => Promise.resolve(JSON.stringify({})),
+            headers: {},
+            dump: () => Promise.resolve(),
+        })
+
         await resetTestDatabase()
         hub = await createHub()
 
@@ -48,15 +58,6 @@ describe('CdpCyclotronWorkerPlugins', () => {
         processor = new CdpCyclotronWorker(hub)
 
         await processor.start()
-
-        processor['pluginDestinationExecutorService'].fetch = mockFetch = jest.fn((_url, _options) =>
-            Promise.resolve({
-                status: 200,
-                json: () => Promise.resolve({}),
-                text: () => Promise.resolve(JSON.stringify({})),
-                headers: {},
-            } as any)
-        )
 
         jest.spyOn(processor['cyclotronJobQueue']!, 'queueInvocationResults').mockImplementation(() =>
             Promise.resolve()
@@ -121,6 +122,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
                 json: () => Promise.resolve({ total_count: 1 }),
                 text: () => Promise.resolve(''),
                 headers: {},
+                dump: () => Promise.resolve(),
             })
 
             await processor.processBatch([invocation])

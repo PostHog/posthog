@@ -101,7 +101,7 @@ export const OBJECTS = {
 }
 
 export const TECHNOLOGY = {
-    Messaging: [
+    Workflows: [
         'IconSend',
         'IconHeadset',
         'IconMessage',
@@ -146,6 +146,9 @@ export const TECHNOLOGY = {
         'IconFolderPlus',
         'IconFolderMove',
         'IconRetentionHeatmap',
+        'IconCommit',
+        'IconGitBranch',
+        'IconGitRepository',
     ],
     UI: [
         'IconPassword',
@@ -160,6 +163,10 @@ export const TECHNOLOGY = {
         'IconToolbarFilled',
         'IconCheckbox',
         'IconList',
+        'IconListTree',
+        'IconListTreeChild',
+        'IconListTreeConnected',
+        'IconListTreeFilled',
         'IconColumns',
         'IconBottomPanel',
         'IconSidePanel',
@@ -169,6 +176,27 @@ export const TECHNOLOGY = {
         'IconDrag',
         'IconPointer',
         'IconImage',
+    ],
+    LANGUAGES: [
+        'IconJavascript',
+        'IconReact',
+        'IconGo',
+        'IconNode',
+        'IconPython',
+        'IconRust',
+        'IconAndroid',
+        'IconApple',
+        'IconJava',
+        'IconPHP',
+        'IconKotlin',
+        'IconDart',
+        'IconFlutter',
+        'IconCSharp',
+        'IconC',
+        'IconCPlusPlus',
+        'IconRuby',
+        'IconSwift',
+        'IconElixir',
     ],
 }
 
@@ -234,6 +262,8 @@ export const ELEMENTS = {
         'IconTriangleDownFilled',
         'IconTriangleUp',
         'IconTriangleUpFilled',
+        'IconTriangleRight',
+        'IconTriangleRightFilled',
         'IconShortcut',
         'IconStar',
         'IconStarFilled',
@@ -292,7 +322,7 @@ export const TEAMS_AND_COMPANIES = {
     'Feature Success': ['IconFlask', 'IconTestTube', 'IconMultivariateTesting', 'IconSplitTesting', 'IconBalance'],
     Pipeline: ['IconWebhooks', 'IconDecisionTree'],
     'Product OS': ['IconNotebook', 'IconHogQL', 'IconDashboard', 'IconSupport'],
-    Logos: ['IconLogomark', 'IconGithub', 'IconLinear'],
+    Logos: ['IconLogomark', 'IconGithub', 'IconLinear', 'IconRedux'],
     ErrorTracking: ['IconIssue'],
-    LLMObservability: ['IconLlmObservability', 'IconLlmPromptEvaluation', 'IconLlmPromptManagement'],
+    LLMAnalytics: ['IconLlmAnalytics', 'IconLlmPromptEvaluation', 'IconLlmPromptManagement'],
 }

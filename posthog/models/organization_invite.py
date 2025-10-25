@@ -1,20 +1,22 @@
 from datetime import timedelta
 from typing import TYPE_CHECKING, Optional
 
-import structlog
 from django.db import models
 from django.utils import timezone
+
+import structlog
 from rest_framework import exceptions
 
-from ee.models.explicit_team_membership import ExplicitTeamMembership
-from ee.models.rbac.access_control import AccessControl
 from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
-from posthog.helpers.email_utils import EmailValidationHelper, EmailNormalizer
+from posthog.helpers.email_utils import EmailNormalizer, EmailValidationHelper
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
-from posthog.models.utils import UUIDModel, sane_repr
+from posthog.models.utils import UUIDTModel, sane_repr
 from posthog.utils import absolute_uri
+
+from ee.models.rbac.access_control import AccessControl
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -35,9 +37,7 @@ def validate_private_project_access(value):
             raise exceptions.ValidationError('Each dictionary must contain "id" and "level" keys.')
         if not isinstance(item["id"], int):
             raise exceptions.ValidationError('The "id" field must be an integer.')
-        # This is a temporary fix to support both the old ExplicitTeamMembership.Level int and the new ACCESS_CONTROL_LEVELS_MEMBER
-        # In the future it will only check for ACCESS_CONTROL_LEVELS_MEMBER str
-        valid_levels = list(ExplicitTeamMembership.Level.values) + list(ACCESS_CONTROL_LEVELS_MEMBER)
+        valid_levels = list(ACCESS_CONTROL_LEVELS_MEMBER)
         if item["level"] not in valid_levels:
             raise exceptions.ValidationError('The "level" field must be a valid access level.')
 
@@ -47,7 +47,7 @@ class InviteExpiredException(exceptions.ValidationError):
         super().__init__(message, code="expired")
 
 
-class OrganizationInvite(UUIDModel):
+class OrganizationInvite(ModelActivityMixin, UUIDTModel):
     organization = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,
@@ -137,26 +137,13 @@ class OrganizationInvite(UUIDModel):
                 # if the team doesn't exist, it was probably deleted. We can still continue with the invite.
                 continue
 
-            # This path is deprecated, and will be removed soon
-            if team.access_control:
-                ExplicitTeamMembership.objects.create(
-                    team=team,
-                    parent_membership=parent_membership,
-                    # Supporting both the old ExplicitTeamMembership.Level int and the new AccessControlLevel str
-                    level=item["level"] if isinstance(item["level"], int) else (8 if item["level"] == "admin" else 1),
-                )
-            else:
-                # New access control
-                AccessControl.objects.create(
-                    team=team,
-                    resource="project",
-                    resource_id=str(team.id),
-                    organization_member=parent_membership,
-                    # Supporting both the old ExplicitTeamMembership.Level int and the new AccessControlLevel str
-                    access_level=item["level"]
-                    if isinstance(item["level"], str)
-                    else ("admin" if item["level"] == 8 else "member"),
-                )
+            AccessControl.objects.create(
+                team=team,
+                resource="project",
+                resource_id=str(team.id),
+                organization_member=parent_membership,
+                access_level=item["level"],
+            )
 
         if is_email_available(with_absolute_urls=True) and self.organization.is_member_join_email_enabled:
             from posthog.tasks.email import send_member_join
@@ -174,6 +161,22 @@ class OrganizationInvite(UUIDModel):
     def is_expired(self) -> bool:
         """Check if invite is older than INVITE_DAYS_VALIDITY days."""
         return self.created_at < timezone.now() - timedelta(INVITE_DAYS_VALIDITY)
+
+    def delete(self, *args, **kwargs):
+        from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
+        from posthog.models.signals import model_activity_signal
+
+        model_activity_signal.send(
+            sender=self.__class__,
+            scope=self.__class__.__name__,
+            before_update=self,
+            after_update=None,
+            activity="deleted",
+            user=get_current_user(),
+            was_impersonated=get_was_impersonated(),
+        )
+
+        return super().delete(*args, **kwargs)
 
     def __str__(self):
         return absolute_uri(f"/signup/{self.id}")

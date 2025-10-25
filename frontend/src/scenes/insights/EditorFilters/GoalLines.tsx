@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { IconEye, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { IconEyeHidden } from 'lib/lemon-ui/icons'
 

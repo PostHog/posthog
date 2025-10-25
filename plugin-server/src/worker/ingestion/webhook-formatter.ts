@@ -1,5 +1,6 @@
-import { Webhook } from '@posthog/plugin-scaffold'
 import { format } from 'util'
+
+import { Webhook } from '@posthog/plugin-scaffold'
 
 import { PostIngestionEvent, Team } from '../../types'
 import { getPropertyValueByPath, stringify } from '../../utils/utils'
@@ -10,7 +11,16 @@ enum WebhookType {
 }
 
 // Sync with .../api/person.py and .../lib/constants.tsx
-const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = ['email', 'Email', 'name', 'Name', 'username', 'Username', 'UserName']
+const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
+    'email',
+    'Email',
+    '$email',
+    'name',
+    'Name',
+    'username',
+    'Username',
+    'UserName',
+]
 
 const TOKENS_REGEX_BRACKETS_EXCLUDED = /(?<=(?<!\\)\[)(.*?)(?=(?<!\\)\])/g
 const TOKENS_REGEX_BRACKETS_INCLUDED = /(?<!\\)\[(.*?)(?<!\\)\]/g

@@ -1,5 +1,6 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import { InternalPerson, PropertyUpdateOperation } from '../../../types'
 import { uuidFromDistinctId } from '../person-uuid'
@@ -90,6 +91,7 @@ export class PersonCreateService {
                     personId: error.personId,
                     distinctId: distinctIds[0]?.distinctId,
                     teamId: teamId,
+                    eventUuid: creatorEventUuid,
                     message: 'Person properties exceeds size limit and was rejected',
                 })
                 throw error

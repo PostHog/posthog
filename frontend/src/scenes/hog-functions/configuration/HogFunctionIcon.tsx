@@ -1,10 +1,13 @@
-import { LemonButton, LemonFileInput, LemonInput, LemonSkeleton, lemonToast, Popover, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconUploadFile } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
+import { useInView } from 'react-intersection-observer'
 
-import { hogFunctionIconLogic, HogFunctionIconLogicProps } from './hogFunctionIconLogic'
+import { LemonButton, LemonFileInput, LemonInput, LemonSkeleton, Popover, Spinner, lemonToast } from '@posthog/lemon-ui'
+
+import { IconUploadFile } from 'lib/lemon-ui/icons'
+
+import { HogFunctionIconLogicProps, hogFunctionIconLogic } from './hogFunctionIconLogic'
 
 const fileToBase64 = (file?: File): Promise<string> => {
     return new Promise((resolve) => {
@@ -135,16 +138,20 @@ export function HogFunctionIcon({
     size?: 'small' | 'medium' | 'large'
 }): JSX.Element {
     const [loaded, setLoaded] = useState(false)
+    const { ref: inViewRef, inView } = useInView()
 
     return (
         <span
+            ref={inViewRef}
             className={clsx('relative flex items-center justify-center', {
                 'w-8 h-8 text-2xl': size === 'small',
                 'w-10 h-10 text-4xl': size === 'medium',
                 'w-12 h-12 text-6xl': size === 'large',
             })}
         >
-            {src ? (
+            {!inView && !loaded ? (
+                <div className="w-full h-full" />
+            ) : src ? (
                 <>
                     <img
                         className={clsx(

@@ -1,5 +1,5 @@
 ---
-description: 
+description: Rules for writing Python services at PostHog (Python servers powered by the Django framework)
 globs: *.py
 alwaysApply: false
 ---

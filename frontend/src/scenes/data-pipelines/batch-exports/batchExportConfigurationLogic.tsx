@@ -1,8 +1,10 @@
-import { lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
@@ -14,7 +16,6 @@ import {
     BatchExportService,
 } from '~/types'
 
-import { pipelineAccessLogic } from '../../pipeline/pipelineAccessLogic'
 import type { batchExportConfigurationLogicType } from './batchExportConfigurationLogicType'
 import { humanizeBatchExportName } from './utils'
 
@@ -24,14 +25,49 @@ export interface BatchExportConfigurationLogicProps {
 }
 
 function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportConfiguration): Record<string, any> {
-    return {
+    const config = {
         name: batchExportConfig.name,
         destination: batchExportConfig.destination.type,
         paused: batchExportConfig.paused,
         interval: batchExportConfig.interval,
         model: batchExportConfig.model,
         filters: batchExportConfig.filters,
+        integration_id:
+            batchExportConfig.destination.type === 'Databricks' ? batchExportConfig.destination.integration : undefined,
         ...batchExportConfig.destination.config,
+    }
+
+    let authorizationMode: 'IAMRole' | 'Credentials' = 'IAMRole'
+    let copyInputsFields: Record<string, any> = {}
+
+    if (batchExportConfig.destination.type === 'Redshift' && batchExportConfig.destination.config.copy_inputs) {
+        const copyInputs = batchExportConfig.destination.config.copy_inputs
+
+        copyInputsFields = {
+            redshift_s3_bucket: copyInputs.s3_bucket,
+            redshift_s3_key_prefix: copyInputs.s3_key_prefix,
+            redshift_s3_bucket_region_name: copyInputs.region_name,
+            redshift_s3_bucket_aws_access_key_id: copyInputs.bucket_credentials?.aws_access_key_id,
+            redshift_s3_bucket_aws_secret_access_key: copyInputs.bucket_credentials?.aws_secret_access_key,
+            redshift_iam_role: undefined,
+            redshift_aws_access_key_id: undefined,
+            redshift_aws_secret_access_key: undefined,
+        }
+
+        if (typeof copyInputs.authorization === 'string') {
+            authorizationMode = 'IAMRole'
+            copyInputsFields.redshift_iam_role = copyInputs.authorization
+        } else {
+            authorizationMode = 'Credentials'
+            copyInputsFields.redshift_aws_access_key_id = copyInputs.authorization?.aws_access_key_id
+            copyInputsFields.redshift_aws_secret_access_key = copyInputs.authorization?.aws_secret_access_key
+        }
+    }
+
+    return {
+        ...config,
+        ...copyInputsFields,
+        authorization_mode: authorizationMode,
     }
 }
 
@@ -47,6 +83,16 @@ export function getDefaultConfiguration(service: string): Record<string, any> {
         ...(service === 'S3' && {
             file_format: 'Parquet',
             compression: 'zstd',
+        }),
+        ...(service === 'Redshift' && {
+            mode: 'COPY',
+            authorization_mode: 'IAMRole',
+            properties_data_type: 'SUPER',
+        }),
+        ...(service === 'Databricks' && {
+            use_variant_type: true,
+            // prefill prefix for http path
+            http_path: '/sql/1.0/warehouses/',
         }),
     }
 }
@@ -107,44 +153,59 @@ function getEventTable(service: BatchExportService['type']): DatabaseSchemaBatch
                     schema_valid: true,
                 },
             }),
-            ...(service != 'S3' && {
+            ...(service == 'Databricks' && {
                 team_id: {
                     name: 'team_id',
-                    hogql_value: service == 'Postgres' || service == 'Redshift' ? 'toInt32(team_id)' : 'team_id',
+                    hogql_value: 'team_id',
                     type: 'integer',
                     schema_valid: true,
                 },
-                set: {
-                    name: service == 'Snowflake' ? 'people_set' : 'set',
-                    hogql_value: "nullIf(JSONExtractString(properties, '$set'), '')",
-                    type: 'string',
-                    schema_valid: true,
-                },
-                set_once: {
-                    name: service == 'Snowflake' ? 'people_set_once' : 'set_once',
-                    hogql_value: "nullIf(JSONExtractString(properties, '$set_once'), '')",
-                    type: 'string',
-                    schema_valid: true,
-                },
-                site_url: {
-                    name: 'site_url',
-                    hogql_value: "''",
-                    type: 'string',
-                    schema_valid: true,
-                },
-                ip: {
-                    name: 'ip',
-                    hogql_value: "nullIf(JSONExtractString(properties, '$ip'), '')",
-                    type: 'string',
-                    schema_valid: true,
-                },
-                elements_chain: {
-                    name: 'elements',
-                    hogql_value: 'toJSONString(elements_chain)',
-                    type: 'string',
+                databricks_ingested_timestamp: {
+                    name: 'databricks_ingested_timestamp',
+                    hogql_value: 'NOW64()',
+                    type: 'datetime',
                     schema_valid: true,
                 },
             }),
+            ...(service != 'S3' &&
+                service != 'Databricks' && {
+                    team_id: {
+                        name: 'team_id',
+                        hogql_value: service == 'Postgres' || service == 'Redshift' ? 'toInt32(team_id)' : 'team_id',
+                        type: 'integer',
+                        schema_valid: true,
+                    },
+                    set: {
+                        name: service == 'Snowflake' ? 'people_set' : 'set',
+                        hogql_value: "nullIf(JSONExtractString(properties, '$set'), '')",
+                        type: 'string',
+                        schema_valid: true,
+                    },
+                    set_once: {
+                        name: service == 'Snowflake' ? 'people_set_once' : 'set_once',
+                        hogql_value: "nullIf(JSONExtractString(properties, '$set_once'), '')",
+                        type: 'string',
+                        schema_valid: true,
+                    },
+                    site_url: {
+                        name: 'site_url',
+                        hogql_value: "''",
+                        type: 'string',
+                        schema_valid: true,
+                    },
+                    ip: {
+                        name: 'ip',
+                        hogql_value: "nullIf(JSONExtractString(properties, '$ip'), '')",
+                        type: 'string',
+                        schema_valid: true,
+                    },
+                    elements_chain: {
+                        name: 'elements',
+                        hogql_value: 'toJSONString(elements_chain)',
+                        type: 'string',
+                        schema_valid: true,
+                    },
+                }),
             ...(service == 'BigQuery' && {
                 bq_ingested_timestamp: {
                     name: 'bq_ingested_timestamp',
@@ -430,11 +491,83 @@ const sessionsTable: DatabaseSchemaBatchExportTable = {
             hogql_value: 'vital_lcp',
             schema_valid: true,
         },
+        entry_gclsrc: {
+            name: 'entry_gclsrc',
+            type: 'string',
+            hogql_value: 'entry_gclsrc',
+            schema_valid: true,
+        },
+        entry_dclid: {
+            name: 'entry_dclid',
+            type: 'string',
+            hogql_value: 'entry_dclid',
+            schema_valid: true,
+        },
+        entry_gbraid: {
+            name: 'entry_gbraid',
+            type: 'string',
+            hogql_value: 'entry_gbraid',
+            schema_valid: true,
+        },
+        entry_wbraid: {
+            name: 'entry_wbraid',
+            type: 'string',
+            hogql_value: 'entry_wbraid',
+            schema_valid: true,
+        },
+        entry_msclkid: {
+            name: 'entry_msclkid',
+            type: 'string',
+            hogql_value: 'entry_msclkid',
+            schema_valid: true,
+        },
+        entry_twclid: {
+            name: 'entry_twclid',
+            type: 'string',
+            hogql_value: 'entry_twclid',
+            schema_valid: true,
+        },
+        entry_li_fat_id: {
+            name: 'entry_li_fat_id',
+            type: 'string',
+            hogql_value: 'entry_li_fat_id',
+            schema_valid: true,
+        },
+        entry_mc_cid: {
+            name: 'entry_mc_cid',
+            type: 'string',
+            hogql_value: 'entry_mc_cid',
+            schema_valid: true,
+        },
+        entry_igshid: {
+            name: 'entry_igshid',
+            type: 'string',
+            hogql_value: 'entry_igshid',
+            schema_valid: true,
+        },
+        entry_ttclid: {
+            name: 'entry_ttclid',
+            type: 'string',
+            hogql_value: 'entry_ttclid',
+            schema_valid: true,
+        },
+        entry__kx: {
+            name: 'entry__kx',
+            type: 'string',
+            hogql_value: 'entry__kx',
+            schema_valid: true,
+        },
+        entry_irclid: {
+            name: 'entry_irclid',
+            type: 'string',
+            hogql_value: 'entry_irclid',
+            schema_valid: true,
+        },
     },
 }
 
 export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicType>([
-    props({} as BatchExportConfigurationLogicProps),
+    props({ id: null, service: null } as BatchExportConfigurationLogicProps),
     key(({ service, id }: BatchExportConfigurationLogicProps) => {
         if (id) {
             return `ID:${id}`
@@ -442,13 +575,11 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
         return `NEW:${service}`
     }),
     path((id) => ['scenes', 'data-pipelines', 'batch-exports', 'batchExportConfigurationLogic', id]),
-    connect(() => ({
-        values: [pipelineAccessLogic, ['canEnableNewDestinations']],
-    })),
     actions({
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
         setSelectedModel: (model: string) => ({ model }),
         setRunningStep: (step: number | null) => ({ step }),
+        deleteBatchExport: () => true,
     }),
     loaders(({ props, actions, values }) => ({
         batchExportConfig: [
@@ -471,10 +602,54 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         end_at,
                         model,
                         filters,
+                        json_config_file,
+                        integration_id,
+                        // Redshift COPY configuration
+                        mode,
+                        authorization_mode,
+                        redshift_s3_bucket,
+                        redshift_s3_key_prefix,
+                        redshift_s3_bucket_region_name,
+                        redshift_s3_bucket_aws_access_key_id,
+                        redshift_s3_bucket_aws_secret_access_key,
+                        redshift_iam_role,
+                        redshift_aws_access_key_id,
+                        redshift_aws_secret_access_key,
                         ...config
                     } = formdata
+
+                    if (destination === 'Redshift') {
+                        if (mode === 'COPY') {
+                            const copyInputs: Record<string, any> = {
+                                s3_bucket: redshift_s3_bucket,
+                                s3_key_prefix: redshift_s3_key_prefix,
+                                region_name: redshift_s3_bucket_region_name,
+                            }
+
+                            if (redshift_iam_role) {
+                                copyInputs.authorization = redshift_iam_role
+                            } else if (redshift_aws_access_key_id && redshift_aws_secret_access_key) {
+                                copyInputs.authorization = {
+                                    aws_access_key_id: redshift_aws_access_key_id,
+                                    aws_secret_access_key: redshift_aws_secret_access_key,
+                                }
+                            }
+
+                            if (redshift_s3_bucket_aws_access_key_id && redshift_s3_bucket_aws_secret_access_key) {
+                                copyInputs.bucket_credentials = {
+                                    aws_access_key_id: redshift_s3_bucket_aws_access_key_id,
+                                    aws_secret_access_key: redshift_s3_bucket_aws_secret_access_key,
+                                }
+                            }
+
+                            config.copy_inputs = copyInputs
+                        }
+                        config.mode = mode
+                    }
+
                     const destinationObj = {
                         type: destination,
+                        integration: integration_id,
                         config: config,
                     }
                     const data: Omit<
@@ -552,11 +727,55 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         end_at,
                         model,
                         filters,
+                        json_config_file,
+                        integration_id,
+                        // Redshift COPY configuration
+                        mode,
+                        authorization_mode,
+                        redshift_s3_bucket,
+                        redshift_s3_key_prefix,
+                        redshift_s3_bucket_region_name,
+                        redshift_s3_bucket_aws_access_key_id,
+                        redshift_s3_bucket_aws_secret_access_key,
+                        redshift_iam_role,
+                        redshift_aws_access_key_id,
+                        redshift_aws_secret_access_key,
                         ...config
                     } = values.configuration
+
+                    if (destination === 'Redshift') {
+                        if (mode === 'COPY') {
+                            const copyInputs: Record<string, any> = {
+                                s3_bucket: redshift_s3_bucket,
+                                s3_key_prefix: redshift_s3_key_prefix,
+                                region_name: redshift_s3_bucket_region_name,
+                            }
+
+                            if (redshift_iam_role) {
+                                copyInputs.authorization = redshift_iam_role
+                            } else if (redshift_aws_access_key_id && redshift_aws_secret_access_key) {
+                                copyInputs.authorization = {
+                                    aws_access_key_id: redshift_aws_access_key_id,
+                                    aws_secret_access_key: redshift_aws_secret_access_key,
+                                }
+                            }
+
+                            if (redshift_s3_bucket_aws_access_key_id && redshift_s3_bucket_aws_secret_access_key) {
+                                copyInputs.bucket_credentials = {
+                                    aws_access_key_id: redshift_s3_bucket_aws_access_key_id,
+                                    aws_secret_access_key: redshift_s3_bucket_aws_secret_access_key,
+                                }
+                            }
+
+                            config.copy_inputs = copyInputs
+                        }
+                        config.mode = mode
+                    }
+
                     const destinationObj = {
                         type: destination,
                         config: config,
+                        integration: integration_id,
                     }
                     const data = {
                         paused,
@@ -662,8 +881,14 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
         ],
     })),
     selectors(() => ({
+        logicProps: [() => [(_, props) => props], (props) => props],
         service: [(s, p) => [s.batchExportConfig, p.service], (config, service) => config?.destination.type || service],
         isNew: [(_, p) => [p.id], (id): boolean => !id],
+        loading: [
+            (s) => [s.batchExportConfigLoading, s.batchExportConfigTestLoading],
+            (batchExportConfigLoading, batchExportConfigTestLoading) =>
+                batchExportConfigLoading || batchExportConfigTestLoading,
+        ],
         requiredFields: [
             (s) => [s.service, s.isNew, s.configuration],
             (service, isNew, config): string[] => {
@@ -715,6 +940,16 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         ...(isNew && config.authentication_type == 'keypair' ? ['private_key'] : []),
                         'schema',
                         'table_name',
+                    ]
+                } else if (service === 'Databricks') {
+                    return [
+                        ...generalRequiredFields,
+                        'integration_id',
+                        'http_path',
+                        'catalog',
+                        'schema',
+                        'table_name',
+                        'use_variant_type',
                     ]
                 }
                 return generalRequiredFields
@@ -784,8 +1019,10 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         filereader.readAsText(value[0])
                     })
                     const jsonConfig = JSON.parse(loadedFile)
+                    const { json_config_file, ...remainingConfig } = values.configuration
+
                     actions.setConfigurationValues({
-                        ...values.configuration,
+                        ...remainingConfig,
                         project_id: jsonConfig.project_id,
                         private_key: jsonConfig.private_key,
                         private_key_id: jsonConfig.private_key_id,
@@ -797,6 +1034,22 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         json_config_file: 'The config file is not valid',
                     })
                 }
+            }
+        },
+        deleteBatchExport: async () => {
+            // TODO: support undo'ing a delete
+            const batchExportId = values.batchExportConfig?.id
+            if (!batchExportId) {
+                return
+            }
+            try {
+                await api.batchExports.delete(batchExportId)
+                lemonToast.success('Batch export deleted successfully')
+                router.actions.replace(urls.dataPipelines('destinations'))
+            } catch (error: any) {
+                // Show error toast with the error message from the API
+                const errorMessage = error.detail || error.message || 'Failed to delete'
+                lemonToast.error(errorMessage)
             }
         },
     })),

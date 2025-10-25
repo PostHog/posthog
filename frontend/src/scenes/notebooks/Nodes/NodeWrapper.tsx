@@ -1,3 +1,7 @@
+// sort-imports-ignore
+
+// KLUDGE: Do NOT remove the `sort-imports-ignore` comment. It's used to sort the imports.
+// Our KNOWN_NODES resolution will NOT work if the imports here are sorted in a different way.
 import {
     Node,
     NodeViewWrapper,
@@ -399,6 +403,21 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
         },
 
         addAttributes() {
+            const nodeAttributes = Object.fromEntries(
+                Object.entries(attributes as Record<string, any>).map(([name, config]) => {
+                    return [
+                        name,
+                        {
+                            ...config,
+                            parseHTML: (element: HTMLElement) => {
+                                const attribute = element.getAttribute(name)
+                                return attribute ? JSON.parse(atob(attribute)) : null
+                            },
+                        },
+                    ]
+                })
+            )
+
             return {
                 height: {},
                 title: {},
@@ -407,7 +426,7 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
                 },
                 __init: { default: null },
                 children: {},
-                ...attributes,
+                ...nodeAttributes,
             }
         },
 

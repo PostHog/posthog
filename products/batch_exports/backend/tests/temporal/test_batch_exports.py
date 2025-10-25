@@ -1,17 +1,15 @@
-import datetime as dt
 import json
+import datetime as dt
 import operator
 from random import randint
 
 import pytest
+
 from django.test import override_settings
 
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
-from products.batch_exports.backend.temporal.batch_exports import (
-    generate_query_ranges,
-    get_data_interval,
-    iter_records,
-)
+
+from products.batch_exports.backend.temporal.batch_exports import generate_query_ranges, get_data_interval, iter_records
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 

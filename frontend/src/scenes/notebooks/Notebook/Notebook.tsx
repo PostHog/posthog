@@ -2,12 +2,15 @@ import './Notebook.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { NotFound } from 'lib/components/NotFound'
+import { EditorFocusPosition, JSONContent } from 'lib/components/RichContentEditor/types'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { useEffect } from 'react'
-import { notebookLogic, NotebookLogicProps } from 'scenes/notebooks/Notebook/notebookLogic'
+import { NotebookLogicProps, notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
@@ -19,8 +22,6 @@ import { NotebookConflictWarning } from './NotebookConflictWarning'
 import { NotebookHistoryWarning } from './NotebookHistory'
 import { NotebookLoadingState } from './NotebookLoadingState'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
-import { EditorFocusPosition, JSONContent } from 'lib/components/RichContentEditor/types'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export type NotebookProps = NotebookLogicProps & {
     initialAutofocus?: EditorFocusPosition
@@ -110,32 +111,31 @@ export function Notebook({
                     {isTemplate && (
                         <LemonBanner
                             type="info"
-                            className="my-4"
                             action={{
                                 onClick: duplicateNotebook,
                                 children: 'Create copy',
                             }}
+                            className="mb-6"
                         >
                             <b>This is a template.</b> You can create a copy of it to edit and use as your own.
                         </LemonBanner>
                     )}
-
                     <NotebookHistoryWarning />
                     {shortId === SCRATCHPAD_NOTEBOOK.short_id ? (
                         <LemonBanner
                             type="info"
-                            className="my-4"
                             action={{
-                                children: 'Convert to Notebook',
+                                children: 'Convert to notebook',
                                 onClick: duplicateNotebook,
                             }}
+                            className="mb-6"
                         >
                             This is your scratchpad. It is only visible to you and is persisted only in this browser.
                             It's a great place to gather ideas before turning into a saved Notebook!
                         </LemonBanner>
                     ) : null}
 
-                    <div className="flex flex-1 justify-center">
+                    <div className="Notebook_content">
                         <NotebookColumnLeft />
                         <ErrorBoundary>
                             <Editor />

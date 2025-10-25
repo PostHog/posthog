@@ -1,25 +1,33 @@
-from datetime import timedelta
 import json
 import uuid
-from oauth2_provider.views import TokenView, RevokeTokenView, IntrospectTokenView
-from posthog.models import OAuthApplication, OAuthAccessToken, User, Team
-from oauth2_provider.settings import oauth2_settings
-from oauth2_provider.http import OAuth2ResponseRedirect
-from oauth2_provider.exceptions import OAuthToolkitError
-from django.utils import timezone
-
-from rest_framework import serializers, status
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from oauth2_provider.views.mixins import OAuthLibMixin
-from oauth2_provider.views import ConnectDiscoveryInfoView, JwksInfoView, UserInfoView
-from oauth2_provider.oauth2_validators import OAuth2Validator
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.authentication import SessionAuthentication
-import structlog
-from django.utils.decorators import method_decorator
+from datetime import timedelta
 from typing import TypedDict, cast
 
+from django.http import JsonResponse
+from django.utils import timezone
+from django.utils.decorators import method_decorator
+
+import structlog
+from oauth2_provider.exceptions import OAuthToolkitError
+from oauth2_provider.http import OAuth2ResponseRedirect
+from oauth2_provider.oauth2_validators import OAuth2Validator
+from oauth2_provider.settings import oauth2_settings
+from oauth2_provider.views import (
+    ConnectDiscoveryInfoView,
+    IntrospectTokenView,
+    JwksInfoView,
+    RevokeTokenView,
+    TokenView,
+    UserInfoView,
+)
+from oauth2_provider.views.mixins import OAuthLibMixin
+from rest_framework import serializers, status
+from rest_framework.authentication import SessionAuthentication
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from posthog.models import OAuthAccessToken, OAuthApplication, Team, User
 from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
@@ -374,10 +382,38 @@ class OAuthTokenView(TokenView):
     - code_verifier: The code verifier that was used to generate the code_challenge. The code_challenge is a sha256 hash
     of the code_verifier that was sent in the authorization request.
 
-    To comply with RFC 6749, the data must be sent as x-www-form-urlencoded.
+    RFC 6749 requires x-www-form-urlencoded, but this endpoint also accepts application/json for convenience.
     """
 
-    pass
+    def post(self, request, *args, **kwargs):
+        if request.content_type == "application/json" and request.body:
+            try:
+                json_data = json.loads(request.body)
+                request.POST = request.POST.copy()
+                for key, value in json_data.items():
+                    request.POST[key] = value
+            except (json.JSONDecodeError, ValueError):
+                return JsonResponse(
+                    {"error": "invalid_request", "error_description": "Invalid JSON payload"},
+                    status=400,
+                )
+
+        response = super().post(request, *args, **kwargs)
+
+        if response.status_code == 200:
+            try:
+                response_data = json.loads(response.content)
+                access_token_value = response_data.get("access_token")
+
+                if access_token_value:
+                    access_token = OAuthAccessToken.objects.get(token=access_token_value)
+                    response_data["scoped_teams"] = access_token.scoped_teams or []
+                    response_data["scoped_organizations"] = access_token.scoped_organizations or []
+                    return JsonResponse(response_data)
+            except (json.JSONDecodeError, OAuthAccessToken.DoesNotExist) as e:
+                logger.warning(f"Error adding scoped fields to token response: {e}")
+
+        return response
 
 
 class OAuthRevokeTokenView(RevokeTokenView):

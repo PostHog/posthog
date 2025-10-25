@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
+
 import { useSvgResizeObserver } from '../hooks/useSvgResizeObserver'
 import { getNiceTickValues } from '../shared/utils'
-import { SVG_EDGE_MARGIN, TICK_FONT_SIZE_NEW, TICK_PANEL_HEIGHT, VIEW_BOX_WIDTH } from './constants'
 import { TickLabels } from './TickLabels'
+import { SVG_EDGE_MARGIN, TICK_FONT_SIZE_NEW, TICK_PANEL_HEIGHT, VIEW_BOX_WIDTH } from './constants'
 import { useAxisScale } from './useAxisScale'
 
 interface TableHeaderProps {
@@ -36,20 +37,20 @@ export function TableHeader({ axisRange }: TableHeaderProps): JSX.Element {
     return (
         <thead>
             <tr>
-                <th className="w-1/5 border-b-2 bg-bg-table p-3 text-left text-xs font-semibold text-text-secondary sticky top-0 z-10">
+                <th className="w-1/5 border-b-2 bg-bg-table p-3 text-left text-xs sticky top-0 z-10 metric-cell-header">
                     Metric
                 </th>
-                <th className="w-1/15 border-b-2 bg-bg-table p-3 text-left text-xs font-semibold text-text-secondary sticky top-0 z-10">
+                <th className="w-1/15 border-b-2 bg-bg-table p-3 text-left text-xs sticky top-0 z-10 metric-cell-header">
                     Variant
                 </th>
-                <th className="w-1/15 border-b-2 bg-bg-table p-3 text-left text-xs font-semibold text-text-secondary sticky top-0 z-10">
+                <th className="w-1/15 border-b-2 bg-bg-table p-3 text-left text-xs sticky top-0 z-10 metric-cell-header">
                     Value
                 </th>
-                <th className="w-1/15 border-b-2 bg-bg-table p-3 text-left text-xs font-semibold text-text-secondary sticky top-0 z-10">
+                <th className="w-1/15 border-b-2 bg-bg-table p-3 text-left text-xs sticky top-0 z-10 metric-cell-header">
                     Delta
                 </th>
-                <th className="border-b-2 bg-bg-table p-3 text-left text-xs font-semibold text-text-secondary sticky top-0 z-10" />
-                <th className="border-b-2 bg-bg-table p-0 text-center text-xs font-semibold text-text-secondary sticky top-0 z-10">
+                <th className="border-b-2 bg-bg-table p-3 z-10" />
+                <th className="border-b-2 bg-bg-table p-0 z-10">
                     {axisRange && axisRange > 0 ? (
                         <div>
                             <svg
@@ -64,7 +65,7 @@ export function TableHeader({ axisRange }: TableHeaderProps): JSX.Element {
                                 <TickLabels
                                     tickValues={tickValues}
                                     scale={scale}
-                                    y={TICK_PANEL_HEIGHT + 2}
+                                    y={(TICK_PANEL_HEIGHT + 13) / 2}
                                     viewBoxWidth={VIEW_BOX_WIDTH}
                                     fontSize={TICK_FONT_SIZE_NEW}
                                     fontWeight="600"

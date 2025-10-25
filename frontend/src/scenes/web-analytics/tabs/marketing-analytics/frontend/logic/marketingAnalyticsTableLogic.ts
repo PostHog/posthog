@@ -1,21 +1,22 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actionToUrl, urlToAction } from 'kea-router'
+
 import { isNotNil } from 'lib/utils'
 
 import {
-    DatabaseSchemaDataWarehouseTable,
-    SourceMap,
     ConversionGoalFilter,
     DataTableNode,
+    DatabaseSchemaDataWarehouseTable,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsHelperForColumnNames,
-    MarketingAnalyticsTableQuery,
     MarketingAnalyticsOrderBy,
+    MarketingAnalyticsTableQuery,
+    SourceMap,
 } from '~/queries/schema/schema-general'
 import { DataWarehouseSettingsTab, ExternalDataSource } from '~/types'
 
-import type { marketingAnalyticsTableLogicType } from './marketingAnalyticsTableLogicType'
 import { marketingAnalyticsLogic } from './marketingAnalyticsLogic'
-import { actionToUrl, urlToAction } from 'kea-router'
+import type { marketingAnalyticsTableLogicType } from './marketingAnalyticsTableLogicType'
 import { createMarketingAnalyticsOrderBy, isDraftConversionGoalColumn } from './utils'
 
 export type ExternalTable = {

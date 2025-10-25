@@ -1,7 +1,7 @@
-import collections.abc
-import dataclasses
 import enum
 import uuid
+import dataclasses
+import collections.abc
 
 from django.contrib.postgres import indexes as pg_indexes
 from django.core.exceptions import ObjectDoesNotExist
@@ -9,18 +9,14 @@ from django.db import connection, models, transaction
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database, create_hogql_database
+from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import extract_select_queries
+
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import (
-    CreatedMetaFields,
-    UpdatedMetaFields,
-    UUIDModel,
-    uuid7,
-)
-from posthog.warehouse.models import S3Table
+from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, uuid7
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from posthog.warehouse.models.table import DataWarehouseTable
 
@@ -139,7 +135,12 @@ def get_parents_from_model_query(model_query: str) -> set[str]:
                 queries.extend(list(extract_select_queries(join.table)))
                 break
 
-            parent_name = join.table.chain[0]  # type: ignore
+            if isinstance(join.table, ast.Placeholder):
+                parent_name = join.table.field
+            elif isinstance(join.table, ast.Field):
+                parent_name = ".".join(str(s) for s in join.table.chain)
+            else:
+                raise ValueError(f"No handler for {join.table.__class__.__name__} in get_parents_from_model_query")
 
             if parent_name not in ctes and isinstance(parent_name, str):
                 parents.add(parent_name)
@@ -366,18 +367,23 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
                 pass
             else:
                 parent_query_paths = list(self.filter_all_leaf_paths(parent_query.id.hex, team=team).all())
-                if not parent_query_paths:
-                    raise UnknownParentError(parent, query)
-
                 parent_paths.extend(parent_query_paths)
                 continue
 
             try:
                 table = self.get_hogql_database(team).get_table(parent)
-                if not isinstance(table, S3Table):
+                if not isinstance(table, HogQLDataWarehouseTable):
                     raise ObjectDoesNotExist()
 
-                parent_table = DataWarehouseTable.objects.exclude(deleted=True).filter(team=team, name=table.name).get()
+                if table.table_id:
+                    parent_table = (
+                        DataWarehouseTable.objects.exclude(deleted=True).filter(team=team, id=table.table_id).get()
+                    )
+                else:
+                    parent_table = (
+                        DataWarehouseTable.objects.exclude(deleted=True).filter(team=team, name=table.name).get()
+                    )
+
             except (ObjectDoesNotExist, QueryError):
                 pass
             else:
@@ -517,7 +523,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         return DAG(edges=edges, nodes=nodes)
 
 
-class DataWarehouseModelPath(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+class DataWarehouseModelPath(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     """Django model to represent paths to a data warehouse model.
 
     A data warehouse model is represented by a saved query, and the path to it contains all

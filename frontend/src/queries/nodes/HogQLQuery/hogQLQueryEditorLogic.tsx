@@ -1,10 +1,6 @@
 import type { Monaco } from '@monaco-editor/react'
-import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { combineUrl } from 'kea-router'
-import api from 'lib/api'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 // Note: we can only import types and not values from monaco-editor, because otherwise some Monaco code breaks
 // auto reload in development. Specifically, on this line:
 // `export const suggestWidgetStatusbarMenu = new MenuId('suggestWidgetStatusBar')`
@@ -13,9 +9,15 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 // esbuild doesn't support manual chunks as of 2023, so we can't just put Monaco in its own chunk, which would prevent
 // re-importing. As for @monaco-editor/react, it does some lazy loading and doesn't have this problem.
 import type { editor } from 'monaco-editor'
-import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
-import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
+
+import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 
 import { DataNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 
@@ -54,7 +56,12 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
     }),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
-        actions: [dataWarehouseViewsLogic, ['createDataWarehouseSavedQuery'], dataWarehouseSceneLogic, ['updateView']],
+        actions: [
+            dataWarehouseViewsLogic,
+            ['createDataWarehouseSavedQuery'],
+            dataWarehouseSettingsSceneLogic,
+            ['updateView'],
+        ],
     })),
     actions({
         saveQuery: (queryOverride?: string) => ({ queryOverride }),

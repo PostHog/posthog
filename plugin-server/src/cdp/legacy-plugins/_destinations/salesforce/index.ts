@@ -1,6 +1,7 @@
+import { URL } from 'url'
+
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { Properties, RetryError } from '@posthog/plugin-scaffold'
-import { URL } from 'url'
 
 import { parseJSON } from '../../../../utils/json-parse'
 import type { FetchResponse } from '../../../../utils/request'

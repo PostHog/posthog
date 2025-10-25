@@ -1,5 +1,7 @@
-import { LemonBadge, LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
+
+import { LemonBadge, LemonButton, Link, Spinner } from '@posthog/lemon-ui'
+
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -15,14 +17,16 @@ import {
 } from '../filters/RecordingsUniversalFiltersEmbed'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SessionRecordingPreview } from './SessionRecordingPreview'
-import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 import { SessionRecordingsPlaylistTopSettings } from './SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPlaylistTroubleshooting'
+import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 export function SessionRecordingsPlaylist({
     showContent = true,
     canMixFiltersAndPinned = true,
     type = 'filters',
+    isSynthetic = false,
+    description,
     ...props
 }: SessionRecordingPlaylistLogicProps & {
     showContent?: boolean
@@ -32,10 +36,12 @@ export function SessionRecordingsPlaylist({
      * and filters.
      *
      * This prop allows us to allow that case or not.
-     * Eventually this will be removed and we'll only allow one or the other.
+     * Eventually this will be removed, and we'll only allow one or the other.
      */
     canMixFiltersAndPinned?: boolean
     type?: 'filters' | 'collection'
+    isSynthetic?: boolean
+    description?: string
 }): JSX.Element {
     const logicProps: SessionRecordingPlaylistLogicProps = {
         ...props,
@@ -57,7 +63,6 @@ export function SessionRecordingsPlaylist({
     const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, resetFilters } = useActions(playlistLogic)
 
     const notebookNode = useNotebookNode()
-
     const sections: PlaylistSection[] = []
 
     if (type === 'collection' || pinnedRecordings.length > 0) {
@@ -70,7 +75,7 @@ export function SessionRecordingsPlaylist({
                 </div>
             ),
             items: pinnedRecordings,
-            render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} />,
+            render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} selectable />,
             initiallyOpen: true,
         })
     } else {
@@ -84,7 +89,7 @@ export function SessionRecordingsPlaylist({
             ),
             items: otherRecordings,
             initiallyOpen: !pinnedRecordings.length,
-            render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} />,
+            render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} selectable />,
             footer: (
                 <div className="p-4">
                     <div className="h-10 flex items-center justify-center gap-2 text-secondary">
@@ -136,7 +141,13 @@ export function SessionRecordingsPlaylist({
                             maybeLoadSessionRecordings('older')
                         }
                     }}
-                    listEmptyState={type === 'collection' ? <CollectionEmptyState /> : <ListEmptyState />}
+                    listEmptyState={
+                        type === 'collection' ? (
+                            <CollectionEmptyState isSynthetic={isSynthetic} description={description} />
+                        ) : (
+                            <ListEmptyState />
+                        )
+                    }
                     onSelect={(item) => setSelectedRecordingId(item.id)}
                     activeItemId={activeSessionRecordingId}
                     content={({ activeItem }) =>
@@ -204,7 +215,13 @@ const ListEmptyState = (): JSX.Element => {
     )
 }
 
-const CollectionEmptyState = (): JSX.Element => {
+const CollectionEmptyState = ({
+    isSynthetic,
+    description,
+}: {
+    isSynthetic?: boolean
+    description?: string
+}): JSX.Element => {
     const { sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
 
     return (
@@ -213,6 +230,11 @@ const CollectionEmptyState = (): JSX.Element => {
                 <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
             ) : unusableEventsInFilter.length ? (
                 <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
+            ) : isSynthetic ? (
+                <div className="flex flex-col gap-2">
+                    <h3 className="title text-secondary mb-0">No recordings yet</h3>
+                    <p>{description || 'This collection is automatically populated.'}</p>
+                </div>
             ) : (
                 <div className="flex flex-col gap-2">
                     <h3 className="title text-secondary mb-0">No recordings in this collection</h3>

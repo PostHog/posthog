@@ -1,33 +1,28 @@
-import { Message } from 'node-rdkafka'
-
-import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
+import { EventHeaders } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
+import { drop, ok } from '../pipelines/results'
+import { ProcessingStep } from '../pipelines/steps'
 
-export function applyDropEventsRestrictions(
-    message: Message,
+function applyDropEventsRestrictions(
+    eventIngestionRestrictionManager: EventIngestionRestrictionManager,
+    headers?: EventHeaders
+): boolean {
+    const distinctId = headers?.distinct_id
+    const token = headers?.token
+
+    return eventIngestionRestrictionManager.shouldDropEvent(token, distinctId)
+}
+
+export function createApplyDropRestrictionsStep<T extends { headers: EventHeaders }>(
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
-): Message | null {
-    let distinctId: string | undefined
-    let token: string | undefined
+): ProcessingStep<T, T> {
+    return async function applyDropRestrictionsStep(input) {
+        const { headers } = input
 
-    message.headers?.forEach((header) => {
-        if ('distinct_id' in header) {
-            distinctId = header['distinct_id'].toString()
+        if (applyDropEventsRestrictions(eventIngestionRestrictionManager, headers)) {
+            return drop('blocked_token')
         }
-        if ('token' in header) {
-            token = header['token'].toString()
-        }
-    })
 
-    if (eventIngestionRestrictionManager.shouldDropEvent(token, distinctId)) {
-        eventDroppedCounter
-            .labels({
-                event_type: 'analytics',
-                drop_cause: 'blocked_token',
-            })
-            .inc()
-        return null
+        return Promise.resolve(ok(input))
     }
-
-    return message
 }

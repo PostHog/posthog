@@ -1,7 +1,9 @@
 import './SavedInsights.scss'
 
-import { IconMinusSmall, IconPlusSmall } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconMinusSmall, IconPlusSmall } from '@posthog/icons'
+
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -19,8 +21,8 @@ import { urls } from 'scenes/urls'
 
 import { QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
-import { addSavedInsightsModalLogic, INSIGHTS_PER_PAGE } from './addSavedInsightsModalLogic'
 import { InsightIcon } from './SavedInsights'
+import { INSIGHTS_PER_PAGE, addSavedInsightsModalLogic } from './addSavedInsightsModalLogic'
 
 export function AddSavedInsightsToDashboard(): JSX.Element {
     const { modalPage, insights, count, insightsLoading, filters, sorting, dashboardUpdatesInProgress } =
@@ -85,10 +87,17 @@ export function AddSavedInsightsToDashboard(): JSX.Element {
             render: function renderName(name: string, insight) {
                 return (
                     <>
-                        <div className="flex flex-col gap-1">
-                            <div className="inline-flex">
-                                <Link to={urls.insightView(insight.short_id)} target="_blank">
-                                    {name || <i>{summarizeInsight(insight.query)}</i>}
+                        <div className="flex flex-col gap-1 min-w-0">
+                            <div className="flex min-w-0">
+                                <Link
+                                    to={urls.insightView(insight.short_id)}
+                                    target="_blank"
+                                    title={name || summarizeInsight(insight.query)}
+                                    className="w-0 flex-1 min-w-0"
+                                >
+                                    <span className="block truncate">
+                                        {name || <i>{summarizeInsight(insight.query)}</i>}
+                                    </span>
                                 </Link>
                             </div>
                             <div className="text-xs text-tertiary">{insight.description}</div>
@@ -144,7 +153,7 @@ export function AddSavedInsightsToDashboard(): JSX.Element {
                 </span>
             </div>
             {!insightsLoading && insights.count < 1 ? (
-                <SavedInsightsEmptyState />
+                <SavedInsightsEmptyState filters={filters} usingFilters />
             ) : (
                 <>
                     <LemonTable

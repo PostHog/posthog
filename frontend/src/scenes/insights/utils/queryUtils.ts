@@ -102,6 +102,7 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
     // time series
     [ChartDisplayType.ActionsLineGraph]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.ActionsBar]: ChartDisplayType.ActionsLineGraph,
+    [ChartDisplayType.ActionsUnstackedBar]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.ActionsAreaGraph]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.ActionsStackedBar]: ChartDisplayType.ActionsLineGraph,
 
@@ -114,6 +115,7 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
     [ChartDisplayType.ActionsPie]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.ActionsTable]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.WorldMap]: ChartDisplayType.ActionsBarValue,
+    [ChartDisplayType.CalendarHeatmap]: ChartDisplayType.ActionsBarValue,
 }
 
 /** clean insight queries so that we can check for semantic equality with a deep equality check */
@@ -164,6 +166,8 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             showTrendLines: undefined,
             showMovingAverage: undefined,
             movingAverageIntervals: undefined,
+            stacked: undefined,
+            detailedResultsAggregationType: undefined,
         }
 
         cleanedQuery.dataColorTheme = undefined

@@ -1,11 +1,10 @@
-import { Node as PMNode } from '@tiptap/pm/model'
-
 import {
     ChainedCommands as EditorCommands,
     FocusPosition as EditorFocusPosition,
-    JSONContent as TTJSONContent,
     Range as EditorRange,
+    JSONContent as TTJSONContent,
 } from '@tiptap/core'
+import { Node as PMNode } from '@tiptap/pm/model'
 
 export interface RichContentNode extends PMNode {}
 export interface JSONContent extends TTJSONContent {}
@@ -22,6 +21,7 @@ export enum RichContentNodeType {
 }
 
 export interface RichContentEditorType {
+    isEmpty: () => boolean
     getJSON: () => JSONContent
     getEndPosition: () => number
     getSelectedNode: () => RichContentNode | null
@@ -36,6 +36,7 @@ export interface RichContentEditorType {
     destroy: () => void
     getMarks: (type: string) => { id: string; pos: number }[]
     setMark: (id: string) => void
+    getMentions: () => number[]
     isActive: (name: string, attributes?: {}) => boolean
     deleteRange: (range: EditorRange) => EditorCommands
     insertContent: (content: JSONContent) => void
@@ -47,4 +48,5 @@ export interface RichContentEditorType {
     hasChildOfType: (node: RichContentNode, type: string) => boolean
     scrollToSelection: () => void
     scrollToPosition: (position: number) => void
+    clear: () => void
 }

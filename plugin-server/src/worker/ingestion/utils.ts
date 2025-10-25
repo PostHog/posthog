@@ -1,13 +1,21 @@
-import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+import { Counter } from 'prom-client'
+
+import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
 import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import { PipelineEvent, TeamId, TimestampFormat } from '../../types'
 import { safeClickhouseString } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
 import { IngestionWarningLimiter } from '../../utils/token-bucket'
-import { castTimestampOrNow, castTimestampToClickhouseFormat, UUIDT } from '../../utils/utils'
+import { UUIDT, castTimestampOrNow, castTimestampToClickhouseFormat } from '../../utils/utils'
 import { KAFKA_EVENTS_DEAD_LETTER_QUEUE, KAFKA_INGESTION_WARNINGS } from './../../config/kafka-topics'
+
+export const ingestionWarningCounter = new Counter({
+    name: 'ingestion_warnings_total',
+    help: 'Total number of ingestion warnings by type and emission status',
+    labelNames: ['type', 'emitted'],
+})
 
 function getClickhouseTimestampOrNull(isoTimestamp?: string): string | null {
     return isoTimestamp
@@ -75,9 +83,13 @@ export async function captureIngestionWarning(
      * you can use this when a message is rare enough or important enough that it should always be sent
      */
     debounce?: { key?: string; alwaysSend?: boolean }
-) {
+): Promise<boolean> {
     const limiter_key = `${teamId}:${type}:${debounce?.key || ''}`
-    if (!!debounce?.alwaysSend || IngestionWarningLimiter.consume(limiter_key, 1)) {
+    const shouldEmit = !!debounce?.alwaysSend || IngestionWarningLimiter.consume(limiter_key, 1)
+
+    ingestionWarningCounter.inc({ type, emitted: shouldEmit.toString() })
+
+    if (shouldEmit) {
         // TODO: Either here or in follow up change this to an await as we do care.
         void kafkaProducer
             .queueMessages({
@@ -103,5 +115,5 @@ export async function captureIngestionWarning(
                 })
             })
     }
-    return Promise.resolve()
+    return Promise.resolve(shouldEmit)
 }

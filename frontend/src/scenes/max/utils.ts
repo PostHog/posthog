@@ -1,26 +1,34 @@
-import { decodeParams, encodeParams } from 'kea-router'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
 
 import {
+    AnyAssistantGeneratedQuery,
+    AnyAssistantSupportedQuery,
     AssistantMessage,
     AssistantMessageType,
     AssistantToolCallMessage,
     FailureMessage,
     HumanMessage,
+    MultiVisualizationMessage,
+    NotebookUpdateMessage,
+    PlanningMessage,
     ReasoningMessage,
     RootAssistantMessage,
+    TaskExecutionMessage,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import {
-    AssistantFunnelsQuery,
-    AssistantHogQLQuery,
-    AssistantRetentionQuery,
-    AssistantTrendsQuery,
-} from '~/queries/schema/schema-assistant-queries'
-import { FunnelsQuery, HogQLQuery, RetentionQuery, TrendsQuery } from '~/queries/schema/schema-general'
+    DashboardFilter,
+    FunnelsQuery,
+    HogQLQuery,
+    HogQLVariable,
+    RetentionQuery,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isHogQLQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
-import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel, SidePanelTab } from '~/types'
+import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
+
+import { SuggestionGroup } from './maxLogic'
 import { MaxActionContext, MaxContextType, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
 
 export function isReasoningMessage(message: RootAssistantMessage | undefined | null): message is ReasoningMessage {
@@ -31,6 +39,12 @@ export function isVisualizationMessage(
     message: RootAssistantMessage | undefined | null
 ): message is VisualizationMessage {
     return message?.type === AssistantMessageType.Visualization
+}
+
+export function isMultiVisualizationMessage(
+    message: RootAssistantMessage | undefined | null
+): message is MultiVisualizationMessage {
+    return message?.type === AssistantMessageType.MultiVisualization
 }
 
 export function isHumanMessage(message: RootAssistantMessage | undefined | null): message is HumanMessage {
@@ -51,8 +65,24 @@ export function isFailureMessage(message: RootAssistantMessage | undefined | nul
     return message?.type === AssistantMessageType.Failure
 }
 
+export function isNotebookUpdateMessage(
+    message: RootAssistantMessage | undefined | null
+): message is NotebookUpdateMessage {
+    return message?.type === AssistantMessageType.Notebook
+}
+
+export function isPlanningMessage(message: RootAssistantMessage | undefined | null): message is PlanningMessage {
+    return message?.type === AssistantMessageType.Planning
+}
+
+export function isTaskExecutionMessage(
+    message: RootAssistantMessage | undefined | null
+): message is TaskExecutionMessage {
+    return message?.type === AssistantMessageType.TaskExecution
+}
+
 export function castAssistantQuery(
-    query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
+    query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery | null
 ): TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery {
     if (isTrendsQuery(query)) {
         return query
@@ -63,29 +93,7 @@ export function castAssistantQuery(
     } else if (isHogQLQuery(query)) {
         return query
     }
-    throw new Error(`Unsupported query type: ${query.kind}`)
-}
-
-/**
- * Generate a URL for a conversation.
- */
-export function getConversationUrl({
-    pathname,
-    search,
-    conversationId,
-    includeHash = true,
-}: {
-    pathname: string
-    search: string
-    conversationId: string
-    includeHash?: boolean
-}): string {
-    const params = decodeParams(search, '?')
-    const strParams = encodeParams({
-        ...params,
-        chat: conversationId,
-    })
-    return `${pathname}${strParams ? `?${strParams}` : ''}${includeHash ? `#panel=${SidePanelTab.Max}` : ''}`
+    throw new Error(`Unsupported query type: ${query?.kind}`)
 }
 
 export function formatConversationDate(updatedAt: string | null): string {
@@ -131,6 +139,20 @@ export function formatSuggestion(suggestion: string): string {
     return `${suggestion.replace(/[<>]/g, '').replace(/…$/, '').trim()}${suggestion.endsWith('…') ? '…' : ''}`
 }
 
+export function isDeepResearchReportNotebook(
+    notebook: { category?: string | null; notebook_type?: string | null } | null | undefined
+): boolean {
+    return !!(notebook && notebook.category === 'deep_research' && notebook.notebook_type === 'report')
+}
+
+export function isDeepResearchReportCompletion(message: NotebookUpdateMessage): boolean {
+    return (
+        message.notebook_type === 'deep_research' &&
+        Array.isArray(message.conversation_notebooks) &&
+        message.conversation_notebooks.some((nb) => isDeepResearchReportNotebook(nb))
+    )
+}
+
 export function generateBurstPoints(spikeCount: number, spikiness: number): string {
     if (spikiness < 0 || spikiness > 1) {
         throw new Error('Spikiness must be between 0 and 1')
@@ -155,14 +177,22 @@ export function generateBurstPoints(spikeCount: number, spikiness: number): stri
 }
 
 // Utility functions for transforming data to max context
-export const insightToMaxContext = (insight: Partial<QueryBasedInsightModel>): MaxInsightContext => {
-    const source = (insight.query as any)?.source
+export const insightToMaxContext = (
+    insight: Partial<QueryBasedInsightModel>,
+    filtersOverride?: DashboardFilter,
+    variablesOverride?: Record<string, HogQLVariable>
+): MaxInsightContext => {
+    // Some insights (especially revenue analytics insights) don't have an inner source so we fallback to the outer query
+    const source = (insight.query as any)?.source ?? insight.query
+
     return {
         type: MaxContextType.INSIGHT,
         id: insight.short_id!,
         name: insight.name || insight.derived_name,
         description: insight.description,
         query: source,
+        filtersOverride,
+        variablesOverride,
     }
 }
 
@@ -192,5 +222,13 @@ export const actionToMaxContextPayload = (action: ActionType): MaxActionContext 
         id: action.id,
         name: action.name || `Action ${action.id}`,
         description: action.description || '',
+    }
+}
+
+export const createSuggestionGroup = (label: string, icon: JSX.Element, suggestions: string[]): SuggestionGroup => {
+    return {
+        label,
+        icon,
+        suggestions: suggestions.map((content) => ({ content })),
     }
 }

@@ -3,9 +3,8 @@ import {
     IntegrationConfigureProps,
 } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { urls } from 'scenes/urls'
-import { SourceConfig } from '~/queries/schema/schema-general'
 
-import { PipelineStage } from '~/types'
+import { SourceConfig } from '~/queries/schema/schema-general'
 
 export type DataWarehouseIntegrationChoice = IntegrationConfigureProps & {
     sourceConfig: SourceConfig
@@ -20,7 +19,7 @@ export function DataWarehouseIntegrationChoice({
         <IntegrationChoice
             {...props}
             integration={integration ?? sourceConfig.name.toLowerCase()}
-            redirectUrl={urls.pipelineNodeNew(PipelineStage.Source, { source: sourceConfig.name })}
+            redirectUrl={urls.dataWarehouseSourceNew(sourceConfig.name.toLowerCase())}
         />
     )
 }

@@ -1,5 +1,4 @@
 // Metrics that make sense across all Kafka consumers
-
 import { Counter, Gauge, Summary } from 'prom-client'
 
 export const kafkaRebalancePartitionCount = new Gauge({
@@ -54,4 +53,10 @@ export const cookielessRedisErrorCounter = new Counter({
     name: 'cookieless_redis_error',
     help: 'Count redis errors.',
     labelNames: ['operation'],
+})
+
+export const kafkaHeaderStatusCounter = new Counter({
+    name: 'kafka_header_status_total',
+    help: 'Count of events by header name and presence status',
+    labelNames: ['header', 'status'],
 })

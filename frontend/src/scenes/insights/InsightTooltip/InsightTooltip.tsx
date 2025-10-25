@@ -2,11 +2,13 @@ import './InsightTooltip.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { InsightLabel } from 'lib/components/InsightLabel'
-import { IconHandClick } from 'lib/lemon-ui/icons'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { shortTimeZone } from 'lib/utils'
 import { ReactNode } from 'react'
+
+import { InsightLabel } from 'lib/components/InsightLabel'
+import { dayjs } from 'lib/dayjs'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { IconHandClick } from 'lib/lemon-ui/icons'
+import { shortTimeZone } from 'lib/utils'
 import { formatAggregationValue } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -14,13 +16,13 @@ import { FormatPropertyValueForDisplayFunction, propertyDefinitionsModel } from 
 
 import {
     COL_CUTOFF,
-    getFormattedDate,
-    getTooltipTitle,
     InsightTooltipProps,
-    invertDataSource,
     InvertedSeriesDatum,
     ROW_CUTOFF,
     SeriesDatum,
+    getFormattedDate,
+    getTooltipTitle,
+    invertDataSource,
 } from './insightTooltipUtils'
 
 export function ClickToInspectActors({
@@ -110,7 +112,10 @@ export function InsightTooltip({
     const concreteTooltipTitle = altTitle ? getTooltipTitle(seriesData, altTitle, formattedDate) : null
 
     const title: ReactNode | null =
-        concreteTooltipTitle || (date ? `${formattedDate} (${timezone ? shortTimeZone(timezone) : 'UTC'})` : null)
+        concreteTooltipTitle ||
+        (date
+            ? `${interval === 'day' ? `${dayjs.tz(date, timezone).format('dddd')}, ` : ''}${formattedDate} (${timezone ? shortTimeZone(timezone) : 'UTC'})`
+            : null)
     const rightTitle: ReactNode | null = altRightTitle
         ? getTooltipTitle(seriesData, altRightTitle, formattedDate)
         : null

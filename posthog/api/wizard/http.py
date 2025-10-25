@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import hashlib
 import json
-from typing import Optional
+import hashlib
 
-import posthoganalytics
 from django.core.cache import cache
 from django.utils.crypto import get_random_string
+
+import posthoganalytics
 from google.genai.types import GenerateContentConfig, Schema
 from openai.types.chat import (
     ChatCompletionMessageParam,
@@ -23,7 +23,9 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.wizard.utils import json_schema_to_gemini_schema
+from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.cloud_utils import get_api_host
+from posthog.exceptions_capture import capture_exception
 from posthog.models.project import Project
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import SetupWizardAuthenticationRateThrottle, SetupWizardQueryRateThrottle
@@ -32,6 +34,11 @@ from posthog.user_permissions import UserPermissions
 SETUP_WIZARD_CACHE_PREFIX = "setup-wizard:v1:"
 SETUP_WIZARD_CACHE_TIMEOUT = 600
 SETUP_WIZARD_DEFAULT_MODEL = "gpt-5-mini"
+
+ERROR_GEMINI_API_KEY_NOT_CONFIGURED = "GEMINI_API_KEY is not configured"
+ERROR_INVALID_GEMINI_RESPONSE = "Invalid response from Gemini"
+ERROR_INVALID_OPENAI_JSON = "Invalid JSON response from OpenAI"
+ERROR_PROJECT_NOT_FOUND = "This project does not exist."
 
 OPENAI_SUPPORTED_MODELS = {"o4-mini", "gpt-5-mini", "gpt-5-nano", "gpt-5"}
 
@@ -52,7 +59,7 @@ class SetupWizardSerializer(serializers.Serializer):
     def to_representation(self, instance: str) -> dict[str, str]:
         return {"hash": instance}
 
-    def create(self, validated_data: Optional[dict[str, str]] = None) -> dict[str, str]:
+    def create(self, validated_data: dict[str, str] | None = None) -> dict[str, str]:
         hash = get_random_string(64, allowed_chars="abcdefghijklmnopqrstuvwxyz0123456789")
         key = f"{SETUP_WIZARD_CACHE_PREFIX}{hash}"
 
@@ -90,7 +97,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
 
     def dangerously_get_required_scopes(self):
         if self.action == "authenticate":
-            return ["team:read"]
+            return ["project:read"]
 
         return []
 
@@ -146,37 +153,52 @@ class SetupWizardViewSet(viewsets.ViewSet):
 
         hash = request.headers.get("X-PostHog-Wizard-Hash")
         fixture_generation = request.headers.get("X-PostHog-Wizard-Fixture-Generation")
+        trace_id = None
 
-        if not hash:
-            raise AuthenticationFailed("X-PostHog-Wizard-Hash header is required.")
+        if hash:
+            key = f"{SETUP_WIZARD_CACHE_PREFIX}{hash}"
+            wizard_data = cache.get(key)
 
-        key = f"{SETUP_WIZARD_CACHE_PREFIX}{hash}"
-        wizard_data = cache.get(key)
+            # wizard_data should only be mocked during the @posthog/wizard E2E tests, so that fixtures can be generated.
+            mock_wizard_data = settings.DEBUG and fixture_generation
 
-        # wizard_data should only be mocked during the @posthog/wizard E2E tests, so that fixtures can be generated.
-        mock_wizard_data = settings.DEBUG and fixture_generation
+            if mock_wizard_data:
+                wizard_data = {
+                    "project_api_key": "mock-project-api-key",
+                    "host": "http://localhost:8010",
+                    "user_distinct_id": "mock-user-id",
+                }
+                cache.set(key, wizard_data, SETUP_WIZARD_CACHE_TIMEOUT)
 
-        if mock_wizard_data:
-            wizard_data = {
-                "project_api_key": "mock-project-api-key",
-                "host": "http://localhost:8010",
-                "user_distinct_id": "mock-user-id",
-            }
-            cache.set(key, wizard_data, SETUP_WIZARD_CACHE_TIMEOUT)
+            if wizard_data is None:
+                raise AuthenticationFailed("Invalid hash.")
 
-        if wizard_data is None:
-            raise AuthenticationFailed("Invalid hash.")
+            if not wizard_data.get("project_api_key") or not wizard_data.get("host"):
+                raise AuthenticationFailed("Setup wizard not authenticated. Please login first")
 
-        if not wizard_data.get("project_api_key") or not wizard_data.get("host"):
-            raise AuthenticationFailed("Setup wizard not authenticated. Please login first")
+            distinct_id = wizard_data.get("user_distinct_id")
+
+            trace_id = trace_id or hashlib.sha256(hash.encode()).hexdigest()
+
+        else:
+            result = OAuthAccessTokenAuthentication().authenticate(request)
+
+            if not result:
+                raise AuthenticationFailed("Invalid access token.")
+
+            user, _ = result
+
+            if not user:
+                raise AuthenticationFailed("Invalid access token.")
+
+            distinct_id = user.distinct_id
+
+            trace_id = request.headers.get("X-PostHog-Trace-Id") or hashlib.sha256(distinct_id.encode()).hexdigest()
 
         posthog_client = posthoganalytics.default_client
 
         if not posthog_client:
             raise exceptions.ValidationError("PostHog client not found")
-
-        distinct_id = wizard_data.get("user_distinct_id")
-        trace_id = hashlib.sha256(hash.encode()).hexdigest()
 
         system_prompt = (
             "You are a PostHog setup wizard. Only answer messages about setting up PostHog and nothing else."
@@ -185,7 +207,16 @@ class SetupWizardViewSet(viewsets.ViewSet):
         if model in GEMINI_SUPPORTED_MODELS:
             api_key = settings.GEMINI_API_KEY
             if not api_key:
-                raise exceptions.ValidationError("GEMINI_API_KEY is not configured")
+                error = exceptions.ValidationError(ERROR_GEMINI_API_KEY_NOT_CONFIGURED)
+                capture_exception(
+                    error,
+                    {
+                        "model": model,
+                        "ai_product": "wizard",
+                        "team": "growth",
+                    },
+                )
+                raise error
 
             client = genai.Client(api_key=api_key, posthog_client=posthog_client)
 
@@ -214,7 +245,18 @@ class SetupWizardViewSet(viewsets.ViewSet):
             )
 
             if not response.parsed:
-                raise exceptions.ValidationError("Invalid response from Gemini")
+                error = exceptions.ValidationError(ERROR_INVALID_GEMINI_RESPONSE)
+                capture_exception(
+                    error,
+                    {
+                        "model": model,
+                        "ai_product": "wizard",
+                        "team": "growth",
+                        "trace_id": trace_id,
+                        "distinct_id": distinct_id,
+                    },
+                )
+                raise error
 
             response_data = response.parsed
 
@@ -228,7 +270,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
 
             messages: list[ChatCompletionMessageParam] = [system_message, user_message]
 
-            openai = OpenAI(posthog_client=posthog_client)
+            openai = OpenAI(posthog_client=posthog_client, base_url=settings.OPENAI_BASE_URL)
 
             result = openai.chat.completions.create(
                 model=model,
@@ -250,12 +292,25 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 or not result.choices[0].message
                 or not result.choices[0].message.content
             ):
-                raise exceptions.ValidationError("Invalid response from OpenAI")
+                raise exceptions.ValidationError(ERROR_INVALID_OPENAI_JSON)
 
             try:
                 response_data = json.loads(result.choices[0].message.content)
-            except json.JSONDecodeError:
-                raise exceptions.ValidationError("Invalid JSON response from OpenAI")
+            except json.JSONDecodeError as e:
+                capture_exception(
+                    e,
+                    {
+                        "model": model,
+                        "ai_product": "wizard",
+                        "team": "growth",
+                        "trace_id": trace_id,
+                        "distinct_id": distinct_id,
+                        "response_content": result.choices[0].message.content[:500]
+                        if result.choices[0].message.content
+                        else None,
+                    },
+                )
+                raise exceptions.ValidationError(ERROR_INVALID_OPENAI_JSON)
 
         else:
             raise exceptions.ValidationError(f"Model '{model}' is not supported.")
@@ -295,8 +350,18 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 )
 
             project_api_token = project.passthrough_team.api_token
-        except Project.DoesNotExist:
-            raise serializers.ValidationError({"projectId": ["This project does not exist."]}, code="not_found")
+        except Project.DoesNotExist as e:
+            capture_exception(
+                e,
+                {
+                    "project_id": project_id,
+                    "user_id": request.user.id if request.user else None,
+                    "user_distinct_id": request.user.distinct_id if request.user else None,
+                    "ai_product": "wizard",
+                    "team": "growth",
+                },
+            )
+            raise serializers.ValidationError({"projectId": [ERROR_PROJECT_NOT_FOUND]}, code="not_found")
 
         wizard_data = {
             "project_api_key": project_api_token,

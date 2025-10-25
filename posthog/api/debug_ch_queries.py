@@ -1,14 +1,15 @@
-import json
 import re
-from datetime import timedelta, datetime, UTC
+import json
+from datetime import UTC, datetime, timedelta
 from typing import Optional
 
-from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
+
+from dateutil.relativedelta import relativedelta
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, viewsets
-from rest_framework.response import Response
 from rest_framework.request import Request
+from rest_framework.response import Response
 
 from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud

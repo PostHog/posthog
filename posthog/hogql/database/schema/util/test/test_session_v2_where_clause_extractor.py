@@ -1,16 +1,18 @@
-from typing import Union, Optional
+from typing import Optional, Union
+
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
+from inline_snapshot import snapshot
+
+from posthog.schema import SessionTableVersion
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV2
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.parser import parse_select, parse_expr
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.visitor import clone_expr
-from posthog.schema import SessionTableVersion
-from posthog.test.base import ClickhouseTestMixin, APIBaseTest
-
-from inline_snapshot import snapshot
 
 
 def f(s: Union[str, ast.Expr, None], placeholders: Optional[dict[str, ast.Expr]] = None) -> Union[ast.Expr, None]:

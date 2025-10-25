@@ -3,11 +3,21 @@ import type {
     EventsNode,
     ExperimentFunnelsQuery,
     ExperimentMetric,
+    ExperimentStatsBaseValidated,
     ExperimentTrendsQuery,
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
+    NewExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
-import { ExperimentDataWarehouseNode, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
+import {
+    ExperimentDataWarehouseNode,
+    ExperimentMetricType,
+    ExperimentStatsValidationFailure,
+    NodeKind,
+    isExperimentMeanMetric,
+    isExperimentRatioMetric,
+} from '~/queries/schema/schema-general'
+import { ExperimentMetricGoal } from '~/types'
 
 export type ExperimentVariantResult = ExperimentVariantResultFrequentist | ExperimentVariantResultBayesian
 
@@ -39,6 +49,12 @@ export const getDefaultMetricTitle = (metric: ExperimentMetric): string => {
             return getDefaultName(metric.source) || 'Untitled metric'
         case ExperimentMetricType.FUNNEL:
             return getDefaultName(metric.series[0]) || 'Untitled funnel'
+        case ExperimentMetricType.RATIO:
+            const numeratorName = getDefaultName(metric.numerator)
+            const denominatorName = getDefaultName(metric.denominator)
+            return `${numeratorName || 'Numerator'} / ${denominatorName || 'Denominator'}`
+        default:
+            return 'Untitled metric'
     }
 }
 
@@ -128,7 +144,7 @@ export function getNiceTickValues(maxAbsValue: number, tickRangeFactor: number =
 
 export function formatPValue(pValue: number | null | undefined): string {
     if (!pValue) {
-        return 'N/A'
+        return '—'
     }
 
     if (pValue < 0.001) {
@@ -143,7 +159,7 @@ export function formatPValue(pValue: number | null | undefined): string {
 
 export function formatChanceToWin(chanceToWin: number | null | undefined): string {
     if (chanceToWin == null) {
-        return 'N/A'
+        return '—'
     }
 
     // Convert to percentage and format
@@ -188,7 +204,7 @@ export function getIntervalBounds(result: ExperimentVariantResult): [number, num
 export function formatIntervalPercent(result: ExperimentVariantResult): string {
     const interval = getVariantInterval(result)
     if (!interval) {
-        return 'N/A'
+        return '—'
     }
     const [lower, upper] = interval
     return `[${(lower * 100).toFixed(2)}%, ${(upper * 100).toFixed(2)}%]`
@@ -227,4 +243,129 @@ export function formatDeltaPercent(result: ExperimentVariantResult, decimals: nu
     const deltaPercent = getDeltaPercent(result)
     const formatted = deltaPercent.toFixed(decimals)
     return `${deltaPercent > 0 ? '+' : ''}${formatted}%`
+}
+
+export function formatMetricValue(data: any, metric: ExperimentMetric): string {
+    if (isExperimentRatioMetric(metric)) {
+        // For ratio metrics, we need to calculate the ratio from sum and denominator_sum
+        if (data.denominator_sum && data.denominator_sum > 0) {
+            const ratio = data.sum / data.denominator_sum
+            return ratio.toFixed(2)
+        }
+        return '0.000'
+    }
+
+    const primaryValue = data.sum / data.number_of_samples
+    if (isNaN(primaryValue)) {
+        return '—'
+    }
+    return isExperimentMeanMetric(metric) ? primaryValue.toFixed(2) : `${(primaryValue * 100).toFixed(2)}%`
+}
+
+export function getMetricSubtitleValues(
+    variant: ExperimentStatsBaseValidated,
+    metric: ExperimentMetric
+): { numerator: number; denominator: number } {
+    if (isExperimentRatioMetric(metric)) {
+        return {
+            numerator: variant.sum,
+            denominator: variant.denominator_sum || 0,
+        }
+    }
+    return {
+        numerator: variant.sum,
+        denominator: variant.number_of_samples || 0,
+    }
+}
+
+export function isWinning(
+    result: ExperimentVariantResult,
+    goal: 'increase' | 'decrease' | undefined
+): boolean | undefined {
+    const deltaPositive = isDeltaPositive(result)
+    if (deltaPositive === undefined) {
+        return undefined
+    }
+
+    if (goal === 'decrease') {
+        return !deltaPositive
+    }
+    return deltaPositive
+}
+
+export function getChanceToWin(
+    result: ExperimentVariantResult,
+    goal: 'increase' | 'decrease' | undefined
+): number | undefined {
+    if (!isBayesianResult(result)) {
+        return undefined
+    }
+    const chanceToWin = result.chance_to_win
+    if (chanceToWin == null) {
+        return chanceToWin
+    }
+    // When goal is to decrease, invert chance to win because lower values are better
+    if (goal === 'decrease') {
+        return 1 - chanceToWin
+    }
+    return chanceToWin
+}
+
+export function formatChanceToWinForGoal(
+    result: ExperimentVariantResult,
+    goal: ExperimentMetricGoal | undefined
+): string {
+    const chanceToWin = getChanceToWin(result, goal)
+    return formatChanceToWin(chanceToWin)
+}
+
+export interface MetricColors {
+    positive: string
+    negative: string
+}
+
+/**
+ * Returns colors mapped according to the metric goal.
+ * When goal is decrease, positive and negative colors are swapped.
+ */
+export function getMetricColors(
+    colors: { BAR_POSITIVE: string; BAR_NEGATIVE: string },
+    goal: ExperimentMetricGoal | undefined
+): MetricColors {
+    if (goal === 'decrease') {
+        // Swap colors for decrease goal
+        return {
+            positive: colors.BAR_NEGATIVE,
+            negative: colors.BAR_POSITIVE,
+        }
+    }
+    return {
+        positive: colors.BAR_POSITIVE,
+        negative: colors.BAR_NEGATIVE,
+    }
+}
+
+export function hasValidationFailures(result: NewExperimentQueryResponse | null): boolean {
+    if (!result) {
+        return false
+    }
+    return !!(
+        result.baseline?.validation_failures?.length ||
+        result.variant_results?.some((v) => v.validation_failures?.length)
+    )
+}
+
+export function getValidationFailureType(variant: ExperimentStatsBaseValidated): 'not-enough-data' | 'error' | null {
+    if (!variant.validation_failures || variant.validation_failures.length === 0) {
+        return null
+    }
+
+    if (
+        variant.validation_failures.includes(ExperimentStatsValidationFailure.NotEnoughExposures) ||
+        variant.validation_failures.includes(ExperimentStatsValidationFailure.NotEnoughMetricData)
+    ) {
+        return 'not-enough-data'
+    }
+
+    return 'error'
 }

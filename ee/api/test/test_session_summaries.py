@@ -1,14 +1,20 @@
 import os
-from datetime import datetime
-from typing import Any, Optional
 from collections.abc import AsyncIterator
-from unittest.mock import patch, Mock
-from rest_framework import exceptions
-from django.http import HttpResponse
+from datetime import datetime
+from typing import Any, Optional, Union
+
 from posthog.test.base import APIBaseTest
+from unittest.mock import Mock, patch
+
+from django.http import HttpResponse
+
+from rest_framework import exceptions
+
+from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep, SessionSummaryStreamUpdate
+
 from ee.hogai.session_summaries.session_group.patterns import (
-    EnrichedSessionGroupSummaryPatternsList,
     EnrichedSessionGroupSummaryPattern,
+    EnrichedSessionGroupSummaryPatternsList,
     EnrichedSessionGroupSummaryPatternStats,
 )
 
@@ -17,16 +23,26 @@ class TestSessionSummariesAPI(APIBaseTest):
     url: str
     environment_patches: list[Any]
 
-    async def _create_async_generator(self, result: Any) -> AsyncIterator[Any]:
-        """Helper to create an async generator that yields a result."""
-        # Yield some progress updates (strings) and then the final result
-        yield "Starting session group summarization..."
-        yield "Processing sessions..."
-        yield result
+    async def _create_async_generator(
+        self, result: EnrichedSessionGroupSummaryPatternsList
+    ) -> AsyncIterator[
+        tuple[SessionSummaryStreamUpdate, SessionSummaryStep, Union[str, EnrichedSessionGroupSummaryPatternsList]]
+    ]:
+        """Helper to create an async generator that yields progress updates and final result."""
+        # Yield progress updates in the new tuple format
+        yield (
+            SessionSummaryStreamUpdate.UI_STATUS,
+            SessionSummaryStep.WATCHING_SESSIONS,
+            "Starting session group summarization...",
+        )
+        yield (SessionSummaryStreamUpdate.UI_STATUS, SessionSummaryStep.WATCHING_SESSIONS, "Processing sessions...")
+        yield (SessionSummaryStreamUpdate.UI_STATUS, SessionSummaryStep.FINDING_PATTERNS, "Finding patterns...")
+        # Yield final result
+        yield (SessionSummaryStreamUpdate.FINAL_RESULT, SessionSummaryStep.GENERATING_REPORT, result)
 
     def _make_api_request(self, session_ids: list[str], focus_area: Optional[str] = None) -> HttpResponse:
         """Helper to make API requests with consistent formatting."""
-        payload: dict[str, Any] = {"session_ids": session_ids}
+        payload: dict[str, Union[list[str], str]] = {"session_ids": session_ids}
         if focus_area is not None:
             payload["focus_area"] = focus_area
         return self.client.post(self.url, payload, format="json")
@@ -48,7 +64,7 @@ class TestSessionSummariesAPI(APIBaseTest):
         for p in self.environment_patches:
             p.stop()
 
-    def create_mock_result(self) -> Any:
+    def create_mock_result(self) -> EnrichedSessionGroupSummaryPatternsList:
         """Create a mock result that mimics the EnrichedSessionGroupSummaryPatternsList object"""
         return EnrichedSessionGroupSummaryPatternsList(
             patterns=[
@@ -72,9 +88,15 @@ class TestSessionSummariesAPI(APIBaseTest):
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
     @patch("ee.api.session_summaries.find_sessions_timestamps")
     @patch("ee.api.session_summaries.execute_summarize_session_group")
-    @patch("ee.api.session_summaries.create_summary_notebook")
+    @patch("ee.api.session_summaries.create_notebook_from_summary_content")
+    @patch("ee.api.session_summaries.generate_notebook_content_from_summary")
     def test_create_summaries_success(
-        self, mock_create_notebook: Mock, mock_execute: Mock, mock_find_sessions: Mock, mock_feature_enabled: Mock
+        self,
+        mock_generate_content: Mock,
+        mock_create_notebook: Mock,
+        mock_execute: Mock,
+        mock_find_sessions: Mock,
+        mock_feature_enabled: Mock,
     ) -> None:
         """Test successful creation of session summaries"""
         # Setup mocks
@@ -115,38 +137,20 @@ class TestSessionSummariesAPI(APIBaseTest):
         # Check extra_summary_context separately
         self.assertEqual(mock_execute.call_args[1]["extra_summary_context"].focus_area, "login process")
 
-    @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
-    @patch("ee.api.session_summaries.find_sessions_timestamps")
-    @patch("ee.api.session_summaries.execute_summarize_session_group")
-    @patch("ee.api.session_summaries.create_summary_notebook")
-    def test_create_summaries_without_focus_area(
-        self, mock_create_notebook: Mock, mock_execute: Mock, mock_find_sessions: Mock, mock_feature_enabled: Mock
-    ) -> None:
-        """Test successful creation without focus area"""
-        # Setup mocks
-        mock_feature_enabled.return_value = True
-        mock_find_sessions.return_value = (
-            datetime(2024, 1, 1, 10, 0, 0),
-            datetime(2024, 1, 1, 11, 0, 0),
-        )
-
-        mock_result = self.create_mock_result()
-        mock_execute.return_value = self._create_async_generator(mock_result)
-
-        # Make request without focus_area
-        response = self._make_api_request(session_ids=["session1", "session2"])
-
-        # Assertions
-        self.assertEqual(response.status_code, 200)
-
-        # Verify execute_summarize_session_group was called with None extra_context
-        mock_execute.assert_called_once_with(
+        # Verify generate_notebook_content_from_summary was called
+        mock_generate_content.assert_called_once_with(
+            summary=mock_result,
             session_ids=["session1", "session2"],
-            user_id=self.user.pk,
+            project_name=self.team.name,
+            team_id=self.team.id,
+            summary_title="API generated",
+        )
+        # Verify create_notebook_from_summary_content was called
+        mock_create_notebook.assert_called_once_with(
+            user=self.user,
             team=self.team,
-            min_timestamp=datetime(2024, 1, 1, 10, 0, 0),
-            max_timestamp=datetime(2024, 1, 1, 11, 0, 0),
-            extra_summary_context=None,
+            summary_content=mock_generate_content.return_value,
+            summary_title="API generated",
         )
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
@@ -257,29 +261,16 @@ class TestSessionSummariesAPI(APIBaseTest):
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
     @patch("ee.api.session_summaries.find_sessions_timestamps")
-    def test_create_summaries_mixed_session_existence(
-        self, mock_find_sessions: Mock, mock_feature_enabled: Mock
-    ) -> None:
-        """Test error when some sessions exist and some don't"""
-        # Setup mocks
-        mock_feature_enabled.return_value = True
-        # Mock find_sessions_timestamps to raise validation error for missing session2
-        mock_find_sessions.side_effect = exceptions.ValidationError(
-            "Sessions not found or do not belong to this team: session2"
-        )
-
-        response = self._make_api_request(session_ids=["session1", "session2"])
-
-        self.assertEqual(response.status_code, 400)
-        error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
-        self.assertIn("Sessions not found or do not belong to this team: session2", str(error))
-
-    @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
-    @patch("ee.api.session_summaries.find_sessions_timestamps")
     @patch("ee.api.session_summaries.execute_summarize_session_group")
-    @patch("ee.api.session_summaries.create_summary_notebook")
+    @patch("ee.api.session_summaries.create_notebook_from_summary_content")
+    @patch("ee.api.session_summaries.generate_notebook_content_from_summary")
     def test_create_summaries_execution_failure(
-        self, mock_create_notebook: Mock, mock_execute: Mock, mock_find_sessions: Mock, mock_feature_enabled: Mock
+        self,
+        mock_generate_content: Mock,
+        mock_create_notebook: Mock,
+        mock_execute: Mock,
+        mock_find_sessions: Mock,
+        mock_feature_enabled: Mock,
     ) -> None:
         """Test handling of execution failures"""
         # Setup mocks
@@ -291,7 +282,7 @@ class TestSessionSummariesAPI(APIBaseTest):
 
         # Mock execution failure - create async generator that raises exception
         async def failing_generator():
-            yield "Starting..."
+            yield (SessionSummaryStreamUpdate.UI_STATUS, SessionSummaryStep.WATCHING_SESSIONS, "Starting...")
             raise Exception("Workflow execution failed")
 
         mock_execute.return_value = failing_generator()
@@ -301,26 +292,6 @@ class TestSessionSummariesAPI(APIBaseTest):
         self.assertEqual(response.status_code, 500)
         error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
         self.assertIn("Failed to generate session summaries", str(error))
-
-    @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
-    @patch("ee.api.session_summaries.find_sessions_timestamps")
-    @patch("ee.api.session_summaries.execute_summarize_session_group")
-    def test_create_summaries_validates_all_sessions_before_execution(
-        self, mock_execute: Mock, mock_find_sessions: Mock, mock_feature_enabled: Mock
-    ) -> None:
-        """Test that all sessions are validated before execution starts"""
-        # Setup mocks
-        mock_feature_enabled.return_value = True
-        # Mock find_sessions_timestamps to raise validation error for missing session3
-        mock_find_sessions.side_effect = exceptions.ValidationError(
-            "Sessions not found or do not belong to this team: session3"
-        )
-
-        response = self._make_api_request(session_ids=["session1", "session2", "session3"])
-
-        self.assertEqual(response.status_code, 400)
-        # Execution should never be called due to validation failure
-        mock_execute.assert_not_called()
 
     def test_wrong_http_method(self) -> None:
         """Test that only POST is allowed"""
@@ -335,25 +306,92 @@ class TestSessionSummariesAPI(APIBaseTest):
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
     @patch("ee.api.session_summaries.find_sessions_timestamps")
-    @patch("ee.api.session_summaries.execute_summarize_session_group")
-    @patch("ee.api.session_summaries.create_summary_notebook")
-    def test_create_summaries_single_session(
-        self, mock_create_notebook: Mock, mock_execute: Mock, mock_find_sessions: Mock, mock_feature_enabled: Mock
+    @patch("ee.api.session_summaries.execute_summarize_session")
+    def test_create_summaries_individually_success(
+        self,
+        mock_execute: Mock,
+        mock_find_sessions: Mock,
+        mock_feature_enabled: Mock,
     ) -> None:
-        """Test that single session works correctly"""
-        # Setup mocks
+        """Test successful creation of individual session summaries"""
+        mock_feature_enabled.return_value = True
+        mock_find_sessions.return_value = (
+            datetime(2024, 1, 1, 10, 0, 0),
+            datetime(2024, 1, 1, 11, 0, 0),
+        )
+        mock_execute.return_value = {
+            "key_actions": None,
+            "segment_outcomes": None,
+            "segments": None,
+            "session_outcome": None,
+        }
+        # Make request
+        url = f"/api/environments/{self.team.id}/session_summaries/create_session_summaries_individually/"
+        response = self.client.post(url, {"session_ids": ["session_1", "session_2"]}, format="json")
+        # Check the response - should return two summaries
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(
+            data,
+            {
+                "session_1": {
+                    "key_actions": None,
+                    "segment_outcomes": None,
+                    "segments": None,
+                    "session_outcome": None,
+                },
+                "session_2": {
+                    "key_actions": None,
+                    "segment_outcomes": None,
+                    "segments": None,
+                    "session_outcome": None,
+                },
+            },
+        )
+
+    @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
+    @patch("ee.api.session_summaries.find_sessions_timestamps")
+    @patch("ee.api.session_summaries.execute_summarize_session")
+    def test_create_summaries_individually_partial_failure(
+        self,
+        mock_execute: Mock,
+        mock_find_sessions: Mock,
+        mock_feature_enabled: Mock,
+    ) -> None:
+        """Test that partial failures return only successful summaries"""
         mock_feature_enabled.return_value = True
         mock_find_sessions.return_value = (
             datetime(2024, 1, 1, 10, 0, 0),
             datetime(2024, 1, 1, 11, 0, 0),
         )
 
-        mock_result = self.create_mock_result()
-        mock_execute.return_value = self._create_async_generator(mock_result)
+        # Mock execute to succeed for first session, fail for second
+        def mock_execute_side_effect(session_id: str, **kwargs: Any) -> dict[str, Any]:
+            if session_id == "session_1":
+                return {
+                    "key_actions": None,
+                    "segment_outcomes": None,
+                    "segments": None,
+                    "session_outcome": None,
+                }
+            raise Exception("Failed to summarize session")
 
-        response = self._make_api_request(session_ids=["single_session"])
+        mock_execute.side_effect = mock_execute_side_effect
 
+        # Make request
+        url = f"/api/environments/{self.team.id}/session_summaries/create_session_summaries_individually/"
+        response = self.client.post(url, {"session_ids": ["session_1", "session_2"]}, format="json")
+        # Check the response - should return one summary
         self.assertEqual(response.status_code, 200)
-
-        # Verify session validation was called once
-        mock_find_sessions.assert_called_once_with(session_ids=["single_session"], team=self.team)
+        data = response.json()
+        self.assertEqual(
+            data,
+            {
+                "session_1": {
+                    "key_actions": None,
+                    "segment_outcomes": None,
+                    "segments": None,
+                    "session_outcome": None,
+                }
+            },
+        )

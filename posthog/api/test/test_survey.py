@@ -1,23 +1,12 @@
-import json
 import re
-from datetime import datetime, timedelta, UTC
-from typing import Any
-from unittest.mock import ANY, patch
+import json
+import time
 import uuid
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
-from django.core.cache import cache
-from django.test.client import Client
 from freezegun.api import freeze_time
-from nanoid import generate
-from rest_framework import status
-
-from posthog.api.survey import nh3_clean_with_allow_list
-from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
-from posthog.constants import AvailableFeature
-from posthog.models import Action, FeatureFlag, Team, Person
-from posthog.models.cohort.cohort import Cohort
-from posthog.models.surveys.survey import Survey, MAX_ITERATION_COUNT
 from posthog.test.base import (
     APIBaseTest,
     BaseTest,
@@ -28,6 +17,21 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
     snapshot_postgres_queries,
 )
+from unittest.mock import ANY, patch
+
+from django.core.cache import cache
+from django.test.client import Client
+
+from nanoid import generate
+from rest_framework import status
+
+from posthog.api.survey import nh3_clean_with_allow_list
+from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
+from posthog.constants import AvailableFeature
+from posthog.models import Action, FeatureFlag, Person, Team
+from posthog.models.cohort.cohort import Cohort
+from posthog.models.organization import Organization
+from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey
 
 
 class TestSurvey(APIBaseTest):
@@ -403,7 +407,7 @@ class TestSurvey(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(22):
+        with self.assertNumQueries(19):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -1135,6 +1139,7 @@ class TestSurvey(APIBaseTest):
                         "has_encrypted_payloads": False,
                         "version": ANY,  # Add version field with ANY matcher
                         "evaluation_runtime": "all",
+                        "evaluation_tags": [],
                     },
                     "linked_flag": None,
                     "linked_flag_id": None,
@@ -1162,6 +1167,7 @@ class TestSurvey(APIBaseTest):
                     "response_sampling_interval": None,
                     "response_sampling_limit": None,
                     "response_sampling_daily_limits": None,
+                    "user_access_level": "manager",
                 }
             ],
         }
@@ -3498,6 +3504,428 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
         # (Unique persons dismissed / Unique persons shown) * 100 = (1 / 3) * 100 = 33.33
         self.assertEqual(rates_reassigned["dismissal_rate"], 33.33)
 
+    def test_create_survey_with_valid_linked_flag_variant(self):
+        """Test creating a survey with a valid linkedFlagVariant"""
+        # Create a multivariate feature flag
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-ab-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "treatment", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Variant Survey",
+                "type": "popover",
+                "linked_flag_id": flag.id,
+                "conditions": {"linkedFlagVariant": "control"},
+                "questions": [{"type": "open", "question": "How is the control version?"}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        survey_data = response.json()
+        self.assertEqual(survey_data["linked_flag"]["id"], flag.id)
+        self.assertEqual(survey_data["conditions"]["linkedFlagVariant"], "control")
+
+    def test_create_survey_with_invalid_linked_flag_variant(self):
+        """Test creating a survey with an invalid linkedFlagVariant"""
+        # Create a multivariate feature flag
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-ab-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "treatment", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Invalid Variant Survey",
+                "type": "popover",
+                "linked_flag_id": flag.id,
+                "conditions": {"linkedFlagVariant": "non_existent_variant"},
+                "questions": [{"type": "open", "question": "Test question"}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_data = response.json()
+        self.assertIn("Feature flag variant 'non_existent_variant' does not exist", error_data["detail"])
+        self.assertIn("Available variants: control, treatment", error_data["detail"])
+
+    def test_create_survey_with_linked_flag_variant_any(self):
+        """Test creating a survey with linkedFlagVariant set to 'any'"""
+        # Create a multivariate feature flag
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-multivariate-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "variant_a", "rollout_percentage": 33},
+                        {"key": "variant_b", "rollout_percentage": 33},
+                        {"key": "variant_c", "rollout_percentage": 34},
+                    ]
+                },
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Any Variant Survey",
+                "type": "popover",
+                "linked_flag_id": flag.id,
+                "conditions": {"linkedFlagVariant": "any"},
+                "questions": [{"type": "open", "question": "How is the feature?"}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        survey_data = response.json()
+        self.assertEqual(survey_data["linked_flag"]["id"], flag.id)
+        self.assertEqual(survey_data["conditions"]["linkedFlagVariant"], "any")
+
+    def test_create_survey_with_linked_flag_variant_no_variants(self):
+        """Test creating a survey with linkedFlagVariant when flag has no variants"""
+        # Create a simple feature flag without variants
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="simple-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "No Variants Survey",
+                "type": "popover",
+                "linked_flag_id": flag.id,
+                "conditions": {"linkedFlagVariant": "some_variant"},
+                "questions": [{"type": "open", "question": "Test question"}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_data = response.json()
+        self.assertIn(
+            "Feature flag variant 'some_variant' specified but the linked feature flag has no variants",
+            error_data["detail"],
+        )
+
+    def test_create_survey_with_linked_flag_variant_without_flag_id(self):
+        """Test creating a survey with linkedFlagVariant but no linked_flag_id"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "No Flag ID Survey",
+                "type": "popover",
+                "conditions": {"linkedFlagVariant": "some_variant"},
+                "questions": [{"type": "open", "question": "Test question"}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_data = response.json()
+        self.assertEqual(error_data["detail"], "linkedFlagVariant can only be used when a linked_flag_id is specified")
+
+    def test_update_survey_with_valid_linked_flag_variant(self):
+        """Test updating a survey to add a valid linkedFlagVariant"""
+        # Create a multivariate feature flag
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="update-test-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [{"key": "alpha", "rollout_percentage": 50}, {"key": "beta", "rollout_percentage": 50}]
+                },
+            },
+        )
+
+        # Create a survey without variant
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Update Test Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Initial question"}],
+        )
+
+        # Update survey to add feature flag and variant
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"linked_flag_id": flag.id, "conditions": {"linkedFlagVariant": "alpha"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        survey_data = response.json()
+        self.assertEqual(survey_data["linked_flag"]["id"], flag.id)
+        self.assertEqual(survey_data["conditions"]["linkedFlagVariant"], "alpha")
+
+    def test_update_survey_with_invalid_linked_flag_variant(self):
+        """Test updating a survey with an invalid linkedFlagVariant"""
+        # Create a multivariate feature flag
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="update-invalid-test-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "option_1", "rollout_percentage": 50},
+                        {"key": "option_2", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+
+        # Create a survey
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Update Invalid Test Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Initial question"}],
+        )
+
+        # Try to update survey with invalid variant
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"linked_flag_id": flag.id, "conditions": {"linkedFlagVariant": "invalid_option"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_data = response.json()
+        self.assertIn("Feature flag variant 'invalid_option' does not exist", error_data["detail"])
+        self.assertIn("Available variants: option_1, option_2", error_data["detail"])
+
+
+class TestExternalSurveyValidation(APIBaseTest):
+    """Test external survey specific validation logic"""
+
+    def setUp(self):
+        super().setUp()
+        # Create a feature flag for testing
+        self.test_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+        )
+
+    def test_update_survey_to_external_with_prohibited_fields_returns_validation_error(self):
+        """Test that converting survey to external_survey with prohibited fields returns validation errors"""
+        # Create a regular survey
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Regular Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Test question"}],
+        )
+
+        # Try to update to external survey type with prohibited fields
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "type": "external_survey",
+                "linked_flag_id": self.test_flag.id,
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {"key": "email", "value": "@test.com", "operator": "icontains", "type": "person"}
+                            ],
+                            "rollout_percentage": 50,
+                        }
+                    ]
+                },
+                "conditions": {"url": "https://different.com"},
+                "appearance": {
+                    "backgroundColor": "#ffffff",
+                    "surveyPopupDelaySeconds": 5,
+                    "submitButtonColor": "#000000",
+                },
+            },
+            format="json",
+        )
+
+        # Should return validation error
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        error_data = response.json()
+
+        # The first validation error that's triggered should be about one of the prohibited fields
+        assert error_data["detail"] and "not allowed for external surveys" in error_data["detail"]
+
+    def test_create_external_survey_with_prohibited_fields_returns_validation_error(self):
+        """Test creating external survey with prohibited fields returns validation errors"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "External Survey with Prohibited Fields",
+                "type": "external_survey",
+                "questions": [{"type": "open", "question": "What do you think?"}],
+                "linked_flag_id": self.test_flag.id,
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {"key": "email", "value": "@test.com", "operator": "icontains", "type": "person"}
+                            ],
+                            "rollout_percentage": 50,
+                        }
+                    ]
+                },
+                "conditions": {"url": "https://example.com", "selector": ".test-button"},
+                "appearance": {
+                    "backgroundColor": "#ffffff",
+                    "surveyPopupDelaySeconds": 3,
+                    "submitButtonColor": "#ff0000",
+                },
+            },
+            format="json",
+        )
+
+        # Should return validation error
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        error_data = response.json()
+
+        # The first validation error should be about prohibited fields
+        assert error_data["detail"] and "not allowed for external surveys" in error_data["detail"]
+
+    def test_create_external_survey_without_prohibited_fields_succeeds(self):
+        """Test creating external survey without prohibited fields succeeds"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Valid External Survey",
+                "type": "external_survey",
+                "questions": [{"type": "open", "question": "What do you think?"}],
+                "appearance": {
+                    "backgroundColor": "#ffffff",
+                    "submitButtonColor": "#ff0000",
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        response_data = response.json()
+
+        # Verify survey was created successfully
+        assert response_data["name"] == "Valid External Survey"
+        assert response_data["type"] == "external_survey"
+        assert response_data["appearance"]["backgroundColor"] == "#ffffff"
+        assert response_data["appearance"]["submitButtonColor"] == "#ff0000"
+
+    def test_external_survey_allows_empty_conditions(self):
+        """Test that external surveys allow empty/default conditions"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "External Survey with Empty Conditions",
+                "type": "external_survey",
+                "questions": [{"type": "open", "question": "What do you think?"}],
+                "conditions": {
+                    "actions": {"values": []},
+                    "events": {"values": []},
+                    "deviceTypes": None,
+                    "deviceTypesMatchType": None,
+                    "linkedFlagVariant": None,
+                    "seenSurveyWaitPeriodInDays": None,
+                    "url": None,
+                    "urlMatchType": None,
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        response_data = response.json()
+        assert response_data["name"] == "External Survey with Empty Conditions"
+        assert response_data["type"] == "external_survey"
+
+    def test_external_survey_rejects_populated_conditions(self):
+        """Test that external surveys reject conditions with actual values"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "External Survey with Populated Conditions",
+                "type": "external_survey",
+                "questions": [{"type": "open", "question": "What do you think?"}],
+                "conditions": {
+                    "url": "https://example.com",
+                    "actions": {"values": [{"id": "123"}]},
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        error_data = response.json()
+        # Should have a conditions validation error listing the specific prohibited fields
+        assert error_data["detail"] and "condition fields are not allowed for external surveys" in error_data["detail"]
+        assert "url" in error_data["detail"]
+        assert "actions" in error_data["detail"]
+
+    def test_non_external_survey_preserves_fields(self):
+        """Test that non-external surveys preserve all fields normally"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Regular Survey Test",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What do you think?"}],
+                "linked_flag_id": self.test_flag.id,
+                "conditions": {"url": "https://example.com"},
+                "appearance": {
+                    "backgroundColor": "#ffffff",
+                    "surveyPopupDelaySeconds": 5,
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        response_data = response.json()
+
+        # Verify fields are preserved for non-external surveys
+        assert response_data["conditions"]["url"] == "https://example.com"
+        assert response_data["linked_flag"]["id"] == self.test_flag.id
+        assert response_data["appearance"]["surveyPopupDelaySeconds"] == 5
+
 
 @pytest.mark.parametrize(
     "test_input,expected",
@@ -3527,3 +3955,264 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
 )
 def test_nh3_clean_configuration(test_input, expected):
     assert nh3_clean_with_allow_list(test_input).replace(" ", "") == expected.replace(" ", "")
+
+
+class TestSurveyBulkDuplication(APIBaseTest):
+    """Test bulk survey duplication endpoint"""
+
+    def setUp(self):
+        super().setUp()
+        # Create additional teams in the same organization
+        self.team2 = Team.objects.create(organization=self.organization, name="Team 2")
+        self.team3 = Team.objects.create(organization=self.organization, name="Team 3")
+
+        # Create a survey to duplicate
+        self.source_survey = Survey.objects.create(
+            team=self.team,
+            name="Source Survey",
+            description="A survey to be duplicated",
+            type="popover",
+            questions=[
+                {"id": str(uuid.uuid4()), "type": "open", "question": "What do you think?"},
+                {"id": str(uuid.uuid4()), "type": "rating", "question": "Rate us", "scale": 5},
+            ],
+            created_by=self.user,
+        )
+
+    def test_bulk_duplicate_to_multiple_projects(self):
+        """Test successful bulk duplication to multiple projects"""
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id, self.team3.id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        response_data = response.json()
+
+        # Check response structure
+        assert "created_surveys" in response_data
+        assert "count" in response_data
+        assert response_data["count"] == 2
+        assert len(response_data["created_surveys"]) == 2
+
+        # Verify surveys were created in target teams
+        team2_survey = Survey.objects.get(team=self.team2)
+        team3_survey = Survey.objects.get(team=self.team3)
+
+        # Check that surveys have the correct names (with timestamp)
+        assert "Source Survey (duplicated at" in team2_survey.name
+        assert "Source Survey (duplicated at" in team3_survey.name
+
+        # Verify survey content was copied correctly
+        assert team2_survey.questions is not None
+        assert len(team2_survey.questions) == 2
+        assert team2_survey.questions[0]["type"] == "open"
+        assert team2_survey.questions[1]["type"] == "rating"
+        assert team2_survey.description == "A survey to be duplicated"
+        assert team2_survey.type == "popover"
+
+        # Verify surveys are created as drafts
+        assert team2_survey.start_date is None
+        assert team3_survey.start_date is None
+        assert team2_survey.archived is False
+        assert team3_survey.archived is False
+
+    def test_bulk_duplicate_to_single_project(self):
+        """Test bulk duplication works with a single target project"""
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        response_data = response.json()
+        assert response_data["count"] == 1
+        assert Survey.objects.filter(team=self.team2).count() == 1
+
+    def test_bulk_duplicate_with_empty_team_ids(self):
+        """Test that empty target_team_ids returns validation error"""
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": []},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "target_team_ids must be a non-empty list" in str(response.json())
+
+    def test_bulk_duplicate_with_missing_team_ids(self):
+        """Test that missing target_team_ids returns validation error"""
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+            data={},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_bulk_duplicate_with_nonexistent_team(self):
+        """Test that nonexistent team IDs return validation error"""
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id, 99999]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not found" in str(response.json()).lower()
+
+    def test_bulk_duplicate_with_team_from_different_org(self):
+        """Test that teams from different organizations are rejected"""
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id, other_team.id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not found" in str(response.json()).lower()
+
+    def test_bulk_duplicate_multiple_times_to_same_team(self):
+        """Test that multiple duplications to the same team create surveys with different timestamps"""
+        # Create first duplicate
+        response1 = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id]},
+            format="json",
+        )
+        assert response1.status_code == status.HTTP_201_CREATED
+
+        # Wait a second to ensure different timestamp
+        time.sleep(1)
+
+        # Try to create another duplicate (should succeed because timestamp is different)
+        response2 = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id]},
+            format="json",
+        )
+        assert response2.status_code == status.HTTP_201_CREATED
+
+        # Verify two surveys exist with different names
+        team2_surveys = Survey.objects.filter(team=self.team2).order_by("created_at")
+        assert team2_surveys.count() == 2
+        assert team2_surveys[0].name != team2_surveys[1].name
+
+    def test_bulk_duplicate_does_not_copy_project_specific_fields(self):
+        """Test that project-specific fields like flags and actions are not copied"""
+        # Create a survey with linked flag, targeting, and conditions
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Test Flag",
+            key="test-flag",
+            created_by=self.user,
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Test Action",
+        )
+
+        survey_with_specifics = Survey.objects.create(
+            team=self.team,
+            name="Survey with Project Specifics",
+            type="popover",
+            questions=[{"type": "open", "question": "Test?"}],
+            linked_flag=flag,
+            conditions={
+                "url": "https://example.com",
+                "linkedFlagVariant": "test-variant",
+                "actions": {"values": [{"id": action.id}]},
+                "events": {"values": [{"name": "test_event"}]},
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{survey_with_specifics.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+        # Verify the duplicated survey does NOT have project-specific fields
+        duplicated = Survey.objects.get(team=self.team2)
+
+        # Linked flag should NOT be copied
+        assert duplicated.linked_flag is None
+        assert duplicated.targeting_flag is None
+
+        # Project-specific condition fields should NOT be copied
+        assert duplicated.conditions is not None
+        assert "linkedFlagVariant" not in duplicated.conditions
+        assert "actions" not in duplicated.conditions
+        assert "events" not in duplicated.conditions
+
+        # Generic condition fields SHOULD be copied
+        assert duplicated.conditions.get("url") == "https://example.com"
+
+    def test_bulk_duplicate_transaction_rollback_on_error(self):
+        """Test that all duplications are rolled back if one fails"""
+        # Create a survey with the same name in team2 to cause a conflict
+        Survey.objects.create(
+            team=self.team2,
+            name=f"{self.source_survey.name} (duplicated at 2025-01-20 12:00:00)",
+            type="popover",
+            questions=[{"type": "open", "question": "Existing"}],
+            created_by=self.user,
+        )
+
+        # This might succeed or fail depending on timestamp collision
+        # The important thing is that if it fails, it should fail atomically
+        initial_team2_count = Survey.objects.filter(team=self.team2).count()
+        initial_team3_count = Survey.objects.filter(team=self.team3).count()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id, self.team3.id]},
+            format="json",
+        )
+
+        # Regardless of success or failure, counts should be consistent
+        if response.status_code != status.HTTP_201_CREATED:
+            # If it failed, no surveys should have been created
+            assert Survey.objects.filter(team=self.team2).count() == initial_team2_count
+            assert Survey.objects.filter(team=self.team3).count() == initial_team3_count
+
+    def test_bulk_duplicate_nonexistent_survey(self):
+        """Test that duplicating a nonexistent survey returns 404"""
+        fake_uuid = uuid.uuid4()
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{fake_uuid}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_bulk_duplicate_preserves_question_ids(self):
+        """Test that question IDs are reset (set to None) in duplicated surveys"""
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+        duplicated = Survey.objects.get(team=self.team2)
+        # New questions should have new IDs, not the same as the source
+        assert self.source_survey.questions is not None
+        assert duplicated.questions is not None
+        source_question_ids = [q.get("id") for q in self.source_survey.questions]
+        duplicated_question_ids = [q.get("id") for q in duplicated.questions]
+
+        # IDs should exist but be different
+        assert all(qid is not None for qid in duplicated_question_ids)
+        assert duplicated_question_ids != source_question_ids

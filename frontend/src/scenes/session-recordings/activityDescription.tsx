@@ -1,7 +1,7 @@
 import {
     ActivityLogItem,
-    defaultDescriber,
     HumanizedChange,
+    defaultDescriber,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
@@ -19,6 +19,36 @@ export function replayActivityDescriber(logItem: ActivityLogItem, asNotification
                 <>
                     <strong>{userNameForLogItem(logItem)}</strong> bulk deleted{' '}
                     <b>{logItem.detail?.name || 'session recordings'}</b>
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity === 'share_login_success') {
+        const afterData = logItem.detail.changes?.[0]?.after as any
+        const clientIp = afterData?.client_ip || 'unknown IP'
+        const passwordNote = afterData?.password_note || 'unknown password'
+
+        return {
+            description: (
+                <>
+                    <strong>Anonymous user</strong> successfully authenticated to shared session recording{' '}
+                    <b>{logItem.detail?.name || 'session recording'}</b> from {clientIp} using password{' '}
+                    <strong>{passwordNote}</strong>
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity === 'share_login_failed') {
+        const afterData = logItem.detail.changes?.[0]?.after as any
+        const clientIp = afterData?.client_ip || 'unknown IP'
+
+        return {
+            description: (
+                <>
+                    <strong>Anonymous user</strong> failed to authenticate to shared session recording{' '}
+                    <b>{logItem.detail?.name || 'session recording'}</b> from {clientIp}
                 </>
             ),
         }

@@ -1,30 +1,40 @@
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { humanFriendlyNumber } from 'lib/utils'
+import { VariantTag } from 'scenes/experiments/ExperimentView/components'
+
+import { ExperimentMetric } from '~/queries/schema/schema-general'
+import { ExperimentIdType } from '~/types'
+
 import {
-    formatChanceToWin,
+    type ExperimentVariantResult,
+    formatChanceToWinForGoal,
+    formatDeltaPercent,
+    formatIntervalPercent,
     formatPValue,
     getIntervalLabel,
-    formatIntervalPercent,
-    isSignificant,
-    isDeltaPositive,
-    formatDeltaPercent,
     isBayesianResult,
-    type ExperimentVariantResult,
+    isSignificant,
+    isWinning,
 } from '../shared/utils'
 
-export const renderTooltipContent = (variantResult: ExperimentVariantResult): JSX.Element => {
+export const renderTooltipContent = (
+    experimentId: ExperimentIdType,
+    variantResult: ExperimentVariantResult,
+    metric: ExperimentMetric
+): JSX.Element => {
     const intervalPercent = formatIntervalPercent(variantResult)
     const intervalLabel = getIntervalLabel(variantResult)
     const significant = isSignificant(variantResult)
-    const deltaPositive = isDeltaPositive(variantResult)
+
+    const winning = isWinning(variantResult, metric.goal)
 
     return (
         <div className="flex flex-col gap-1">
             <div className="flex justify-between items-center">
-                <div className="font-semibold pb-2">{variantResult.key}</div>
+                <VariantTag experimentId={experimentId} variantKey={variantResult.key} />
                 {variantResult.key !== 'control' && (
-                    <LemonTag type={!significant ? 'muted' : deltaPositive ? 'success' : 'danger'} size="medium">
-                        {!significant ? 'Not significant' : deltaPositive ? 'Won' : 'Lost'}
+                    <LemonTag type={!significant ? 'muted' : winning ? 'success' : 'danger'} size="medium">
+                        {!significant ? 'Not significant' : winning ? 'Won' : 'Lost'}
                     </LemonTag>
                 )}
             </div>
@@ -42,7 +52,7 @@ export const renderTooltipContent = (variantResult: ExperimentVariantResult): JS
             {isBayesianResult(variantResult) ? (
                 <div className="flex justify-between items-center">
                     <span className="text-muted-alt font-semibold">Chance to win:</span>
-                    <span className="font-semibold">{formatChanceToWin(variantResult.chance_to_win)}</span>
+                    <span className="font-semibold">{formatChanceToWinForGoal(variantResult, metric.goal)}</span>
                 </div>
             ) : (
                 <div className="flex justify-between items-center">
@@ -57,7 +67,7 @@ export const renderTooltipContent = (variantResult: ExperimentVariantResult): JS
                     {variantResult.key === 'control' ? (
                         <em className="text-muted-alt">Baseline</em>
                     ) : (
-                        <span className={deltaPositive ? 'text-success' : 'text-danger'}>
+                        <span className={winning ? 'text-success' : 'text-danger'}>
                             {formatDeltaPercent(variantResult)}
                         </span>
                     )}

@@ -3,27 +3,31 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Optional
 
+from django.conf import settings
+from django.db import transaction
+from django.db.models import Prefetch
+
 import dlt
+import pyarrow
+import pendulum
 import dlt.common
+import dlt.extract
 import dlt.common.libs
 import dlt.common.libs.pyarrow
-import dlt.extract
 import dlt.extract.incremental
 import dlt.extract.incremental.transform
-import pendulum
-import pyarrow
 from clickhouse_driver.errors import ServerException
-from django.conf import settings
-from django.db.models import Prefetch
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
+from posthog.temporal.common.logger import get_logger
 from posthog.warehouse.models.credential import get_or_create_datawarehouse_credential
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
-from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
+from posthog.warehouse.types import ExternalDataSourceType
+
+LOGGER = get_logger(__name__)
 
 
 def _from_arrow_scalar(arrow_value: pyarrow.Scalar) -> Any:
@@ -47,7 +51,7 @@ class PipelineInputs:
     run_id: str
     schema_id: uuid.UUID
     dataset_name: str
-    job_type: ExternalDataSource.Type
+    job_type: ExternalDataSourceType
     team_id: int
 
 
@@ -64,6 +68,7 @@ def validate_schema_and_update_table_sync(
     schema_id: uuid.UUID,
     row_count: int,
     table_format: DataWarehouseTable.TableFormat,
+    queryable_folder: str,
     table_schema_dict: Optional[dict[str, str]] = None,
 ) -> None:
     """
@@ -79,8 +84,7 @@ def validate_schema_and_update_table_sync(
         table_format: The format of the table
         table_schema_dict: The schema of the table
     """
-
-    logger = bind_temporal_worker_logger_sync(team_id=team_id)
+    logger = LOGGER.bind(team_id=team_id)
 
     if row_count == 0:
         logger.warn("Skipping `validate_schema_and_update_table` due to `row_count` being 0")
@@ -110,61 +114,79 @@ def validate_schema_and_update_table_sync(
 
     # Check
     try:
-        logger.info(f"Row count for {_schema_name} ({_schema_id}) is {row_count}")
+        with transaction.atomic():
+            logger.info(f"Row count for {_schema_name} ({_schema_id}) is {row_count}")
 
-        table_params = {
-            "credential": credential,
-            "name": table_name,
-            "format": table_format,
-            "url_pattern": new_url_pattern,
-            "team_id": team_id,
-            "row_count": row_count,
-        }
+            table_params = {
+                "credential": credential,
+                "name": table_name,
+                "format": table_format,
+                "url_pattern": new_url_pattern,
+                "team_id": team_id,
+                "row_count": row_count,
+                "queryable_folder": queryable_folder,
+            }
 
-        # create or update
-        table_created: DataWarehouseTable | None = external_data_schema.table
-        if table_created:
-            table_created.credential = table_params["credential"]
-            table_created.format = table_params["format"]
-            table_created.url_pattern = new_url_pattern
-            if incremental_or_append:
-                table_created.row_count = table_created.get_count()
-            else:
-                table_created.row_count = row_count
+            # create or update
+            table_created: DataWarehouseTable | None = external_data_schema.table
+            if table_created:
+                table_created.credential = table_params["credential"]
+                table_created.format = table_params["format"]
+                table_created.url_pattern = new_url_pattern
+                table_created.queryable_folder = queryable_folder
+                if incremental_or_append:
+                    table_created.row_count = table_created.get_count()
+                else:
+                    table_created.row_count = row_count
+                table_created.save()
+
+            if not table_created:
+                # Check if we already have an orphaned table that we can repurpose
+                existing_tables = DataWarehouseTable.objects.filter(
+                    team_id=team_id, name=table_name, external_data_source_id=job.pipeline.id, deleted=False
+                )
+                existing_tables_count = existing_tables.count()
+                if existing_tables_count > 0:
+                    table_created = existing_tables[0]
+                    logger.debug(
+                        f"Found {existing_tables_count} existing tables - skipping creating and using {table_created.id}"
+                    )
+
+                if not table_created:
+                    logger.debug(f"Creating table for schema: {str(schema_id)}")
+                    table_created = DataWarehouseTable.objects.create(
+                        external_data_source_id=job.pipeline.id, **table_params
+                    )
+
+            assert isinstance(table_created, DataWarehouseTable) and table_created is not None
+
+            raw_db_columns: dict[str, dict[str, str]] = table_created.get_columns()
+            db_columns = {key: column.get("clickhouse", "") for key, column in raw_db_columns.items()}
+
+            columns = {}
+            for column_name, db_column_type in db_columns.items():
+                hogql_type = table_schema_dict.get(column_name)
+
+                if hogql_type is None:
+                    capture_exception(Exception(f"HogQL type not found for column: {column_name}"))
+                    continue
+
+                columns[column_name] = {
+                    "clickhouse": db_column_type,
+                    "hogql": hogql_type,
+                }
+            table_created.columns = columns
             table_created.save()
 
-        if not table_created:
-            table_created = DataWarehouseTable.objects.create(external_data_source_id=job.pipeline.id, **table_params)
+            # schema could have been deleted by this point
+            schema_model = (
+                ExternalDataSchema.objects.prefetch_related("source")
+                .exclude(deleted=True)
+                .get(id=_schema_id, team_id=team_id)
+            )
 
-        assert isinstance(table_created, DataWarehouseTable) and table_created is not None
-
-        raw_db_columns: dict[str, dict[str, str]] = table_created.get_columns()
-        db_columns = {key: column.get("clickhouse", "") for key, column in raw_db_columns.items()}
-
-        columns = {}
-        for column_name, db_column_type in db_columns.items():
-            hogql_type = table_schema_dict.get(column_name)
-
-            if hogql_type is None:
-                capture_exception(Exception(f"HogQL type not found for column: {column_name}"))
-                continue
-
-            columns[column_name] = {
-                "clickhouse": db_column_type,
-                "hogql": hogql_type,
-            }
-        table_created.columns = columns
-        table_created.save()
-
-        # schema could have been deleted by this point
-        schema_model = (
-            ExternalDataSchema.objects.prefetch_related("source")
-            .exclude(deleted=True)
-            .get(id=_schema_id, team_id=team_id)
-        )
-
-        schema_model.table = table_created
-        schema_model.save()
+            schema_model.table = table_created
+            schema_model.save()
 
     except ServerException as err:
         if err.code == 636:

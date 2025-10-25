@@ -1,37 +1,40 @@
 from datetime import datetime, timedelta
 from typing import Any, Literal, Optional
-from unittest import mock
 from zoneinfo import ZoneInfo
 
-from django.core.cache import cache
 from freezegun import freeze_time
+from posthog.test.base import BaseTest
+from unittest import mock
+
+from django.core.cache import cache
+
 from pydantic import BaseModel
 
-from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.team.team import Team, WeekStartDay
-from posthog.hogql.constants import LimitContext
 from posthog.schema import (
-    CurrencyCode,
+    BounceRatePageViewMode,
     CacheMissResponse,
+    CurrencyCode,
     HogQLQuery,
     HogQLQueryModifiers,
     InCohortVia,
+    IntervalType,
     MaterializationMode,
-    BounceRatePageViewMode,
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
     SessionsV2JoinMode,
     SessionTableVersion,
     TestBasicQueryResponse as TheTestBasicQueryResponse,
     TestCachedBasicQueryResponse as TheTestCachedBasicQueryResponse,
-    IntervalType,
 )
+
+from posthog.hogql.constants import LimitContext
+
+from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.team.team import Team, WeekStartDay
+
 from products.marketing_analytics.backend.hogql_queries.test.utils import MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE
-from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
-    REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT,
-)
-from posthog.test.base import BaseTest
+from products.revenue_analytics.backend.hogql_queries.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
 
 
 class TheTestQuery(BaseModel):
@@ -52,7 +55,6 @@ class TestQueryRunner(BaseTest):
 
         class TestQueryRunner(QueryRunner):
             query: TheTestQuery
-            response: TheTestBasicQueryResponse
             cached_response: TheTestCachedBasicQueryResponse
 
             def calculate(self):
@@ -97,7 +99,7 @@ class TestQueryRunner(BaseTest):
 
         team = Team.objects.create(
             organization=self.organization,
-            base_currency=CurrencyCode.GBP.value,
+            base_currency=CurrencyCode.USD.value,
         )
 
         # Basic Revenue Analytics config
@@ -133,7 +135,10 @@ class TestQueryRunner(BaseTest):
             },
             "products_modifiers": {
                 "marketing_analytics": {
-                    "base_currency": "GBP",
+                    "attribution_mode": "last_touch",
+                    "attribution_window_days": 90,
+                    "base_currency": "USD",
+                    "campaign_name_mappings": {},
                     "sources_map": {
                         "01977f7b-7f29-0000-a028-7275d1a767a4": {
                             "cost": "cost",
@@ -147,7 +152,7 @@ class TestQueryRunner(BaseTest):
                     },
                 },
                 "revenue_analytics": {
-                    "base_currency": "GBP",
+                    "base_currency": "USD",
                     "filter_test_accounts": False,
                     "events": [
                         {
@@ -160,6 +165,8 @@ class TestQueryRunner(BaseTest):
                                 "static": None,
                             },
                             "revenueProperty": "revenue",
+                            "subscriptionDropoffDays": 45,
+                            "subscriptionDropoffMode": "last_event",
                             "subscriptionProperty": "subscription",
                         }
                     ],
@@ -194,7 +201,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_d8ae2988559166971c4725ba714dac9f"
+        assert cache_key == "cache_db05113c9937a0e206afcc48c43e0a87"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -208,7 +215,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_b18f260bb8a3be11e543d1eb6c765649"
+        assert cache_key == "cache_6369d6d904d6ce9dea56120059bdceba"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -219,7 +226,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_4fa2ad468d8ab09349d6e0ae48bca908"
+        assert cache_key == "cache_ee3b91f6f3800eba3e0420c65bbe082c"
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
@@ -324,8 +331,9 @@ class TestQueryRunner(BaseTest):
 
     def test_modifier_passthrough(self):
         try:
-            from ee.clickhouse.materialized_columns.analyze import materialize
             from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+
+            from ee.clickhouse.materialized_columns.analyze import materialize
 
             materialize("events", "$browser")
         except ModuleNotFoundError:
@@ -350,3 +358,25 @@ class TestQueryRunner(BaseTest):
         response = runner.calculate()
         assert response.clickhouse is not None
         assert "events.`mat_$browser" not in response.clickhouse
+
+    @mock.patch("posthog.hogql_queries.query_runner.get_query_cache_manager")
+    def test_schema_change_triggers_recalculation(self, mock_get_cache_manager):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        mock_cache_manager = mock.MagicMock()
+        mock_cache_manager.cache_key = "test_cache_key"
+        mock_cache_manager.get_cache_data.return_value = {
+            "is_cached": True,
+            "invalid_field": "this will cause validation to fail",
+            # Missing all the actual required fields like results, last_refresh, etc.
+        }
+        mock_get_cache_manager.return_value = mock_cache_manager
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
+            response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+
+            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
+            self.assertEqual(response.is_cached, False, "Should get a fresh response, not a cached one")
+            self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:37:42+00:00")
+            mock_cache_manager.get_cache_data.assert_called_once()
+            mock_cache_manager.set_cache_data.assert_called_once()

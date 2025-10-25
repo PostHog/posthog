@@ -5,11 +5,11 @@ on:
 
 jobs:
     stale:
-        # Only unleash the stale bot on PostHog/posthog, as there's no POSTHOG_BOT_GITHUB_TOKEN token on forks
+        # Only unleash the stale bot on PostHog/posthog, as there's no POSTHOG_BOT_PAT token on forks
         if: ${{ github.repository == 'PostHog/posthog' }}
         runs-on: ubuntu-24.04
         steps:
-            - uses: actions/stale@5bef64f19d7facfb25b37b414482c7164d639639 # v9
+            - uses: actions/stale@v9
               with:
                   days-before-issue-stale: 730
                   days-before-issue-close: 14
@@ -25,4 +25,4 @@ jobs:
                   remove-pr-stale-when-updated: true
                   exempt-pr-labels: 'waiting'
                   operations-per-run: 250
-                  repo-token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  repo-token: ${{ secrets.POSTHOG_BOT_PAT }}

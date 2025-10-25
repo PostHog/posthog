@@ -2582,7 +2582,7 @@ describe('hogvm execute', () => {
                     code3: call('code4'),
                     code4: call('code5'),
                     code5: ret('tomato'),
-                }[chunk]),
+                })[chunk],
         })
         expect(res.result).toEqual('tomato')
     })

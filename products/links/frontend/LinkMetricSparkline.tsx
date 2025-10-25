@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+
 import { Sparkline, SparklineTimeSeries } from 'lib/components/Sparkline'
 
 import { linkMetricSparklineLogic } from './linkMetricSparklineLogic'

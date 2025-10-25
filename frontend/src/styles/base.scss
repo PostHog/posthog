@@ -312,9 +312,11 @@
     // Product specific colors
     --color-product-data-pipeline-light: rgb(46 162 211);
     --color-product-product-analytics-light: rgb(47 128 250);
-    --color-product-messaging-light: rgb(47 128 250);
+    --color-product-workflows-light: rgb(47 128 250);
     --color-product-web-analytics-light: rgb(52 175 102);
     --color-product-web-analytics-dark: rgb(54 196 111); // original color
+    --color-product-embedded-analytics-light: rgb(243 153 109);
+    --color-product-embedded-analytics-dark: rgb(250 158 120);
     --color-product-session-replay-light: rgb(235 162 18);
     --color-product-session-replay-dark: rgb(247 165 1);
     --color-product-heatmaps-light: rgb(220 152 16);
@@ -326,7 +328,7 @@
     --color-product-error-tracking-dark: rgb(247 165 1);
     --color-product-surveys-light: rgb(243 84 84);
     --color-product-data-warehouse-light: rgb(133 103 255);
-    --color-product-max-ai-light: rgb(182 42 217);
+    --color-product-llm-analytics-light: rgb(182 42 217);
     --color-product-links-light: rgb(143 7 255);
     --color-product-revenue-analytics-light: rgb(52 175 102);
     --color-product-revenue-analytics-dark: rgb(54 196 111);
@@ -401,6 +403,18 @@
         var(--color-brand-primary-saturation),
         var(--color-brand-primary-lightness),
         10%
+    );
+    --color-accent-highlight-secondary-border: hsla(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        var(--color-brand-primary-lightness),
+        14%
+    );
+    --color-accent-highlight-secondary-hover-border: hsla(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        var(--color-brand-primary-lightness),
+        35%
     );
 
     // Backgrounds
@@ -485,6 +499,7 @@
     // //////////////////////////////////////////////////////////
     --color-text-primary: var(--color-neutral-950);
     --color-text-primary-inverse: var(--color-neutral-100);
+    --color-text-secondary-inverse: var(--color-neutral-400);
     --color-text-secondary: var(--color-neutral-750);
     --color-text-tertiary: var(--color-neutral-600);
     --color-text-success: var(--color-green-600);
@@ -594,14 +609,24 @@
     --data-color-15: #30d5c8;
 
     // Lifecycle series (compiled)
-    --lifecycle-new: #1d4aff;
-    --lifecycle-returning: #388600;
-    --lifecycle-resurrecting: #a56eff;
-    --lifecycle-dormant: #db3707;
-    --lifecycle-new-hover: rgb(0 36.23894 182);
-    --lifecycle-returning-hover: rgb(13.37313 32 0);
-    --lifecycle-resurrecting-hover: rgb(101.68966 8 255);
-    --lifecycle-dormant-hover: rgb(120.15929 30.17699 3.84071);
+    --color-lifecycle-new: #1d4aff;
+    --color-lifecycle-returning: #388600;
+    --color-lifecycle-resurrecting: #a56eff;
+    --color-lifecycle-dormant: #db3707;
+    --color-lifecycle-new-hover: #0024b6;
+    --color-lifecycle-returning-hover: #254d08;
+    --color-lifecycle-resurrecting-hover: #6608ff;
+    --color-lifecycle-dormant-hover: #781e04;
+
+    // Revenue analytics MRR series (compiled)
+    --color-revenue-analytics-new: #388600;
+    --color-revenue-analytics-expansion: #1d4aff;
+    --color-revenue-analytics-contraction: #ffa500;
+    --color-revenue-analytics-churn: #db3707;
+    --color-revenue-analytics-new-hover: #254d08;
+    --color-revenue-analytics-expansion-hover: #0024b6;
+    --color-revenue-analytics-contraction-hover: #a26c07;
+    --color-revenue-analytics-churn-hover: #781e04;
 
     // Z-indexes
     --z-bottom-notice: 1450;
@@ -620,9 +645,11 @@
     --z-top: 9999;
     --z-modal: 1100;
     --z-hedgehog-buddy: 1050;
-    --z-annotation-popover: 100;
+    --z-annotation-popover: 800;
     --z-drawer: 900;
     --z-notifications-popover: 800; // below the TZ aware popover but over the main-nav
+    --z-scene-layout-content-panel: 770;
+    --z-scene-layout-content-panel-under: 769;
     --z-layout-panel: 760;
     --z-layout-panel-under: 759;
     --z-layout-navbar-over: 757;
@@ -877,6 +904,18 @@
         var(--color-brand-primary-lightness),
         10%
     );
+    --color-accent-highlight-secondary-border: hsla(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        var(--color-brand-primary-lightness),
+        14%
+    );
+    --color-accent-highlight-secondary-hover-border: hsla(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        var(--color-brand-primary-lightness),
+        35%
+    );
 
     // Backgrounds (dark mode)
     // //////////////////////////////////////////////////////////
@@ -938,6 +977,7 @@
     // //////////////////////////////////////////////////////////
     --color-text-primary: var(--color-neutral-100);
     --color-text-primary-inverse: var(--color-neutral-950);
+    --color-text-secondary-inverse: var(--color-neutral-650);
     --color-text-secondary: var(--color-neutral-350);
     --color-text-tertiary: var(--color-neutral-400);
     --color-text-success: var(--color-green-400);
@@ -1043,6 +1083,13 @@
         &::-webkit-search-results-decoration {
             display: none;
         }
+    }
+
+    a:focus-visible,
+    button:focus-visible,
+    a[data-focused='true'],
+    button[data-focused='true'] {
+        outline: 2px solid var(--color-accent);
     }
 
     body {
@@ -1183,27 +1230,6 @@
                 }
             }
         }
-    }
-
-    .page-title-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.5rem 1rem;
-        align-items: center;
-        min-height: 2.5rem;
-        margin: 1rem 0 0.25rem;
-
-        @include screen($md) {
-            flex-wrap: nowrap;
-        }
-    }
-
-    .page-title {
-        min-width: 0;
-        margin: 0;
-        font-size: 28px;
-        font-weight: 600;
-        line-height: 34px;
     }
 
     .page-caption {
@@ -1602,7 +1628,7 @@
         color: var(--color-text-primary);
         background-color: var(--color-bg-surface-primary);
         border: 1px solid var(--color-border-primary);
-        border-radius: var(--radius-md);
+        border-radius: var(--radius-lg);
         box-shadow: var(--shadow-elevation-3000);
     }
 
@@ -1610,7 +1636,6 @@
         display: flex;
         flex-direction: column;
         gap: 1px;
-        padding: var(--spacing);
     }
 
     .animate-mark {
@@ -1653,6 +1678,19 @@
 
         100% {
             transform: rotateZ(360deg);
+        }
+    }
+
+    // Note: Scaling in from 0 is not typically recommended, the smoother alternative is to
+    // scale in from a value between 0.5-0.8 and 0 opacity. But SOME situations call for scaling from 0, like icons
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes scale-in {
+        0% {
+            transform: scale(0);
+        }
+
+        100% {
+            transform: scale(1);
         }
     }
 
@@ -1736,5 +1774,42 @@
     .hogqlx-redacted:focus-visible {
         outline: 2px dashed currentColor;
         outline-offset: 2px;
+    }
+
+    .animate-logomark-jump {
+        --logomark-airtime: 0.4s;
+
+        svg {
+            overflow: visible;
+
+            // Animate each child with a staggered delay
+            > * {
+                // Times 25 because the actual animation is 4% of the keyframes (so 1/25)
+                animation: Logomark__jump calc(var(--logomark-airtime) * 25) cubic-bezier(0.6, 0, 0.2, 0.8) infinite;
+            }
+
+            @for $i from 1 through 4 {
+                > *:nth-child(#{$i}) {
+                    // Dividing by 15 just because it feels good
+                    animation-delay: calc(var(--logomark-airtime) / 15 * ($i - 1));
+                }
+            }
+        }
+
+        @keyframes Logomark__jump {
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+
+            2% {
+                transform: translateY(-10px);
+            }
+
+            4% {
+                // Only 4% so that this repeats every now and then nicely
+                transform: translateY(0);
+            }
+        }
     }
 }

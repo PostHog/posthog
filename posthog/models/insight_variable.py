@@ -1,9 +1,9 @@
 from django.db import models
 
-from posthog.models.utils import CreatedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr, RootTeamMixin
+from posthog.models.utils import CreatedMetaFields, RootTeamMixin, UpdatedMetaFields, UUIDTModel, sane_repr
 
 
-class InsightVariable(UUIDModel, RootTeamMixin, CreatedMetaFields, UpdatedMetaFields):
+class InsightVariable(UUIDTModel, RootTeamMixin, CreatedMetaFields, UpdatedMetaFields):
     class Type(models.TextChoices):
         STRING = "String", "String"
         NUMBER = "Number", "Number"

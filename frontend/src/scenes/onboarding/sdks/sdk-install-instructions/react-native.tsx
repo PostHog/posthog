@@ -1,9 +1,12 @@
-import { LemonDivider, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { LemonDivider, Link } from '@posthog/lemon-ui'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
+
 import SetupWizardBanner from './components/SetupWizardBanner'
 
 export interface RNSetupProps {
@@ -80,10 +83,10 @@ export function MyApp() {
                 // No data is captured from the request or response body.
                 // iOS only
                 captureNetworkTelemetry: true,
-                // Deboucer delay used to reduce the number of snapshots captured and reduce performance impact. Default is 1000ms
-                androidDebouncerDelayMs: 1000,
-                // Deboucer delay used to reduce the number of snapshots captured and reduce performance impact. Default is 1000ms
-                iOSdebouncerDelayMs: 1000,
+                // Throttling delay used to reduce the number of snapshots captured and reduce performance impact
+                // The lower the number more snapshots will be captured but higher the performance impact
+                // Default is 1000ms
+                throttleDelayMs: 1000,
             },`
                     : ''
             }

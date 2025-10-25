@@ -1,9 +1,10 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
+
 import { LemonButton } from '../LemonButton'
 import { LemonTable, LemonTableProps } from './LemonTable'
 import { LemonTableLink } from './LemonTableLink'
-import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 type Story = StoryObj<typeof LemonTable>
 const meta: Meta<typeof LemonTable> = {

@@ -10,6 +10,15 @@ pub enum CaptureMode {
     Recordings,
 }
 
+impl CaptureMode {
+    pub fn as_tag(&self) -> &'static str {
+        match self {
+            CaptureMode::Events => "events",
+            CaptureMode::Recordings => "recordings",
+        }
+    }
+}
+
 impl std::str::FromStr for CaptureMode {
     type Err = String;
 
@@ -96,6 +105,10 @@ pub struct Config {
     // deploy var [0.0..100.0] to sample behavior of interest for verbose logging
     #[envconfig(default = "0.0")]
     pub verbose_sample_percent: f32,
+
+    // AI endpoint size limits
+    #[envconfig(default = "26214400")] // 25MB in bytes
+    pub ai_max_sum_of_parts_bytes: usize,
 }
 
 #[derive(Envconfig, Clone)]
@@ -119,9 +132,9 @@ pub struct KafkaConfig {
     pub kafka_historical_topic: String,
     #[envconfig(default = "events_plugin_ingestion")]
     pub kafka_client_ingestion_warning_topic: String,
-    #[envconfig(default = "events_plugin_ingestion")]
-    pub kafka_exceptions_topic: String,
     #[envconfig(default = "exceptions_ingestion")]
+    pub kafka_exceptions_topic: String,
+    #[envconfig(default = "heatmaps_ingestion")]
     pub kafka_heatmaps_topic: String,
     #[envconfig(default = "session_recording_snapshot_item_overflow")]
     pub kafka_replay_overflow_topic: String,

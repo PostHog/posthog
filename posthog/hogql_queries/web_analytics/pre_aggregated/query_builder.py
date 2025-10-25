@@ -3,10 +3,14 @@ from typing import Optional
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
 from posthog.hogql.property import property_to_expr
+
 from posthog.hogql_queries.web_analytics.pre_aggregated.property_transformer import (
     ChannelTypeReplacer,
     PreAggregatedPropertyTransformer,
 )
+
+get_stats_table = lambda use_v2: "web_pre_aggregated_stats" if use_v2 else "web_stats_combined"
+get_bounces_table = lambda use_v2: "web_pre_aggregated_bounces" if use_v2 else "web_bounces_combined"
 
 
 class WebAnalyticsPreAggregatedQueryBuilder:
@@ -14,15 +18,20 @@ class WebAnalyticsPreAggregatedQueryBuilder:
         self.runner = runner
         self.supported_props_filters = supported_props_filters
 
+    @property
+    def stats_table(self) -> str:
+        return get_stats_table(self.runner.use_v2_tables)
+
+    @property
+    def bounces_table(self) -> str:
+        return get_bounces_table(self.runner.use_v2_tables)
+
     def can_use_preaggregated_tables(self) -> bool:
         query = self.runner.query
 
         for prop in query.properties:
             if hasattr(prop, "key") and prop.key not in self.supported_props_filters:
                 return False
-
-        if query.conversionGoal:
-            return False
 
         return True
 

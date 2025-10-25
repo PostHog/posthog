@@ -1,9 +1,10 @@
-import { IconChevronRight } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { storiesLogic } from './storiesLogic'
+import { IconChevronRight } from '@posthog/icons'
+
 import { StoriesModal } from './StoriesModal'
+import { storiesLogic } from './storiesLogic'
 
 export const PosthogStoriesContainer = (): JSX.Element => {
     const { stories, isStoryViewed, storiesCollapsed } = useValues(storiesLogic)
@@ -29,7 +30,7 @@ export const PosthogStoriesContainer = (): JSX.Element => {
 
     return (
         <>
-            <div className="flex items-center gap-2 mb-2 px-1">
+            <div className="flex items-center gap-2 px-1">
                 <button
                     onClick={toggleStoriesCollapsed}
                     className="flex items-center gap-2 hover:opacity-70 transition-opacity cursor-pointer"

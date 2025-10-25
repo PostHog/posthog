@@ -1,10 +1,10 @@
 import json
 from functools import cached_property
 
-import structlog
 from django.conf import settings
 from django.utils.timezone import now
-from posthog.exceptions_capture import capture_exception
+
+import structlog
 
 from posthog.async_migrations.definition import (
     AsyncMigrationDefinition,
@@ -12,10 +12,11 @@ from posthog.async_migrations.definition import (
     AsyncMigrationOperationSQL,
 )
 from posthog.async_migrations.utils import execute_op_clickhouse, run_optimize_table
+from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.kafka_engine import STORAGE_POLICY
 from posthog.clickhouse.table_engines import ReplacingMergeTree
-from posthog.clickhouse.client import sync_execute
 from posthog.constants import AnalyticsDBMS
+from posthog.exceptions_capture import capture_exception
 from posthog.models.async_migration import AsyncMigration
 from posthog.models.person.person import Person
 from posthog.models.person.sql import PERSONS_TABLE_MV_SQL
@@ -161,7 +162,7 @@ class Migration(AsyncMigrationDefinition):
             ),
             AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
-                sql=PERSONS_TABLE_MV_SQL,
+                sql=PERSONS_TABLE_MV_SQL(target_table=PERSON_TABLE),
                 rollback=None,
             ),
             AsyncMigrationOperation(

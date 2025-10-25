@@ -1,11 +1,12 @@
 import { useValues } from 'kea'
 
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { Query } from '~/queries/Query/Query'
 import { CurrencyCode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
-import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 import { Currency, Revenue } from './RevenueExampleTableColumns'
+import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
 const queryContext: QueryContext = {
     showOpenEditorButton: true,
@@ -43,14 +44,15 @@ export function RevenueExampleDataWarehouseTablesData(): JSX.Element | null {
     }
 
     return (
-        <div>
-            <h3>Data warehouse tables revenue data</h3>
-            <p>
-                The following rows of data were imported from your data warehouse tables. This is helpful when you're
-                trying to debug what your revenue data looks like.
-            </p>
-
-            <Query query={exampleDataWarehouseTablesQuery} context={queryContext} />
-        </div>
+        <SceneSection
+            title="Data warehouse tables revenue data"
+            description="The following rows of data were imported from your data warehouse tables. This is helpful when you're trying to debug what your revenue data looks like."
+        >
+            <Query
+                attachTo={revenueAnalyticsSettingsLogic}
+                query={exampleDataWarehouseTablesQuery}
+                context={queryContext}
+            />
+        </SceneSection>
     )
 }

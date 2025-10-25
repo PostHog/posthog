@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+
 import { capitalizeFirstLetter } from 'lib/utils'
 
 import { Group } from '~/types'
@@ -23,10 +24,7 @@ export function GroupOverview({ groupData }: { groupData: Group }): JSX.Element 
                     <GroupPeopleCard groupData={groupData} />
                 </div>
             </div>
-            <div>
-                <h2>Insights</h2>
-                <GroupDashboardCard />
-            </div>
+            <GroupDashboardCard />
         </div>
     )
 }

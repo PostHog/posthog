@@ -1,29 +1,27 @@
-import asyncio
-import collections.abc
-import dataclasses
-import datetime as dt
 import json
 import typing
+import asyncio
+import datetime as dt
 import zoneinfo
+import dataclasses
+import collections.abc
 
-import temporalio
-import temporalio.activity
-import temporalio.client
-import temporalio.common
-import temporalio.exceptions
-import temporalio.workflow
-from asgiref.sync import sync_to_async
 from django.conf import settings
 
+import temporalio
+import temporalio.client
+import temporalio.common
+import temporalio.activity
+import temporalio.workflow
+import temporalio.exceptions
+from asgiref.sync import sync_to_async
+
 from posthog.batch_exports.models import BatchExportBackfill
-from posthog.batch_exports.service import (
-    BackfillBatchExportInputs,
-    BackfillDetails,
-    unpause_batch_export,
-)
+from posthog.batch_exports.service import BackfillBatchExportInputs, BackfillDetails, unpause_batch_export
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.heartbeat import Heartbeater
+
 from products.batch_exports.backend.temporal.batch_exports import (
     CreateBatchExportBackfillInputs,
     UpdateBatchExportBackfillStatusInputs,

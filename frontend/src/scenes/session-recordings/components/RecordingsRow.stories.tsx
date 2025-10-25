@@ -1,4 +1,5 @@
 import { Meta, StoryFn } from '@storybook/react'
+
 import { RecordingRow } from 'scenes/session-recordings/components/RecordingRow'
 
 import { SessionRecordingType } from '~/types'
@@ -22,6 +23,8 @@ function asRecording(param: Partial<SessionRecordingType>): SessionRecordingType
         keypress_count: 20,
         start_url: 'https://example.com',
         console_error_count: 0,
+        expiry_time: '2024-11-21 13:34',
+        recording_ttl: 20,
         ...param,
     }
 }

@@ -1,37 +1,42 @@
-from dataclasses import dataclass
-import hashlib
 import hmac
-import time
-import jwt
 import json
-from datetime import timedelta, datetime
-from typing import Any, Literal, Optional
+import time
+import base64
+import socket
+import hashlib
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import Any, Literal
 from urllib.parse import urlencode
 
+from django.conf import settings
 from django.db import models
-from prometheus_client import Counter
+
+import jwt
 import requests
+import structlog
+from disposable_email_domains import blocklist as disposable_email_domains_list
+from free_email_domains import whitelist as free_email_domains_list
+from google.auth.transport.requests import Request as GoogleRequest
+from google.oauth2 import service_account
+from prometheus_client import Counter
+from requests.auth import HTTPBasicAuth
+from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
-from rest_framework import status
-from slack_sdk.web.async_client import AsyncWebClient
-
-from posthog.exceptions_capture import capture_exception
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
-from google.oauth2 import service_account
-from google.auth.transport.requests import Request as GoogleRequest
+from slack_sdk.web.async_client import AsyncWebClient
 
-from django.conf import settings
 from posthog.cache_utils import cache_for
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
-from products.messaging.backend.providers import MailjetProvider, TwilioProvider
-import structlog
-
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.sync import database_sync_to_async
+
+from products.workflows.backend.providers import MailjetProvider, SESProvider, TwilioProvider
 
 logger = structlog.get_logger(__name__)
 
@@ -66,6 +71,8 @@ class Integration(models.Model):
         GOOGLE_SHEETS = "google-sheets"
         SNAPCHAT = "snapchat"
         LINKEDIN_ADS = "linkedin-ads"
+        REDDIT_ADS = "reddit-ads"
+        TIKTOK_ADS = "tiktok-ads"
         INTERCOM = "intercom"
         EMAIL = "email"
         LINEAR = "linear"
@@ -73,6 +80,8 @@ class Integration(models.Model):
         META_ADS = "meta-ads"
         TWILIO = "twilio"
         CLICKUP = "clickup"
+        VERCEL = "vercel"
+        DATABRICKS = "databricks"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -109,15 +118,19 @@ class Integration(models.Model):
             return self.integration_id or "unknown ID"
         if self.kind == "github":
             return dot_get(self.config, "account.name", self.integration_id)
+        if self.kind == "databricks":
+            return self.integration_id or "unknown ID"
+        if self.kind == "email":
+            return self.config.get("email", self.integration_id)
 
         return f"ID: {self.integration_id}"
 
     @property
-    def access_token(self) -> Optional[str]:
+    def access_token(self) -> str | None:
         return self.sensitive_config.get("access_token")
 
     @property
-    def refresh_token(self) -> Optional[str]:
+    def refresh_token(self) -> str | None:
         return self.sensitive_config.get("refresh_token")
 
 
@@ -135,10 +148,10 @@ class OauthConfig:
     scope: str
     id_path: str
     name_path: str
-    token_info_url: Optional[str] = None
-    token_info_graphql_query: Optional[str] = None
-    token_info_config_fields: Optional[list[str]] = None
-    additional_authorize_params: Optional[dict[str, str]] = None
+    token_info_url: str | None = None
+    token_info_graphql_query: str | None = None
+    token_info_config_fields: list[str] | None = None
+    additional_authorize_params: dict[str, str] | None = None
 
 
 class OauthIntegration:
@@ -150,6 +163,8 @@ class OauthIntegration:
         "google-sheets",
         "snapchat",
         "linkedin-ads",
+        "reddit-ads",
+        "tiktok-ads",
         "meta-ads",
         "intercom",
         "linear",
@@ -292,7 +307,7 @@ class OauthIntegration:
                 token_url="https://www.linkedin.com/oauth/v2/accessToken",
                 client_id=settings.LINKEDIN_APP_CLIENT_ID,
                 client_secret=settings.LINKEDIN_APP_CLIENT_SECRET,
-                scope="r_ads rw_conversions openid profile email",
+                scope="r_ads rw_conversions r_ads_reporting openid profile email",
                 id_path="sub",
                 name_path="email",
             )
@@ -343,9 +358,36 @@ class OauthIntegration:
                 token_info_config_fields=["id", "name", "email"],
                 client_id=settings.META_ADS_APP_CLIENT_ID,
                 client_secret=settings.META_ADS_APP_CLIENT_SECRET,
-                scope="ads_read ads_management business_management read_insights",
+                scope="ads_read",
                 id_path="id",
                 name_path="name",
+            )
+        elif kind == "reddit-ads":
+            if not settings.REDDIT_ADS_CLIENT_ID or not settings.REDDIT_ADS_CLIENT_SECRET:
+                raise NotImplementedError("Reddit Ads app not configured")
+
+            return OauthConfig(
+                authorize_url="https://www.reddit.com/api/v1/authorize",
+                token_url="https://www.reddit.com/api/v1/access_token",
+                client_id=settings.REDDIT_ADS_CLIENT_ID,
+                client_secret=settings.REDDIT_ADS_CLIENT_SECRET,
+                scope="read adsread adsconversions history adsedit",
+                id_path="reddit_user_id",  # We'll extract this from JWT
+                name_path="reddit_user_id",  # Same as ID for Reddit
+                additional_authorize_params={"duration": "permanent"},
+            )
+        elif kind == "tiktok-ads":
+            if not settings.TIKTOK_ADS_CLIENT_ID or not settings.TIKTOK_ADS_CLIENT_SECRET:
+                raise NotImplementedError("TikTok Ads app not configured")
+
+            return OauthConfig(
+                authorize_url="https://business-api.tiktok.com/portal/auth",
+                token_url="https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/",
+                client_id=settings.TIKTOK_ADS_CLIENT_ID,
+                client_secret=settings.TIKTOK_ADS_CLIENT_SECRET,
+                scope="",
+                id_path="data.advertiser_ids",
+                name_path="data.advertiser_ids",
             )
         elif kind == "clickup":
             if not settings.CLICKUP_APP_CLIENT_ID or not settings.CLICKUP_APP_CLIENT_SECRET:
@@ -374,14 +416,22 @@ class OauthIntegration:
     def authorize_url(cls, kind: str, token: str, next="") -> str:
         oauth_config = cls.oauth_config_for_kind(kind)
 
-        query_params = {
-            "client_id": oauth_config.client_id,
-            "scope": oauth_config.scope,
-            "redirect_uri": cls.redirect_uri(kind),
-            "response_type": "code",
-            "state": urlencode({"next": next, "token": token}),
-            **(oauth_config.additional_authorize_params or {}),
-        }
+        if kind == "tiktok-ads":
+            # TikTok uses different parameter names
+            query_params = {
+                "app_id": oauth_config.client_id,
+                "redirect_uri": cls.redirect_uri(kind),
+                "state": urlencode({"next": next, "token": token}),
+            }
+        else:
+            query_params = {
+                "client_id": oauth_config.client_id,
+                "scope": oauth_config.scope,
+                "redirect_uri": cls.redirect_uri(kind),
+                "response_type": "code",
+                "state": urlencode({"next": next, "token": token}),
+                **(oauth_config.additional_authorize_params or {}),
+            }
 
         return f"{oauth_config.authorize_url}?{urlencode(query_params)}"
 
@@ -390,20 +440,52 @@ class OauthIntegration:
         cls, kind: str, team_id: int, created_by: User, params: dict[str, str]
     ) -> Integration:
         oauth_config = cls.oauth_config_for_kind(kind)
-        res = requests.post(
-            oauth_config.token_url,
-            data={
-                "client_id": oauth_config.client_id,
-                "client_secret": oauth_config.client_secret,
-                "code": params["code"],
-                "redirect_uri": OauthIntegration.redirect_uri(kind),
-                "grant_type": "authorization_code",
-            },
-        )
+
+        # Reddit uses HTTP Basic Auth https://github.com/reddit-archive/reddit/wiki/OAuth2 and requires a User-Agent header
+        if kind == "reddit-ads":
+            res = requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
+                data={
+                    "code": params["code"],
+                    "redirect_uri": OauthIntegration.redirect_uri(kind),
+                    "grant_type": "authorization_code",
+                },
+                headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
+            )
+        elif kind == "tiktok-ads":
+            # TikTok Ads uses JSON request body instead of form data and maps 'code' to 'auth_code'
+            res = requests.post(
+                oauth_config.token_url,
+                json={
+                    "app_id": oauth_config.client_id,
+                    "secret": oauth_config.client_secret,
+                    "auth_code": params["code"],
+                },
+                headers={"Content-Type": "application/json"},
+            )
+        else:
+            res = requests.post(
+                oauth_config.token_url,
+                data={
+                    "client_id": oauth_config.client_id,
+                    "client_secret": oauth_config.client_secret,
+                    "code": params["code"],
+                    "redirect_uri": OauthIntegration.redirect_uri(kind),
+                    "grant_type": "authorization_code",
+                },
+            )
 
         config: dict = res.json()
 
-        if res.status_code != 200 or not config.get("access_token"):
+        access_token = None
+        if kind == "tiktok-ads":
+            # TikTok has a different response format - access_token is nested under 'data'
+            access_token = config.get("data", {}).get("access_token")
+        else:
+            access_token = config.get("access_token")
+
+        if res.status_code != 200 or not access_token:
             # Hack to try getting sandbox auth token instead of their salesforce production account
             if kind == "salesforce":
                 oauth_config = cls.oauth_config_for_kind("salesforce-sandbox")
@@ -449,11 +531,40 @@ class OauthIntegration:
 
         integration_id = dot_get(config, oauth_config.id_path)
 
+        # Reddit access token is a JWT, extract user ID from it
+        if kind == "reddit-ads" and not integration_id:
+            try:
+                access_token = config.get("access_token")
+                if access_token:
+                    # Split JWT and get payload (middle part)
+                    parts = access_token.split(".")
+                    if len(parts) >= 2:
+                        payload = parts[1]
+                        # Decode JWT payload (handle missing padding)
+                        decoded = base64.urlsafe_b64decode(payload + "===")
+                        jwt_data = json.loads(decoded)
+
+                        # Extract user ID from JWT (lid = login ID)
+                        reddit_user_id = jwt_data.get("lid", jwt_data.get("aid"))
+                        if reddit_user_id:
+                            config["reddit_user_id"] = reddit_user_id
+                            integration_id = reddit_user_id
+            except Exception as e:
+                logger.exception("Failed to decode Reddit JWT", error=str(e))
+
         if isinstance(integration_id, int):
             integration_id = str(integration_id)
+        elif isinstance(integration_id, list) and len(integration_id) > 0:
+            integration_id = ",".join(str(item) for item in integration_id)
 
         if not isinstance(integration_id, str):
             raise Exception("Oauth error")
+
+        # Handle TikTok's nested response format
+        if kind == "tiktok-ads":
+            data = config.pop("data", {})
+            # Move other data fields to main config for TikTok
+            config.update(data)
 
         sensitive_config: dict = {
             "access_token": config.pop("access_token"),
@@ -487,7 +598,7 @@ class OauthIntegration:
 
         return integration
 
-    def access_token_expired(self, time_threshold: Optional[timedelta] = None) -> bool:
+    def access_token_expired(self, time_threshold: timedelta | None = None) -> bool:
         # Not all integrations have refresh tokens or expiries, so we just return False if we can't check
 
         refresh_token = self.integration.sensitive_config.get("refresh_token")
@@ -516,15 +627,39 @@ class OauthIntegration:
 
         oauth_config = self.oauth_config_for_kind(self.integration.kind)
 
-        res = requests.post(
-            oauth_config.token_url,
-            data={
-                "client_id": oauth_config.client_id,
-                "client_secret": oauth_config.client_secret,
-                "refresh_token": self.integration.sensitive_config["refresh_token"],
-                "grant_type": "refresh_token",
-            },
-        )
+        # Reddit uses HTTP Basic Auth for token refresh
+        if self.integration.kind == "reddit-ads":
+            res = requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
+                data={
+                    "refresh_token": self.integration.sensitive_config["refresh_token"],
+                    "grant_type": "refresh_token",
+                },
+                # If I use a standard User-Agent, it will throw a 429 too many requests error
+                headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
+            )
+        elif self.integration.kind == "tiktok-ads":
+            res = requests.post(
+                "https://open.tiktokapis.com/v2/oauth/token/",
+                data={
+                    "client_key": oauth_config.client_id,  # TikTok uses client_key instead of client_id
+                    "client_secret": oauth_config.client_secret,
+                    "refresh_token": self.integration.sensitive_config["refresh_token"],
+                    "grant_type": "refresh_token",
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+        else:
+            res = requests.post(
+                oauth_config.token_url,
+                data={
+                    "client_id": oauth_config.client_id,
+                    "client_secret": oauth_config.client_secret,
+                    "refresh_token": self.integration.sensitive_config["refresh_token"],
+                    "grant_type": "refresh_token",
+                },
+            )
 
         config: dict = res.json()
 
@@ -581,7 +716,7 @@ class SlackIntegration:
 
     def get_channel_by_id(
         self, channel_id: str, should_include_private_channels: bool = False, authed_user: str | None = None
-    ) -> Optional[dict]:
+    ) -> dict | None:
         try:
             response = self.client.conversations_info(channel=channel_id, include_num_members=True)
             channel = response["channel"]
@@ -700,7 +835,7 @@ class GoogleAdsIntegration:
     def list_google_ads_conversion_actions(self, customer_id, parent_id=None) -> list[dict]:
         response = requests.request(
             "POST",
-            f"https://googleads.googleapis.com/v18/customers/{customer_id}/googleAds:searchStream",
+            f"https://googleads.googleapis.com/v21/customers/{customer_id}/googleAds:searchStream",
             json={"query": "SELECT conversion_action.id, conversion_action.name FROM conversion_action"},
             headers={
                 "Content-Type": "application/json",
@@ -723,7 +858,7 @@ class GoogleAdsIntegration:
     def list_google_ads_accessible_accounts(self) -> list[dict[str, str]]:
         response = requests.request(
             "GET",
-            f"https://googleads.googleapis.com/v18/customers:listAccessibleCustomers",
+            f"https://googleads.googleapis.com/v21/customers:listAccessibleCustomers",
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
@@ -743,7 +878,7 @@ class GoogleAdsIntegration:
                 accounts = []
             response = requests.request(
                 "POST",
-                f"https://googleads.googleapis.com/v18/customers/{account_id}/googleAds:searchStream",
+                f"https://googleads.googleapis.com/v21/customers/{account_id}/googleAds:searchStream",
                 json={
                     "query": "SELECT customer_client.descriptive_name, customer_client.client_customer, customer_client.level, customer_client.manager, customer_client.status FROM customer_client WHERE customer_client.level <= 5"
                 },
@@ -805,7 +940,7 @@ class GoogleCloudIntegration:
 
     @classmethod
     def integration_from_key(
-        cls, kind: str, key_info: dict, team_id: int, created_by: Optional[User] = None
+        cls, kind: str, key_info: dict, team_id: int, created_by: User | None = None
     ) -> Integration:
         if kind == "google-pubsub":
             scope = "https://www.googleapis.com/auth/pubsub"
@@ -841,7 +976,7 @@ class GoogleCloudIntegration:
 
         return integration
 
-    def access_token_expired(self, time_threshold: Optional[timedelta] = None) -> bool:
+    def access_token_expired(self, time_threshold: timedelta | None = None) -> bool:
         expires_in = self.integration.config.get("expires_in")
         refreshed_at = self.integration.config.get("refreshed_at")
         if not expires_in or not refreshed_at:
@@ -903,7 +1038,7 @@ class LinkedInAdsIntegration:
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                "LinkedIn-Version": "202409",
+                "LinkedIn-Version": "202508",
             },
         )
 
@@ -912,11 +1047,11 @@ class LinkedInAdsIntegration:
     def list_linkedin_ads_accounts(self) -> dict:
         response = requests.request(
             "GET",
-            "https://api.linkedin.com/v2/adAccountsV2?q=search",
+            "https://api.linkedin.com/rest/adAccounts?q=search",
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                "LinkedIn-Version": "202409",
+                "LinkedIn-Version": "202508",
             },
         )
 
@@ -1006,20 +1141,49 @@ class EmailIntegration:
     def mailjet_provider(self) -> MailjetProvider:
         return MailjetProvider()
 
+    @property
+    def ses_provider(self) -> SESProvider:
+        return SESProvider()
+
     @classmethod
-    def integration_from_domain(cls, domain: str, team_id: int, created_by: Optional[User] = None) -> Integration:
-        mailjet = MailjetProvider()
-        mailjet.create_email_domain(domain, team_id=team_id)
+    def create_native_integration(cls, config: dict, team_id: int, created_by: User | None = None) -> Integration:
+        email_address: str = config["email"]
+        name: str = config["name"]
+        domain: str = email_address.split("@")[1]
+        provider: str = config.get("provider", "mailjet")  # Default to mailjet for backward compatibility
+
+        if domain in free_email_domains_list or domain in disposable_email_domains_list:
+            raise ValidationError(f"Email domain {domain} is not supported. Please use a custom domain.")
+
+        # Check if any other integration already exists in a different team with the same domain
+        if Integration.objects.filter(kind="email", config__domain=domain).exclude(team_id=team_id).exists():
+            raise ValidationError(
+                f"An email integration with domain {domain} already exists in another project. Try a different domain or contact support if you believe this is a mistake."
+            )
+
+        # Create domain in the appropriate provider
+        if provider == "ses":
+            ses = SESProvider()
+            ses.create_email_domain(domain, team_id=team_id)
+        elif provider == "mailjet":
+            mailjet = MailjetProvider()
+            mailjet.create_email_domain(domain, team_id=team_id)
+        elif provider == "maildev" and settings.DEBUG:
+            pass
+        else:
+            raise ValueError(f"Invalid provider: must be either 'ses' or 'mailjet'")
 
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
             kind="email",
-            integration_id=domain,
+            integration_id=email_address,
             defaults={
                 "config": {
+                    "email": email_address,
                     "domain": domain,
-                    "mailjet_verified": False,
-                    "aws_ses_verified": False,
+                    "name": name,
+                    "provider": provider,
+                    "verified": True if provider == "maildev" else False,
                 },
                 "created_by": created_by,
             },
@@ -1033,7 +1197,7 @@ class EmailIntegration:
 
     @classmethod
     def integration_from_keys(
-        cls, api_key: str, secret_key: str, team_id: int, created_by: Optional[User] = None
+        cls, api_key: str, secret_key: str, team_id: int, created_by: User | None = None
     ) -> Integration:
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
@@ -1058,16 +1222,36 @@ class EmailIntegration:
 
     def verify(self):
         domain = self.integration.config.get("domain")
+        provider = self.integration.config.get("provider", "mailjet")
 
-        verification_result = self.mailjet_provider.verify_email_domain(domain, team_id=self.integration.team_id)
+        # Use the appropriate provider for verification
+        if provider == "ses":
+            verification_result = self.ses_provider.verify_email_domain(domain, team_id=self.integration.team_id)
+        elif provider == "mailjet":
+            verification_result = self.mailjet_provider.verify_email_domain(domain)
+        elif provider == "maildev":
+            verification_result = {
+                "status": "success",
+                "dnsRecords": [],
+            }
+        else:
+            raise ValueError(f"Invalid provider: {provider}")
 
         if verification_result.get("status") == "success":
-            updated_config = {"mailjet_verified": True}
+            # We can validate all other integrations with the same domain and provider
+            all_integrations_for_domain = Integration.objects.filter(
+                team_id=self.integration.team_id,
+                kind="email",
+                config__domain=domain,
+                config__provider=provider,
+            )
+            for integration in all_integrations_for_domain:
+                integration.config["verified"] = True
+                integration.save()
 
-            # Merge the new config with existing config
-            updated_config = {**self.integration.config, **updated_config}
-            self.integration.config = updated_config
-            self.integration.save()
+            reload_integrations_on_workers(
+                self.integration.team_id, [integration.id for integration in all_integrations_for_domain]
+            )
 
         return verification_result
 
@@ -1118,15 +1302,32 @@ class GitHubIntegration:
 
     @classmethod
     def client_request(cls, endpoint: str, method: str = "GET") -> requests.Response:
-        jwt_token = jwt.encode(
-            {
-                "iat": int(time.time()) - 300,  # 5 minutes in the past
-                "exp": int(time.time()) + 300,  # 5 minutes in the future
-                "iss": settings.GITHUB_APP_CLIENT_ID,
-            },
-            settings.GITHUB_APP_PRIVATE_KEY,
-            algorithm="RS256",
-        )
+        github_app_client_id = settings.GITHUB_APP_CLIENT_ID
+        github_app_private_key = settings.GITHUB_APP_PRIVATE_KEY
+
+        if not github_app_client_id:
+            raise ValidationError("GITHUB_APP_CLIENT_ID is not configured")
+
+        if not github_app_private_key:
+            raise ValidationError("GITHUB_APP_PRIVATE_KEY is not configured")
+
+        github_app_private_key = github_app_private_key.replace("\\n", "\n").strip()
+
+        try:
+            jwt_token = jwt.encode(
+                {
+                    "iat": int(time.time()) - 300,  # 5 minutes in the past
+                    "exp": int(time.time()) + 300,  # 5 minutes in the future
+                    "iss": github_app_client_id,
+                },
+                github_app_private_key,
+                algorithm="RS256",
+            )
+        except Exception:
+            logger.error("Failed to encode JWT token", exc_info=True)
+            raise ValidationError(
+                "Failed to create GitHub App JWT token. Please check your GITHUB_APP_PRIVATE_KEY format."
+            )
 
         return requests.request(
             method,
@@ -1140,7 +1341,7 @@ class GitHubIntegration:
 
     @classmethod
     def integration_from_installation_id(
-        cls, installation_id: str, team_id: int, created_by: Optional[User] = None
+        cls, installation_id: str, team_id: int, created_by: User | None = None
     ) -> Integration:
         installation_info = cls.client_request(f"installations/{installation_id}").json()
         access_token = cls.client_request(f"installations/{installation_id}/access_tokens", method="POST").json()
@@ -1180,7 +1381,7 @@ class GitHubIntegration:
             raise Exception("GitHubIntegration init called with Integration with wrong 'kind'")
         self.integration = integration
 
-    def access_token_expired(self, time_threshold: Optional[timedelta] = None) -> bool:
+    def access_token_expired(self, time_threshold: timedelta | None = None) -> bool:
         expires_in = self.integration.config.get("expires_in")
         refreshed_at = self.integration.config.get("refreshed_at")
         if not expires_in or not refreshed_at:
@@ -1202,6 +1403,8 @@ class GitHubIntegration:
             logger.warning(f"Failed to refresh token for {self}", response=response.text)
             self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
             oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
+            self.integration.save()
+            raise Exception(f"Failed to refresh token for {self}: {response.text}")
         else:
             logger.info(f"Refreshed access token for {self}")
             expires_in = datetime.fromisoformat(config["expires_at"]).timestamp() - int(time.time())
@@ -1210,25 +1413,63 @@ class GitHubIntegration:
             self.integration.sensitive_config["access_token"] = config["token"]
             reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
             oauth_refresh_counter.labels(self.integration.kind, "success").inc()
-        self.integration.save()
+            self.integration.save()
 
     def organization(self) -> str:
         return dot_get(self.integration.config, "account.name")
 
-    def list_repositories(self, page: int = 1) -> list[dict]:
-        access_token = self.integration.sensitive_config["access_token"]
+    def list_repositories(self, page: int = 1) -> list[str]:
+        # Proactively refresh token if it's close to expiring to avoid intermittent 401s
+        try:
+            if self.access_token_expired():
+                self.refresh_access_token()
+        except Exception:
+            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
 
-        response = requests.get(
-            f"https://api.github.com/installation/repositories?page={page}&per_page=100",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
+        def fetch() -> requests.Response:
+            access_token = self.integration.sensitive_config.get("access_token")
+            return requests.get(
+                f"https://api.github.com/installation/repositories?page={page}&per_page=100",
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            )
+
+        response = fetch()
+
+        # If unauthorized, try a single refresh and retry
+        if response.status_code == 401:
+            try:
+                self.refresh_access_token()
+            except Exception:
+                logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
+            else:
+                response = fetch()
+
+        try:
+            body = response.json()
+        except Exception:
+            logger.warning(
+                "GitHubIntegration: list_repositories non-JSON response",
+                status_code=response.status_code,
+            )
+            return []
+
+        repositories = body.get("repositories")
+        if response.status_code == 200 and isinstance(repositories, list):
+            names: list[str] = [
+                repo["name"] for repo in repositories if isinstance(repo, dict) and isinstance(repo.get("name"), str)
+            ]
+            return names
+
+        logger.warning(
+            "GitHubIntegration: failed to list repositories",
+            status_code=response.status_code,
+            error=body if isinstance(body, dict) else None,
         )
-
-        repositories = response.json()["repositories"]
-        return [repo["name"] for repo in repositories]
+        return []
 
     def create_issue(self, config: dict[str, str]):
         title: str = config.pop("title")
@@ -1251,6 +1492,257 @@ class GitHubIntegration:
         issue = response.json()
 
         return {"number": issue["number"], "repository": repository}
+
+    def get_default_branch(self, repository: str) -> str:
+        """Get the default branch for a repository."""
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        response = requests.get(
+            f"https://api.github.com/repos/{org}/{repository}",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        if response.status_code == 200:
+            repo_data = response.json()
+            return repo_data.get("default_branch", "main")
+        else:
+            return "main"
+
+    def create_branch(self, repository: str, branch_name: str, base_branch: str | None = None) -> dict[str, Any]:
+        """Create a new branch from a base branch."""
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        # Get the SHA of the base branch (default to repository's default branch)
+        if not base_branch:
+            base_branch = self.get_default_branch(repository)
+
+        # Get the SHA of the base branch
+        ref_response = requests.get(
+            f"https://api.github.com/repos/{org}/{repository}/git/ref/heads/{base_branch}",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        if ref_response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to get base branch {base_branch}: {ref_response.text}",
+            }
+
+        base_sha = ref_response.json()["object"]["sha"]
+
+        # Create the new branch
+        response = requests.post(
+            f"https://api.github.com/repos/{org}/{repository}/git/refs",
+            json={
+                "ref": f"refs/heads/{branch_name}",
+                "sha": base_sha,
+            },
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        if response.status_code == 201:
+            branch_data = response.json()
+            return {
+                "success": True,
+                "branch_name": branch_name,
+                "sha": branch_data["object"]["sha"],
+                "ref": branch_data["ref"],
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Failed to create branch: {response.text}",
+                "status_code": response.status_code,
+            }
+
+    def update_file(
+        self, repository: str, file_path: str, content: str, commit_message: str, branch: str, sha: str | None = None
+    ) -> dict[str, Any]:
+        """Create or update a file in the repository."""
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        # If no SHA provided, try to get existing file's SHA
+        if not sha:
+            get_response = requests.get(
+                f"https://api.github.com/repos/{org}/{repository}/contents/{file_path}",
+                params={"ref": branch},
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            )
+            if get_response.status_code == 200:
+                sha = get_response.json()["sha"]
+
+        encoded_content = base64.b64encode(content.encode("utf-8")).decode("utf-8")
+
+        data = {
+            "message": commit_message,
+            "content": encoded_content,
+            "branch": branch,
+        }
+
+        if sha:
+            data["sha"] = sha
+
+        response = requests.put(
+            f"https://api.github.com/repos/{org}/{repository}/contents/{file_path}",
+            json=data,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        if response.status_code in [200, 201]:
+            commit_data = response.json()
+            return {
+                "success": True,
+                "commit_sha": commit_data["commit"]["sha"],
+                "file_sha": commit_data["content"]["sha"],
+                "html_url": commit_data["commit"]["html_url"],
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Failed to update file: {response.text}",
+                "status_code": response.status_code,
+            }
+
+    def create_pull_request(
+        self, repository: str, title: str, body: str, head_branch: str, base_branch: str | None = None
+    ) -> dict[str, Any]:
+        """Create a pull request."""
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        if not base_branch:
+            base_branch = self.get_default_branch(repository)
+
+        response = requests.post(
+            f"https://api.github.com/repos/{org}/{repository}/pulls",
+            json={
+                "title": title,
+                "body": body,
+                "head": head_branch,
+                "base": base_branch,
+            },
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        if response.status_code == 201:
+            pr_data = response.json()
+            return {
+                "success": True,
+                "pr_number": pr_data["number"],
+                "pr_url": pr_data["html_url"],
+                "pr_id": pr_data["id"],
+                "state": pr_data["state"],
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Failed to create pull request: {response.text}",
+                "status_code": response.status_code,
+            }
+
+    def get_branch_info(self, repository: str, branch_name: str) -> dict[str, Any]:
+        """Get information about a specific branch."""
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        response = requests.get(
+            f"https://api.github.com/repos/{org}/{repository}/branches/{branch_name}",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        if response.status_code == 200:
+            branch_data = response.json()
+            return {
+                "success": True,
+                "exists": True,
+                "branch_name": branch_data["name"],
+                "commit_sha": branch_data["commit"]["sha"],
+                "protected": branch_data.get("protected", False),
+            }
+        elif response.status_code == 404:
+            return {
+                "success": True,
+                "exists": False,
+                "branch_name": branch_name,
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Failed to get branch info: {response.text}",
+                "status_code": response.status_code,
+            }
+
+    def list_pull_requests(self, repository: str, state: str = "open") -> dict[str, Any]:
+        """List pull requests for a repository."""
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        params: dict[str, str | int] = {"state": state, "per_page": 100}
+        response = requests.get(
+            f"https://api.github.com/repos/{org}/{repository}/pulls",
+            params=params,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        if response.status_code == 200:
+            prs = response.json()
+            return {
+                "success": True,
+                "pull_requests": [
+                    {
+                        "number": pr["number"],
+                        "title": pr["title"],
+                        "url": pr["html_url"],
+                        "state": pr["state"],
+                        "head_branch": pr["head"]["ref"],
+                        "base_branch": pr["base"]["ref"],
+                        "created_at": pr["created_at"],
+                        "updated_at": pr["updated_at"],
+                    }
+                    for pr in prs
+                ],
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Failed to list pull requests: {response.text}",
+                "status_code": response.status_code,
+            }
 
 
 class MetaAdsIntegration:
@@ -1348,3 +1840,103 @@ class TwilioIntegration:
             integration.save()
 
         return integration
+
+
+class DatabricksIntegrationError(Exception):
+    """Error raised when the Databricks integration is not valid."""
+
+    pass
+
+
+class DatabricksIntegration:
+    """A Databricks integration.
+
+    The recommended way to connect to Databricks is via OAuth machine-to-machine (M2M) authentication.
+    See: https://docs.databricks.com/aws/en/dev-tools/python-sql-connector#oauth-machine-to-machine-m2m-authentication
+
+    This works quite differently to regular user-to-machine OAuth as it does not require a real-time user sign in and
+    consent flow: Instead, the user creates a service principal and provided us with the client ID and client secret to authenticate.
+
+    Attributes:
+        integration: The integration object.
+        server_hostname: the Server Hostname value for user's all-purpose compute or SQL warehouse.
+        client_id: the service principal's UUID or Application ID value.
+        client_secret: the Secret value for the service principal's OAuth secret.
+    """
+
+    integration: Integration
+    server_hostname: str
+    client_id: str
+    client_secret: str
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != Integration.IntegrationKind.DATABRICKS.value:
+            raise DatabricksIntegrationError("Integration provided is not a Databricks integration")
+        self.integration = integration
+
+        try:
+            self.server_hostname = self.integration.config["server_hostname"]
+            self.client_id = self.integration.sensitive_config["client_id"]
+            self.client_secret = self.integration.sensitive_config["client_secret"]
+        except KeyError as e:
+            raise DatabricksIntegrationError(f"Databricks integration is not valid: {str(e)} missing")
+
+    @classmethod
+    def integration_from_config(
+        cls, team_id: int, server_hostname: str, client_id: str, client_secret: str, created_by: User | None = None
+    ) -> Integration:
+        # first, validate the host
+        cls.validate_host(server_hostname)
+
+        config = {
+            "server_hostname": server_hostname,
+        }
+        sensitive_config = {
+            "client_id": client_id,
+            "client_secret": client_secret,
+        }
+        integration, _ = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.DATABRICKS.value,
+            integration_id=server_hostname,  # Use server_hostname as unique identifier
+            defaults={
+                "config": config,
+                "sensitive_config": sensitive_config,
+                "created_by": created_by,
+            },
+        )
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
+
+    @staticmethod
+    def validate_host(server_hostname: str):
+        """Validate the Databricks host.
+
+        This is a quick check to ensure the host is valid and that we can connect to it (testing connectivity to a SQL
+        warehouse requires a warehouse http_path in addition to these parameters so it not possible to perform a full
+        test here)
+        """
+        # we expect a hostname, not a full URL
+        if server_hostname.startswith("http"):
+            raise DatabricksIntegrationError(
+                f"Databricks integration is not valid: 'server_hostname' should not be a full URL"
+            )
+        # TCP connectivity check
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(3.0)
+            # we only support https
+            port = 443
+            sock.connect((server_hostname, port))
+            sock.close()
+        except OSError:
+            raise DatabricksIntegrationError(
+                f"Databricks integration error: could not connect to hostname '{server_hostname}'"
+            )
+        except Exception:
+            raise DatabricksIntegrationError(
+                f"Databricks integration error: could not connect to hostname '{server_hostname}'"
+            )

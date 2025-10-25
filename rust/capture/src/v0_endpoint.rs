@@ -1,4 +1,3 @@
-use std::ops::Deref;
 use std::sync::Arc;
 
 use axum::{debug_handler, Json};
@@ -7,7 +6,6 @@ use bytes::Bytes;
 use axum::extract::{MatchedPath, Query, State};
 use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
-use base64::Engine;
 use chrono::{DateTime, Duration, Utc};
 use common_types::{CapturedEvent, RawEvent};
 use limiters::token_dropper::TokenDropper;
@@ -16,89 +14,27 @@ use serde_json::json;
 use serde_json::Value;
 use tracing::{debug, error, instrument, warn, Span};
 
-use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
-use crate::v0_request::{
-    Compression, DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext, RawRequest,
-};
 use crate::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
-    router, sinks,
+    prometheus::{report_dropped_events, report_internal_error_metrics},
+    router, sinks, timestamp,
     utils::{
         decode_base64, decode_form, extract_and_verify_token, extract_compression,
         extract_lib_version, is_likely_base64, is_likely_urlencoded_form, uuid_v7, Base64Option,
         FORM_MIME_TYPE, MAX_PAYLOAD_SNIPPET_SIZE,
     },
-    v0_request::{EventFormData, EventQuery},
+    v0_request::{
+        DataType, EventFormData, EventQuery, ProcessedEvent, ProcessedEventMetadata,
+        ProcessingContext, RawRequest,
+    },
 };
 
 // EXAMPLE: use verbose_sample_percent env var to capture extra logging/metric details of interest
 // let roll = thread_rng().with_borrow_mut(|rng| rng.gen_range(0.0..100.0));
 // if roll < verbose_sample_percent { ... }
 
-/// Check if an event is a survey-related event that should be subject to survey quota limiting
-fn is_survey_event(event_name: &str) -> bool {
-    matches!(
-        event_name,
-        "survey sent" | "survey shown" | "survey dismissed"
-    )
-}
-
-/// Check for survey quota limiting and filter out survey events if quota exceeded
-/// Simple all-or-nothing operation: if survey quota is exceeded, drop all survey events.
-async fn check_survey_quota_and_filter(
-    state: &crate::router::State,
-    context: &ProcessingContext,
-    events: Vec<RawEvent>,
-) -> Result<Vec<RawEvent>, CaptureError> {
-    let survey_limited = state
-        .survey_limiter
-        .is_limited(context.token.as_str())
-        .await;
-
-    if survey_limited {
-        // Drop all survey events when quota is exceeded
-        let (survey_events, non_survey_events): (Vec<_>, Vec<_>) = events
-            .into_iter()
-            .partition(|event| is_survey_event(&event.event));
-
-        let dropped_count = survey_events.len();
-        if dropped_count > 0 {
-            report_dropped_events("survey_over_quota", dropped_count as u64);
-        }
-
-        // If no events remain, return billing limit error
-        if non_survey_events.is_empty() {
-            return Err(CaptureError::BillingLimit);
-        }
-
-        return Ok(non_survey_events);
-    }
-
-    Ok(events)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_is_survey_event() {
-        // Survey events should return true
-        assert!(is_survey_event("survey sent"));
-        assert!(is_survey_event("survey shown"));
-        assert!(is_survey_event("survey dismissed"));
-
-        // Non-survey events should return false
-        assert!(!is_survey_event("pageview"));
-        assert!(!is_survey_event("$pageview"));
-        assert!(!is_survey_event("click"));
-        assert!(!is_survey_event("survey_sent")); // underscore variant
-        assert!(!is_survey_event("Survey Sent")); // case sensitivity
-        assert!(!is_survey_event(""));
-    }
-}
-
-/// handle_legacy owns the /e, /capture, /track, and /engage capture endpoints
+/// handle_event_payload owns processing of request payloads for the
+/// /i/v0/e/, /batch/, /e/, /capture/, /track/, and /engage/ endpoints
 #[instrument(
     skip_all,
     fields(
@@ -117,7 +53,7 @@ mod tests {
         batch_size
     )
 )]
-async fn handle_legacy(
+async fn handle_event_payload(
     state: &State<router::State>,
     InsecureClientIp(ip): &InsecureClientIp,
     query_params: &mut EventQuery,
@@ -156,21 +92,10 @@ async fn handle_legacy(
         .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
     Span::current().record("request_id", request_id);
 
-    // TODO(eli): temporary peek at these
-    if query_params.lib_version.is_some() {
-        Span::current().record(
-            "params_lib_version",
-            format!("{:?}", query_params.lib_version.as_ref()),
-        );
-    }
-    if query_params.compression.is_some() {
-        Span::current().record(
-            "params_compression",
-            format!("{}", query_params.compression.unwrap()),
-        );
-    }
+    let is_mirror_deploy = state.is_mirror_deploy;
+    Span::current().record("is_mirror_deploy", is_mirror_deploy);
 
-    debug!("entering handle_legacy");
+    debug!("entering handle_event_payload");
 
     // unpack the payload - it may be in a GET query param or POST body
     let raw_payload: Bytes = if query_params.data.as_ref().is_some_and(|d| !d.is_empty()) {
@@ -238,7 +163,7 @@ async fn handle_legacy(
 
     // different SDKs stash these in different places. take the best we find
     let compression = extract_compression(&form, query_params, headers);
-    Span::current().record("compression", format!("{}", compression));
+    Span::current().record("compression", format!("{compression}"));
     let lib_version = extract_lib_version(&form, query_params);
     Span::current().record("lib_version", &lib_version);
 
@@ -279,190 +204,32 @@ async fn handle_legacy(
 
     counter!("capture_events_received_total", &[("legacy", "true")]).increment(events.len() as u64);
 
+    let now = state.timesource.current_time();
+
     let context = ProcessingContext {
         lib_version,
         sent_at,
         token,
-        now: state.timesource.current_time(),
+        now,
         client_ip: ip.to_string(),
         request_id: request_id.to_string(),
         path: path.as_str().to_string(),
-        is_mirror_deploy: false,
+        is_mirror_deploy,
         historical_migration,
         user_agent: Some(user_agent.to_string()),
     };
 
-    let billing_limited = state
-        .billing_limiter
-        .is_limited(context.token.as_str())
-        .await;
-
-    if billing_limited {
-        let start_len = events.len();
-        // TODO - right now the exception billing limits are applied only in ET's pipeline,
-        // we should apply both ET and PA limits here, and remove both types of events as needed.
-        events.retain(|e| e.event == "$exception" || is_survey_event(&e.event));
-        report_dropped_events("over_quota", (start_len - events.len()) as u64);
-        if events.is_empty() {
-            return Err(CaptureError::BillingLimit);
-        }
-    }
-
-    // Check for survey quota limiting if any events are survey-related
-    events = check_survey_quota_and_filter(state, &context, events).await?;
+    // Apply all billing limit quotas and drop partial or whole
+    // payload if any are exceeded for this token (team)
+    debug!(context=?context, event_count=?events.len(), "handle_event_payload: evaluating quota limits");
+    events = state
+        .quota_limiter
+        .check_and_filter(&context, events)
+        .await?;
 
     debug!(context=?context,
         event_count=?events.len(),
-        "handle_legacy: successfully hydrated events");
-    Ok((context, events))
-}
-
-/// Flexible endpoint that targets wide compatibility with the wide range of requests
-/// currently processed by posthog-events (analytics events capture). Replay is out
-/// of scope and should be processed on a separate endpoint.
-///
-/// Because it must accommodate several shapes, it is inefficient in places. A v1
-/// endpoint should be created, that only accepts the BatchedRequest payload shape.
-///
-/// NOTE: handle_common owns the /i and /batch capture endpoints
-async fn handle_common(
-    state: &State<router::State>,
-    InsecureClientIp(ip): &InsecureClientIp,
-    meta: &EventQuery,
-    headers: &HeaderMap,
-    method: &Method,
-    path: &MatchedPath,
-    body: Bytes,
-) -> Result<(ProcessingContext, Vec<RawEvent>), CaptureError> {
-    let user_agent = headers
-        .get("user-agent")
-        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
-    let content_encoding = headers
-        .get("content-encoding")
-        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
-    let request_id = headers
-        .get("x-request-id")
-        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
-    Span::current().record("user_agent", user_agent);
-    Span::current().record("content_encoding", content_encoding);
-    Span::current().record("request_id", request_id);
-    Span::current().record("method", method.as_str());
-    Span::current().record("path", path.as_str().trim_end_matches('/'));
-
-    // TODO(eli): add event_legacy compression and lib_version extraction into this flow if we don't unify entirely
-    let resolved_cmp = format!("{}", meta.compression.unwrap_or_default());
-    Span::current().record("version", meta.lib_version.clone());
-    Span::current().record("compression", resolved_cmp);
-
-    let request = match headers
-        .get("content-type")
-        .map_or("", |v| v.to_str().unwrap_or(""))
-    {
-        "application/x-www-form-urlencoded" => {
-            Span::current().record("content_type", "application/x-www-form-urlencoded");
-
-            let input: EventFormData = serde_urlencoded::from_bytes(body.deref()).map_err(|e| {
-                error!("failed to decode urlencoded form body: {}", e);
-                CaptureError::RequestDecodingError(String::from("invalid urlencoded form data"))
-            })?;
-
-            if input.data.is_none() || input.data.as_ref().is_some_and(|d| d.is_empty()) {
-                return Err(CaptureError::EmptyPayload);
-            }
-
-            let payload = base64::engine::general_purpose::STANDARD
-                .decode(input.data.unwrap())
-                .map_err(|e| {
-                    error!("failed to decode base64 form data: {}", e);
-                    CaptureError::RequestDecodingError(String::from(
-                        "missing or invalid data field",
-                    ))
-                })?;
-
-            // by setting compression "unsupported" here, we route handle_common
-            // outputs into the old RawRequest hydration behavior, prior to adding
-            // handle_legacy shims. handle_common doesn't extract compression hints
-            // as reliably as it should, and is probably losing some data due to
-            // this. We'll circle back once the legacy shims ship
-            RawRequest::from_bytes(
-                payload.into(),
-                Compression::Unsupported,
-                request_id,
-                state.event_size_limit,
-                path.as_str().to_string(),
-            )
-        }
-        ct => {
-            Span::current().record("content_type", ct);
-            // see above for details
-            RawRequest::from_bytes(
-                body,
-                Compression::Unsupported,
-                request_id,
-                state.event_size_limit,
-                path.as_str().to_string(),
-            )
-        }
-    }?;
-
-    let sent_at = request.sent_at().or(meta.sent_at());
-    let historical_migration = request.historical_migration();
-    Span::current().record("historical_migration", historical_migration);
-
-    // if this was a batch request, retrieve this now for later validation
-    let maybe_batch_token = request.get_batch_token();
-
-    // consumes the parent request, so it's no longer in scope to extract metadata from
-    let mut events = match request.events(path.as_str()) {
-        Ok(events) => events,
-        Err(e) => return Err(e),
-    };
-    Span::current().record("batch_size", events.len());
-
-    let token = match extract_and_verify_token(&events, maybe_batch_token) {
-        Ok(token) => token,
-        Err(err) => {
-            return Err(err);
-        }
-    };
-    Span::current().record("token", &token);
-
-    counter!("capture_events_received_total").increment(events.len() as u64);
-
-    let context = ProcessingContext {
-        lib_version: meta.lib_version.clone(),
-        sent_at,
-        token,
-        now: state.timesource.current_time(),
-        client_ip: ip.to_string(),
-        request_id: request_id.to_string(),
-        path: path.as_str().to_string(),
-        is_mirror_deploy: false,
-        historical_migration,
-        user_agent: Some(user_agent.to_string()),
-    };
-
-    let billing_limited = state
-        .billing_limiter
-        .is_limited(context.token.as_str())
-        .await;
-
-    if billing_limited {
-        let start_len = events.len();
-        // TODO - right now the exception billing limits are applied only in ET's pipeline,
-        // we should apply both ET and PA limits here, and remove both types of events as needed.
-        events.retain(|e| e.event == "$exception" || is_survey_event(&e.event));
-        report_dropped_events("over_quota", (start_len - events.len()) as u64);
-        if events.is_empty() {
-            return Err(CaptureError::BillingLimit);
-        }
-    }
-
-    // Check for survey quota limiting if any events are survey-related
-    events = check_survey_quota_and_filter(state, &context, events).await?;
-
-    debug!(context=?context, events=?events, "decoded request");
-
+        "handle_event_payload: successfully hydrated events");
     Ok((context, events))
 }
 
@@ -471,7 +238,7 @@ async fn handle_common(
     fields(params_lib_version, params_compression)
 )]
 #[debug_handler]
-pub async fn event_legacy(
+pub async fn event(
     state: State<router::State>,
     ip: InsecureClientIp,
     meta: Query<EventQuery>,
@@ -496,7 +263,7 @@ pub async fn event_legacy(
         );
     }
 
-    match handle_legacy(&state, &ip, &mut params, &headers, &method, &path, body).await {
+    match handle_event_payload(&state, &ip, &mut params, &headers, &method, &path, body).await {
         Err(CaptureError::BillingLimit) => {
             // Short term: return OK here to avoid clients retrying over and over
             // Long term: v1 endpoints will return richer errors, sync w/SDK behavior
@@ -516,8 +283,12 @@ pub async fn event_legacy(
         }
 
         Err(err) => {
-            report_internal_error_metrics(err.to_metric_tag(), "parsing");
-            error!("event_legacy: request payload processing error: {:?}", err);
+            report_internal_error_metrics(
+                err.to_metric_tag(),
+                "parsing",
+                state.capture_mode.as_tag(),
+            );
+            error!("event: request payload parsing error: {:?}", err);
             Err(err)
         }
 
@@ -532,93 +303,12 @@ pub async fn event_legacy(
             .await
             {
                 report_dropped_events(err.to_metric_tag(), events.len() as u64);
-                report_internal_error_metrics(err.to_metric_tag(), "processing");
-                error!("event_legacy: rejected invalid payload: {}", err);
-                return Err(err);
-            }
-
-            Ok(CaptureResponse {
-                status: if params.beacon {
-                    CaptureResponseCode::NoContent
-                } else {
-                    CaptureResponseCode::Ok
-                },
-                quota_limited: None,
-            })
-        }
-    }
-}
-
-#[instrument(
-    skip_all,
-    fields(
-        path,
-        token,
-        batch_size,
-        user_agent,
-        content_encoding,
-        content_type,
-        version,
-        compression,
-        historical_migration
-    )
-)]
-#[debug_handler]
-pub async fn event(
-    state: State<router::State>,
-    ip: InsecureClientIp,
-    params: Query<EventQuery>,
-    headers: HeaderMap,
-    method: Method,
-    path: MatchedPath,
-    body: Bytes,
-) -> Result<CaptureResponse, CaptureError> {
-    match handle_common(&state, &ip, &params, &headers, &method, &path, body).await {
-        Err(CaptureError::BillingLimit) => {
-            // for v0 we want to just return ok 🙃
-            // this is because the clients are pretty dumb and will just retry over and over and
-            // over...
-            //
-            // for v1, we'll return a meaningful error code and error, so that the clients can do
-            // something meaningful with that error
-            Ok(CaptureResponse {
-                status: CaptureResponseCode::Ok,
-                quota_limited: None,
-            })
-        }
-
-        Err(CaptureError::EmptyPayloadFiltered) => {
-            // as per legacy behavior, for now we'll silently accept these submissions
-            // when invalid event type filtering has resulted in an empty event payload
-            Ok(CaptureResponse {
-                status: CaptureResponseCode::Ok,
-                quota_limited: None,
-            })
-        }
-
-        Err(err) => {
-            report_internal_error_metrics(err.to_metric_tag(), "parsing");
-            Err(err)
-        }
-
-        Ok((context, events)) => {
-            if let Err(err) = process_events(
-                state.sink.clone(),
-                state.token_dropper.clone(),
-                state.historical_cfg.clone(),
-                &events,
-                &context,
-            )
-            .await
-            {
-                let cause = match err {
-                    CaptureError::MissingDistinctId => "missing_distinct_id",
-                    CaptureError::MissingEventName => "missing_event_name",
-                    _ => "process_events_error",
-                };
-                report_dropped_events(cause, events.len() as u64);
-                report_internal_error_metrics(err.to_metric_tag(), "processing");
-                warn!("rejected invalid payload: {}", err);
+                report_internal_error_metrics(
+                    err.to_metric_tag(),
+                    "processing",
+                    state.capture_mode.as_tag(),
+                );
+                warn!("event: rejected payload: {}", err);
                 return Err(err);
             }
 
@@ -652,24 +342,38 @@ pub async fn event(
 pub async fn recording(
     state: State<router::State>,
     ip: InsecureClientIp,
-    params: Query<EventQuery>,
+    meta: Query<EventQuery>,
     headers: HeaderMap,
     method: Method,
     path: MatchedPath,
     body: Bytes,
 ) -> Result<CaptureResponse, CaptureError> {
-    match handle_common(&state, &ip, &params, &headers, &method, &path, body).await {
+    let mut params: EventQuery = meta.0;
+
+    match handle_event_payload(&state, &ip, &mut params, &headers, &method, &path, body).await {
         Err(CaptureError::BillingLimit) => Ok(CaptureResponse {
             status: CaptureResponseCode::Ok,
             quota_limited: Some(vec!["recordings".to_string()]),
         }),
-        Err(err) => Err(err),
+        Err(err) => {
+            report_internal_error_metrics(
+                err.to_metric_tag(),
+                "parsing",
+                state.capture_mode.as_tag(),
+            );
+            error!("recordings: request payload parsing error: {:?}", err);
+            Err(err)
+        }
         Ok((context, events)) => {
             let count = events.len() as u64;
             if let Err(err) = process_replay_events(state.sink.clone(), events, &context).await {
                 report_dropped_events(err.to_metric_tag(), count);
-                report_internal_error_metrics(err.to_metric_tag(), "process_replay_events");
-                warn!("rejected invalid payload: {:?}", err);
+                report_internal_error_metrics(
+                    err.to_metric_tag(),
+                    "processing",
+                    state.capture_mode.as_tag(),
+                );
+                warn!("recordings:rejected payload: {:?}", err);
                 return Err(err);
             }
             Ok(CaptureResponse {
@@ -714,23 +418,47 @@ pub fn process_single_event(
 
     // only should be used to check if historical topic
     // rerouting should be applied to this event
-    let raw_event_timestamp =
-        event
-            .timestamp
-            .as_ref()
-            .and_then(|ts| match DateTime::parse_from_rfc3339(ts) {
-                Ok(dt) => Some(dt),
-                Err(_) => None,
-            });
+    let raw_event_timestamp = event
+        .timestamp
+        .as_ref()
+        .and_then(|ts| DateTime::parse_from_rfc3339(ts).ok());
+
+    // redact the IP address of internally-generated events when tagged as such
+    let resolved_ip = if event.properties.contains_key("capture_internal") {
+        "127.0.0.1".to_string()
+    } else {
+        context.client_ip.clone()
+    };
 
     let data = serde_json::to_string(&event).map_err(|e| {
         error!("failed to encode data field: {}", e);
         CaptureError::NonRetryableSinkError
     })?;
 
+    // Compute the actual event timestamp using our timestamp parsing logic
+    let sent_at_utc = context.sent_at.map(|sa| {
+        DateTime::from_timestamp(sa.unix_timestamp(), sa.nanosecond()).unwrap_or_default()
+    });
+    let ignore_sent_at = event
+        .properties
+        .get("$ignore_sent_at")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    // Parse the event timestamp
+    let computed_timestamp = timestamp::parse_event_timestamp(
+        event.timestamp.as_deref(),
+        event.offset,
+        sent_at_utc,
+        ignore_sent_at,
+        context.now,
+    );
+
     let mut metadata = ProcessedEventMetadata {
         data_type,
         session_id: None,
+        computed_timestamp: Some(computed_timestamp),
+        event_name: event.event.clone(),
     };
 
     let event = CapturedEvent {
@@ -738,9 +466,11 @@ pub fn process_single_event(
         distinct_id: event
             .extract_distinct_id()
             .ok_or(CaptureError::MissingDistinctId)?,
-        ip: context.client_ip.clone(),
+        ip: resolved_ip,
         data,
-        now: context.now.clone(),
+        now: context
+            .now
+            .to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true),
         sent_at: context.sent_at,
         token: context.token.clone(),
         is_cookieless_mode: event
@@ -830,6 +560,24 @@ pub async fn process_replay_events<'a>(
 ) -> Result<(), CaptureError> {
     Span::current().record("request_id", &context.request_id);
 
+    // Compute the actual event timestamp using our timestamp parsing logic from the first event
+    let sent_at_utc = context.sent_at.map(|sa| {
+        DateTime::from_timestamp(sa.unix_timestamp(), sa.nanosecond()).unwrap_or_default()
+    });
+    let ignore_sent_at = events[0]
+        .properties
+        .get("$ignore_sent_at")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let computed_timestamp = timestamp::parse_event_timestamp(
+        events[0].timestamp.as_deref(),
+        events[0].offset,
+        sent_at_utc,
+        ignore_sent_at,
+        context.now,
+    );
+
     // Grab metadata about the whole batch from the first event before
     // we drop all the events as we rip out the snapshot data
     let session_id = events[0]
@@ -900,6 +648,8 @@ pub async fn process_replay_events<'a>(
     let metadata = ProcessedEventMetadata {
         data_type: DataType::SnapshotMain,
         session_id: Some(session_id_str.to_string()),
+        computed_timestamp: Some(computed_timestamp), // Use computed event timestamp
+        event_name: "$snapshot_items".to_string(),
     };
 
     let event = CapturedEvent {
@@ -918,7 +668,9 @@ pub async fn process_replay_events<'a>(
             }
         })
         .to_string(),
-        now: context.now.clone(),
+        now: context
+            .now
+            .to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true),
         sent_at: context.sent_at,
         token: context.token.clone(),
         is_cookieless_mode,
@@ -934,4 +686,146 @@ fn snapshot_library_fallback_from(user_agent: Option<&String>) -> Option<String>
         .map(|s| s.to_string())
         .filter(|s| s.contains("posthog"))
         .or(Some("web".to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::v0_request::ProcessingContext;
+    use chrono::{DateTime, TimeZone, Utc};
+    use common_types::RawEvent;
+    use serde_json::json;
+    use std::collections::HashMap;
+    use time::OffsetDateTime;
+
+    fn create_test_context(
+        now: DateTime<Utc>,
+        sent_at: Option<OffsetDateTime>,
+    ) -> ProcessingContext {
+        ProcessingContext {
+            lib_version: None,
+            user_agent: None,
+            sent_at,
+            token: "test_token".to_string(),
+            now,
+            client_ip: "127.0.0.1".to_string(),
+            request_id: "test_request".to_string(),
+            path: "/e/".to_string(),
+            is_mirror_deploy: false,
+            historical_migration: false,
+        }
+    }
+
+    fn create_test_event(
+        timestamp: Option<String>,
+        offset: Option<i64>,
+        ignore_sent_at: Option<bool>,
+    ) -> RawEvent {
+        let mut properties = HashMap::new();
+        if let Some(ignore) = ignore_sent_at {
+            properties.insert("$ignore_sent_at".to_string(), json!(ignore));
+        }
+        properties.insert("distinct_id".to_string(), json!("test_user"));
+
+        RawEvent {
+            uuid: Some(uuid_v7()),
+            distinct_id: None,
+            event: "test_event".to_string(),
+            properties,
+            timestamp,
+            offset,
+            set: Some(HashMap::new()),
+            set_once: Some(HashMap::new()),
+            token: Some("test_token".to_string()),
+        }
+    }
+
+    #[test]
+    fn test_process_single_event_with_invalid_sent_at() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        // In real code, invalid sent_at would fail to parse and result in sent_at being None
+        let context = create_test_context(now, None);
+
+        let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
+
+        let historical_cfg = router::HistoricalConfig::new(false, 1, None);
+        let result = process_single_event(&event, historical_cfg, &context);
+
+        // Should succeed and use the event timestamp directly since sent_at is None
+        assert!(result.is_ok());
+        let processed = result.unwrap();
+
+        // The computed timestamp should be the event timestamp since no sent_at was provided
+        let expected = DateTime::parse_from_rfc3339("2023-01-01T11:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        assert_eq!(processed.metadata.computed_timestamp, Some(expected));
+    }
+
+    #[test]
+    fn test_process_single_event_with_valid_sent_at() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        // Create a valid sent_at
+        let sent_at = OffsetDateTime::parse(
+            "2023-01-01T12:00:05Z",
+            &time::format_description::well_known::Rfc3339,
+        )
+        .unwrap();
+        let context = create_test_context(now, Some(sent_at));
+
+        let event = create_test_event(
+            Some("2023-01-01T11:59:55Z".to_string()), // 10 seconds before sent_at
+            None,
+            None,
+        );
+
+        let historical_cfg = router::HistoricalConfig::new(false, 1, None);
+        let result = process_single_event(&event, historical_cfg, &context);
+
+        // Should succeed and apply clock skew correction
+        assert!(result.is_ok());
+        let processed = result.unwrap();
+
+        // Expected: now + (timestamp - sent_at) = 12:00:00 + (11:59:55 - 12:00:05) = 12:00:00 - 00:00:10 = 11:59:50
+        let expected = Utc.with_ymd_and_hms(2023, 1, 1, 11, 59, 50).unwrap();
+        assert_eq!(processed.metadata.computed_timestamp, Some(expected));
+    }
+
+    #[test]
+    fn test_process_single_event_ignore_sent_at() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        let sent_at = OffsetDateTime::parse(
+            "2023-01-01T12:00:05Z",
+            &time::format_description::well_known::Rfc3339,
+        )
+        .unwrap();
+        let context = create_test_context(now, Some(sent_at));
+
+        let event = create_test_event(
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            Some(true), // $ignore_sent_at = true
+        );
+
+        let historical_cfg = router::HistoricalConfig::new(false, 1, None);
+        let result = process_single_event(&event, historical_cfg, &context);
+
+        // Should succeed and use timestamp directly, ignoring sent_at
+        assert!(result.is_ok());
+        let processed = result.unwrap();
+
+        let expected = DateTime::parse_from_rfc3339("2023-01-01T11:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        assert_eq!(processed.metadata.computed_timestamp, Some(expected));
+    }
 }

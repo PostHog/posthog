@@ -1,8 +1,9 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import escapeStringRegexp from 'escape-string-regexp'
 import equal from 'fast-deep-equal'
 import { Summary } from 'prom-client'
 import RE2 from 're2'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import {
     Action,

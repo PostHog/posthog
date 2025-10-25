@@ -1,9 +1,11 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
-import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -14,7 +16,6 @@ import type { environmentRollbackModalLogicType } from './environmentRollbackMod
 export interface Team {
     id: number
     name: string
-    access_control: boolean
     project_id: number
 }
 
@@ -103,7 +104,6 @@ export const environmentRollbackModalLogic = kea<environmentRollbackModalLogicTy
                         project.environments.push({
                             id: team.id,
                             name: team.name,
-                            access_control: team.access_control,
                             project_id: team.project_id,
                         })
                     }

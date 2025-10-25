@@ -2,9 +2,9 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use aws_config::{meta::region::RegionProviderChain, Region};
 use aws_sdk_s3::{Client, Config};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tokio::fs;
-use tracing::{error, info, warn};
+use tracing::info;
 
 use super::config::CheckpointConfig;
 use super::uploader::CheckpointUploader;
@@ -28,68 +28,10 @@ impl S3Uploader {
         Ok(Self { client, config })
     }
 
-    fn collect_files_to_upload(
-        &self,
-        base_path: &Path,
-        s3_key_prefix: &str,
-    ) -> Result<Vec<(PathBuf, String)>> {
-        let mut files_to_upload = Vec::new();
-        let mut stack = vec![base_path.to_path_buf()];
-
-        while let Some(current_path) = stack.pop() {
-            let entries = std::fs::read_dir(&current_path)
-                .with_context(|| format!("Failed to read directory: {:?}", current_path))?;
-
-            for entry in entries {
-                let entry = entry?;
-                let path = entry.path();
-
-                if path.is_dir() {
-                    stack.push(path);
-                } else {
-                    let relative_path = path
-                        .strip_prefix(base_path)
-                        .with_context(|| format!("Failed to get relative path for: {:?}", path))?;
-
-                    let s3_key = format!(
-                        "{}/{}",
-                        s3_key_prefix,
-                        relative_path.to_string_lossy().replace('\\', "/")
-                    );
-
-                    files_to_upload.push((path, s3_key));
-                }
-            }
-        }
-
-        Ok(files_to_upload)
-    }
-
-    async fn upload_files(&self, files_to_upload: Vec<(PathBuf, String)>) -> Result<Vec<String>> {
-        let mut uploaded_keys = Vec::new();
-
-        for (local_path, s3_key) in files_to_upload {
-            match self.upload_file(&local_path, &s3_key).await {
-                Ok(()) => {
-                    uploaded_keys.push(s3_key);
-                }
-                Err(e) => {
-                    error!(
-                        "Failed to upload file {:?} to {}: {}",
-                        local_path, s3_key, e
-                    );
-                    return Err(e);
-                }
-            }
-        }
-
-        Ok(uploaded_keys)
-    }
-
     async fn upload_file(&self, local_path: &Path, s3_key: &str) -> Result<()> {
         let body = fs::read(local_path)
             .await
-            .with_context(|| format!("Failed to read file: {:?}", local_path))?;
+            .with_context(|| format!("Failed to read file: {local_path:?}"))?;
 
         let put_object = self
             .client
@@ -101,107 +43,78 @@ impl S3Uploader {
         // Apply timeout if configured
         let result = tokio::time::timeout(self.config.s3_timeout, put_object.send())
             .await
-            .with_context(|| format!("S3 upload timeout for key: {}", s3_key))?;
+            .with_context(|| format!("S3 upload timeout for key: {s3_key}"))?;
 
-        result.with_context(|| format!("Failed to upload to S3 key: {}", s3_key))?;
+        result.with_context(|| format!("Failed to upload to S3 key: {s3_key}"))?;
 
         info!(
-            "Uploaded file {:?} to s3://{}/{}",
-            local_path, self.config.s3_bucket, s3_key
+            "Uploaded file {local_path:?} to s3://{0}/{s3_key}",
+            self.config.s3_bucket
         );
-        Ok(())
-    }
-
-    async fn delete_object(&self, key: &str) -> Result<()> {
-        self.client
-            .delete_object()
-            .bucket(&self.config.s3_bucket)
-            .key(key)
-            .send()
-            .await
-            .with_context(|| format!("Failed to delete S3 object: {}", key))?;
-
-        info!("Deleted S3 object: {}", key);
         Ok(())
     }
 }
 
 #[async_trait]
 impl CheckpointUploader for S3Uploader {
-    async fn upload_checkpoint_dir(
+    async fn upload_checkpoint_with_plan(
         &self,
-        local_path: &Path,
-        s3_key_prefix: &str,
+        plan: &super::CheckpointPlan,
     ) -> Result<Vec<String>> {
-        if !local_path.exists() {
-            return Err(anyhow::anyhow!(
-                "Local checkpoint path does not exist: {:?}",
-                local_path
-            ));
-        }
-
         info!(
-            "Starting upload of checkpoint directory: {:?} to s3://{}/{}",
-            local_path, self.config.s3_bucket, s3_key_prefix
+            "Starting upload with plan: {} files to upload, {} files referenced from parents",
+            plan.files_to_upload.len(),
+            plan.info.metadata.files.len() - plan.files_to_upload.len()
         );
 
-        let files_to_upload = self.collect_files_to_upload(local_path, s3_key_prefix)?;
-        let uploaded_keys = self.upload_files(files_to_upload).await?;
-
-        info!("Successfully uploaded {} files to S3", uploaded_keys.len());
-        Ok(uploaded_keys)
-    }
-
-    async fn list_checkpoints(&self) -> Result<Vec<String>> {
-        let response = self
-            .client
-            .list_objects_v2()
-            .bucket(&self.config.s3_bucket)
-            .prefix(&self.config.s3_key_prefix)
-            .send()
-            .await
-            .context("Failed to list S3 objects")?;
-
-        let keys = response
-            .contents()
+        // Upload all files concurrently (upload_files is in serial atm)
+        let upload_futures: Vec<_> = plan
+            .files_to_upload
             .iter()
-            .filter_map(|obj| obj.key())
-            .map(|k| k.to_string())
+            .map(|local_file| {
+                let bucket: String = self.config.s3_bucket.clone();
+                let src = local_file.local_path.to_path_buf();
+                let dest: String = plan.info.get_file_key(&local_file.filename);
+
+                async move {
+                    self.upload_file(&src, &dest).await.with_context(|| {
+                        format!("Failed to upload file: {src:?} to s3://{bucket}/{dest}")
+                    })?;
+                    Ok::<String, anyhow::Error>(dest)
+                }
+            })
             .collect();
 
-        Ok(keys)
-    }
+        let uploaded_keys = futures::future::try_join_all(upload_futures)
+            .await
+            .with_context(|| format!("Failed to upload files with plan: {plan:?}"))?;
 
-    async fn cleanup_old_checkpoints(&self, keep_count: usize) -> Result<()> {
-        let mut checkpoint_keys = self.list_checkpoints().await?;
+        // Upload metadata.json - not using upload_file b/c meta is in memory and must be seriealized
+        let metadata_json = plan.info.metadata.to_json()?;
+        let metadata_key = plan.info.get_metadata_key();
+        let put_object = self
+            .client
+            .put_object()
+            .bucket(&self.config.s3_bucket)
+            .key(&metadata_key)
+            .body(metadata_json.into_bytes().into());
 
-        // Sort by key name (which should include timestamp)
-        checkpoint_keys.sort();
+        let result = tokio::time::timeout(self.config.s3_timeout, put_object.send())
+            .await
+            .with_context(|| format!("S3 upload timeout for key: {metadata_key}"))?;
 
-        if checkpoint_keys.len() <= keep_count {
-            return Ok(());
-        }
+        result.with_context(|| format!("Failed to upload metadata to S3 key: {metadata_key}"))?;
 
-        let keys_to_delete: Vec<String> = checkpoint_keys
-            .into_iter()
-            .rev() // Keep the most recent ones
-            .skip(keep_count)
-            .collect();
+        info!(
+            "Uploaded {} files and metadata file to s3://{}/{}",
+            plan.files_to_upload.len(),
+            self.config.s3_bucket,
+            plan.info.get_remote_attempt_path(),
+        );
 
-        if keys_to_delete.is_empty() {
-            return Ok(());
-        }
-
-        warn!("Deleting {} old checkpoints from S3", keys_to_delete.len());
-
-        for key in keys_to_delete {
-            if let Err(e) = self.delete_object(&key).await {
-                error!("Failed to delete S3 object {}: {}", key, e);
-                // Continue with other deletions
-            }
-        }
-
-        Ok(())
+        let mut all_keys = uploaded_keys;
+        all_keys.push(metadata_key);
+        Ok(all_keys)
     }
 
     async fn is_available(&self) -> bool {

@@ -1,11 +1,12 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
+
 import api from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getAppContext } from 'lib/utils/getAppContext'
-import posthog from 'posthog-js'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { AvailableFeature, OrganizationBasicType, ProductKey, UserRole, UserTheme, UserType } from '~/types'
@@ -30,9 +31,11 @@ export const userLogic = kea<userLogicType>([
         }),
         cancelEmailChangeRequest: true,
         setUserScenePersonalisation: (scene: DashboardCompatibleScenes, dashboard: number) => ({ scene, dashboard }),
-        updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean) => ({ productKey, value }),
+        updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean = true) => ({ productKey, value }),
         switchTeam: (teamId: string | number, destination?: string) => ({ teamId, destination }),
         deleteUser: true,
+        updateWeeklyDigestForTeam: (teamId: number, enabled: boolean) => ({ teamId, enabled }),
+        updateWeeklyDigestForAllTeams: (teamIds: number[], enabled: boolean) => ({ teamIds, enabled }),
     })),
     forms(({ actions }) => ({
         userDetails: {
@@ -234,6 +237,40 @@ export const userLogic = kea<userLogicType>([
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
 
             window.location.href = destination || urls.project(teamId)
+        },
+        updateWeeklyDigestForTeam: ({ teamId, enabled }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+
+            actions.updateUser({
+                notification_settings: {
+                    ...values.user.notification_settings,
+                    project_weekly_digest_disabled: {
+                        ...values.user.notification_settings.project_weekly_digest_disabled,
+                        [teamId]: !enabled,
+                    },
+                },
+            })
+        },
+        updateWeeklyDigestForAllTeams: ({ teamIds, enabled }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+
+            const projectWeeklyDigestSettings = {
+                ...values.user.notification_settings.project_weekly_digest_disabled,
+            }
+            teamIds?.forEach((teamId) => {
+                projectWeeklyDigestSettings[teamId] = !enabled
+            })
+
+            actions.updateUser({
+                notification_settings: {
+                    ...values.user.notification_settings,
+                    project_weekly_digest_disabled: projectWeeklyDigestSettings,
+                },
+            })
         },
     })),
     selectors({

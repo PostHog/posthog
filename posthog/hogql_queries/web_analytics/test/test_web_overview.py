@@ -1,33 +1,8 @@
+from datetime import UTC, datetime
 from typing import Optional
-from unittest.mock import MagicMock, patch
-from datetime import datetime, UTC
 from zoneinfo import ZoneInfo
 
-
 from freezegun import freeze_time
-
-from posthog.clickhouse.client.execute import sync_execute
-from posthog.hogql.constants import LimitContext
-from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
-from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import WebOverviewPreAggregatedQueryBuilder
-from posthog.models import Action, Element, Cohort
-from posthog.models.utils import uuid7
-from posthog.schema import (
-    CompareFilter,
-    CurrencyCode,
-    SessionPropertyFilter,
-    WebOverviewQuery,
-    DateRange,
-    SessionTableVersion,
-    HogQLQueryModifiers,
-    CustomEventConversionGoal,
-    ActionConversionGoal,
-    BounceRatePageViewMode,
-    WebOverviewQueryResponse,
-    RevenueCurrencyPropertyConfig,
-    RevenueAnalyticsEventItem,
-)
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -35,8 +10,34 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import MagicMock, patch
+
+from posthog.schema import (
+    ActionConversionGoal,
+    BounceRatePageViewMode,
+    CompareFilter,
+    CurrencyCode,
+    CustomEventConversionGoal,
+    DateRange,
+    HogQLQueryModifiers,
+    RevenueAnalyticsEventItem,
+    RevenueCurrencyPropertyConfig,
+    SessionPropertyFilter,
+    SessionTableVersion,
+    WebOverviewQuery,
+    WebOverviewQueryResponse,
+)
+
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
+
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import WebOverviewPreAggregatedQueryBuilder
+from posthog.models import Action, Cohort, Element
+from posthog.models.utils import uuid7
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 
 @snapshot_clickhouse_queries
@@ -992,7 +993,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     @freeze_time("2023-12-15T12:00:00Z")
-    def test_cannot_use_preaggregated_tables_with_conversion_goal(self):
+    def test_can_use_preaggregated_tables_with_conversion_goal(self):
         query = WebOverviewQuery(
             dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
             properties=[],
@@ -1000,8 +1001,8 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         runner = WebOverviewQueryRunner(team=self.team, query=query)
         pre_agg_builder = WebOverviewPreAggregatedQueryBuilder(runner)
-        self.assertFalse(
-            pre_agg_builder.can_use_preaggregated_tables(), "Should not use pre-aggregated tables with conversion goal"
+        self.assertTrue(
+            pre_agg_builder.can_use_preaggregated_tables(), "Should use pre-aggregated tables with conversion goal"
         )
 
     @freeze_time("2023-12-15T12:00:00Z")
@@ -1057,19 +1058,19 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             enable_select_queries=True,
             modifiers=HogQLQueryModifiers(convertToProjectTimezone=True),
         )
-        sql_with_tz = print_ast(hogql_query, context=context_with_tz, dialect="clickhouse")
+        sql_with_tz, _ = prepare_and_print_ast(hogql_query, context=context_with_tz, dialect="clickhouse")
 
         context_utc = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
             modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         )
-        sql_utc = print_ast(hogql_query, context=context_utc, dialect="clickhouse")
+        sql_utc, _ = prepare_and_print_ast(hogql_query, context=context_utc, dialect="clickhouse")
 
-        assert "web_bounces_combined.period_bucket, toDateTime64(" in sql_utc
-        assert "toTimeZone(web_bounces_combined.period_bucket," not in sql_utc
+        assert "web_pre_aggregated_bounces.period_bucket, toDateTime64(" in sql_utc
+        assert "toTimeZone(web_pre_aggregated_bounces.period_bucket," not in sql_utc
 
-        assert "toTimeZone(web_bounces_combined.period_bucket," in sql_with_tz
+        assert "toTimeZone(web_pre_aggregated_bounces.period_bucket," in sql_with_tz
         # Simplified approach - just check timezone conversion exists
 
     @snapshot_clickhouse_queries
@@ -1092,10 +1093,10 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         )
 
-        sql_utc = print_ast(hogql_query, context=context_utc, dialect="clickhouse")
+        sql_utc, _ = prepare_and_print_ast(hogql_query, context=context_utc, dialect="clickhouse")
 
-        assert "web_bounces_combined.period_bucket, toDateTime64(" in sql_utc
-        assert "toTimeZone(web_bounces_combined.period_bucket, " not in sql_utc
+        assert "web_pre_aggregated_bounces.period_bucket, toDateTime64(" in sql_utc
+        assert "toTimeZone(web_pre_aggregated_bounces.period_bucket, " not in sql_utc
 
     def test_convertToProjectTimezone_affects_date_range_calculation(self):
         # Set team to PST timezone

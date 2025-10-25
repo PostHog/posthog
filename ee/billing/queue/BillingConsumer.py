@@ -3,11 +3,13 @@ import json
 import logging
 from typing import Any, Optional
 
-from ee.billing.billing_manager import BillingManager
+from django.db import close_old_connections
+
+from posthog.cloud_utils import get_cached_instance_license
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization
-from posthog.cloud_utils import get_cached_instance_license
 
+from ee.billing.billing_manager import BillingManager
 from ee.sqs.SQSConsumer import SQSConsumer
 
 logger = logging.getLogger(__name__)
@@ -25,6 +27,8 @@ class BillingConsumer(SQSConsumer):
         Args:
             message: The SQS message to process
         """
+        close_old_connections()
+
         try:
             raw_body = message.get("Body", "{}")
             message_attributes = message.get("MessageAttributes", {})

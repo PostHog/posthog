@@ -1,6 +1,7 @@
 import './PlayerMeta.scss'
 
 import { useActions, useValues } from 'kea'
+
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { PersonIcon } from 'scenes/persons/PersonDisplay'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'

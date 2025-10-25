@@ -1,12 +1,11 @@
+from django.conf import settings
+
 import dagster
 
-from django.conf import settings
-from . import resources
-
+from dags import slack_alerts
 from dags.common import job_status_metrics_sensors
-from dags import (
-    slack_alerts,
-)
+
+from . import resources
 
 # Used for definitions that are shared between locations.
 # Mainly sensors

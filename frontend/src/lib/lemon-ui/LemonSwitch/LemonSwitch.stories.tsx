@@ -1,7 +1,11 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
-import { LemonSwitch as RawLemonSwitch, LemonSwitchProps } from './LemonSwitch'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import { LemonSwitchProps, LemonSwitch as RawLemonSwitch } from './LemonSwitch'
 
 const LemonSwitch = ({ checked, ...props }: Partial<LemonSwitchProps>): JSX.Element => {
     const [isChecked, setIsChecked] = useState(checked || false)
@@ -66,17 +70,17 @@ Bordered.args = { bordered: true }
 export const Disabled: Story = Template.bind({})
 Disabled.args = { disabled: true }
 
-const SwitchCell = ({ size, bordered }: { size: LemonSwitchProps['size']; bordered: boolean }): JSX.Element => {
+const SwitchCell = (props: Partial<LemonSwitchProps>): JSX.Element => {
     return (
         <td className="border border-bg-3000 border-4 p-2">
-            <LemonSwitch label={size} size={size} bordered={bordered} />
+            <LemonSwitch label={props.size} {...props} />
         </td>
     )
 }
 
 export const Sizes = (): JSX.Element => {
     return (
-        <table className="table-auto border-collapse border border-bg-3000 border-4">
+        <table className="table-auto border-collapse border-bg-3000 border-4">
             <tbody>
                 <tr>
                     <SwitchCell size="xxsmall" bordered={false} />
@@ -92,5 +96,48 @@ export const Sizes = (): JSX.Element => {
                 </tr>
             </tbody>
         </table>
+    )
+}
+
+export const SizesLoading = (): JSX.Element => {
+    return (
+        <table className="table-auto border-collapse border-bg-3000 border-4">
+            <tbody>
+                <tr>
+                    <SwitchCell size="xxsmall" checked={false} loading={true} />
+                    <SwitchCell size="xsmall" checked={false} loading={true} />
+                    <SwitchCell size="small" checked={false} loading={true} />
+                    <SwitchCell size="medium" checked={false} loading={true} />
+                </tr>
+                <tr>
+                    <SwitchCell size="xxsmall" checked={true} loading={true} />
+                    <SwitchCell size="xsmall" checked={true} loading={true} />
+                    <SwitchCell size="small" checked={true} loading={true} />
+                    <SwitchCell size="medium" checked={true} loading={true} />
+                </tr>
+            </tbody>
+        </table>
+    )
+}
+SizesLoading.parameters = { testOptions: { waitForLoadersToDisappear: false } }
+
+export const WithAccessControl = (): JSX.Element => {
+    return (
+        <div className="deprecated-space-y-2">
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Project}
+                minAccessLevel={AccessControlLevel.Admin}
+                userAccessLevel={AccessControlLevel.Admin}
+            >
+                <LemonSwitch label="Enabled (admin ≥ admin)" checked={true} onChange={() => {}} />
+            </AccessControlAction>
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Project}
+                minAccessLevel={AccessControlLevel.Admin}
+                userAccessLevel={AccessControlLevel.Viewer}
+            >
+                <LemonSwitch label="Disabled (viewer < admin)" checked={false} onChange={() => {}} />
+            </AccessControlAction>
+        </div>
     )
 }

@@ -1,13 +1,16 @@
-import datetime
 import re
-import unittest
-from unittest.mock import patch
+import datetime
 from zoneinfo import ZoneInfo
 
-from dateutil import parser, tz
-from django.test import TestCase
-from freezegun import freeze_time
 import pytest
+import unittest
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest
+from unittest.mock import patch
+
+from django.test import TestCase
+
+from dateutil import parser, tz
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.filters.path_filter import PathFilter
@@ -19,7 +22,6 @@ from posthog.queries.base import (
     sanitize_property_key,
     sanitize_regex_pattern,
 )
-from posthog.test.base import APIBaseTest
 
 
 class TestBase(APIBaseTest):
@@ -30,12 +32,12 @@ class TestBase(APIBaseTest):
         compared_filter = determine_compared_filter(filter)
 
         self.assertIsInstance(compared_filter, PathFilter)
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "date_from": "2020-05-16T00:00:00+00:00",
                 "date_to": "2020-05-22T23:59:59.999999+00:00",
-            },
-            compared_filter.to_dict(),
+            }.items(),
+            compared_filter.to_dict().items(),
         )
 
 

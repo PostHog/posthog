@@ -1,0 +1,33 @@
+# serializer version: 1
+# name: TestProductEventsBuilder.test_build_product_queries_even_for_events_without_product_property
+  '''
+  SELECT '' AS id,
+         '' AS source_label,
+         '' AS name
+  WHERE false
+  '''
+# ---
+# name: TestProductEventsBuilder.test_build_product_queries_even_for_events_without_product_property.1
+  '''
+  SELECT product_id AS id,
+         'revenue_analytics.events.subscription_charge' AS source_label,
+         product_id AS name
+  FROM
+    (SELECT DISTINCT events.properties.product_id AS product_id
+     FROM events
+     WHERE true)
+  ORDER BY id ASC
+  '''
+# ---
+# name: TestProductEventsBuilder.test_query_structure_contains_required_fields
+  '''
+  SELECT product_id AS id,
+         'revenue_analytics.events.subscription_charge' AS source_label,
+         product_id AS name
+  FROM
+    (SELECT DISTINCT events.properties.product_id AS product_id
+     FROM events
+     WHERE true)
+  ORDER BY id ASC
+  '''
+# ---

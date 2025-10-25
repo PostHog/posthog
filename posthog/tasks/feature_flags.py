@@ -1,9 +1,9 @@
-from celery import shared_task
 import structlog
+from celery import shared_task
 
 from posthog.models.feature_flag.local_evaluation import update_flag_caches
-from posthog.tasks.utils import CeleryQueue
 from posthog.models.team import Team
+from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
 

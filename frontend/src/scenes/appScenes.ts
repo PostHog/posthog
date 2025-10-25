@@ -1,12 +1,11 @@
-import { preloadedScenes } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
+import { preloadedScenes } from 'scenes/scenes'
 
 import { productScenes } from '~/products'
 
 export const appScenes: Record<Scene | string, () => any> = {
     ...productScenes,
-    [Scene.Action]: () => import('./actions/Action'),
-    [Scene.Activity]: () => import('./activity/ActivityScene'),
+    [Scene.AdvancedActivityLogs]: () => import('./audit-logs/AdvancedActivityLogsScene'),
     [Scene.AsyncMigrations]: () => import('./instance/AsyncMigrations/AsyncMigrations'),
     [Scene.BatchExportNew]: () => import('./data-pipelines/batch-exports/BatchExportScene'),
     [Scene.BatchExport]: () => import('./data-pipelines/batch-exports/BatchExportScene'),
@@ -15,6 +14,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Billing]: () => import('./billing/Billing'),
     [Scene.Canvas]: () => import('./notebooks/NotebookCanvasScene'),
     [Scene.Cohort]: () => import('./cohorts/Cohort'),
+    [Scene.CohortCalculationHistory]: () => import('./cohorts/CohortCalculationHistory'),
     [Scene.Cohorts]: () => import('./cohorts/Cohorts'),
     [Scene.CustomCss]: () => import('./themes/CustomCssScene'),
     [Scene.Dashboard]: () => import('./dashboard/Dashboard'),
@@ -37,6 +37,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.ExperimentsSharedMetric]: () => import('./experiments/SharedMetrics/SharedMetric'),
     [Scene.ExperimentsSharedMetrics]: () => import('./experiments/SharedMetrics/SharedMetrics'),
     [Scene.Experiments]: () => import('./experiments/Experiments'),
+    [Scene.ExploreEvents]: () => import('./activity/explore/EventsScene'),
     [Scene.FeatureFlag]: () => import('./feature-flags/FeatureFlag'),
     [Scene.FeatureFlags]: () => import('./feature-flags/FeatureFlags'),
     [Scene.Group]: () => import('./groups/Group'),
@@ -48,7 +49,9 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.IntegrationsRedirect]: () => import('./IntegrationsRedirect/IntegrationsRedirect'),
     [Scene.InviteSignup]: () => import('./authentication/InviteSignup'),
     [Scene.LegacyPlugin]: () => import('./data-pipelines/legacy-plugins/LegacyPluginScene'),
+    [Scene.LiveEvents]: () => import('./activity/live/LiveEventsTable'),
     [Scene.Login2FA]: () => import('./authentication/Login2FA'),
+    [Scene.EmailMFAVerify]: () => import('./authentication/EmailMFAVerify'),
     [Scene.Login]: () => import('./authentication/Login'),
     [Scene.Max]: () => import('./max/Max'),
     [Scene.MoveToPostHogCloud]: () => import('./moveToPostHogCloud/MoveToPostHogCloud'),
@@ -63,9 +66,6 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.PasswordReset]: () => import('./authentication/PasswordReset'),
     [Scene.Person]: () => import('./persons/PersonScene'),
     [Scene.Persons]: () => import('./persons/PersonsScene'),
-    [Scene.PipelineNodeNew]: () => import('./pipeline/PipelineNodeNew'),
-    [Scene.PipelineNode]: () => import('./pipeline/PipelineNode'),
-    [Scene.Pipeline]: () => import('./pipeline/Pipeline'),
     [Scene.PreflightCheck]: () => import('./PreflightCheck/PreflightCheck'),
     [Scene.Products]: () => import('./products/Products'),
     [Scene.ProjectCreateFirst]: () => import('./project/Create'),

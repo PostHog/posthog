@@ -221,6 +221,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI generation (LLM)",
             "description": "A call to an LLM model. Contains the input prompt, output, model used and costs.",
         },
+        "$ai_evaluation": {
+            "label": "AI evaluation (LLM)",
+            "description": "An evaluation of an AI event. Contains the result of the evaluation, the target event, and the evaluation metadata.",
+        },
         "$ai_metric": {
             "label": "AI metric (LLM)",
             "description": "An evaluation metric for a trace of a generative AI model (LLM). Contains the trace ID, metric name, and metric value.",
@@ -316,6 +320,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Person ID",
             "description": "The ID of the person, depending on the person properties mode.",
             "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
+        },
+        "person_mode": {
+            "label": "Person mode",
+            "description": "The person mode determined during ingestion: full (identified user with properties), propertyless (anonymous user), or force_upgrade (anonymous event linked to an already identified user). Used in usage reports.",
+            "examples": ["full", "propertyless", "force_upgrade"],
+            "system": True,
+            "ignored_in_assistant": True,
         },
     },
     "event_properties": {
@@ -1593,7 +1604,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$is_identified": {
             "label": "Is identified",
-            "description": "When the person was identified",
+            "description": "Client-side property set by posthog-js indicating whether the user has been previously identified on the device.",
         },
         "$initial_person_info": {
             "label": "Initial person info",
@@ -1784,13 +1795,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The number of tokens in the input prompt that was sent to the LLM API.",
             "examples": [23],
         },
-        "$ai_output": {
-            "label": "AI output (LLM)",
-            "description": "The output JSON that was received from the LLM API.",
-            "examples": [
-                '{"choices": [{"text": "Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data."}]}',
-            ],
-        },
         "$ai_output_choices": {
             "label": "AI output (LLM)",
             "description": "The output message choices JSON that was received from the LLM API.",
@@ -1883,10 +1887,55 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The trace ID of the request made to the LLM API. Used to group together multiple generations into a single trace.",
             "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"],
         },
+        "$ai_session_id": {
+            "label": "AI Session ID (LLM)",
+            "description": "Groups related traces together in a session (e.g., a conversation or workflow). One session can contain many traces.",
+            "examples": ["session-abc-123", "conv-user-456"],
+        },
         "$ai_request_url": {
             "label": "AI Request URL (LLM)",
             "description": "The full URL of the request made to the LLM API.",
             "examples": ["https://api.openai.com/v1/chat/completions"],
+        },
+        "$ai_evaluation_id": {
+            "label": "AI Evaluation ID (LLM)",
+            "description": "The unique identifier of the evaluation configuration used to judge the AI event.",
+            "examples": ["550e8400-e29b-41d4-a716-446655440000"],
+        },
+        "$ai_evaluation_name": {
+            "label": "AI Evaluation Name (LLM)",
+            "description": "The name of the evaluation configuration used.",
+            "examples": ["Factual accuracy check", "Response relevance"],
+        },
+        "$ai_evaluation_model": {
+            "label": "AI Evaluation Model (LLM)",
+            "description": "The LLM model used as the judge for the evaluation.",
+            "examples": ["gpt-4", "claude-3-opus"],
+        },
+        "$ai_evaluation_start_time": {
+            "label": "AI Evaluation Start Time (LLM)",
+            "description": "The timestamp when the evaluation started executing.",
+            "examples": ["2025-01-15T10:30:00Z"],
+        },
+        "$ai_evaluation_result": {
+            "label": "AI Evaluation Result (LLM)",
+            "description": "The boolean verdict of the evaluation (true = pass, false = fail).",
+            "examples": [True, False],
+        },
+        "$ai_evaluation_reasoning": {
+            "label": "AI Evaluation Reasoning (LLM)",
+            "description": "The LLM's explanation for why the evaluation passed or failed.",
+            "examples": ["The response accurately addresses the query", "The output contains factual inaccuracies"],
+        },
+        "$ai_target_event_id": {
+            "label": "AI Target Event ID (LLM)",
+            "description": "The unique identifier of the event being evaluated.",
+            "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"],
+        },
+        "$ai_target_event_type": {
+            "label": "AI Target Event Type (LLM)",
+            "description": "The type of event being evaluated (e.g., $ai_generation).",
+            "examples": ["$ai_generation", "$ai_span"],
         },
         "$ai_metric_name": {
             "label": "AI Metric Name (LLM)",
@@ -2015,7 +2064,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "virtual": True,
         },
         "$virt_revenue": {
-            "description": "The total revenue for this person.",
+            "description": "The total revenue for this person. This will always be the current total revenue even when referring to a person via events.",
             "label": "Total revenue",
             "type": "Numeric",
             "virtual": True,
@@ -2128,6 +2177,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Group key",
             "description": "Specified group key",
         },
+        "$virt_revenue": {
+            "description": "The total revenue for this group. This will always be the current total revenue even when referring to a group via events.",
+            "label": "Total revenue",
+            "type": "Numeric",
+            "virtual": True,
+        },
+        "$virt_revenue_last_30_days": {
+            "description": "The total revenue for this group in the last 30 days.",
+            "label": "Total revenue in the last 30 days",
+            "type": "Numeric",
+            "virtual": True,
+        },
     },
     "replay": {
         "snapshot_source": {
@@ -2147,6 +2208,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "visited_page": {
             "label": "Visited page",
             "description": "URL a user visited during their session",
+        },
+        "comment_text": {
+            "label": "Comment text",
+            "description": "Search for text within comments on the recording",
         },
         "click_count": {
             "label": "Clicks",
@@ -2176,60 +2241,120 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "assignee": {"label": "Issue assignee", "description": "The current assignee of an issue."},
         "name": {"label": "Issue name", "description": "The name of an issue."},
         "issue_description": {"label": "Issue description", "description": "The description of an issue."},
+        "first_seen": {
+            "label": "Issue first seen",
+            "description": "The first time the issue was seen.",
+            "type": "DateTime",
+        },
     },
+    # The prefix on the keys should match DatabaseSchemaManagedViewTableKind
     "revenue_analytics_properties": {
-        "amount": {
-            "label": "Amount",
-            "description": "The amount of the revenue event.",
-            "type": "Numeric",
-            "virtual": True,
-        },
-        "product": {
-            "label": "Product",
-            "description": "The product of the revenue event.",
-            "type": "String",
-            "virtual": True,
-        },
-        "country": {
-            "label": "Country",
-            "description": "The country of the customer connected to the revenue event.",
-            "type": "String",
-            "virtual": True,
-        },
-        "cohort": {
-            "label": "Cohort",
-            "description": "The cohort of the customer connected to the revenue event.",
-            "type": "String",
-            "virtual": True,
-        },
-        "source": {
+        "source_label": {
             "label": "Source",
             "description": "The source of the revenue event - either an event or a Data Warehouse integration.",
             "type": "String",
             "virtual": True,
         },
-        "coupon": {
+        "revenue_analytics_customer.id": {
+            "label": "Customer ID",
+            "description": "The ID of the customer connected to the revenue event.",
+            "type": "String",
+            "virtual": True,
+        },
+        "revenue_analytics_customer.name": {
+            "label": "Customer Name",
+            "description": "The name of the customer connected to the revenue event.",
+            "type": "String",
+            "virtual": True,
+        },
+        "revenue_analytics_customer.email": {
+            "label": "Customer Email",
+            "description": "The email of the customer connected to the revenue event.",
+            "type": "String",
+            "virtual": True,
+        },
+        "revenue_analytics_customer.phone": {
+            "label": "Customer Phone",
+            "description": "The phone of the customer connected to the revenue event.",
+            "type": "String",
+            "virtual": True,
+        },
+        "revenue_analytics_customer.address": {
+            "label": "Customer Address",
+            "description": "The address of the customer connected to the revenue event.",
+            "type": "String",
+            "virtual": True,
+        },
+        "revenue_analytics_customer.country": {
+            "label": "Customer Country",
+            "description": "The country of the customer connected to the revenue event.",
+            "type": "String",
+            "virtual": True,
+        },
+        "revenue_analytics_customer.cohort": {
+            "label": "Customer Cohort",
+            "description": "The cohort of the customer connected to the revenue event.",
+            "type": "String",
+            "virtual": True,
+        },
+        "revenue_analytics_customer.initial_coupon": {
+            "label": "Customer Initial Coupon",
+            "description": "The name of the coupon on the initial revenue event for the customer.",
+            "type": "String",
+            "virtual": True,
+        },
+        "revenue_analytics_customer.initial_coupon_id": {
+            "label": "Customer Initial Coupon ID",
+            "description": "The ID of the coupon on the initial revenue event for the customer.",
+            "type": "String",
+            "virtual": True,
+        },
+        "revenue_analytics_product.name": {
+            "label": "Product Name",
+            "description": "The name of the product connected to the revenue event.",
+            "type": "String",
+            "virtual": True,
+        },
+        "revenue_analytics_invoice_item.amount": {
+            "label": "Amount",
+            "description": "The amount of the revenue event.",
+            "type": "Numeric",
+            "virtual": True,
+        },
+        "revenue_analytics_invoice_item.timestamp": {
+            "label": "Timestamp",
+            "description": "When the revenue event was executed.",
+            "type": "DateTime",
+            "virtual": True,
+        },
+        "revenue_analytics_invoice_item.created_at": {
+            "label": "Created At",
+            "description": "When the revenue event was created.",
+            "type": "DateTime",
+            "virtual": True,
+        },
+        "revenue_analytics_invoice_item.coupon": {
             "label": "Coupon",
-            "description": "The name of the coupon on the revenue event.",
+            "description": "The name of the coupon connected to the revenue event.",
             "type": "String",
             "virtual": True,
         },
-        "coupon_id": {
+        "revenue_analytics_invoice_item.coupon_id": {
             "label": "Coupon ID",
-            "description": "The ID of the coupon on the revenue event.",
+            "description": "The ID of the coupon connected to the revenue event.",
             "type": "String",
             "virtual": True,
         },
-        "initial_coupon": {
-            "label": "Initial coupon",
-            "description": "The name of the coupon on the initial revenue event for the customer. Not supported for event sources.",
-            "type": "String",
+        "revenue_analytics_subscription.started_at": {
+            "label": "Subscription Started At",
+            "description": "The started at date of the subscription connected to the revenue event.",
+            "type": "DateTime",
             "virtual": True,
         },
-        "initial_coupon_id": {
-            "label": "Initial coupon ID",
-            "description": "The ID of the coupon on the initial revenue event for the customer. Not supported for event sources.",
-            "type": "String",
+        "revenue_analytics_subscription.ended_at": {
+            "label": "Subscription Ended At",
+            "description": "The ended at date of the subscription connected to the revenue event.",
+            "type": "DateTime",
             "virtual": True,
         },
     },
@@ -2242,7 +2367,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"]["distinct_id"] = CORE_FILTE
 
 # copy meta properties to event_metadata
 CORE_FILTER_DEFINITIONS_BY_GROUP["event_metadata"] = {}
-for key in ["distinct_id", "timestamp", "event", "person_id"]:
+for key in ["distinct_id", "timestamp", "event", "person_id", "person_mode"]:
     CORE_FILTER_DEFINITIONS_BY_GROUP["event_metadata"][key] = CORE_FILTER_DEFINITIONS_BY_GROUP["metadata"][key]
 
 

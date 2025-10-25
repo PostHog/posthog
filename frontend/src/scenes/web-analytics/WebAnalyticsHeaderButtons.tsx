@@ -1,11 +1,13 @@
-import { IconBolt } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
+import { IconBolt } from '@posthog/icons'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { WebAnalyticsMenu } from 'scenes/web-analytics/WebAnalyticsMenu'
 

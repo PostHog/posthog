@@ -1,5 +1,4 @@
 import { expectLogic } from 'kea-test-utils'
-import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -52,11 +51,7 @@ const basicDashboard: DashboardBasicType = {
     is_shared: false,
     deleted: false,
     creation_mode: 'default',
-    restriction_level: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
-    effective_restriction_level: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
-    effective_privilege_level: DashboardPrivilegeLevel.CanEdit,
     user_access_level: AccessControlLevel.Editor,
-    access_control_version: 'v1',
 }
 
 describe('the dashboards model', () => {

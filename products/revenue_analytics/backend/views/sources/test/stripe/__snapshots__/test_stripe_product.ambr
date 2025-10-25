@@ -1,0 +1,25 @@
+# serializer version: 1
+# name: TestProductStripeBuilder.test_build_product_query_with_product_schema
+  '''
+  SELECT id AS id,
+         'stripe.stripe_test' AS source_label,
+         name AS name
+  FROM stripe_test_product
+  '''
+# ---
+# name: TestProductStripeBuilder.test_build_with_no_product_schema
+  '''
+  SELECT '' AS id,
+         '' AS source_label,
+         '' AS name
+  WHERE false
+  '''
+# ---
+# name: TestProductStripeBuilder.test_build_with_product_schema_but_no_table
+  '''
+  SELECT '' AS id,
+         '' AS source_label,
+         '' AS name
+  WHERE false
+  '''
+# ---

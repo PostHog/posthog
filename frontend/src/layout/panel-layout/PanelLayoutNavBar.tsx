@@ -1,3 +1,8 @@
+import { cva } from 'cva'
+import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+import { useRef } from 'react'
+
 import {
     IconApps,
     IconChevronRight,
@@ -8,43 +13,38 @@ import {
     IconGear,
     IconHome,
     IconPeople,
-    IconSearch,
     IconShortcut,
     IconToolbar,
 } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
-import { cva } from 'cva'
-import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
-import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
+
+import { AccountMenu } from 'lib/components/Account/AccountMenu'
 import { DebugNotice } from 'lib/components/DebugNotice'
+import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-
-import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
-import { useRef } from 'react'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { panelLayoutLogic, PanelLayoutNavIdentifier } from '~/layout/panel-layout/panelLayoutLogic'
 import { PinnedFolder } from '~/layout/panel-layout/PinnedFolder/PinnedFolder'
+import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { SidePanelTab } from '~/types'
 
-import { navigationLogic } from '../navigation/navigationLogic'
-import { AccountPopoverOverlay } from '../navigation/TopBar/AccountPopover'
-import { KeyboardShortcut } from '../navigation-3000/components/KeyboardShortcut'
+import { OrganizationMenu } from '../../lib/components/Account/OrganizationMenu'
+import { ProjectMenu } from '../../lib/components/Account/ProjectMenu'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { SidePanelActivationIcon } from '../navigation-3000/sidepanel/panels/activation/SidePanelActivation'
 import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
-import { OrganizationDropdownMenu } from './OrganizationDropdownMenu'
+import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
 
 const navBarStyles = cva({
-    base: 'flex flex-col max-h-screen relative min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] border-r border-primary relative',
+    base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r border-r-transparent',
     variants: {
         isLayoutNavCollapsed: {
             true: 'w-[var(--project-navbar-width-collapsed)]',
@@ -58,7 +58,6 @@ const navBarStyles = cva({
 })
 
 export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): JSX.Element {
-    const { toggleSearchBar } = useActions(commandBarLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const {
         showLayoutPanel,
@@ -68,19 +67,20 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         showLayoutNavBar,
     } = useActions(panelLayoutLogic)
     const {
+        pathname,
         isLayoutPanelVisible,
         activePanelIdentifier,
+        activePanelIdentifierFromUrl,
         mainContentRef,
         isLayoutPanelPinned,
         isLayoutNavCollapsed,
         isLayoutNavbarVisible,
     } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
-    const { closeAccountPopover, toggleAccountPopover } = useActions(navigationLogic)
     const { user } = useValues(userLogic)
-    const { isAccountPopoverOpen } = useValues(navigationLogic)
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
+    const { sceneLayoutConfig } = useValues(sceneLayoutLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -109,32 +109,38 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         }
     }
 
-    const navItems = [
-        ...(isLayoutNavCollapsed
-            ? [
-                  {
-                      identifier: 'Search',
-                      id: 'Search',
-                      icon: <IconSearch />,
-                      onClick: () => {
-                          toggleSearchBar()
-                      },
-                      tooltip: (
-                          <div className="flex flex-col gap-0.5">
-                              <span>
-                                  For search, press <KeyboardShortcut command k />
-                              </span>
-                              <span>
-                                  For commands, press <KeyboardShortcut command shift k />
-                              </span>
-                          </div>
-                      ),
-                  },
-              ]
-            : []),
+    const isStaticNavItemActive = (itemIdentifier: string): boolean => {
+        const currentPath = removeProjectIdIfPresent(pathname)
+
+        if (itemIdentifier === 'Home' && currentPath === '/') {
+            return true
+        }
+        if (itemIdentifier === 'Activity' && currentPath.startsWith('/activity/')) {
+            return true
+        }
+        if (itemIdentifier === 'Settings' && currentPath.startsWith('/settings/')) {
+            return true
+        }
+        if (itemIdentifier === 'Toolbar' && currentPath === '/toolbar') {
+            return true
+        }
+
+        return false
+    }
+
+    const navItems: {
+        identifier: string
+        label: string
+        icon: React.ReactNode
+        showChevron?: boolean
+        to?: string
+        onClick?: (e?: React.KeyboardEvent) => void
+        tooltip?: React.ReactNode
+        tooltipDocLink?: string
+    }[] = [
         {
             identifier: 'ProjectHomepage',
-            id: 'Home',
+            label: 'Home',
             icon: <IconHome />,
             to: urls.projectHomepage(),
             onClick: () => {
@@ -144,9 +150,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         },
         {
             identifier: 'Products',
-            id: 'Products',
+            label: 'Apps',
             icon: <IconApps />,
-            onClick: (e?: React.KeyboardEvent) => {
+            onClick: (e) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('Products')
                 }
@@ -157,9 +163,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         },
         {
             identifier: 'Project',
-            id: 'Project',
+            label: 'Project',
             icon: <IconFolderOpen className="stroke-[1.2]" />,
-            onClick: (e?: React.KeyboardEvent) => {
+            onClick: (e) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('Project')
                 }
@@ -173,22 +179,25 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         },
         {
             identifier: 'Database',
-            id: 'Database',
+            label: 'Data warehouse',
             icon: <IconDatabaseBolt />,
-            onClick: (e?: React.KeyboardEvent) => {
+            onClick: (e) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('Database')
                 }
             },
             showChevron: true,
-            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Database' ? 'Close database' : 'Open database',
+            tooltip:
+                isLayoutPanelVisible && activePanelIdentifier === 'Database'
+                    ? 'Close data warehouse'
+                    : 'Open data warehouse',
             tooltipDocLink: 'https://posthog.com/docs/data-warehouse/sql',
         },
         {
             identifier: 'DataManagement',
-            id: 'Data management',
+            label: 'Data management',
             icon: <IconDatabase />,
-            onClick: (e?: React.KeyboardEvent) => {
+            onClick: (e) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('DataManagement')
                 }
@@ -202,9 +211,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         },
         {
             identifier: 'People',
-            id: 'People',
+            label: 'People',
             icon: <IconPeople />,
-            onClick: (e?: React.KeyboardEvent) => {
+            onClick: (e) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('People')
                 }
@@ -215,9 +224,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         },
         {
             identifier: 'Shortcuts',
-            id: 'Shortcuts',
+            label: 'Shortcuts',
             icon: <IconShortcut />,
-            onClick: (e?: React.KeyboardEvent) => {
+            onClick: (e) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('Shortcuts')
                 }
@@ -229,7 +238,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         },
         {
             identifier: 'Activity',
-            id: 'Activity',
+            label: 'Activity',
             icon: <IconClock />,
             to: urls.activity(),
             onClick: () => {
@@ -252,39 +261,44 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     )}
                     ref={containerRef}
                 >
-                    <div className={`flex justify-between p-1 ${isLayoutNavCollapsed ? 'justify-center' : ''}`}>
-                        <OrganizationDropdownMenu />
-
-                        {!isLayoutNavCollapsed && (
-                            <div
-                                className={`flex gap-px ${isLayoutNavCollapsed ? 'justify-center' : ''}`}
-                                aria-label="Add a new item menu actions"
-                            >
-                                <ButtonPrimitive
-                                    iconOnly
-                                    onClick={toggleSearchBar}
-                                    data-attr="tree-navbar-search-button"
-                                    size="sm"
-                                    tooltip={
-                                        <div className="flex flex-col gap-0.5">
-                                            <span>
-                                                For search, press <KeyboardShortcut command k />
-                                            </span>
-                                            <span>
-                                                For commands, press <KeyboardShortcut command shift k />
-                                            </span>
-                                        </div>
-                                    }
-                                >
-                                    <IconSearch className="text-secondary size-4" />
-                                </ButtonPrimitive>
-                            </div>
-                        )}
+                    <div
+                        className={`flex justify-between p-1 pl-[5px] items-center ${isLayoutNavCollapsed ? 'justify-center' : 'h-[var(--scene-layout-header-height)]'}`}
+                    >
+                        <div
+                            className={cn(
+                                'flex gap-1 rounded-md w-full',
+                                isLayoutNavCollapsed && 'flex-col items-center pt-px'
+                            )}
+                        >
+                            <OrganizationMenu
+                                showName={false}
+                                buttonProps={{
+                                    variant: 'panel',
+                                    className: 'px-px',
+                                    iconOnly: isLayoutNavCollapsed,
+                                    tooltipCloseDelayMs: 0,
+                                    tooltipPlacement: 'bottom',
+                                    tooltip: 'Switch organization',
+                                }}
+                                iconOnly={isLayoutNavCollapsed}
+                            />
+                            <ProjectMenu
+                                buttonProps={{
+                                    className: 'max-w-[175px]',
+                                    variant: 'panel',
+                                    tooltipCloseDelayMs: 0,
+                                    iconOnly: isLayoutNavCollapsed,
+                                    tooltipPlacement: 'bottom',
+                                    tooltip: 'Switch project',
+                                }}
+                                iconOnly={isLayoutNavCollapsed}
+                            />
+                        </div>
                     </div>
 
                     <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
                         <ScrollableShadows
-                            className="flex-1"
+                            className={cn('flex-1', !isLayoutPanelVisible && 'rounded-tr-sm')}
                             innerClassName="overflow-y-auto"
                             direction="vertical"
                             styledScrollbars
@@ -297,7 +311,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 >
                                     {navItems.map((item) => (
                                         <ListBox.Item
-                                            key={item.id}
+                                            key={item.identifier}
                                             asChild
                                             onClick={() => item.onClick?.()}
                                             onKeyDown={(e) => {
@@ -308,7 +322,10 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         >
                                             {item.showChevron ? (
                                                 <ButtonPrimitive
-                                                    active={activePanelIdentifier === item.id}
+                                                    active={
+                                                        activePanelIdentifier === item.identifier ||
+                                                        activePanelIdentifierFromUrl === item.identifier
+                                                    }
                                                     className="group"
                                                     menuItem={!isLayoutNavCollapsed}
                                                     iconOnly={isLayoutNavCollapsed}
@@ -327,7 +344,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                                                     {!isLayoutNavCollapsed && (
                                                         <>
-                                                            <span className="truncate">{item.id}</span>
+                                                            <span className="truncate">{item.label}</span>
                                                             <span className="ml-auto pr-1">
                                                                 <IconChevronRight className="size-3 text-tertiary" />
                                                             </span>
@@ -347,6 +364,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             menuItem: !isLayoutNavCollapsed,
                                                             className: 'group',
                                                             iconOnly: isLayoutNavCollapsed,
+                                                            active: isStaticNavItemActive(item.identifier),
                                                         }}
                                                         to={item.to}
                                                         tooltip={isLayoutNavCollapsed ? item.tooltip : undefined}
@@ -362,7 +380,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                         </span>
 
                                                         {!isLayoutNavCollapsed && (
-                                                            <span className="truncate">{item.id}</span>
+                                                            <span className="truncate">{item.label}</span>
                                                         )}
                                                     </Link>
                                                 </ButtonGroupPrimitive>
@@ -388,6 +406,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                         <div className="p-1 flex flex-col gap-px items-center">
                             <DebugNotice isCollapsed={isLayoutNavCollapsed} />
+                            <NavPanelAdvertisement />
                             {visibleTabs.includes(SidePanelTab.Activation) && (
                                 <ButtonPrimitive
                                     menuItem={!isLayoutNavCollapsed}
@@ -412,6 +431,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     menuItem: !isLayoutNavCollapsed,
                                     className: 'group',
                                     iconOnly: isLayoutNavCollapsed,
+                                    active: isStaticNavItemActive('Toolbar'),
                                 }}
                                 to={urls.toolbarLaunch()}
                                 onClick={() => {
@@ -437,6 +457,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     menuItem: !isLayoutNavCollapsed,
                                     className: 'group',
                                     iconOnly: isLayoutNavCollapsed,
+                                    active: isStaticNavItemActive('Settings'),
                                 }}
                                 to={urls.settings('project')}
                                 onClick={() => {
@@ -456,35 +477,32 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 {!isLayoutNavCollapsed && 'Settings'}
                             </Link>
 
-                            <Popover
-                                overlay={<AccountPopoverOverlay />}
-                                visible={isAccountPopoverOpen}
-                                onClickOutside={closeAccountPopover}
-                                placement="right-end"
-                                className="min-w-70"
-                            >
-                                <ButtonPrimitive
-                                    menuItem={!isLayoutNavCollapsed}
-                                    active={isAccountPopoverOpen}
-                                    onClick={toggleAccountPopover}
-                                    tooltip={isLayoutNavCollapsed ? 'Account' : undefined}
-                                    tooltipPlacement="right"
-                                    iconOnly={isLayoutNavCollapsed}
-                                    data-attr="menu-item-me"
-                                >
-                                    <ProfilePicture user={user} size={isLayoutNavCollapsed ? 'md' : 'xs'} />
-                                    {!isLayoutNavCollapsed && (
-                                        <>
-                                            {user?.first_name ? (
-                                                <span>{user?.first_name}</span>
-                                            ) : (
-                                                <span>{user?.email}</span>
-                                            )}
-                                            <IconChevronRight className="size-3 text-secondary ml-auto" />
-                                        </>
-                                    )}
-                                </ButtonPrimitive>
-                            </Popover>
+                            <AccountMenu
+                                align="end"
+                                side="right"
+                                alignOffset={10}
+                                trigger={
+                                    <ButtonPrimitive
+                                        menuItem={!isLayoutNavCollapsed}
+                                        tooltip={isLayoutNavCollapsed ? 'Account' : undefined}
+                                        tooltipPlacement="right"
+                                        iconOnly={isLayoutNavCollapsed}
+                                        data-attr="menu-item-me"
+                                    >
+                                        <ProfilePicture user={user} size={isLayoutNavCollapsed ? 'md' : 'xs'} />
+                                        {!isLayoutNavCollapsed && (
+                                            <>
+                                                {user?.first_name ? (
+                                                    <span>{user?.first_name}</span>
+                                                ) : (
+                                                    <span>{user?.email}</span>
+                                                )}
+                                                <IconChevronRight className="size-3 text-secondary ml-auto" />
+                                            </>
+                                        )}
+                                    </ButtonPrimitive>
+                                }
+                            />
                         </div>
                     </div>
                     {!isMobileLayout && (
@@ -496,6 +514,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             onToggleClosed={(shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed)}
                             onDoubleClick={() => toggleLayoutNavCollapsed()}
                             data-attr="tree-navbar-resizer"
+                            className={cn({
+                                'top-[calc(var(--scene-layout-header-height)+4px)]': true,
+                                'top-0': isLayoutPanelVisible || sceneLayoutConfig?.layout === 'app-raw-no-header',
+                            })}
+                            offset={-1}
                         />
                     )}
                 </nav>

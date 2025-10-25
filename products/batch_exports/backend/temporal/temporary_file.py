@@ -1,28 +1,29 @@
 """This module contains a temporary file to stage data in batch exports."""
 
 import abc
-import asyncio
-import collections.abc
-import contextlib
 import csv
-import datetime as dt
 import enum
 import gzip
 import json
-import tempfile
 import typing
+import asyncio
+import datetime as dt
+import tempfile
+import contextlib
+import collections.abc
 
 import brotli
 import orjson
 import psycopg
 import pyarrow as pa
 import pyarrow.parquet as pq
-import structlog
 from psycopg import sql
+
+from posthog.temporal.common.logger import get_write_only_logger
 
 from products.batch_exports.backend.temporal.heartbeat import DateRange
 
-logger = structlog.get_logger()
+logger = get_write_only_logger()
 
 
 def replace_broken_unicode(obj):
@@ -798,10 +799,7 @@ def remove_escaped_whitespace_recursive(value):
             return remove_escaped_whitespace_recursive(b.decode("utf-8"))
 
         case [*sequence]:
-            # mypy could be bugged as it's raising a Statement unreachable error.
-            # But we are definitely reaching this statement in tests; hence the ignore comment.
-            # Maybe: https://github.com/python/mypy/issues/16272.
-            return type(value)(remove_escaped_whitespace_recursive(sequence_value) for sequence_value in sequence)  # type: ignore
+            return type(value)(remove_escaped_whitespace_recursive(sequence_value) for sequence_value in sequence)
 
         case set(elements):
             return {remove_escaped_whitespace_recursive(element) for element in elements}

@@ -1,6 +1,6 @@
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import Mock, patch
 
-from posthog.hogql import ast
 from posthog.schema import (
     BaseMathType,
     ConversionGoalFilter1,
@@ -9,16 +9,16 @@ from posthog.schema import (
     MarketingAnalyticsTableQueryResponse,
     NodeKind,
 )
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+
+from posthog.hogql import ast
+
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
+from products.marketing_analytics.backend.hogql_queries.adapters.base import MarketingSourceAdapter
+from products.marketing_analytics.backend.hogql_queries.constants import DEFAULT_LIMIT
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
     MarketingAnalyticsTableQueryRunner,
 )
-from products.marketing_analytics.backend.hogql_queries.constants import (
-    DEFAULT_LIMIT,
-)
-from products.marketing_analytics.backend.hogql_queries.adapters.base import MarketingSourceAdapter
 
 
 class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
@@ -97,7 +97,7 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         assert date_range.date_to_str.startswith("2023-01-31")
 
     @patch(
-        "products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner.MarketingSourceFactory"
+        "products.marketing_analytics.backend.hogql_queries.marketing_analytics_base_query_runner.MarketingSourceFactory"
     )
     def test_get_marketing_source_adapters_success(self, mock_factory_class):
         mock_factory = Mock()
@@ -117,7 +117,7 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         assert adapters[1] == mock_adapter2
 
     @patch(
-        "products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner.MarketingSourceFactory"
+        "products.marketing_analytics.backend.hogql_queries.marketing_analytics_base_query_runner.MarketingSourceFactory"
     )
     def test_get_marketing_source_adapters_exception_handling(self, mock_factory_class):
         mock_factory = Mock()
@@ -160,19 +160,17 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
             assert query.select_from is not None
 
     def test_calculate_basic(self):
-        with patch.object(MarketingAnalyticsTableQueryRunner, "to_query") as mock_to_query:
-            mock_to_query.return_value = ast.SelectQuery(
-                select=[ast.Field(chain=["test"])], select_from=ast.JoinExpr(table=ast.Field(chain=["test_table"]))
-            )
+        # Test that calculate() returns the expected response structure
+        # This test verifies the response transformation logic works correctly
+        runner = self._create_query_runner()
+        result = runner.calculate()
 
-            with patch("posthog.hogql.query.execute_hogql_query") as mock_execute:
-                mock_execute.return_value = Mock(results=[["test_result"]], types=[], hogql="SELECT test", timings=[])
-
-                runner = self._create_query_runner()
-                result = runner.calculate()
-
-                assert isinstance(result, MarketingAnalyticsTableQueryResponse)
-                assert result.results == [["test_result"]]
-                assert result.hasMore is False
-                assert result.limit == DEFAULT_LIMIT
-                assert result.offset == 0
+        assert isinstance(result, MarketingAnalyticsTableQueryResponse)
+        assert result.results is not None
+        assert result.hasMore is False
+        assert result.limit == DEFAULT_LIMIT
+        assert result.offset == 0
+        assert result.columns is not None
+        assert result.types is not None
+        assert result.hogql is not None
+        assert result.modifiers is not None

@@ -1,9 +1,8 @@
 import { createParser } from 'eventsource-parser'
 import {
+    BuiltLogic,
     actions,
     afterMount,
-    beforeUnmount,
-    BuiltLogic,
     connect,
     kea,
     key,
@@ -14,13 +13,23 @@ import {
     reducers,
     selectors,
 } from 'kea'
+import { router } from 'kea-router'
+import posthog from 'posthog-js'
+
 import api, { ApiError } from 'lib/api'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
-import posthog from 'posthog-js'
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
+import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+import { NotebookTarget } from 'scenes/notebooks/types'
+import { urls } from 'scenes/urls'
 
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { openNotebook } from '~/models/notebooksModel'
 import {
     AssistantEventType,
     AssistantGenerationStatusEvent,
@@ -30,19 +39,24 @@ import {
     HumanMessage,
     ReasoningMessage,
     RootAssistantMessage,
+    TaskExecutionStatus,
 } from '~/queries/schema/schema-assistant-messages'
-import { Conversation, ConversationDetail, ConversationStatus } from '~/types'
+import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
+import { maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
-import { isAssistantMessage, isAssistantToolCallMessage, isHumanMessage, isReasoningMessage } from './utils'
-import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
-import { maxBillingContextLogic } from './maxBillingContextLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { getRandomThinkingMessage } from './utils/thinkingMessages'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
+import {
+    isAssistantMessage,
+    isAssistantToolCallMessage,
+    isHumanMessage,
+    isNotebookUpdateMessage,
+    isReasoningMessage,
+    isTaskExecutionMessage,
+} from './utils'
+import { getRandomThinkingMessage } from './utils/thinkingMessages'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -57,6 +71,7 @@ const FAILURE_MESSAGE: FailureMessage & ThreadMessage = {
 }
 
 export interface MaxThreadLogicProps {
+    tabId: string // used to refer back to MaxLogic
     conversationId: string
     conversation?: ConversationDetail | null
 }
@@ -64,7 +79,12 @@ export interface MaxThreadLogicProps {
 export const maxThreadLogic = kea<maxThreadLogicType>([
     path(['scenes', 'max', 'maxThreadLogic']),
 
-    key((props) => props.conversationId),
+    key((props) => {
+        if (!props.tabId) {
+            throw new Error('Max thread logic must have a tabId prop')
+        }
+        return `${props.conversationId}-${props.tabId}`
+    }),
 
     props({} as MaxThreadLogicProps),
 
@@ -86,12 +106,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         }
     }),
 
-    connect(() => ({
+    connect(({ tabId }: MaxThreadLogicProps) => ({
         values: [
             maxGlobalLogic,
             ['dataProcessingAccepted', 'toolMap', 'tools'],
-            maxLogic,
-            ['question', 'threadKeys', 'autoRun', 'conversationId as selectedConversationId', 'activeStreamingThreads'],
+            maxLogic({ tabId }),
+            ['question', 'autoRun', 'conversationId as selectedConversationId', 'activeStreamingThreads'],
             maxContextLogic,
             ['compiledContext'],
             maxBillingContextLogic,
@@ -100,13 +120,14 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             ['featureFlags'],
         ],
         actions: [
-            maxLogic,
+            maxLogic({ tabId }),
             [
+                'askMax',
                 'setQuestion',
                 'loadConversationHistory',
-                'setThreadKey',
                 'prependOrReplaceConversation as updateGlobalConversationCache',
-                'setActiveStreamingThreads',
+                'incrActiveStreamingThreads',
+                'decrActiveStreamingThreads',
                 'setConversationId',
                 'setAutoRun',
                 'loadConversationHistorySuccess',
@@ -116,7 +137,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
     actions({
         // null prompt means resuming streaming or continuing previous generation
-        askMax: (prompt: string | null) => ({ prompt }),
         reconnectToStream: true,
         streamConversation: (
             streamData: {
@@ -139,6 +159,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setTraceId: (traceId: string) => ({ traceId }),
         selectCommand: (command: SlashCommand) => ({ command }),
         activateCommand: (command: SlashCommand) => ({ command }),
+        setDeepResearchMode: (deepResearchMode: boolean) => ({ deepResearchMode }),
+        processNotebookUpdate: (notebookId: string, notebookContent: JSONContent) => ({ notebookId, notebookContent }),
+        setForAnotherAgenticIteration: (value: boolean) => ({ value }),
     }),
 
     reducers(({ props }) => ({
@@ -166,8 +189,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     },
                     ...state.slice(index + 1),
                 ],
-                resetThread: (state) => filterOutReasoningMessages(state),
-                completeThreadGeneration: (state) => filterOutReasoningMessages(state),
                 setThread: (_, { thread }) => thread,
             },
         ],
@@ -193,45 +214,32 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
         // Trace ID is used for the conversation metrics in the UI
         traceId: [null as string | null, { setTraceId: (_, { traceId }) => traceId, cleanThread: () => null }],
+
+        deepResearchMode: [
+            false,
+            {
+                setDeepResearchMode: (_, { deepResearchMode }) => deepResearchMode,
+                setConversation: (_, { conversation }) => conversation?.type === ConversationType.DeepResearch,
+            },
+        ],
+
+        // Whether generation should be immediately continued due to tool execution
+        isAnotherAgenticIterationScheduled: [
+            false,
+            {
+                setForAnotherAgenticIteration: (_, { value }) => value,
+                askMax: () => false,
+                completeThreadGeneration: () => false,
+            },
+        ],
     })),
 
-    listeners(({ actions, values, cache, props }) => ({
-        askMax: async ({ prompt }) => {
-            if (!values.dataProcessingAccepted) {
-                return // Skip - this will be re-fired by the `onApprove` on `AIConsentPopoverWrapper`
-            }
-            // Clear the question
-            actions.setQuestion('')
-
-            // For a new conversations, set the frontend conversation ID
-            if (!values.conversation) {
-                actions.setConversationId(values.conversationId)
-            } else {
-                const updatedConversation = {
-                    ...values.conversation,
-                    status: ConversationStatus.InProgress,
-                    updated_at: dayjs().toISOString(),
-                }
-                // Update the current status
-                actions.setConversation(updatedConversation)
-                // Update the global conversation cache
-                actions.updateGlobalConversationCache(updatedConversation)
-            }
-
-            actions.streamConversation(
-                {
-                    content: prompt,
-                    contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.name, tool.context])),
-                    ui_context: values.compiledContext || undefined,
-                    conversation: values.conversation?.id || values.conversationId,
-                },
-                0
-            )
-        },
-
+    listeners((logic) => ({
         streamConversation: async ({ streamData, generationAttempt }, breakpoint) => {
+            const { actions, values, cache, mount, props } = logic as BuiltLogic<maxThreadLogicType>
             // Set active streaming threads, so we know streaming is active
-            actions.setActiveStreamingThreads(1)
+            const releaseStreamingLock = mount() // lock the logic - don't unmount before we're done streaming
+            actions.incrActiveStreamingThreads()
 
             if (generationAttempt === 0 && streamData.content) {
                 const message: ThreadMessage = {
@@ -248,13 +256,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 // Ensure we have valid data for the API call
                 const apiData: any = { ...streamData }
 
-                // For reconnection, we only need conversation ID
-                if (!streamData.content && streamData.conversation) {
-                    // Remove all other fields to ensure clean reconnection call
-                    delete apiData.contextual_tools
-                    delete apiData.ui_context
-                }
-
                 // Generate a new trace ID for this interaction
                 const traceId = uuid()
                 actions.setTraceId(traceId)
@@ -262,6 +263,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                 if (values.billingContext && values.featureFlags[FEATURE_FLAGS.MAX_BILLING_CONTEXT]) {
                     apiData.billing_context = values.billingContext
+                }
+
+                if (values.deepResearchMode) {
+                    apiData.deep_research_mode = true
                 }
 
                 const response = await api.conversations.stream(apiData, {
@@ -274,73 +279,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 }
 
                 const decoder = new TextDecoder()
+                const pendingEventHandlers: Promise<void>[] = []
                 const parser = createParser({
                     onEvent: async ({ data, event }) => {
-                        // A Conversation object is only received when the conversation is new
-                        if (event === AssistantEventType.Conversation) {
-                            const parsedResponse = parseResponse<Conversation>(data)
-                            if (!parsedResponse) {
-                                return
-                            }
-                            const conversationWithTitle = {
-                                ...parsedResponse,
-                                title: parsedResponse.title || 'New chat',
-                            }
-
-                            actions.setConversation(conversationWithTitle)
-                            actions.updateGlobalConversationCache(conversationWithTitle)
-                        } else if (event === AssistantEventType.Message) {
-                            const parsedResponse = parseResponse<RootAssistantMessage>(data)
-                            if (!parsedResponse) {
-                                return
-                            }
-
-                            if (isHumanMessage(parsedResponse)) {
-                                actions.replaceMessage(values.threadRaw.length - 1, {
-                                    ...parsedResponse,
-                                    status: 'completed',
-                                })
-                            } else if (isAssistantToolCallMessage(parsedResponse)) {
-                                for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
-                                    // Empty message in askMax effectively means "just resume generation with current context"
-                                    await values.toolMap[toolName]?.callback(toolResult)
-                                    // The `navigate` tool is the only one doing client-side formatting currently
-                                    if (toolName === 'navigate') {
-                                        actions.askMax(null) // Continue generation
-                                        parsedResponse.content = parsedResponse.content.replace(
-                                            toolResult.page_key,
-                                            breadcrumbsLogic.values.sceneBreadcrumbsDisplayString
-                                        )
-                                    }
-                                }
-                                actions.addMessage({
-                                    ...parsedResponse,
-                                    status: 'completed',
-                                })
-                            } else if (
-                                values.threadRaw[values.threadRaw.length - 1]?.status === 'completed' ||
-                                values.threadRaw.length === 0
-                            ) {
-                                actions.addMessage({
-                                    ...parsedResponse,
-                                    status: !parsedResponse.id ? 'loading' : 'completed',
-                                })
-                            } else if (parsedResponse) {
-                                actions.replaceMessage(values.threadRaw.length - 1, {
-                                    ...parsedResponse,
-                                    status: !parsedResponse.id ? 'loading' : 'completed',
-                                })
-                            }
-                        } else if (event === AssistantEventType.Status) {
-                            const parsedResponse = parseResponse<AssistantGenerationStatusEvent>(data)
-                            if (!parsedResponse) {
-                                return
-                            }
-
-                            if (parsedResponse.type === AssistantGenerationStatusType.GenerationError) {
-                                actions.setMessageStatus(values.threadRaw.length - 1, 'error')
-                            }
-                        }
+                        pendingEventHandlers.push(
+                            onEventImplementation(event as string, data, { actions, values, props })
+                        )
                     },
                 })
 
@@ -348,10 +292,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     const { done, value } = await reader.read()
                     parser.feed(decoder.decode(value))
                     if (done) {
+                        await Promise.all(pendingEventHandlers) // Wait for all onEvent handlers to complete
                         break
                     }
                 }
             } catch (e) {
+                actions.setForAnotherAgenticIteration(false) // Cancel any next iteration
                 if (!(e instanceof DOMException) || e.name !== 'AbortError') {
                     const relevantErrorMessage = { ...FAILURE_MESSAGE, id: uuid() } // Generic message by default
 
@@ -394,12 +340,50 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     }
                 }
             }
-
-            actions.completeThreadGeneration()
-            actions.setActiveStreamingThreads(-1)
+            actions.decrActiveStreamingThreads()
+            if (values.isAnotherAgenticIterationScheduled) {
+                // Continue generation after applying tool - null message in askMax "just resume generation with current context"
+                actions.askMax(null)
+            } else {
+                // Otherwise wrap things up
+                actions.completeThreadGeneration()
+            }
             cache.generationController = undefined
+            releaseStreamingLock() // release the lock
         },
+    })),
+    listeners(({ actions, values, cache }) => ({
+        askMax: async ({ prompt }) => {
+            if (!values.dataProcessingAccepted) {
+                return // Skip - this will be re-fired by the `onApprove` on `AIConsentPopoverWrapper`
+            }
+            // Clear the question
+            actions.setQuestion('')
+            // For a new conversations, set the frontend conversation ID
+            if (!values.conversation) {
+                actions.setConversationId(values.conversationId)
+            } else {
+                const updatedConversation = {
+                    ...values.conversation,
+                    status: ConversationStatus.InProgress,
+                    updated_at: dayjs().toISOString(),
+                }
+                // Update the current status
+                actions.setConversation(updatedConversation)
+                // Update the global conversation cache
+                actions.updateGlobalConversationCache(updatedConversation)
+            }
 
+            actions.streamConversation(
+                {
+                    content: prompt,
+                    contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context])),
+                    ui_context: values.compiledContext || undefined,
+                    conversation: values.conversation?.id || values.conversationId,
+                },
+                0
+            )
+        },
         stopGeneration: async () => {
             if (!values.conversation?.id) {
                 return
@@ -415,19 +399,15 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         },
 
         reconnectToStream: () => {
-            if (!props.conversationId) {
+            const id = values.conversationId
+            if (!id) {
                 return
             }
-
-            // Historical messages should already be loaded by propsChanged
-            // Just start the stream reconnection
-            actions.streamConversation(
-                {
-                    conversation: props.conversationId,
-                    content: null,
-                },
-                0
-            )
+            // Only skip if this *instance* already has an open stream
+            if (cache.generationController) {
+                return
+            }
+            actions.streamConversation({ conversation: id, content: null }, 0)
         },
 
         retryLastMessage: () => {
@@ -460,7 +440,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         },
 
         loadConversationHistorySuccess: ({ conversationHistory, payload }) => {
-            if (payload?.doNotUpdateCurrentThread || values.autoRun) {
+            if (payload?.doNotUpdateCurrentThread || values.autoRun || values.streamingActive) {
                 return
             }
             const conversation = conversationHistory.find((c) => c.id === values.conversationId)
@@ -482,6 +462,27 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.setQuestion(command.name + ' ') // Rest must be filled in by the user
             } else {
                 actions.askMax(command.name)
+            }
+        },
+        processNotebookUpdate: async ({ notebookId, notebookContent }) => {
+            try {
+                const currentPath = router.values.location.pathname
+                const notebookPath = urls.notebook(notebookId)
+
+                if (currentPath.includes(notebookPath)) {
+                    // We're already on the notebook page, refresh it
+                    let logic = notebookLogic.findMounted({ shortId: notebookId })
+                    if (logic) {
+                        logic.actions.setLocalContent(notebookContent, true, true)
+                    }
+                } else {
+                    // Navigate to the notebook
+                    await openNotebook(notebookId, NotebookTarget.Scene, undefined, (logic) => {
+                        logic.actions.setLocalContent(notebookContent, true, true)
+                    })
+                }
+            } catch (error) {
+                console.error('Failed to navigate to notebook:', error)
             }
         },
     })),
@@ -532,28 +533,41 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                 if (threadLoading) {
                     const finalMessageSoFar = threadGrouped.at(-1)?.at(-1)
-                    const thinkingMessage: ReasoningMessage & ThreadMessage = {
-                        type: AssistantMessageType.Reasoning,
-                        content: getRandomThinkingMessage(),
-                        status: 'completed',
-                        id: 'loader',
-                    }
 
-                    if (finalMessageSoFar?.type === AssistantMessageType.Human || finalMessageSoFar?.id) {
-                        // If now waiting for the current node to start streaming, add "Thinking" message
-                        // so that there's _some_ indication of processing
-                        if (finalMessageSoFar.type === AssistantMessageType.Human) {
-                            // If the last message was human, we need to add a new "ephemeral" AI group
-                            threadGrouped.push([thinkingMessage])
-                        } else {
-                            // Otherwise, add to the last group
-                            threadGrouped[threadGrouped.length - 1].push(thinkingMessage)
+                    // Check if there's an active TaskExecutionMessage
+                    const hasActiveTaskExecution =
+                        isTaskExecutionMessage(finalMessageSoFar) &&
+                        finalMessageSoFar.tasks.some(
+                            (task) =>
+                                task.status === TaskExecutionStatus.Pending ||
+                                task.status === TaskExecutionStatus.InProgress
+                        )
+
+                    // Don't show thinking message if there's an active TaskExecutionMessage
+                    if (!hasActiveTaskExecution) {
+                        const thinkingMessage: ReasoningMessage & ThreadMessage = {
+                            type: AssistantMessageType.Reasoning,
+                            content: getRandomThinkingMessage(),
+                            status: 'completed',
+                            id: 'loader',
                         }
-                    }
 
-                    // Special case for the thread in progress
-                    if (threadGrouped.length === 0) {
-                        threadGrouped.push([thinkingMessage])
+                        if (finalMessageSoFar?.type === AssistantMessageType.Human || finalMessageSoFar?.id) {
+                            // If now waiting for the current node to start streaming, add "Thinking" message
+                            // so that there's _some_ indication of processing
+                            if (finalMessageSoFar.type === AssistantMessageType.Human) {
+                                // If the last message was human, we need to add a new "ephemeral" AI group
+                                threadGrouped.push([thinkingMessage])
+                            } else {
+                                // Otherwise, add to the last group
+                                threadGrouped[threadGrouped.length - 1].push(thinkingMessage)
+                            }
+                        }
+
+                        // Special case for the thread in progress
+                        if (threadGrouped.length === 0) {
+                            threadGrouped.push([thinkingMessage])
+                        }
                     }
                 }
 
@@ -616,26 +630,147 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             (question): SlashCommand[] =>
                 MAX_SLASH_COMMANDS.filter((command) => command.name.toLowerCase().startsWith(question.toLowerCase())),
         ],
+
+        showDeepResearchModeToggle: [
+            (s) => [s.conversation, s.featureFlags],
+            (conversation, featureFlags) =>
+                // if a conversation is already marked as deep research, or has already started (has title/is in progress), don't show the toggle
+                !!featureFlags[FEATURE_FLAGS.MAX_DEEP_RESEARCH] &&
+                conversation?.type !== ConversationType.DeepResearch &&
+                !conversation?.title &&
+                conversation?.status !== ConversationStatus.InProgress,
+        ],
+
+        showContextUI: [
+            (s) => [s.conversation, s.featureFlags],
+            (conversation, featureFlags) =>
+                featureFlags[FEATURE_FLAGS.MAX_DEEP_RESEARCH]
+                    ? conversation?.type !== ConversationType.DeepResearch &&
+                      conversation?.status !== ConversationStatus.InProgress
+                    : true,
+        ],
     }),
 
     afterMount((logic) => {
-        const { actions, values, cache, mount } = logic as BuiltLogic<maxThreadLogicType>
-        // Prevent unmounting of the logic until the streaming finishes.
-        // Increment a counter of active logics by one and then decrement it when the logic unmounts or finishes
-        cache.unmount = mount()
+        const { actions, values, props } = logic
+        for (const l of maxThreadLogic.findAllMounted()) {
+            if (l !== logic && l.props.conversationId === props.conversationId) {
+                // We found a logic with the same conversationId, but a different tabId
+                if (l.values.conversation) {
+                    actions.setConversation(l.values.conversation)
+                }
+                if (l.values.threadRaw) {
+                    actions.setThread(l.values.threadRaw)
+                }
+                break
+            }
+        }
 
         if (values.autoRun && values.question) {
             actions.askMax(values.question)
             actions.setAutoRun(false)
         }
     }),
-
-    beforeUnmount(({ cache, values }) => {
-        if (!values.streamingActive) {
-            cache.unmount()
-        }
-    }),
 ])
+
+/** Assistant streaming event handler. */
+async function onEventImplementation(
+    event: string,
+    data: string,
+    { actions, values, props }: Pick<BuiltLogic<maxThreadLogicType>, 'actions' | 'values' | 'props'>
+): Promise<void> {
+    // A Conversation object is only received when the conversation is new
+    if (event === AssistantEventType.Conversation) {
+        const parsedResponse = parseResponse<Conversation>(data)
+        if (!parsedResponse) {
+            return
+        }
+        const conversationWithTitle = {
+            ...parsedResponse,
+            title: parsedResponse.title || 'New chat',
+        }
+
+        actions.setConversation(conversationWithTitle)
+        actions.updateGlobalConversationCache(conversationWithTitle)
+    } else if (event === AssistantEventType.Message) {
+        const parsedResponse = parseResponse<RootAssistantMessage>(data)
+        if (!parsedResponse) {
+            return
+        }
+        if (isHumanMessage(parsedResponse)) {
+            // Find the most recent Human message (the provisional bubble we added on ask)
+            const lastHumanIndex = [...values.threadRaw]
+                .map((m, i) => [m, i] as const)
+                .reverse()
+                .find(([m]) => isHumanMessage(m))?.[1]
+
+            if (lastHumanIndex != null) {
+                actions.replaceMessage(lastHumanIndex, { ...parsedResponse, status: 'completed' })
+            } else {
+                // Fallback – if we somehow don't have a provisional Human message, just add it
+                actions.addMessage({ ...parsedResponse, status: 'completed' })
+            }
+        } else if (isAssistantToolCallMessage(parsedResponse)) {
+            for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
+                await values.toolMap[toolName]?.callback?.(toolResult, props.conversationId)
+                // The `navigate` tool is the only one doing client-side formatting currently
+                if (toolName === 'navigate') {
+                    parsedResponse.content = parsedResponse.content.replace(
+                        toolResult.page_key,
+                        breadcrumbsLogic.values.sceneBreadcrumbsDisplayString
+                    )
+                    actions.setForAnotherAgenticIteration(true) // Let's iterate after applying the navigate tool
+                }
+            }
+            actions.addMessage({
+                ...parsedResponse,
+                status: 'completed',
+            })
+        } else {
+            if (isNotebookUpdateMessage(parsedResponse)) {
+                actions.processNotebookUpdate(parsedResponse.notebook_id, parsedResponse.content)
+                if (!parsedResponse.id) {
+                    // we do not want to show partial notebook update messages
+                    return
+                }
+            }
+            // Check if a message with the same ID already exists
+            const existingMessageIndex = parsedResponse.id
+                ? values.threadRaw.findIndex((msg) => msg.id === parsedResponse.id)
+                : -1
+
+            if (existingMessageIndex >= 0) {
+                // Replace existing message with same ID
+                actions.replaceMessage(existingMessageIndex, {
+                    ...parsedResponse,
+                    status: !parsedResponse.id ? 'loading' : 'completed',
+                })
+            } else if (
+                values.threadRaw[values.threadRaw.length - 1]?.status === 'completed' ||
+                values.threadRaw.length === 0
+            ) {
+                actions.addMessage({
+                    ...parsedResponse,
+                    status: !parsedResponse.id ? 'loading' : 'completed',
+                })
+            } else if (parsedResponse) {
+                actions.replaceMessage(values.threadRaw.length - 1, {
+                    ...parsedResponse,
+                    status: !parsedResponse.id ? 'loading' : 'completed',
+                })
+            }
+        }
+    } else if (event === AssistantEventType.Status) {
+        const parsedResponse = parseResponse<AssistantGenerationStatusEvent>(data)
+        if (!parsedResponse) {
+            return
+        }
+
+        if (parsedResponse.type === AssistantGenerationStatusType.GenerationError) {
+            actions.setMessageStatus(values.threadRaw.length - 1, 'error')
+        }
+    }
+}
 
 /**
  * Parses the generation result from the API. Some generation chunks might be sent in batches.
@@ -652,15 +787,6 @@ function parseResponse<T>(response: string): T | null | undefined {
 
 function removeConversationMessages({ messages, ...conversation }: ConversationDetail): Conversation {
     return conversation
-}
-
-/**
- * Filter out reasoning messages from the thread.
- * @param thread
- * @returns
- */
-function filterOutReasoningMessages(thread: ThreadMessage[]): ThreadMessage[] {
-    return thread.filter((message) => !isReasoningMessage(message))
 }
 
 /**

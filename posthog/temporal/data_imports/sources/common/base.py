@@ -1,19 +1,21 @@
 from abc import ABC, abstractmethod
-from typing import TypeVar, Generic, Union
+from typing import Generic, TypeVar, Union
+
 from posthog.schema import (
     SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldSwitchGroupConfig,
-    SourceFieldSelectConfig,
-    SourceFieldOauthConfig,
     SourceFieldFileUploadConfig,
+    SourceFieldInputConfig,
+    SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
     SourceFieldSSHTunnelConfig,
+    SourceFieldSwitchGroupConfig,
 )
+
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
+from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import get_config_for_source
-from posthog.temporal.data_imports.sources.common.config import Config
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.warehouse.models import ExternalDataSource
+from posthog.warehouse.types import ExternalDataSourceType
 
 ConfigType = TypeVar("ConfigType", bound=Config)
 
@@ -26,13 +28,15 @@ FieldType = Union[
     SourceFieldSSHTunnelConfig,
 ]
 
+SourceCredentialsValidationResult = tuple[bool, str | None]
+
 
 class BaseSource(ABC, Generic[ConfigType]):
     """Base class for all data import sources"""
 
     @property
     @abstractmethod
-    def source_type(self) -> ExternalDataSource.Type:
+    def source_type(self) -> ExternalDataSourceType:
         raise NotImplementedError()
 
     @property
@@ -46,7 +50,7 @@ class BaseSource(ABC, Generic[ConfigType]):
     def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
         raise NotImplementedError()
 
-    def get_schemas(self, config: ConfigType, team_id: int) -> list[SourceSchema]:
+    def get_schemas(self, config: ConfigType, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         raise NotImplementedError()
 
     @property

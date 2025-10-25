@@ -1,22 +1,28 @@
+import { router } from 'kea-router'
 import { partial } from 'kea-test-utils'
 import { expectLogic } from 'kea-test-utils'
 import React from 'react'
 
+import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+import { NotebookTarget } from 'scenes/notebooks/types'
+import { urls } from 'scenes/urls'
+
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
+import * as notebooksModel from '~/models/notebooksModel'
 import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
-import { ConversationDetail, ConversationStatus } from '~/types'
 import { initKeaTests } from '~/test/init'
+import { ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import {
-    maxMocks,
     MOCK_CONVERSATION_ID,
     MOCK_IN_PROGRESS_CONVERSATION,
     MOCK_TEMP_CONVERSATION_ID,
+    maxMocks,
     mockStream,
 } from './testUtils'
 
@@ -38,7 +44,7 @@ describe('maxThreadLogic', () => {
         maxGlobalLogicInstance.mount()
         jest.spyOn(maxGlobalLogicInstance.selectors, 'dataProcessingAccepted').mockReturnValue(true)
 
-        logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID })
+        logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
         logic.mount()
     })
 
@@ -53,12 +59,6 @@ describe('maxThreadLogic', () => {
         // Stop any active streaming in the thread logic
         if (logic.cache?.generationController) {
             logic.cache.generationController.abort()
-        }
-
-        // Unmount the maxGlobalLogic
-        const maxGlobalLogicInstance = maxGlobalLogic.findMounted()
-        if (maxGlobalLogicInstance) {
-            maxGlobalLogicInstance.unmount()
         }
 
         sidePanelStateLogic.unmount()
@@ -255,7 +255,7 @@ describe('maxThreadLogic', () => {
     })
 
     it('adds a thinking message to an ephemeral group', async () => {
-        logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID })
+        logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
         logic.mount()
 
         // Only a human message–should create an ephemeral group
@@ -291,7 +291,7 @@ describe('maxThreadLogic', () => {
     })
 
     it('adds a thinking message to the last group of messages with IDs', async () => {
-        logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID })
+        logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
         logic.mount()
 
         // Human and assistant messages with IDs–should append to the last group
@@ -339,7 +339,7 @@ describe('maxThreadLogic', () => {
     })
 
     it('does not add a thinking message when the last message is without ID', async () => {
-        logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID })
+        logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
         logic.mount()
 
         // Human with ID and assistant messages without ID–should not add the message
@@ -380,9 +380,11 @@ describe('maxThreadLogic', () => {
 
     it('adds a thinking message when the thread is completely empty', async () => {
         const streamSpy = mockStream()
-        logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID })
+        logic.unmount()
+        logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
         logic.mount()
 
+        expect(streamSpy).toHaveBeenCalledTimes(0)
         await expectLogic(logic, () => {
             logic.actions.askMax('hello')
         }).toMatchValues({
@@ -434,7 +436,7 @@ describe('maxThreadLogic', () => {
                 tiles: [],
             } as any)
 
-            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID })
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
             logic.mount()
 
             await expectLogic(logic, () => {
@@ -458,7 +460,7 @@ describe('maxThreadLogic', () => {
             const streamSpy = mockStream()
 
             // Don't add any context data, so compiledContext will be null
-            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID })
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
             logic.mount()
 
             await expectLogic(logic, () => {
@@ -649,6 +651,74 @@ describe('maxThreadLogic', () => {
         })
     })
 
+    describe('processNotebookUpdate', () => {
+        it('navigates to notebook when not already on notebook page', async () => {
+            router.actions.push(urls.max())
+
+            // Mock openNotebook to track its calls
+            const openNotebookSpy = jest.spyOn(notebooksModel, 'openNotebook')
+            openNotebookSpy.mockImplementation(async (notebookId, _target, _, callback) => {
+                const logic = notebookLogic({ shortId: notebookId })
+                logic.mount()
+                if (callback) {
+                    callback(logic)
+                }
+                router.actions.push(urls.notebook(notebookId))
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.processNotebookUpdate('test-notebook-id', { type: 'doc', content: [] } as any)
+            }).toDispatchActions(['processNotebookUpdate'])
+
+            expect(openNotebookSpy).toHaveBeenCalledWith(
+                'test-notebook-id',
+                NotebookTarget.Scene,
+                undefined,
+                expect.any(Function)
+            )
+            expect(router.values.location.pathname).toContain(urls.notebook('test-notebook-id'))
+        })
+
+        it('updates existing notebook when already on notebook page', async () => {
+            const notebookId = 'test-notebook-id'
+            router.actions.push(urls.notebook(notebookId))
+
+            const notebookLogicInstance = notebookLogic({ shortId: notebookId })
+            notebookLogicInstance.mount()
+
+            // Create spies BEFORE calling the action
+            const setLocalContentSpy = jest.spyOn(notebookLogicInstance.actions, 'setLocalContent')
+            const findMountedSpy = jest.spyOn(notebookLogic, 'findMounted')
+            findMountedSpy.mockReturnValue(notebookLogicInstance)
+            const routerActionsSpy = jest.spyOn(router.actions, 'push')
+
+            await expectLogic(logic, () => {
+                logic.actions.processNotebookUpdate(notebookId, { type: 'doc', content: [] } as any)
+            }).toDispatchActions(['processNotebookUpdate'])
+
+            expect(findMountedSpy).toHaveBeenCalledWith({ shortId: notebookId })
+            expect(routerActionsSpy).not.toHaveBeenCalled()
+            expect(setLocalContentSpy).toHaveBeenCalledWith({ type: 'doc', content: [] }, true, true)
+        })
+
+        it('handles gracefully when notebook logic is not mounted on notebook page', async () => {
+            const notebookId = 'test-notebook-id'
+            router.actions.push(urls.notebook(notebookId))
+
+            // Create spies BEFORE calling the action
+            const routerActionsSpy = jest.spyOn(router.actions, 'push')
+            const notebookLogicFindMountedSpy = jest.spyOn(notebookLogic, 'findMounted')
+            notebookLogicFindMountedSpy.mockReturnValue(null)
+
+            await expectLogic(logic, () => {
+                logic.actions.processNotebookUpdate(notebookId, { type: 'doc', content: [] } as any)
+            }).toDispatchActions(['processNotebookUpdate'])
+
+            expect(notebookLogicFindMountedSpy).toHaveBeenCalledWith({ shortId: notebookId })
+            expect(routerActionsSpy).not.toHaveBeenCalled()
+        })
+    })
+
     describe('threadRaw status fields', () => {
         it('initializes threadRaw with status fields from conversation messages', async () => {
             const conversationWithMessages: ConversationDetail = {
@@ -669,12 +739,14 @@ describe('maxThreadLogic', () => {
                         id: 'assistant-1',
                     },
                 ],
+                type: ConversationType.Assistant,
             }
 
             // Create logic with conversation containing messages
             logic.unmount()
             logic = maxThreadLogic({
                 conversationId: MOCK_CONVERSATION_ID,
+                tabId: 'test',
                 conversation: conversationWithMessages,
             })
             logic.mount()
@@ -704,12 +776,14 @@ describe('maxThreadLogic', () => {
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
                 messages: [],
+                type: ConversationType.Assistant,
             }
 
             // Create logic with conversation containing no messages
             logic.unmount()
             logic = maxThreadLogic({
                 conversationId: MOCK_CONVERSATION_ID,
+                tabId: 'test',
                 conversation: conversationWithoutMessages,
             })
             logic.mount()
@@ -727,11 +801,13 @@ describe('maxThreadLogic', () => {
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
                 messages: [],
+                type: ConversationType.Assistant,
             }
 
             logic.unmount()
             logic = maxThreadLogic({
                 conversationId: MOCK_CONVERSATION_ID,
+                tabId: 'test',
                 conversation: initialConversation,
             })
             logic.mount()
@@ -759,6 +835,7 @@ describe('maxThreadLogic', () => {
             // Simulate prop change by creating new logic instance with updated conversation
             logic = maxThreadLogic({
                 conversationId: MOCK_CONVERSATION_ID,
+                tabId: 'test',
                 conversation: updatedConversation,
             })
             logic.mount()
@@ -783,7 +860,7 @@ describe('maxThreadLogic', () => {
 
     describe('command selection and activation', () => {
         beforeEach(() => {
-            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID })
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
             logic.mount()
         })
 

@@ -1,11 +1,13 @@
 import json
 from pathlib import Path
+
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
+
 from ee.billing.salesforce_enrichment.enrichment import (
     is_excluded_domain,
-    transform_harmonic_data,
     prepare_salesforce_update_data,
+    transform_harmonic_data,
 )
 
 

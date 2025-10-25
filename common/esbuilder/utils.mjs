@@ -1,5 +1,3 @@
-import fs from 'node:fs/promises'
-
 import autoprefixer from 'autoprefixer'
 import chokidar from 'chokidar'
 import cors from 'cors'
@@ -10,9 +8,12 @@ import { polyfillNode } from 'esbuild-plugin-polyfill-node'
 import { sassPlugin } from 'esbuild-sass-plugin'
 import express from 'express'
 import fse from 'fs-extra'
-import * as path from 'path'
+import fs from 'node:fs/promises'
+import * as path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import postcss from 'postcss'
 import postcssPresetEnv from 'postcss-preset-env'
+import ts from 'typescript'
 
 const defaultHost = process.argv.includes('--host') && process.argv.includes('0.0.0.0') ? '0.0.0.0' : 'localhost'
 const defaultPort = 8234
@@ -25,6 +26,31 @@ export function copyPublicFolder(srcDir, destDir) {
             console.error(err)
         }
     })
+}
+
+export function copySnappyWASMFile(absWorkingDir) {
+    try {
+        fse.copyFileSync(
+            path.resolve(absWorkingDir, 'node_modules/snappy-wasm/es/snappy_bg.wasm'),
+            path.resolve(absWorkingDir, 'dist/snappy_bg.wasm')
+        )
+    } catch (error) {
+        console.warn('Could not copy snappy wasm file:', error.message)
+    }
+}
+
+export function copyRRWebWorkerFiles(absWorkingDir) {
+    try {
+        const rrwebSourceDir = path.resolve(absWorkingDir, 'node_modules/@posthog/rrweb/dist')
+        const distDir = path.resolve(absWorkingDir, 'dist')
+        const files = fse.readdirSync(rrwebSourceDir)
+        const mapFiles = files.filter((f) => f.startsWith('image-bitmap-data-url-worker-') && f.endsWith('.js.map'))
+        mapFiles.forEach((file) => {
+            fse.copyFileSync(path.join(rrwebSourceDir, file), path.join(distDir, file))
+        })
+    } catch (error) {
+        console.warn('Could not copy rrweb map files:', error.message)
+    }
 }
 
 /** Update the file's modified and accessed times to now. */
@@ -68,10 +94,17 @@ export function copyIndexHtml(
         window.ESBUILD_LOAD_SCRIPT(${JSON.stringify(jsFile)})
     `
 
+    // Esbuild "chunks" a scene into possibly hundreds of tiny files. When we load the first few files,
+    // they tell us which other files to load. This cascading loading is slow. That's why we cache
+    // the list of chunks per scene, and load them all in parallel when a scene is loaded.
+
+    // Don't use chunks in dev mode.
+    // Django caches the generated index.html, and we'll end up loading the wrong chunks after one change.
+    const chunksToServe = isDev ? {} : chunks
     const chunkCode = `
         window.ESBUILD_LOADED_CHUNKS = new Set(); 
         window.ESBUILD_LOAD_CHUNKS = function(name) { 
-            const chunks = ${JSON.stringify(chunks)}[name] || [];
+            const chunks = ${JSON.stringify(chunksToServe)}[name] || [];
             for (const chunk of chunks) { 
                 if (!window.ESBUILD_LOADED_CHUNKS.has(chunk)) { 
                     window.ESBUILD_LOAD_SCRIPT('chunk-'+chunk+'.js'); 
@@ -124,10 +157,18 @@ export function createHashlessEntrypoints(absWorkingDir, entrypoints) {
     }
 }
 
+const tsconfigPath = isDev ? 'tsconfig.dev.json' : 'tsconfig.json'
+
+const { config: tsconfig } = ts.readConfigFile(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', tsconfigPath),
+    ts.sys.readFile
+)
+
 /** @type {import('esbuild').BuildOptions} */
 export const commonConfig = {
     sourcemap: true,
     minify: !isDev,
+    target: tsconfig.compilerOptions.target, // We want the same target as tsconfig, should fail if tsconfig not found
     resolveExtensions: ['.ts', '.tsx', '.js', '.jsx', '.scss', '.css', '.less'],
     publicPath: '/static',
     assetNames: 'assets/[name]-[hash]',
@@ -152,7 +193,7 @@ export const commonConfig = {
             },
         }),
     ],
-    tsconfig: isDev ? 'tsconfig.dev.json' : 'tsconfig.json',
+    tsconfig: tsconfigPath,
     define: {
         global: 'globalThis',
         'process.env.NODE_ENV': isDev ? '"development"' : '"production"',
@@ -310,12 +351,12 @@ export async function buildOrWatch(config) {
                     ? 'Building'
                     : 'Rebuilding'
                 : logOpts.success
-                ? buildCount === 1
-                    ? 'Built'
-                    : 'Rebuilt'
-                : buildCount === 1
-                ? 'Building failed'
-                : 'Rebuilding failed '
+                  ? buildCount === 1
+                      ? 'Built'
+                      : 'Rebuilt'
+                  : buildCount === 1
+                    ? 'Building failed'
+                    : 'Rebuilding failed '
 
         console.info(`${icon} ${name ? `"${name}": ` : ''}${message}${timingSuffix}`)
     }

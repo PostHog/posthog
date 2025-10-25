@@ -1,10 +1,12 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { TeamMembershipLevel } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import posthog from 'posthog-js'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -72,9 +74,9 @@ function validateFunding(raised: string | undefined, isYC: boolean): string | un
 export const startupProgramLogic = kea<startupProgramLogicType>([
     path(['scenes', 'startups', 'startupProgramLogic']),
     props({} as StartupProgramLogicProps),
-    connect({
+    connect(() => ({
         values: [userLogic, ['user'], organizationLogic, ['currentOrganization'], billingLogic, ['billing']],
-    }),
+    })),
     actions({
         setFormSubmitted: (submitted: boolean) => ({ submitted }),
     }),

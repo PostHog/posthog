@@ -1,25 +1,27 @@
-import hashlib
 import re
 import time
+import hashlib
 from contextlib import suppress
 from functools import lru_cache
 from typing import Optional
+
 from django.conf import settings
 from django.urls import resolve
-from prometheus_client import Counter
-from rest_framework.throttling import SimpleRateThrottle, BaseThrottle, UserRateThrottle
-from rest_framework.request import Request
 
+from prometheus_client import Counter
+from rest_framework.request import Request
+from rest_framework.throttling import BaseThrottle, SimpleRateThrottle, UserRateThrottle
+from statshog.defaults.django import statsd
+from token_bucket import Limiter, MemoryStorage
+
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
-from statshog.defaults.django import statsd
-from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.metrics import LABEL_PATH, LABEL_ROUTE, LABEL_TEAM_ID
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.personal_api_key import hash_key_value
 from posthog.models.team.team import Team
 from posthog.settings.utils import get_list
-from token_bucket import Limiter, MemoryStorage
-from posthog.models.personal_api_key import hash_key_value
 from posthog.utils import patchable
 
 RATE_LIMIT_EXCEEDED_COUNTER = Counter(
@@ -73,6 +75,7 @@ def is_decide_rate_limit_enabled() -> bool:
     _ttl is passed an infrequently changing value to ensure the cache is invalidated after some delay
     """
     from django.conf import settings
+
     from posthog.utils import str_to_bool
 
     return str_to_bool(settings.DECIDE_RATE_LIMIT_ENABLED)
@@ -345,6 +348,25 @@ class UserOrEmailRateThrottle(SimpleRateThrottle):
 
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
+    def parse_rate(self, rate):
+        """
+        Support custom duration formats like "6/20minutes"
+        """
+        if rate is None:
+            return (None, None)
+
+        num, period = rate.split("/")
+        num_requests = int(num)
+
+        if period.endswith("minutes"):
+            minutes = int(period[:-7])
+            duration = minutes * 60
+        else:
+            # Fall back to default
+            num_requests, duration = super().parse_rate(rate)  # type: ignore
+
+        return (num_requests, duration)
+
 
 class SignupIPThrottle(SimpleRateThrottle):
     """
@@ -419,15 +441,15 @@ class AISustainedRateThrottle(UserRateThrottle):
         return request_allowed
 
 
-class LLMProxyBurstRateThrottle(UserRateThrottle):
-    scope = "llm_proxy_burst"
+class LLMGatewayBurstRateThrottle(UserRateThrottle):
+    scope = "llm_gateway_burst"
     rate = "30/minute"
 
 
-class LLMProxySustainedRateThrottle(UserRateThrottle):
-    # Throttle class that's very aggressive and is used specifically on endpoints that hit OpenAI
+class LLMGatewaySustainedRateThrottle(UserRateThrottle):
+    # Throttle class that's very aggressive and is used specifically on endpoints that hit LLM providers
     # Intended to block slower but sustained bursts of requests, per user
-    scope = "llm_proxy_sustained"
+    scope = "llm_gateway_sustained"
     rate = "500/hour"
 
 
@@ -439,12 +461,12 @@ class HogQLQueryThrottle(PersonalApiKeyRateThrottle):
 
 class APIQueriesBurstThrottle(PersonalApiKeyRateThrottle):
     scope = "api_queries_burst"
-    rate = "120/minute"
+    rate = "240/minute"
 
 
 class APIQueriesSustainedThrottle(PersonalApiKeyRateThrottle):
     scope = "api_queries_sustained"
-    rate = "1200/hour"
+    rate = "2400/hour"
 
 
 class WebAnalyticsAPIBurstThrottle(PersonalApiKeyRateThrottle):
@@ -460,6 +482,26 @@ class WebAnalyticsAPISustainedThrottle(PersonalApiKeyRateThrottle):
 class UserPasswordResetThrottle(UserOrEmailRateThrottle):
     scope = "user_password_reset"
     rate = "6/day"
+
+
+class EmailMFAThrottle(UserOrEmailRateThrottle):
+    scope = "email_mfa"
+    rate = "6/20minutes"
+
+
+class EmailMFAResendThrottle(UserOrEmailRateThrottle):
+    scope = "email_mfa_resend"
+    rate = "1/minute"
+
+    def get_cache_key(self, request, view):
+        from posthog.helpers.two_factor_session import email_mfa_verifier
+
+        user_id = email_mfa_verifier.get_pending_email_mfa_verification_user_id(request)
+        if user_id:
+            ident = hashlib.sha256(str(user_id).encode()).hexdigest()
+            return self.cache_format % {"scope": self.scope, "ident": ident}
+
+        return super().get_cache_key(request, view)
 
 
 class UserAuthenticationThrottle(UserOrEmailRateThrottle):
@@ -500,9 +542,13 @@ class SetupWizardQueryRateThrottle(SimpleRateThrottle):
     def get_cache_key(self, request, view):
         hash = request.headers.get("X-PostHog-Wizard-Hash")
 
-        if not hash:
-            return self.get_ident(request)
-        return f"throttle_wizard_query_{hash}"
+        authorization_header = request.headers.get("Authorization")
+
+        value = (hash or authorization_header or "").strip() or self.get_ident(request)
+
+        sha_hash = hashlib.sha256(value.encode()).hexdigest()
+
+        return f"throttle_wizard_query_{sha_hash}"
 
 
 class BreakGlassBurstThrottle(UserOrEmailRateThrottle):

@@ -1,9 +1,3 @@
-jest.mock('~/utils/posthog', () => {
-    return {
-        captureTeamEvent: jest.fn(),
-    }
-})
-
 import { Hub, ProjectId, Team } from '../../../types'
 import { closeHub, createHub } from '../../../utils/db/hub'
 import { createExampleInvocation, createHogFunction } from '../../_tests/fixtures'
@@ -12,6 +6,8 @@ import { CdpRedis, createCdpRedisPool } from '../../redis'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '../../types'
 import { createInvocationResult } from '../../utils/invocation-utils'
 import { BASE_REDIS_KEY, HogWatcherService, HogWatcherState } from './hog-watcher.service'
+
+jest.mock('~/utils/posthog', () => ({ captureTeamEvent: jest.fn() }))
 
 const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
 const mockCaptureTeamEvent: jest.Mock = require('~/utils/posthog').captureTeamEvent as any

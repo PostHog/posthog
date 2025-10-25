@@ -1,18 +1,21 @@
 import json
 from typing import Any, cast
 
+from posthog.schema import (
+    CachedRevenueExampleEventsQueryResponse,
+    RevenueExampleEventsQuery,
+    RevenueExampleEventsQueryResponse,
+)
+
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.constants import LimitContext
-from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.schema import (
-    RevenueExampleEventsQuery,
-    RevenueExampleEventsQueryResponse,
-    CachedRevenueExampleEventsQueryResponse,
-)
+from posthog.hogql.database.models import UnknownDatabaseField
 
-from products.revenue_analytics.backend.views.revenue_analytics_charge_view import RevenueAnalyticsChargeView
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext
+
+from products.revenue_analytics.backend.views import RevenueAnalyticsChargeView
 
 
 class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
@@ -30,22 +33,11 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
     def to_query(self) -> ast.SelectQuery:
         view_names = self.database.get_views()
         all_views = [self.database.get_table(view_name) for view_name in view_names]
-        views = [view for view in all_views if isinstance(view, RevenueAnalyticsChargeView) and view.is_event_view()]
-        if not views:
-            return ast.SelectQuery.empty(
-                columns=[
-                    "event",
-                    "event_name",
-                    "original_amount",
-                    "currency_aware_amount",
-                    "original_currency",
-                    "amount",
-                    "currency",
-                    "person",
-                    "session_id",
-                    "timestamp",
-                ]
-            )
+        views = [
+            view
+            for view in all_views
+            if isinstance(view, RevenueAnalyticsChargeView) and view.is_event_view() and not view.union_all
+        ]
 
         queries: list[ast.SelectQuery] = []
         for view in views:
@@ -100,17 +92,31 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
                 )
             )
 
-        if len(queries) == 1:
+        if len(queries) == 0:
+            columns = [
+                "event",
+                "event_name",
+                "original_amount",
+                "currency_aware_amount",
+                "original_currency",
+                "amount",
+                "currency",
+                "person",
+                "session_id",
+                "timestamp",
+            ]
+            return ast.SelectQuery.empty(columns={key: UnknownDatabaseField(name=key) for key in columns})
+        elif len(queries) == 1:
             return queries[0]
+        else:
+            # Reorder by timestamp to ensure the most recent events are at the top across all event views
+            return ast.SelectQuery(
+                select=[ast.Field(chain=["*"])],
+                select_from=ast.JoinExpr(table=ast.SelectSetQuery.create_from_queries(queries, "UNION ALL")),
+                order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
+            )
 
-        # Reorder by timestamp to ensure the most recent events are at the top across all event views
-        return ast.SelectQuery(
-            select=[ast.Field(chain=["*"])],
-            select_from=ast.JoinExpr(table=ast.SelectSetQuery.create_from_queries(queries, "UNION ALL")),
-            order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
-        )
-
-    def calculate(self):
+    def _calculate(self):
         response = self.paginator.execute_hogql_query(
             query_type="revenue_example_events_query",
             query=self.to_query(),

@@ -1,18 +1,19 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
-import {
-    authorizedUrlListLogic,
-    AuthorizedUrlListType,
-    defaultAuthorizedUrlProperties,
-} from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { CommonFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
-import {
-    calculateViewportRange,
-    DEFAULT_HEATMAP_FILTERS,
-    PostHogAppToolbarEvent,
-} from 'lib/components/IframedToolbarBrowser/utils'
-import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
+
+import {
+    AuthorizedUrlListType,
+    authorizedUrlListLogic,
+    defaultAuthorizedUrlProperties,
+} from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import {
+    DEFAULT_HEATMAP_FILTERS,
+    PostHogAppToolbarEvent,
+    calculateViewportRange,
+} from 'lib/components/IframedToolbarBrowser/utils'
+import { CommonFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
+import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ToolbarUserIntent } from '~/types'
@@ -198,7 +199,7 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
         ],
     }),
 
-    listeners(({ actions, cache, props, values }) => ({
+    listeners(({ actions, props, values, cache }) => ({
         sendToolbarMessage: ({ type, payload }) => {
             props.iframeRef?.current?.contentWindow?.postMessage(
                 {
@@ -296,22 +297,30 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
         startTrackingLoading: () => {
             actions.setIframeBanner(null)
 
-            clearTimeout(cache.errorTimeout)
-            cache.errorTimeout = setTimeout(() => {
-                actions.setIframeBanner({ level: 'error', message: 'The heatmap failed to load (or is very slow).' })
-            }, 7500)
+            cache.disposables.add(() => {
+                const errorTimerId = setTimeout(() => {
+                    actions.setIframeBanner({
+                        level: 'error',
+                        message: 'The heatmap failed to load (or is very slow).',
+                    })
+                }, 7500)
+                return () => clearTimeout(errorTimerId)
+            }, 'errorTimeout')
 
-            clearTimeout(cache.warnTimeout)
-            cache.warnTimeout = setTimeout(() => {
-                actions.setIframeBanner({ level: 'warning', message: 'Still waiting for the toolbar to load.' })
-            }, 3000)
+            cache.disposables.add(() => {
+                const warnTimerId = setTimeout(() => {
+                    actions.setIframeBanner({ level: 'warning', message: 'Still waiting for the toolbar to load.' })
+                }, 3000)
+                return () => clearTimeout(warnTimerId)
+            }, 'warnTimeout')
         },
 
         stopTrackingLoading: () => {
             actions.setIframeBanner(null)
 
-            clearTimeout(cache.errorTimeout)
-            clearTimeout(cache.warnTimeout)
+            // Clear timeouts using disposables
+            cache.disposables.dispose('errorTimeout')
+            cache.disposables.dispose('warnTimeout')
         },
         setIframeBanner: ({ banner }) => {
             posthog.capture('in-app iFrame banner set', {
@@ -338,5 +347,6 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
     }),
     beforeUnmount(({ actions, props }) => {
         props.clearBrowserUrlOnUnmount && actions.setBrowserUrl('')
+        // Note: Loading timeouts are automatically cleaned up by the disposables plugin
     }),
 ])

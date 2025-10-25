@@ -1,0 +1,43 @@
+# serializer version: 1
+# name: TestSubscriptionStripeBuilder.test_build_subscription_query_with_subscription_schema
+  '''
+  SELECT id AS id,
+         'stripe.stripe_test' AS source_label,
+         JSONExtractString(plan, 'id') AS plan_id,
+         JSONExtractString(plan, 'product') AS product_id,
+         customer_id AS customer_id,
+         status AS status,
+         created_at AS started_at,
+         ended_at AS ended_at,
+         metadata AS metadata
+  FROM stripe_test_subscription
+  '''
+# ---
+# name: TestSubscriptionStripeBuilder.test_build_with_no_subscription_schema
+  '''
+  SELECT '' AS id,
+         '' AS source_label,
+         '' AS plan_id,
+         '' AS product_id,
+         '' AS customer_id,
+         '' AS status,
+         toDateTime('1970-01-01 00:00:00.000000') AS started_at,
+         toDateTime('1970-01-01 00:00:00.000000') AS ended_at,
+         '' AS metadata
+  WHERE false
+  '''
+# ---
+# name: TestSubscriptionStripeBuilder.test_build_with_subscription_schema_but_no_table
+  '''
+  SELECT '' AS id,
+         '' AS source_label,
+         '' AS plan_id,
+         '' AS product_id,
+         '' AS customer_id,
+         '' AS status,
+         toDateTime('1970-01-01 00:00:00.000000') AS started_at,
+         toDateTime('1970-01-01 00:00:00.000000') AS ended_at,
+         '' AS metadata
+  WHERE false
+  '''
+# ---

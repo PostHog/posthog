@@ -1,5 +1,6 @@
 import { connect, kea, path, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -31,7 +32,10 @@ export const topBarSettingsButtonLogic = kea<topBarSettingsButtonLogicType>([
                 const settingSectionId = activeLoadedScene?.settingSectionId
 
                 // Only show CRM settings button when the feature flag is enabled
-                if (settingSectionId === 'environment-crm' && !featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]) {
+                if (
+                    settingSectionId === 'environment-customer-analytics' &&
+                    !featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]
+                ) {
                     return undefined
                 }
 

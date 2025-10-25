@@ -20,14 +20,15 @@
  * And it will update the subdomain, taking you to the following link
  * http://eu.posthogtest.com:8000/login?next=/apps
  */
+import { posthog } from 'posthog-js'
+import { useEffect, useState } from 'react'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+
 import { getCookie } from 'lib/api'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { roundToDecimal } from 'lib/utils'
-import { posthog } from 'posthog-js'
-import { useEffect, useState } from 'react'
 
 // cookie values
 const PH_CURRENT_INSTANCE = 'ph_current_instance'

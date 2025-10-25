@@ -1,12 +1,23 @@
 import ExtensionDocument from '@tiptap/extension-document'
 import { FloatingMenu } from '@tiptap/extension-floating-menu'
-import { Placeholder } from '@tiptap/extensions'
 import { TaskItem, TaskList } from '@tiptap/extension-list'
-import StarterKit from '@tiptap/starter-kit'
+import TableOfContents, { getHierarchicalIndexes } from '@tiptap/extension-table-of-contents'
+import { Placeholder } from '@tiptap/extensions'
+import StarterKit, { StarterKitOptions } from '@tiptap/starter-kit'
 import { useActions, useValues } from 'kea'
-import { sampleOne, uuid } from 'lib/utils'
-import { useCallback, useMemo } from 'react'
+import { useThrottledCallback } from 'use-debounce'
 
+import { IconComment } from '@posthog/icons'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+
+import { RichContentEditor } from 'lib/components/RichContentEditor'
+import { RichContentNodeMention } from 'lib/components/RichContentEditor/RichContentNodeMention'
+import { RichContentNode, TTEditor } from 'lib/components/RichContentEditor/types'
+import { createEditor } from 'lib/components/RichContentEditor/utils'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { uuid } from 'lib/utils'
+
+import { MentionsExtension } from '../../../lib/components/RichContentEditor/MentionsExtension'
 import { NotebookMarkComment } from '../Marks/NotebookMarkComment'
 import { NotebookMarkLink } from '../Marks/NotebookMarkLink'
 import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
@@ -18,6 +29,8 @@ import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeFlagCodeExample } from '../Nodes/NotebookNodeFlagCodeExample'
 import { NotebookNodeGroup } from '../Nodes/NotebookNodeGroup'
 import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
+import { NotebookNodeIssues } from '../Nodes/NotebookNodeIssues'
+import { NotebookNodeLLMTrace } from '../Nodes/NotebookNodeLLMTrace'
 import { NotebookNodeLatex } from '../Nodes/NotebookNodeLatex'
 import { NotebookNodeMap } from '../Nodes/NotebookNodeMap'
 import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
@@ -28,113 +41,114 @@ import { NotebookNodeQuery } from '../Nodes/NotebookNodeQuery'
 import { NotebookNodeRecording } from '../Nodes/NotebookNodeRecording'
 import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
 import { NotebookNodeSurvey } from '../Nodes/NotebookNodeSurvey'
+import { NotebookNodeTaskCreate } from '../Nodes/NotebookNodeTaskCreate'
+import { NotebookNodeUsageMetrics } from '../Nodes/NotebookNodeUsageMetrics'
 import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
 import { insertionSuggestionsLogic } from '../Suggestions/insertionSuggestionsLogic'
-import { InlineMenu } from './InlineMenu'
-import { MentionsExtension } from '../../../lib/components/RichContentEditor/MentionsExtension'
-import { notebookLogic } from './notebookLogic'
-import { SlashCommandsExtension } from './SlashCommands'
-import TableOfContents, { getHierarchicalIndexes } from '@tiptap/extension-table-of-contents'
-import { RichContentNodeMention } from 'lib/components/RichContentEditor/RichContentNodeMention'
-import { createEditor } from 'lib/components/RichContentEditor/utils'
-import { textContent } from '../utils'
-import { RichContentNode, TTEditor } from 'lib/components/RichContentEditor/types'
-import { RichContentEditor } from 'lib/components/RichContentEditor'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { NotebookEditor } from '../types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconComment } from '@posthog/icons'
+import { textContent } from '../utils'
+import { CollapsibleHeading } from './CollapsibleHeading'
 import { DropAndPasteHandlerExtension } from './DropAndPasteHandlerExtension'
+import { InlineMenu } from './InlineMenu'
+import { SlashCommandsExtension } from './SlashCommands'
+import { notebookLogic } from './notebookLogic'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
 })
-
-const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes', 'Bug analysis']
 
 export function Editor(): JSX.Element {
     const { shortId, mode } = useValues(notebookLogic)
     const { setEditor, onEditorUpdate, onEditorSelectionUpdate, setTableOfContents, insertComment } =
         useActions(notebookLogic)
     const hasDiscussions = useFeatureFlag('DISCUSSIONS')
+    const hasCollapsibleSections = useFeatureFlag('NOTEBOOKS_COLLAPSIBLE_SECTIONS')
 
     const { resetSuggestions, setPreviousNode } = useActions(insertionSuggestionsLogic)
 
-    const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [shortId])
+    // Throttle setPreviousNode to avoid excessive calls during rapid selection changes
+    const throttledSetPreviousNode = useThrottledCallback((editor: TTEditor) => {
+        setPreviousNode(getNodeBeforeActiveNode(editor))
+    }, 16) // ~60fps throttling
 
-    const updatePreviousNode = useCallback(
-        (editor: TTEditor) => {
-            setPreviousNode(getNodeBeforeActiveNode(editor))
-        },
-        [setPreviousNode]
-    )
+    const starterKitConfig: Partial<StarterKitOptions> = {
+        document: false,
+        gapcursor: false,
+        link: false,
+    }
+
+    const extensions = [
+        mode === 'notebook' ? CustomDocument : ExtensionDocument,
+        StarterKit.configure(hasCollapsibleSections ? { ...starterKitConfig, heading: false } : starterKitConfig),
+        TableOfContents.configure({
+            getIndex: getHierarchicalIndexes,
+            onUpdate(content) {
+                setTableOfContents(content)
+            },
+        }),
+        Placeholder.configure({
+            placeholder: ({ node }: { node: any }) => {
+                if (node.type.name === 'heading' && node.attrs.level === 1) {
+                    return 'Untitled'
+                }
+
+                if (node.type.name === 'heading') {
+                    return `Heading ${node.attrs.level}`
+                }
+
+                return ''
+            },
+        }),
+        FloatingMenu.extend({
+            onSelectionUpdate(this) {
+                throttledSetPreviousNode(this.editor)
+            },
+            onUpdate(this) {
+                throttledSetPreviousNode(this.editor)
+                resetSuggestions()
+            },
+        }),
+        DropAndPasteHandlerExtension,
+        TaskList,
+        TaskItem.configure({ nested: true }),
+        NotebookMarkLink,
+        NotebookMarkComment,
+        NotebookNodeLatex,
+        NotebookNodeBacklink,
+        NotebookNodeQuery,
+        NotebookNodeRecording,
+        NotebookNodeReplayTimestamp,
+        NotebookNodePlaylist,
+        NotebookNodePerson,
+        NotebookNodeCohort,
+        NotebookNodeGroup,
+        NotebookNodeFlagCodeExample,
+        NotebookNodeFlag,
+        NotebookNodeExperiment,
+        NotebookNodeEarlyAccessFeature,
+        NotebookNodeSurvey,
+        NotebookNodeImage,
+        NotebookNodeProperties,
+        RichContentNodeMention,
+        NotebookNodeEmbed,
+        SlashCommandsExtension,
+        MentionsExtension,
+        NotebookNodePersonFeed,
+        NotebookNodeMap,
+        NotebookNodeTaskCreate,
+        NotebookNodeLLMTrace,
+        NotebookNodeIssues,
+        NotebookNodeUsageMetrics,
+    ]
+
+    if (hasCollapsibleSections) {
+        extensions.push(CollapsibleHeading.configure())
+    }
 
     return (
         <RichContentEditor
             logicKey={`Notebook.${shortId}`}
-            extensions={[
-                mode === 'notebook' ? CustomDocument : ExtensionDocument,
-                StarterKit.configure({
-                    document: false,
-                    gapcursor: false,
-                    link: false,
-                }),
-                TableOfContents.configure({
-                    getIndex: getHierarchicalIndexes,
-                    onUpdate(content) {
-                        setTableOfContents(content)
-                    },
-                }),
-                Placeholder.configure({
-                    placeholder: ({ node }: { node: any }) => {
-                        if (node.type.name === 'heading' && node.attrs.level === 1) {
-                            return `Untitled - maybe.. "${headingPlaceholder}"`
-                        }
-
-                        if (node.type.name === 'heading') {
-                            return `Heading ${node.attrs.level}`
-                        }
-
-                        return ''
-                    },
-                }),
-                FloatingMenu.extend({
-                    onSelectionUpdate(this) {
-                        updatePreviousNode(this.editor)
-                    },
-                    onUpdate(this) {
-                        updatePreviousNode(this.editor)
-                        resetSuggestions()
-                    },
-                }),
-                DropAndPasteHandlerExtension,
-                TaskList,
-                TaskItem.configure({ nested: true }),
-                NotebookMarkLink,
-                NotebookMarkComment,
-                NotebookNodeLatex,
-                NotebookNodeBacklink,
-                NotebookNodeQuery,
-                NotebookNodeRecording,
-                NotebookNodeReplayTimestamp,
-                NotebookNodePlaylist,
-                NotebookNodePerson,
-                NotebookNodeCohort,
-                NotebookNodeGroup,
-                NotebookNodeFlagCodeExample,
-                NotebookNodeFlag,
-                NotebookNodeExperiment,
-                NotebookNodeEarlyAccessFeature,
-                NotebookNodeSurvey,
-                NotebookNodeImage,
-                NotebookNodeProperties,
-                RichContentNodeMention,
-                NotebookNodeEmbed,
-                SlashCommandsExtension,
-                MentionsExtension,
-                NotebookNodePersonFeed,
-                NotebookNodeMap,
-            ]}
+            extensions={extensions}
             className="NotebookEditor flex flex-col flex-1"
             onUpdate={onEditorUpdate}
             onSelectionUpdate={onEditorSelectionUpdate}

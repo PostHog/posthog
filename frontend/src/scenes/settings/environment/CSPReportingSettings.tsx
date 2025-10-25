@@ -1,9 +1,11 @@
-import { IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonCheckbox, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { combineUrl } from 'kea-router'
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useState } from 'react'
+
+import { IconInfo } from '@posthog/icons'
+import { LemonBanner, LemonCheckbox, Link } from '@posthog/lemon-ui'
+
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { domainFor, proxyLogic } from 'scenes/settings/environment/proxyLogic'
 import { teamLogic } from 'scenes/teamLogic'
 

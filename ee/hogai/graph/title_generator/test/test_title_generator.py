@@ -1,13 +1,14 @@
+from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
 from langchain_core.messages import AIMessage as LangchainAIMessage
+
+from posthog.schema import HumanMessage
 
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
 from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState
 from ee.models.assistant import Conversation
-from posthog.schema import HumanMessage
-from posthog.test.base import BaseTest
 
 
 class TestTitleGenerator(BaseTest):

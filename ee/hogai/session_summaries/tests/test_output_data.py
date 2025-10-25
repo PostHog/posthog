@@ -1,8 +1,8 @@
 from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import patch
 
 import pytest
+from unittest.mock import patch
 
 from ee.hogai.session_summaries import SummaryValidationError
 from ee.hogai.session_summaries.session.output_data import (
@@ -47,7 +47,7 @@ class TestLoadRawSessionSummary:
             match=f"Error loading YAML content into JSON when summarizing session_id {mock_session_id}",
         ):
             load_raw_session_summary_from_llm_content(
-                mock_valid_llm_yaml_response, [], mock_session_id, final_validation=True
+                mock_valid_llm_yaml_response, [], mock_session_id, final_validation=False
             )
 
     def test_load_raw_session_summary_hallucinated_events_failed_summary(

@@ -1,27 +1,32 @@
-import { IconChevronDown, IconMagicWand } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
+import { useState } from 'react'
+
+import { IconChevronDown, IconMagicWand } from '@posthog/icons'
+
 import { ExceptionHeaderProps } from 'lib/components/Errors/StackTraces'
+import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItemIndicator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrimitive/TabsPrimitive'
-import { useState } from 'react'
 
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
 import { ExceptionAttributesPreview } from '../../ExceptionAttributesPreview'
-import { exceptionCardLogic } from '../exceptionCardLogic'
+import { ReleasePreviewPill } from '../../ExceptionAttributesPreview/ReleasesPreview/ReleasePreviewPill'
 import { FixModal } from '../FixModal'
 import { StacktraceBaseDisplayProps, StacktraceEmptyDisplay } from '../Stacktrace/StacktraceBase'
 import { StacktraceGenericDisplay } from '../Stacktrace/StacktraceGenericDisplay'
 import { StacktraceTextDisplay } from '../Stacktrace/StacktraceTextDisplay'
+import { exceptionCardLogic } from '../exceptionCardLogic'
+import { SubHeader } from './SubHeader'
 
 export interface StacktraceTabProps extends Omit<TabsPrimitiveContentProps, 'children'> {
     issue?: ErrorTrackingRelationalIssue
@@ -40,11 +45,13 @@ export function StacktraceTab({
     const { exceptionAttributes, exceptionList } = useValues(errorPropertiesLogic)
     const showFixButton = hasResolvedStackFrames(exceptionList)
     const [showFixModal, setShowFixModal] = useState(false)
+
     return (
         <TabsPrimitiveContent {...props}>
-            <div className="flex justify-between items-center border-b-1 bg-surface-secondary px-2 py-1">
+            <SubHeader className="justify-between">
                 <div className="flex items-center gap-1">
                     <ExceptionAttributesPreview attributes={exceptionAttributes} loading={loading} />
+                    <ReleasePreviewPill />
                 </div>
                 <ButtonGroupPrimitive size="sm">
                     {showFixButton && (
@@ -54,7 +61,7 @@ export function StacktraceTab({
                             tooltip="Generate AI prompt to fix this error"
                         >
                             <IconMagicWand />
-                            Fix with AI
+                            Get AI prompt
                         </ButtonPrimitive>
                     )}
                     <ShowDropDownMenu>
@@ -64,7 +71,7 @@ export function StacktraceTab({
                         </ButtonPrimitive>
                     </ShowDropDownMenu>
                 </ButtonGroupPrimitive>
-            </div>
+            </SubHeader>
             <StacktraceIssueDisplay
                 className="p-2"
                 truncateMessage={false}
@@ -106,18 +113,20 @@ function ShowDropDownMenu({ children }: { children: React.ReactNode }): JSX.Elem
         <DropdownMenu>
             <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
             <DropdownMenuContent>
-                <DropdownMenuCheckboxItem checked={showAllFrames} onCheckedChange={setShowAllFrames} asChild>
-                    <ButtonPrimitive menuItem size="sm">
-                        <DropdownMenuItemIndicator intent="checkbox" />
-                        All frames
-                    </ButtonPrimitive>
-                </DropdownMenuCheckboxItem>
-                <DropdownMenuCheckboxItem checked={showAsText} onCheckedChange={setShowAsText} asChild>
-                    <ButtonPrimitive menuItem size="sm">
-                        <DropdownMenuItemIndicator intent="checkbox" />
-                        As text
-                    </ButtonPrimitive>
-                </DropdownMenuCheckboxItem>
+                <DropdownMenuGroup>
+                    <DropdownMenuCheckboxItem checked={showAllFrames} onCheckedChange={setShowAllFrames} asChild>
+                        <ButtonPrimitive menuItem size="sm">
+                            <DropdownMenuItemIndicator intent="checkbox" />
+                            All frames
+                        </ButtonPrimitive>
+                    </DropdownMenuCheckboxItem>
+                    <DropdownMenuCheckboxItem checked={showAsText} onCheckedChange={setShowAsText} asChild>
+                        <ButtonPrimitive menuItem size="sm">
+                            <DropdownMenuItemIndicator intent="checkbox" />
+                            As text
+                        </ButtonPrimitive>
+                    </DropdownMenuCheckboxItem>
+                </DropdownMenuGroup>
             </DropdownMenuContent>
         </DropdownMenu>
     )

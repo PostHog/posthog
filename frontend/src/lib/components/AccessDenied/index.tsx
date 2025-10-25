@@ -1,5 +1,7 @@
 import { useActions } from 'kea'
+
 import { Link } from 'lib/lemon-ui/Link'
+
 import noAccessNopehog from 'public/no-access-nopehog.png'
 
 import { supportLogic } from '../Support/supportLogic'
@@ -26,7 +28,7 @@ export function AccessDenied({ object }: AccessDeniedProps): JSX.Element {
                 </p>
             ) : (
                 <p className="text-sm mt-3 mb-0">
-                    You do not have access to this resource. Please contact the creator of this resource or{' '}
+                    You do not have access to this page. Please contact your account's administrators or{' '}
                     <Link onClick={handleClickSupport}>support</Link> if you think this is a mistake.
                 </p>
             )}

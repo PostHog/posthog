@@ -1,17 +1,20 @@
-import { LemonBanner } from '@posthog/lemon-ui'
 import { BindLogic, useValues } from 'kea'
+import { useState } from 'react'
+
+import { LemonBanner } from '@posthog/lemon-ui'
+
 import { TitledSnack } from 'lib/components/TitledSnack'
+import { dayjs } from 'lib/dayjs'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link } from 'lib/lemon-ui/Link'
-import { useState } from 'react'
 
-import { errorPropertiesLogic } from './errorPropertiesLogic'
+import { EventType, RecordingEventType } from '~/types'
+
 import { ChainedStackTraces } from './StackTraces'
+import { errorPropertiesLogic } from './errorPropertiesLogic'
 import { ErrorEventId, ErrorEventProperties } from './types'
 import { concatValues } from './utils'
-import { EventType, RecordingEventType } from '~/types'
-import { dayjs } from 'lib/dayjs'
 
 export function idFrom(event: EventType | RecordingEventType): string {
     if ('uuid' in event && event.uuid) {
@@ -38,6 +41,8 @@ export function ErrorDisplay({
 export function ErrorDisplayContent(): JSX.Element {
     const { exceptionAttributes, hasStacktrace } = useValues(errorPropertiesLogic)
     const { type, value, sentryUrl, level, ingestionErrors, handled } = exceptionAttributes || {}
+    const browserInfo = concatValues(exceptionAttributes, 'browser', 'browserVersion')
+    const appInfo = concatValues(exceptionAttributes, 'appNamespace', 'appVersion')
     return (
         <div className="flex flex-col deprecated-space-y-2 pb-2">
             <h1 className="mb-0">{type || level}</h1>
@@ -65,10 +70,8 @@ export function ErrorDisplayContent(): JSX.Element {
                     title="library"
                     value={concatValues(exceptionAttributes, 'lib', 'libVersion') ?? 'unknown'}
                 />
-                <TitledSnack
-                    title="browser"
-                    value={concatValues(exceptionAttributes, 'browser', 'browserVersion') ?? 'unknown'}
-                />
+                {browserInfo && <TitledSnack title="browser" value={browserInfo} />}
+                {appInfo && <TitledSnack title="app" value={appInfo} />}
                 <TitledSnack title="os" value={concatValues(exceptionAttributes, 'os', 'osVersion') ?? 'unknown'} />
             </div>
 

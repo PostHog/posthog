@@ -1,21 +1,61 @@
-from typing import cast
-from rest_framework.viewsets import GenericViewSet
+from posthoganalytics import capture_exception
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
 from rest_framework.request import Request
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.exceptions_capture import capture_exception
+from rest_framework.response import Response
+from rest_framework.viewsets import GenericViewSet
+
+from posthog.schema import DatabaseSchemaManagedViewTableKind
+
 from posthog.hogql import ast
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.query import execute_hogql_query
-from products.revenue_analytics.backend.utils import (
-    REVENUE_SELECT_OUTPUT_CUSTOMER_KEY,
-    REVENUE_SELECT_OUTPUT_PRODUCT_KEY,
-    REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY,
-    RevenueSelectOutput,
-    revenue_selects_from_database,
-)
+
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models.team.team import Team
+
+from products.revenue_analytics.backend.views import KIND_TO_CLASS, RevenueAnalyticsBaseView
+
+
+# Extracted to a separate function to be reused in the TaxonomyAgentToolkit
+def find_values_for_revenue_analytics_property(key: str, team: Team) -> list[str]:
+    # Get the scope from before the first dot
+    # and if there's no dot then it's the base case which is RevenueAnalyticsRevenueItemView
+    scope, *chain = key.split(".")
+    if len(chain) == 0:
+        chain = [scope]
+        scope = "revenue_analytics_revenue_item"
+
+    database = create_hogql_database(team=team)
+    view_class = KIND_TO_CLASS[DatabaseSchemaManagedViewTableKind(scope)]
+
+    # Try and find the union view for this class
+    union_view: RevenueAnalyticsBaseView | None = None
+    for view_name in database.get_views():
+        view = database.get_table(view_name)
+        if isinstance(view, view_class) and view.union_all:
+            union_view = view
+            break
+
+    if union_view is None:
+        return []
+
+    query = ast.SelectQuery(
+        select=[ast.Field(chain=chain)],  # type: ignore
+        distinct=True,
+        select_from=ast.JoinExpr(table=ast.Field(chain=[union_view.name])),
+        order_by=[ast.OrderExpr(expr=ast.Constant(value=1), order="ASC")],
+    )
+
+    values = []
+    try:
+        result = execute_hogql_query(query, team=team)
+        values = [row[0] for row in result.results]
+    except Exception as e:
+        capture_exception(e)
+        pass  # Just return an empty list if can't compute
+
+    return values
 
 
 class RevenueAnalyticsTaxonomyViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
@@ -25,82 +65,8 @@ class RevenueAnalyticsTaxonomyViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     @action(methods=["GET"], detail=False)
     def values(self, request: Request, **kwargs):
         key = request.GET.get("key")
-        database = create_hogql_database(team=self.team)
-        revenue_selects = revenue_selects_from_database(database)
+        if key is None:
+            return Response([])
 
-        query = None
-        values = []
-        if key == "product":  # All products available from revenue analytics
-            query = ast.SelectQuery(
-                select=[ast.Field(chain=["name"])],
-                distinct=True,
-                select_from=ast.JoinExpr(table=self._product_selects(revenue_selects)),
-                order_by=[ast.OrderExpr(expr=ast.Field(chain=["name"]), order="ASC")],
-            )
-        elif key == "cohort":  # All cohorts available from revenue analytics
-            query = ast.SelectQuery(
-                select=[ast.Field(chain=["cohort"])],
-                distinct=True,
-                select_from=ast.JoinExpr(table=self._customer_selects(revenue_selects)),
-                order_by=[ast.OrderExpr(expr=ast.Field(chain=["cohort"]), order="ASC")],
-            )
-        elif key == "country":  # All countries available from revenue analytics
-            query = ast.SelectQuery(
-                select=[ast.Field(chain=["country"])],
-                distinct=True,
-                select_from=ast.JoinExpr(table=self._customer_selects(revenue_selects)),
-                order_by=[ast.OrderExpr(expr=ast.Field(chain=["country"]), order="ASC")],
-            )
-        elif key == "coupon":  # All coupons available from revenue analytics
-            query = ast.SelectQuery(
-                select=[ast.Field(chain=["coupon"])],
-                distinct=True,
-                select_from=ast.JoinExpr(table=self._invoice_item_selects(revenue_selects)),
-                order_by=[ast.OrderExpr(expr=ast.Field(chain=["coupon"]), order="ASC")],
-            )
-        elif key == "coupon_id":  # All coupon IDs available from revenue analytics
-            query = ast.SelectQuery(
-                select=[ast.Field(chain=["coupon_id"])],
-                distinct=True,
-                select_from=ast.JoinExpr(table=self._invoice_item_selects(revenue_selects)),
-                order_by=[ast.OrderExpr(expr=ast.Field(chain=["coupon_id"]), order="ASC")],
-            )
-        elif key == "source":  # All sources available from revenue analytics
-            values = list(revenue_selects.keys())
-
-        if query is not None:
-            try:
-                result = execute_hogql_query(query, team=self.team)
-                values = [row[0] for row in result.results]
-            except Exception as e:
-                capture_exception(e)
-                pass  # Just return an empty list if can't compute
-
+        values = find_values_for_revenue_analytics_property(key, self.team)
         return Response([{"name": value} for value in values])
-
-    def _product_selects(self, revenue_selects: RevenueSelectOutput) -> ast.SelectSetQuery:
-        product_selects: list[ast.SelectQuery] = [
-            cast(ast.SelectQuery, select[REVENUE_SELECT_OUTPUT_PRODUCT_KEY])
-            for select in revenue_selects.values()
-            if select[REVENUE_SELECT_OUTPUT_PRODUCT_KEY] is not None
-        ]
-
-        return ast.SelectSetQuery.create_from_queries(product_selects, set_operator="UNION ALL")
-
-    def _customer_selects(self, revenue_selects: RevenueSelectOutput) -> ast.SelectSetQuery:
-        customer_selects: list[ast.SelectQuery] = [
-            cast(ast.SelectQuery, select[REVENUE_SELECT_OUTPUT_CUSTOMER_KEY])
-            for select in revenue_selects.values()
-            if select[REVENUE_SELECT_OUTPUT_CUSTOMER_KEY] is not None
-        ]
-
-        return ast.SelectSetQuery.create_from_queries(customer_selects, set_operator="UNION ALL")
-
-    def _invoice_item_selects(self, revenue_selects: RevenueSelectOutput) -> ast.SelectSetQuery:
-        invoice_item_selects: list[ast.SelectQuery] = [
-            cast(ast.SelectQuery, select[REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY])
-            for select in revenue_selects.values()
-            if select[REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY] is not None
-        ]
-
-        return ast.SelectSetQuery.create_from_queries(invoice_item_selects, set_operator="UNION ALL")

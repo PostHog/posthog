@@ -1,25 +1,32 @@
 import { useActions, useValues } from 'kea'
-import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
-import { Link } from 'lib/lemon-ui/Link'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
-import { SceneExport } from 'scenes/sceneTypes'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { router } from 'kea-router'
 
+import { IconPeople } from '@posthog/icons'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { Link } from 'lib/lemon-ui/Link'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
+import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
+import { QueryContext } from '~/queries/types'
 import { GroupTypeIndex } from '~/types'
 
-import { groupsListLogic } from './groupsListLogic'
-import { groupsSceneLogic } from './groupsSceneLogic'
-import { QueryContext } from '~/queries/types'
 import { getCRMColumns } from './crm/utils'
 import { groupViewLogic } from './groupViewLogic'
-import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { groupsModel } from '~/models/groupsModel'
+import { groupsListLogic } from './groupsListLogic'
+import { groupsSceneLogic } from './groupsSceneLogic'
 
 export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): JSX.Element {
     const { groupTypeName, groupTypeNamePlural } = useValues(groupsSceneLogic)
@@ -41,10 +48,18 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
         groupsAccessStatus == GroupsAccessStatus.NoAccess
     ) {
         return (
-            <>
+            <SceneContent>
                 <PersonsManagementSceneTabs tabKey={`groups-${groupTypeIndex}`} />
+                <SceneTitleSection
+                    name="Groups"
+                    description="Associate events with a group or entity - such as a company, community, or project. Analyze these events as if they were sent by that entity itself. Great for B2B, marketplaces, and more."
+                    resourceType={{
+                        type: groupTypeName,
+                        forceIcon: <IconPeople />,
+                    }}
+                />
                 <GroupsIntroduction />
-            </>
+            </SceneContent>
         )
     }
 
@@ -60,19 +75,30 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
     }
 
     return (
-        <>
-            <PersonsManagementSceneTabs
-                tabKey={`groups-${groupTypeIndex}`}
-                buttons={
-                    <LemonButton
-                        type="primary"
-                        data-attr={`new-group-${groupTypeIndex}`}
-                        onClick={() => router.actions.push(urls.group(groupTypeIndex, 'new', false))}
-                    >
-                        New {aggregationLabel(groupTypeIndex).singular}
-                    </LemonButton>
+        <SceneContent>
+            <PersonsManagementSceneTabs tabKey={`groups-${groupTypeIndex}`} />
+
+            <SceneTitleSection
+                name={capitalizeFirstLetter(groupTypeNamePlural)}
+                description={`A catalog of all ${groupTypeNamePlural} for this project`}
+                resourceType={{
+                    type: 'cohort',
+                }}
+                actions={
+                    hasCrmIterationOneEnabled ? (
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            data-attr={`new-group-${groupTypeIndex}`}
+                            onClick={() => router.actions.push(urls.group(groupTypeIndex, 'new', false))}
+                        >
+                            New {aggregationLabel(groupTypeIndex).singular}
+                        </LemonButton>
+                    ) : undefined
                 }
             />
+            <SceneDivider />
+
             <Query
                 query={{ ...query, hiddenColumns }}
                 setQuery={setQuery}
@@ -122,12 +148,17 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
                             placeholder="Enter view name"
                             value={groupViewName}
                             onChange={setGroupViewName}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && groupViewName.trim()) {
+                                    saveGroupView(window.location.href, groupTypeIndex)
+                                }
+                            }}
                             autoFocus
                         />
                     </div>
                 </LemonModal>
             )}
-        </>
+        </SceneContent>
     )
 }
 
@@ -139,5 +170,5 @@ export function GroupsScene(): JSX.Element {
 export const scene: SceneExport = {
     component: GroupsScene,
     logic: groupsSceneLogic,
-    settingSectionId: 'environment-crm',
+    settingSectionId: 'environment-customer-analytics',
 }

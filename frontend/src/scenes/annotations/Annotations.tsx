@@ -1,26 +1,34 @@
+import { useActions, useValues } from 'kea'
+
 import { IconPencil } from '@posthog/icons'
 import { LemonSelect, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { MicrophoneHog } from 'lib/components/hedgehogs'
+
+import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { TZLabel } from 'lib/components/TZLabel'
+import { MicrophoneHog } from 'lib/components/hedgehogs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { cn } from 'lib/utils/css-classes'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationScope, AnnotationType, InsightShortId, ProductKey } from '~/types'
 
 import { AnnotationModal } from './AnnotationModal'
 import { annotationModalLogic, annotationScopeToLevel, annotationScopeToName } from './annotationModalLogic'
 import { annotationScopesMenuOptions, annotationsLogic } from './annotationsLogic'
-import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
-import { TZLabel } from 'lib/components/TZLabel'
 
 export function Annotations(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -139,19 +147,26 @@ export function Annotations(): JSX.Element {
     ]
 
     return (
-        <>
-            <div className="flex flex-row items-center gap-2 justify-between">
-                <div>
-                    Annotations allow you to mark when certain changes happened so you can easily see how they impacted
-                    your metrics.
-                </div>
-                <div className="flex flex-row items-center gap-2">
-                    <div>Scope: </div>
-                    <LemonSelect options={annotationScopesMenuOptions()} value={scope} onSelect={setScope} />
-                </div>
+        <SceneContent>
+            <SceneTitleSection
+                name={sceneConfigurations[Scene.Annotations].name}
+                description={sceneConfigurations[Scene.Annotations].description}
+                resourceType={{
+                    type: sceneConfigurations[Scene.Annotations].iconType || 'default_icon_type',
+                }}
+                actions={
+                    <LemonButton type="primary" onClick={() => openModalToCreateAnnotation()} size="small">
+                        New annotation
+                    </LemonButton>
+                }
+            />
+            <SceneDivider />
+            <div className="flex flex-row items-center gap-2 justify-end">
+                <div>Scope:</div>
+                <LemonSelect options={annotationScopesMenuOptions()} value={scope} onSelect={setScope} />
             </div>
             <div data-attr="annotations-content">
-                <div className="mt-4">
+                <div className={cn('mt-4 mb-0 empty:hidden')}>
                     <ProductIntroduction
                         productName="Annotations"
                         productKey={ProductKey.ANNOTATIONS}
@@ -195,6 +210,6 @@ export function Annotations(): JSX.Element {
                 )}
             </div>
             <AnnotationModal />
-        </>
+        </SceneContent>
     )
 }

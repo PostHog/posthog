@@ -1,12 +1,14 @@
-import 'chartjs-adapter-dayjs-3'
-
 import { DeepPartial } from 'chart.js/dist/types/utils'
+import 'chartjs-adapter-dayjs-3'
 import annotationPlugin from 'chartjs-plugin-annotation'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
 import chartTrendline from 'chartjs-plugin-trendline'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useEffect, useRef, useState } from 'react'
+
 import {
     ActiveElement,
     Chart,
@@ -28,20 +30,19 @@ import {
 import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import posthog from 'posthog-js'
-import { useEffect, useRef, useState } from 'react'
-import { createRoot, Root } from 'react-dom/client'
-import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { IndexedTrendResult } from 'scenes/trends/types'
 
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { hexToRGBA, lightenDarkenColor } from '~/lib/utils'
@@ -49,31 +50,6 @@ import { groupsModel } from '~/models/groupsModel'
 import { GoalLine, TrendsFilter } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
-
-let tooltipRoot: Root
-
-export function ensureTooltip(): [Root, HTMLElement] {
-    let tooltipEl = document.getElementById('InsightTooltipWrapper')
-
-    if (!tooltipEl || !tooltipRoot) {
-        if (!tooltipEl) {
-            tooltipEl = document.createElement('div')
-            tooltipEl.id = 'InsightTooltipWrapper'
-            tooltipEl.classList.add('InsightTooltipWrapper')
-            document.body.appendChild(tooltipEl)
-        }
-
-        tooltipRoot = createRoot(tooltipEl)
-    }
-    return [tooltipRoot, tooltipEl]
-}
-
-export function hideTooltip(): void {
-    const tooltipEl = document.getElementById('InsightTooltipWrapper')
-    if (tooltipEl) {
-        tooltipEl.style.opacity = '0'
-    }
-}
 
 function truncateString(str: string, num: number): string {
     if (str.length > num) {
@@ -198,27 +174,6 @@ export function onChartHover(
     target.style.cursor = onClick && point.length ? 'pointer' : 'default'
 }
 
-export const filterNestedDataset = (
-    hiddenLegendIndexes: number[] | undefined,
-    datasets: GraphDataset[]
-): GraphDataset[] => {
-    if (!hiddenLegendIndexes) {
-        return datasets
-    }
-    // If series are nested (for ActionsHorizontalBar and Pie), filter out the series by index
-    const filterFn = (_: any, i: number): boolean => !hiddenLegendIndexes?.includes(i)
-    return datasets.map((_data) => {
-        // Performs a filter transformation on properties that contain arrayed data
-        return Object.fromEntries(
-            Object.entries(_data).map(([key, val]) =>
-                Array.isArray(val) && val.length === datasets?.[0]?.actions?.length
-                    ? [key, val?.filter(filterFn)]
-                    : [key, val]
-            )
-        ) as GraphDataset
-    })
-}
-
 function createPinstripePattern(color: string, isDarkMode: boolean): CanvasPattern {
     const stripeWidth = 8 // 0.5rem
     const stripeAngle = -22.5
@@ -250,7 +205,6 @@ function createPinstripePattern(color: string, isDarkMode: boolean): CanvasPatte
 
 export interface LineGraphProps {
     datasets: GraphDataset[]
-    hiddenLegendIndexes?: number[] | undefined
     labels: string[]
     type: GraphType
     isInProgress?: boolean
@@ -295,7 +249,6 @@ const LOG_ZERO = 1e-10
 
 export function LineGraph_({
     datasets: _datasets,
-    hiddenLegendIndexes,
     labels,
     type,
     isInProgress = false,
@@ -330,15 +283,17 @@ export function LineGraph_({
     const { isDarkModeOn } = useValues(themeLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
-    const { timezone, isTrends, breakdownFilter, query, interval, insightData } = useValues(
+    const { timezone, isTrends, isFunnels, breakdownFilter, query, interval, insightData } = useValues(
         insightVizDataLogic(insightProps)
     )
-    const { theme, getTrendsColor } = useValues(trendsDataLogic(insightProps))
+    const { theme, getTrendsColor, getTrendsHidden } = useValues(trendsDataLogic(insightProps))
 
     const hideTooltipOnScroll = isInsightVizNode(query) ? query.hideTooltipOnScroll : undefined
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [lineChart, setLineChart] = useState<Chart<ChartType, any, string>>()
+
+    const { hideTooltip, getTooltip } = useInsightTooltip()
 
     // Relying on useResizeObserver instead of Chart's onResize because the latter was not reliable
     const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: canvasRef })
@@ -353,7 +308,7 @@ export function LineGraph_({
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
     const isBackgroundBasedGraphType = [GraphType.Bar].includes(type)
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
-    const showAnnotations = isTrends && !isHorizontal && !hideAnnotations
+    const showAnnotations = ((isTrends && !isHorizontal) || isFunnels) && !hideAnnotations
     const isLog10 = yAxisScaleType === 'log10' // Currently log10 is the only logarithmic scale supported
 
     // Add scrollend event on main element to hide tooltips when scrolling
@@ -362,28 +317,22 @@ export function LineGraph_({
             return
         }
 
+        const handleScrollEnd = (): void => hideTooltip()
+
         // Scroll events happen on the main element due to overflow-y: scroll
         // but we need to make sure it exists before adding the event listener,
         // e.g: it does not exist in the shared pages
         const main = document.getElementsByTagName('main')[0]
         if (main) {
-            main.addEventListener('scrollend', hideTooltip)
+            main.addEventListener('scrollend', handleScrollEnd)
         }
 
         return () => {
             if (main) {
-                main.removeEventListener('scrollend', hideTooltip)
+                main.removeEventListener('scrollend', handleScrollEnd)
             }
         }
-    }, [hideTooltipOnScroll])
-
-    // Remove tooltip element on unmount
-    useOnMountEffect(() => {
-        return () => {
-            const tooltipEl = document.getElementById('InsightTooltipWrapper')
-            tooltipEl?.remove()
-        }
-    })
+    }, [hideTooltipOnScroll, hideTooltip])
 
     // Add event listeners to canvas
     useOnMountEffect(() => {
@@ -435,7 +384,8 @@ export function LineGraph_({
         if (isBackgroundBasedGraphType) {
             backgroundColor = mainColor
         } else if (isArea) {
-            backgroundColor = hexToRGBA(mainColor, 0.5)
+            const alpha = isPercentStackView ? 1 : 0.5
+            backgroundColor = hexToRGBA(mainColor, alpha)
         }
 
         let adjustedData = dataset.data
@@ -597,13 +547,9 @@ export function LineGraph_({
 
     // Build chart
     useEffect(() => {
-        // Hide intentionally hidden keys
-        if (hiddenLegendIndexes && hiddenLegendIndexes.length > 0) {
-            if (isHorizontal) {
-                datasets = filterNestedDataset(hiddenLegendIndexes, datasets)
-            } else {
-                datasets = datasets.filter((data) => !hiddenLegendIndexes?.includes(data.id))
-            }
+        // horizontal bar charts handle hidden items one level above
+        if (!isHorizontal) {
+            datasets = datasets.filter((data) => !getTrendsHidden(data as IndexedTrendResult))
         }
 
         datasets = datasets.map(processDataset)
@@ -687,7 +633,7 @@ export function LineGraph_({
                     },
                     formatter: (value: number, context) => {
                         // Handle survey view - show count + percentage
-                        if (inSurveyView && showValuesOnSeries) {
+                        if (value !== 0 && inSurveyView && showValuesOnSeries) {
                             const dataset = context.dataset as any
                             const total = dataset.data?.reduce((sum: number, val: number) => sum + val, 0) || 1
                             const percentage = ((value / total) * 100).toFixed(1)
@@ -734,15 +680,16 @@ export function LineGraph_({
                             return
                         }
 
-                        const [tooltipRoot, tooltipEl] = ensureTooltip()
+                        const [tooltipRoot, tooltipEl] = getTooltip()
                         if (tooltip.opacity === 0) {
-                            tooltipEl.style.opacity = '0'
+                            // Use the new hide logic that respects mouse hover
+                            hideTooltip()
                             return
                         }
 
                         // Set caret position
                         // Reference: https://www.chartjs.org/docs/master/configuration/tooltip.html
-                        tooltipEl.classList.remove('above', 'below', 'no-transform')
+                        tooltipEl.classList.remove('above', 'below', 'no-transform', 'opacity-0', 'invisible')
                         tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
                         tooltipEl.style.opacity = '1'
 
@@ -1071,7 +1018,6 @@ export function LineGraph_({
         return () => chart.destroy()
     }, [
         datasets,
-        hiddenLegendIndexes,
         isDarkModeOn,
         trendsFilter,
         formula,
@@ -1080,6 +1026,8 @@ export function LineGraph_({
         showMultipleYAxes,
         _goalLines,
         theme,
+        type,
+        isArea,
         showTrendLines,
     ]) // oxlint-disable-line react-hooks/exhaustive-deps
 

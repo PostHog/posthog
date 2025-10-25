@@ -1,10 +1,11 @@
 import { Link } from 'lib/lemon-ui/Link'
+
 import { CoreFilterDefinition } from '~/types'
 
 type RawCoreFilterDefinition = {
     label: string
     description?: string
-    examples?: (string | number)[]
+    examples?: (string | number | boolean)[]
     system?: boolean
 }
 

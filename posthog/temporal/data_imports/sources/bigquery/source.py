@@ -1,37 +1,43 @@
 from datetime import datetime
 from typing import cast
+
 from posthog.schema import (
-    ExternalDataSourceType,
+    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
-    SourceFieldInputConfig,
     SourceFieldFileUploadConfig,
-    SourceFieldSwitchGroupConfig,
-    Type4,
     SourceFieldFileUploadJsonFormatConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldSwitchGroupConfig,
+)
+
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
+from posthog.temporal.data_imports.sources.bigquery.bigquery import (
+    bigquery_source,
+    delete_all_temp_destination_tables,
+    delete_table,
+    filter_incremental_fields as filter_bigquery_incremental_fields,
+    get_schemas as get_bigquery_schemas,
+    validate_credentials as validate_bigquery_credentials,
 )
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.bigquery.bigquery import (
-    delete_all_temp_destination_tables,
-    delete_table,
-    validate_credentials as validate_bigquery_credentials,
-    get_schemas as get_bigquery_schemas,
-    filter_incremental_fields as filter_bigquery_incremental_fields,
-    bigquery_source,
-)
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
-from posthog.warehouse.models import ExternalDataSource
+from posthog.warehouse.types import ExternalDataSourceType
+
+
+def build_destination_table_prefix(schema_id: str | None) -> str:
+    return f"__posthog_import_{schema_id.replace('-', '_') if schema_id else ''}"
 
 
 @SourceRegistry.register
 class BigQuerySource(BaseSource[BigQuerySourceConfig]):
     @property
-    def source_type(self) -> ExternalDataSource.Type:
-        return ExternalDataSource.Type.BIGQUERY
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.BIGQUERY
 
-    def get_schemas(self, config: BigQuerySourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(self, config: BigQuerySourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         bq_schemas = get_bigquery_schemas(
             config,
             logger=None,
@@ -52,6 +58,7 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
                 ],
             )
             for table_name, columns in filtered_results
+            if not table_name.startswith(build_destination_table_prefix(None))
         ]
 
     def validate_credentials(self, config: BigQuerySourceConfig, team_id: int) -> tuple[bool, str | None]:
@@ -74,8 +81,8 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
         if not config.key_file.private_key:
             raise ValueError(f"Missing private key for BigQuery: '{inputs.job_id}'")
 
-        using_temporary_dataset = False
         dataset_project_id: str | None = None
+        destination_table_dataset_id = config.dataset_id
 
         if (
             config.dataset_project
@@ -83,23 +90,27 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
             and config.dataset_project.dataset_project_id is not None
             and config.dataset_project.dataset_project_id != ""
         ):
-            using_temporary_dataset = True
             dataset_project_id = config.dataset_project.dataset_project_id
+
+        if (
+            config.temporary_dataset
+            and config.temporary_dataset.enabled
+            and config.temporary_dataset.temporary_dataset_id is not None
+            and config.temporary_dataset.temporary_dataset_id != ""
+        ):
+            destination_table_dataset_id = config.temporary_dataset.temporary_dataset_id
 
         # Including the schema ID in table prefix ensures we only delete tables
         # from this schema, and that if we fail we will clean up any previous
         # execution's tables.
         # Table names in BigQuery can have up to 1024 bytes, so we can be pretty
         # relaxed with using a relatively long UUID as part of the prefix.
-        # Some special characters do need to be replaced, so we use the hex
-        # representation of the UUID.
-        destination_table_prefix = f"__posthog_import_{inputs.schema_id}"
+        destination_table_prefix = build_destination_table_prefix(inputs.schema_id)
 
-        destination_table_dataset_id = dataset_project_id if using_temporary_dataset else config.dataset_id
-        destination_table = f"{config.key_file.project_id}.{destination_table_dataset_id}.{destination_table_prefix}{inputs.job_id}_{str(datetime.now().timestamp()).replace('.', '')}"
+        destination_table = f"{config.key_file.project_id}.{destination_table_dataset_id}.{destination_table_prefix}_{inputs.job_id.replace('-', '_')}_{str(datetime.now().timestamp()).replace('.', '')}"
 
         delete_all_temp_destination_tables(
-            dataset_id=config.dataset_id,
+            dataset_id=destination_table_dataset_id,
             table_prefix=destination_table_prefix,
             project_id=config.key_file.project_id,
             dataset_project_id=dataset_project_id,
@@ -144,8 +155,9 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=ExternalDataSourceType.BIG_QUERY,
-            caption="",
+            name=SchemaExternalDataSourceType.BIG_QUERY,
+            iconPath="/static/services/bigquery.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/bigquery",
             fields=cast(
                 list[FieldType],
                 [
@@ -159,7 +171,11 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
                         required=True,
                     ),
                     SourceFieldInputConfig(
-                        name="dataset_id", label="Dataset ID", type=Type4.TEXT, required=True, placeholder=""
+                        name="dataset_id",
+                        label="Dataset ID",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="",
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="temporary-dataset",
@@ -172,7 +188,7 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
                                 SourceFieldInputConfig(
                                     name="temporary_dataset_id",
                                     label="Dataset ID for temporary tables",
-                                    type=Type4.TEXT,
+                                    type=SourceFieldInputConfigType.TEXT,
                                     required=True,
                                     placeholder="",
                                 )
@@ -190,7 +206,7 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
                                 SourceFieldInputConfig(
                                     name="dataset_project_id",
                                     label="Project ID for dataset",
-                                    type=Type4.TEXT,
+                                    type=SourceFieldInputConfigType.TEXT,
                                     required=True,
                                     placeholder="",
                                 )

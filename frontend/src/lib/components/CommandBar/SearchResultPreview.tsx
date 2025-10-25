@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+
 import { ResultDescription, ResultName } from 'lib/components/CommandBar/SearchResult'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -27,6 +28,10 @@ export const SearchResultPreview = (): JSX.Element | null => {
     }
 
     const result = combinedSearchResults[activeResultIndex]
+
+    if (!result) {
+        return null
+    }
 
     return (
         <div className="border bg-surface-primary rounded p-4 md:p-6">

@@ -1,7 +1,9 @@
 import pytest
+
 from inline_snapshot import snapshot
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
+
 from posthog.cdp.templates.discord.template_discord import template as template_discord
+from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 
 
 class TestTemplateDiscord(BaseHogFunctionTemplateTest):

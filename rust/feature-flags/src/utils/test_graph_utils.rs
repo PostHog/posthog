@@ -352,7 +352,7 @@ mod tests {
             ];
 
             let (graph, errors) = DependencyGraph::from_nodes(&items).unwrap();
-            assert!(errors.is_empty(), "Expected no errors, found: {:?}", errors);
+            assert!(errors.is_empty(), "Expected no errors, found: {errors:?}");
             assert_eq!(graph.node_count(), 3);
             assert_eq!(graph.edge_count(), 0);
         }
@@ -369,7 +369,7 @@ mod tests {
             ];
 
             let (graph, errors) = DependencyGraph::from_nodes(&items).unwrap();
-            assert!(errors.is_empty(), "Expected no errors, found: {:?}", errors);
+            assert!(errors.is_empty(), "Expected no errors, found: {errors:?}");
             assert_eq!(graph.node_count(), 6);
             assert_eq!(graph.edge_count(), 3);
         }
@@ -406,8 +406,7 @@ mod tests {
             assert_eq!(
                 errors.len(),
                 2,
-                "Expected two cycle errors, found: {:?}",
-                errors
+                "Expected two cycle errors, found: {errors:?}",
             );
             // Check that both cycles are detected (order may vary)
             let cycle_ids: Vec<_> = errors
@@ -514,7 +513,7 @@ mod tests {
             ];
 
             let (graph, errors) = DependencyGraph::from_nodes(&items).unwrap();
-            assert!(errors.is_empty(), "Expected no errors, found: {:?}", errors);
+            assert!(errors.is_empty(), "Expected no errors, found: {errors:?}");
             let stages = graph.evaluation_stages().unwrap();
 
             assert_eq!(stages.len(), 3);
@@ -541,7 +540,7 @@ mod tests {
             ];
 
             let (graph, errors) = DependencyGraph::from_nodes(&items).unwrap();
-            assert!(errors.is_empty(), "Expected no errors, found: {:?}", errors);
+            assert!(errors.is_empty(), "Expected no errors, found: {errors:?}");
             let stages = graph.evaluation_stages().unwrap();
 
             assert_eq!(stages.len(), 1);
@@ -561,7 +560,7 @@ mod tests {
             ];
 
             let (graph, errors) = DependencyGraph::from_nodes(&items).unwrap();
-            assert!(errors.is_empty(), "Expected no errors, found: {:?}", errors);
+            assert!(errors.is_empty(), "Expected no errors, found: {errors:?}");
             let stages = graph.evaluation_stages().unwrap();
 
             let expected_stages: Vec<HashSet<_>> = vec![
@@ -593,7 +592,7 @@ mod tests {
             ];
 
             let (graph, errors) = DependencyGraph::from_nodes(&items).unwrap();
-            assert!(errors.is_empty(), "Expected no errors, found: {:?}", errors);
+            assert!(errors.is_empty(), "Expected no errors, found: {errors:?}");
             let stages = graph.evaluation_stages().unwrap();
 
             let expected_stages: Vec<HashSet<_>> = vec![
@@ -630,7 +629,7 @@ mod tests {
             ];
 
             let (graph, errors) = DependencyGraph::from_nodes(&items).unwrap();
-            assert!(errors.is_empty(), "Expected no errors, found: {:?}", errors);
+            assert!(errors.is_empty(), "Expected no errors, found: {errors:?}");
             let stages = graph.evaluation_stages().unwrap();
 
             let expected_stages: Vec<HashSet<_>> = vec![

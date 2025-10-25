@@ -1,19 +1,23 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import difference from 'lodash.difference'
+import sortBy from 'lodash.sortby'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import difference from 'lodash.difference'
-import sortBy from 'lodash.sortby'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { Params } from 'scenes/sceneTypes'
 
 import { DateMappingOption, OrganizationType } from '~/types'
 
+import type { BillingPeriodMarker } from './BillingLineGraph'
 import {
     buildTrackingProperties,
     calculateBillingPeriodMarkers,
@@ -24,7 +28,6 @@ import {
 import { billingLogic } from './billingLogic'
 import type { billingUsageLogicType } from './billingUsageLogicType'
 import type { BillingFilters } from './types'
-import type { BillingPeriodMarker } from './BillingLineGraph'
 
 // These date filters return correct data but there's an issue with filter label after selecting it, showing 'No date range override' instead
 const TEMPORARILY_EXCLUDED_DATE_FILTER_OPTIONS = ['This month', 'Year to date', 'All time']
@@ -73,10 +76,17 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
     path(['scenes', 'billing', 'billingUsageLogic']),
     props({} as BillingUsageLogicProps),
     key(({ dashboardItemId }) => dashboardItemId || 'global'),
-    connect({
-        values: [organizationLogic, ['currentOrganization'], billingLogic, ['billing', 'billingPeriodUTC']],
+    connect(() => ({
+        values: [
+            organizationLogic,
+            ['currentOrganization'],
+            billingLogic,
+            ['billing', 'billingPeriodUTC'],
+            preflightLogic,
+            ['isHobby'],
+        ],
         actions: [eventUsageLogic, ['reportBillingUsageInteraction']],
-    }),
+    })),
     actions({
         setFilters: (filters: Partial<BillingFilters>, shouldDebounce: boolean = true) => ({
             filters,
@@ -98,7 +108,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             null as BillingUsageResponse | null,
             {
                 loadBillingUsage: async () => {
-                    if (!canAccessBilling(values.currentOrganization)) {
+                    if (!canAccessBilling(values.currentOrganization) || values.isHobby) {
                         return null
                     }
                     const { usage_types, team_ids, breakdowns, interval } = values.filters
@@ -111,8 +121,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                         ...(interval ? { interval } : {}),
                     }
                     try {
-                        const response = await api.get(`api/billing/usage/?${toParams(params)}`)
-                        return response
+                        return await api.get(`api/billing/usage/?${toParams(params)}`)
                     } catch (error) {
                         lemonToast.error('Failed to load billing usage. Please try again or contact support.')
                         throw error

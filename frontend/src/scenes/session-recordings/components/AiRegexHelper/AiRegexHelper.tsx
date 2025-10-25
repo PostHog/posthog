@@ -1,13 +1,14 @@
 /**
  * @fileoverview A component that helps you to generate regex for your settings using Max AI
  */
+import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconAI, IconCopy, IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { aiRegexHelperLogic } from './aiRegexHelperLogic'

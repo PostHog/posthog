@@ -1,17 +1,19 @@
-import { convertHogToJS, ExecResult } from '@posthog/hogvm'
 import { pickBy } from 'lodash'
 import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
+import { ExecResult, convertHogToJS } from '@posthog/hogvm'
+
+import { instrumented } from '~/common/tracing/tracing-utils'
+import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
 import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersFetchSchema,
 } from '~/schema/cyclotron'
-import { fetch, FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError } from '~/utils/request'
+import { FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError, fetch } from '~/utils/request'
 import { tryCatch } from '~/utils/try-catch'
 
-import { buildIntegerMatcher } from '../../config/config'
-import { Hub, PluginsServerConfig, ValueMatcher } from '../../types'
+import { Hub, PluginsServerConfig } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
@@ -32,6 +34,7 @@ import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '..
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { HogInputsService } from './hog-inputs.service'
 import { EmailService } from './messaging/email.service'
+import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
 const cdpHttpRequests = new Counter({
     name: 'cdp_http_requests',
@@ -45,6 +48,24 @@ const cdpHttpRequestTiming = new Histogram({
     buckets: [0, 10, 20, 50, 100, 200, 500, 1000, 2000, 3000, 5000, 10000],
 })
 
+export async function cdpTrackedFetch({
+    url,
+    fetchParams,
+    templateId,
+}: {
+    url: string
+    fetchParams: FetchOptions
+    templateId: string
+}): Promise<{ fetchError: Error | null; fetchResponse: FetchResponse | null; fetchDuration: number }> {
+    const start = performance.now()
+    const [fetchError, fetchResponse] = await tryCatch(async () => await fetch(url, fetchParams))
+    const fetchDuration = performance.now() - start
+    cdpHttpRequestTiming.observe(fetchDuration)
+    cdpHttpRequests.inc({ status: fetchResponse?.status?.toString() ?? 'error', template_id: templateId })
+
+    return { fetchError, fetchResponse, fetchDuration }
+}
+
 export const RETRIABLE_STATUS_CODES = [
     408, // Request Timeout
     429, // Too Many Requests (rate limiting)
@@ -53,6 +74,10 @@ export const RETRIABLE_STATUS_CODES = [
     503, // Service Unavailable
     504, // Gateway Timeout
 ]
+
+function formatNumber(val: number) {
+    return Number(val.toPrecision(2)).toString()
+}
 
 export const isFetchResponseRetriable = (response: FetchResponse | null, error: any | null): boolean => {
     let canRetry = !!response?.status && RETRIABLE_STATUS_CODES.includes(response.status)
@@ -88,7 +113,7 @@ const hogExecutionDuration = new Histogram({
     name: 'cdp_hog_function_execution_duration_ms',
     help: 'Processing time and success status of internal functions',
     // We have a timeout so we don't need to worry about much more than that
-    buckets: [0, 10, 20, 50, 100, 200],
+    buckets: [0, 10, 20, 50, 100, 200, 300, 500, 1000],
 })
 
 const hogFunctionStateMemory = new Histogram({
@@ -107,14 +132,14 @@ export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
 }
 
 export class HogExecutorService {
-    private telemetryMatcher: ValueMatcher<number>
     private hogInputsService: HogInputsService
     private emailService: EmailService
+    private recipientTokensService: RecipientTokensService
 
     constructor(private hub: Hub) {
+        this.recipientTokensService = new RecipientTokensService(hub)
         this.hogInputsService = new HogInputsService(hub)
         this.emailService = new EmailService(hub)
-        this.telemetryMatcher = buildIntegerMatcher(this.hub.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
     }
 
     async buildInputsWithGlobals(
@@ -149,8 +174,6 @@ export class HogExecutorService {
                 fn: hogFunction,
                 filters,
                 filterGlobals,
-                eventUuid: triggerGlobals.event.uuid,
-                enabledTelemetry: this.telemetryMatcher(hogFunction.team_id),
             })
 
             // Add any generated metrics and logs to our collections
@@ -245,6 +268,7 @@ export class HogExecutorService {
         }
     }
 
+    @instrumented('hog-executor.executeWithAsyncFunctions')
     async executeWithAsyncFunctions(
         invocation: CyclotronJobInvocationHogFunction,
         options?: HogExecutorExecuteAsyncOptions
@@ -295,6 +319,7 @@ export class HogExecutorService {
         return result
     }
 
+    @instrumented('hog-executor.execute')
     async execute(
         invocation: CyclotronJobInvocationHogFunction,
         options: HogExecutorExecuteOptions = {}
@@ -372,6 +397,14 @@ export class HogExecutorService {
                                 timestamp: DateTime.now(),
                                 message: sanitizeLogMessage(args, sensitiveValues),
                             })
+                        },
+                        generateMessagingPreferencesUrl: (identifier): string | null => {
+                            return identifier && typeof identifier === 'string'
+                                ? this.recipientTokensService.generatePreferencesUrl({
+                                      team_id: invocation.teamId,
+                                      identifier,
+                                  })
+                                : null
                         },
                         postHogCapture: (event) => {
                             const distinctId = event.distinct_id || globals.event?.distinct_id
@@ -503,10 +536,10 @@ export class HogExecutorService {
                     (acc, timing) => acc + timing.duration_ms,
                     0
                 )
-                const messages = [`Function completed in ${totalDuration}ms.`]
+                const messages = [`Function completed in ${formatNumber(totalDuration)}ms.`]
                 if (execRes.state) {
-                    messages.push(`Sync: ${execRes.state.syncDuration}ms.`)
-                    messages.push(`Mem: ${execRes.state.maxMemUsed} bytes.`)
+                    messages.push(`Sync: ${formatNumber(execRes.state.syncDuration)}ms.`)
+                    messages.push(`Mem: ${formatNumber(execRes.state.maxMemUsed / 1024)}kb.`)
                     messages.push(`Ops: ${execRes.state.ops}.`)
                     messages.push(`Event: '${globals.event.url}'`)
 
@@ -533,6 +566,7 @@ export class HogExecutorService {
         return result
     }
 
+    @instrumented('hog-executor.executeFetch')
     async executeFetch(
         invocation: CyclotronJobInvocationHogFunction
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
@@ -553,10 +587,36 @@ export class HogExecutorService {
         const addLog = createAddLogFunction(result.logs)
 
         const method = params.method.toUpperCase()
-        const headers = params.headers ?? {}
+        let headers = params.headers ?? {}
 
         if (params.url.startsWith('https://googleads.googleapis.com/') && !headers['developer-token']) {
             headers['developer-token'] = this.hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN
+        }
+
+        const integrationInputs = await this.hogInputsService.loadIntegrationInputs(invocation.hogFunction)
+
+        if (Object.keys(integrationInputs).length > 0) {
+            for (const [key, value] of Object.entries(integrationInputs)) {
+                const accessToken: string = value.value?.access_token_raw
+                if (!accessToken) {
+                    continue
+                }
+
+                const placeholder: string = ACCESS_TOKEN_PLACEHOLDER + invocation.hogFunction.inputs?.[key]?.value
+
+                if (placeholder && accessToken) {
+                    const replace = (val: string) => val.replaceAll(placeholder, accessToken)
+
+                    params.body = params.body ? replace(params.body) : params.body
+                    headers = Object.fromEntries(
+                        Object.entries(params.headers ?? {}).map(([key, value]) => [
+                            key,
+                            typeof value === 'string' ? replace(value) : value,
+                        ])
+                    )
+                    params.url = replace(params.url)
+                }
+            }
         }
 
         const fetchParams: FetchOptions = { method, headers }
@@ -565,15 +625,15 @@ export class HogExecutorService {
             fetchParams.body = params.body
         }
 
-        const start = performance.now()
-        const [fetchError, fetchResponse] = await tryCatch(async () => await fetch(params.url, fetchParams))
-        const duration = performance.now() - start
-        cdpHttpRequestTiming.observe(duration)
-        cdpHttpRequests.inc({ status: fetchResponse?.status?.toString() ?? 'error', template_id: templateId })
+        const { fetchError, fetchResponse, fetchDuration } = await cdpTrackedFetch({
+            url: params.url,
+            fetchParams,
+            templateId,
+        })
 
         result.invocation.state.timings.push({
             kind: 'async_function',
-            duration_ms: duration,
+            duration_ms: fetchDuration,
         })
 
         result.invocation.state.attempts++
@@ -602,6 +662,7 @@ export class HogExecutorService {
             addLog('warn', message)
 
             if (canRetry && result.invocation.state.attempts < this.hub.CDP_FETCH_RETRIES) {
+                await fetchResponse?.dump()
                 result.invocation.queue = 'hog'
                 result.invocation.queueParameters = params
                 result.invocation.queuePriority = invocation.queuePriority + 1

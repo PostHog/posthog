@@ -1,5 +1,5 @@
-import { errorTrackingQuery } from './queries'
 import { FilterLogicalOperator } from '../../../frontend/src/types'
+import { errorTrackingQuery } from './queries'
 
 describe('queries', () => {
     describe('errorTrackingQuery', () => {
@@ -21,6 +21,7 @@ describe('queries', () => {
                     columns: ['error', 'users', 'occurrences'],
                     limit: 4,
                     volumeResolution: 20,
+                    personId: undefined,
                 })
                 expect(actual).toMatchSnapshot()
             })

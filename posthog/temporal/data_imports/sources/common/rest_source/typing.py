@@ -1,37 +1,35 @@
-from typing import Any, Literal, Optional, TypedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any, Literal, Optional, TypedDict
 
 from dlt.common import jsonpath
-from dlt.common.typing import TSortOrder
 from dlt.common.schema.typing import (
-    TColumnNames,
-    TTableFormat,
     TAnySchemaColumns,
-    TWriteDispositionConfig,
+    TColumnNames,
     TSchemaContract,
+    TTableFormat,
+    TWriteDispositionConfig,
 )
-
-from dlt.extract.items import TTableHintTemplate
+from dlt.common.typing import TSortOrder
 from dlt.extract.incremental.typing import LastValueFunc
-
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
-from dlt.sources.helpers.rest_client.typing import HTTPMethodBasic
-from dlt.sources.helpers.rest_client.auth import AuthConfigBase, TApiKeyLocation
-
+from dlt.extract.items import TTableHintTemplate
+from dlt.sources.helpers.rest_client.auth import (
+    APIKeyAuth,
+    AuthConfigBase,
+    BearerTokenAuth,
+    HttpBasicAuth,
+    TApiKeyLocation,
+)
 from dlt.sources.helpers.rest_client.paginators import (
-    SinglePagePaginator,
+    BasePaginator,
     HeaderLinkPaginator,
-    JSONResponsePaginator,
     JSONResponseCursorPaginator,
+    JSONResponsePaginator,
     OffsetPaginator,
     PageNumberPaginator,
+    SinglePagePaginator,
 )
-from dlt.sources.helpers.rest_client.auth import (
-    HttpBasicAuth,
-    BearerTokenAuth,
-    APIKeyAuth,
-)
+from dlt.sources.helpers.rest_client.typing import HTTPMethodBasic
 
 PaginatorType = Literal[
     "json_response",

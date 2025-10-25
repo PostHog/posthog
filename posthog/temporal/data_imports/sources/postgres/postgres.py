@@ -1,21 +1,26 @@
 from __future__ import annotations
 
-import collections
-from contextlib import _GeneratorContextManager
 import math
-from collections.abc import Iterator
-from typing import Any, LiteralString, Optional, cast
-from collections.abc import Callable
+import time
+import collections
+from collections.abc import Callable, Iterator
+from contextlib import _GeneratorContextManager
+from typing import Any, Literal, LiteralString, Optional, cast
 
 import psycopg
 import pyarrow as pa
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from psycopg import sql
 from psycopg.adapt import Loader
+from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from posthog.temporal.data_imports.pipelines.pipeline.consts import (
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_TABLE_SIZE_BYTES,
+    INCREASED_DEFAULT_CHUNK_SIZE,
+)
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_PRECISION,
@@ -27,7 +32,6 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     table_from_iterator,
 )
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
-from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
 
 
@@ -181,16 +185,23 @@ def _build_query(
     schema: str,
     table_name: str,
     should_use_incremental_field: bool,
+    table_type: Literal["table", "view", "materialized_view"] | None,
     incremental_field: Optional[str],
     incremental_field_type: Optional[IncrementalFieldType],
     db_incremental_field_last_value: Optional[Any],
-    add_limit: Optional[bool] = False,
+    add_sampling: Optional[bool] = False,
 ) -> sql.Composed:
-    query = sql.SQL("SELECT * FROM {}").format(sql.Identifier(schema, table_name))
-
     if not should_use_incremental_field:
-        if add_limit:
-            query_with_limit = cast(LiteralString, f"{query.as_string()} ORDER BY RANDOM() LIMIT 100")
+        if add_sampling:
+            if table_type == "view":
+                query = sql.SQL("SELECT * FROM {} WHERE random() < 0.01").format(sql.Identifier(schema, table_name))
+            else:
+                query = sql.SQL("SELECT * FROM {} TABLESAMPLE SYSTEM (1)").format(sql.Identifier(schema, table_name))
+        else:
+            query = sql.SQL("SELECT * FROM {}").format(sql.Identifier(schema, table_name))
+
+        if add_sampling:
+            query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 1000")
             return sql.SQL(query_with_limit).format()
 
         return query
@@ -201,22 +212,62 @@ def _build_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
-    query = sql.SQL("SELECT * FROM {schema}.{table} WHERE {incremental_field} >= {last_value}").format(
-        schema=sql.Identifier(schema),
-        table=sql.Identifier(table_name),
-        incremental_field=sql.Identifier(incremental_field),
-        last_value=sql.Literal(db_incremental_field_last_value),
-    )
+    if add_sampling:
+        if table_type == "view":
+            query = sql.SQL(
+                "SELECT * FROM {schema}.{table} WHERE {incremental_field} >= {last_value} AND random() < 0.01"
+            ).format(
+                schema=sql.Identifier(schema),
+                table=sql.Identifier(table_name),
+                incremental_field=sql.Identifier(incremental_field),
+                last_value=sql.Literal(db_incremental_field_last_value),
+            )
+        else:
+            query = sql.SQL(
+                "SELECT * FROM {schema}.{table} TABLESAMPLE SYSTEM (1) WHERE {incremental_field} >= {last_value}"
+            ).format(
+                schema=sql.Identifier(schema),
+                table=sql.Identifier(table_name),
+                incremental_field=sql.Identifier(incremental_field),
+                last_value=sql.Literal(db_incremental_field_last_value),
+            )
+    else:
+        query = sql.SQL("SELECT * FROM {schema}.{table} WHERE {incremental_field} >= {last_value}").format(
+            schema=sql.Identifier(schema),
+            table=sql.Identifier(table_name),
+            incremental_field=sql.Identifier(incremental_field),
+            last_value=sql.Literal(db_incremental_field_last_value),
+        )
 
-    if add_limit:
-        query_with_limit = cast(LiteralString, f"{query.as_string()} ORDER BY RANDOM() LIMIT 100")
+    if add_sampling:
+        query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 1000")
         return sql.SQL(query_with_limit).format()
     else:
         query_str = cast(LiteralString, f"{query.as_string()} ORDER BY {{incremental_field}} ASC")
         return sql.SQL(query_str).format(incremental_field=sql.Identifier(incremental_field))
 
 
-def _get_primary_keys(cursor: psycopg.Cursor, schema: str, table_name: str) -> list[str] | None:
+def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: FilteringBoundLogger):
+    logger.debug(f"Running EXPLAIN on {query.as_string()}")
+
+    try:
+        query_with_explain = sql.SQL("EXPLAIN {}").format(query)
+        cursor.execute(query_with_explain)
+        rows = cursor.fetchall()
+        explain_result: str = ""
+        # Build up a single string of the EXPLAIN output
+        for row in rows:
+            for col in row:
+                explain_result += f"\n{col}"
+        logger.debug(f"EXPLAIN result: {explain_result}")
+    except Exception as e:
+        capture_exception(e)
+        logger.debug(f"EXPLAIN raised an exception: {e}")
+
+
+def _get_primary_keys(
+    cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
+) -> list[str] | None:
     query = sql.SQL("""
         SELECT
             kcu.column_name
@@ -231,6 +282,8 @@ def _get_primary_keys(cursor: psycopg.Cursor, schema: str, table_name: str) -> l
             AND tc.table_name = {table}
             AND tc.constraint_type = 'PRIMARY KEY'""").format(schema=sql.Literal(schema), table=sql.Literal(table_name))
 
+    _explain_query(cursor, query, logger)
+    logger.debug(f"Running query: {query.as_string()}")
     cursor.execute(query)
     rows = cursor.fetchall()
     if len(rows) > 0:
@@ -240,7 +293,7 @@ def _get_primary_keys(cursor: psycopg.Cursor, schema: str, table_name: str) -> l
 
 
 def _has_duplicate_primary_keys(
-    cursor: psycopg.Cursor, schema: str, table_name: str, primary_keys: list[str] | None
+    cursor: psycopg.Cursor, schema: str, table_name: str, primary_keys: list[str] | None, logger: FilteringBoundLogger
 ) -> bool:
     if not primary_keys or len(primary_keys) == 0:
         return False
@@ -259,6 +312,8 @@ def _has_duplicate_primary_keys(
         query = sql.SQL(sql_query).format(
             *[sql.Identifier(key) for key in primary_keys], sql.Identifier(schema), sql.Identifier(table_name)
         )
+        _explain_query(cursor, query, logger)
+        logger.debug(f"Running query: {query.as_string()}")
         cursor.execute(query)
         row = cursor.fetchone()
 
@@ -273,9 +328,11 @@ def _has_duplicate_primary_keys(
 def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger) -> int:
     try:
         query = sql.SQL("""
-            SELECT SUM(pg_column_size(t.*)) / COUNT(t.*) FROM ({}) as t
+            SELECT SUM(pg_column_size(t)) / COUNT(*) FROM ({}) as t
         """).format(inner_query)
 
+        _explain_query(cursor, query, logger)
+        logger.debug(f"Running query: {query.as_string()}")
         cursor.execute(query)
         row = cursor.fetchone()
 
@@ -287,7 +344,8 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
 
         chunk_size = int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes)
 
-        min_chunk_size = min(chunk_size, DEFAULT_CHUNK_SIZE)
+        # If we get a result back from postgres, then increase the max chunk cap to the increased value
+        min_chunk_size = min(chunk_size, INCREASED_DEFAULT_CHUNK_SIZE)
 
         logger.debug(
             f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={min_chunk_size}"
@@ -305,9 +363,11 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
 def _get_rows_to_sync(cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger) -> int:
     try:
         query = sql.SQL("""
-            SELECT COUNT(t.*) FROM ({}) as t
+            SELECT COUNT(*) FROM ({}) as t
         """).format(inner_query)
 
+        _explain_query(cursor, query, logger)
+        logger.debug(f"Running query: {query.as_string()}")
         cursor.execute(query)
         row = cursor.fetchone()
 
@@ -351,6 +411,8 @@ def _get_partition_settings(
     )
 
     try:
+        _explain_query(cursor, query, logger)
+        logger.debug(f"Running query: {query.as_string()}")
         cursor.execute(query)
     except psycopg.errors.QueryCanceled:
         raise
@@ -454,13 +516,32 @@ class PostgreSQLColumn(Column):
         return pa.field(self.name, arrow_type, nullable=self.nullable)
 
 
-def _get_table(cursor: psycopg.Cursor, schema: str, table_name: str) -> Table[PostgreSQLColumn]:
+def _is_read_replica(cursor: psycopg.Cursor) -> bool:
+    cursor.execute("SELECT pg_is_in_recovery()")
+    row = cursor.fetchone()
+    if row is None:
+        return False
+
+    return row[0] is True
+
+
+def _get_table(
+    cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
+) -> Table[PostgreSQLColumn]:
     is_mat_view_query = sql.SQL(
         "select {table} in (select matviewname from pg_matviews where schemaname = {schema}) as res"
     ).format(schema=sql.Literal(schema), table=sql.Literal(table_name))
     is_mat_view_res = cursor.execute(is_mat_view_query).fetchone()
+    is_mat_view = is_mat_view_res is not None and is_mat_view_res[0] is True
+    is_view = False
+    if not is_mat_view:
+        is_view_query = sql.SQL(
+            "select {table} in (select viewname from pg_views where schemaname = {schema}) as res"
+        ).format(schema=sql.Literal(schema), table=sql.Literal(table_name))
+        is_view_res = cursor.execute(is_view_query).fetchone()
+        is_view = is_view_res is not None and is_view_res[0] is True
 
-    if is_mat_view_res is not None and is_mat_view_res[0] is True:
+    if is_mat_view:
         # Table is a materialised view, column info doesn't exist in information_schema.columns
         query = sql.SQL("""
             SELECT
@@ -505,6 +586,8 @@ def _get_table(cursor: psycopg.Cursor, schema: str, table_name: str) -> Table[Po
                 table_schema = {schema}
                 AND table_name = {table}""").format(schema=sql.Literal(schema), table=sql.Literal(table_name))
 
+    _explain_query(cursor, query, logger)
+    logger.debug(f"Running query: {query.as_string()}")
     cursor.execute(query)
 
     numeric_data_types = {"numeric", "decimal"}
@@ -527,11 +610,13 @@ def _get_table(cursor: psycopg.Cursor, schema: str, table_name: str) -> Table[Po
             )
         )
 
-    return Table(
-        name=table_name,
-        parents=(schema,),
-        columns=columns,
-    )
+    table_type: Literal["materialized_view", "view", "table"] = "table"
+    if is_mat_view:
+        table_type = "materialized_view"
+    elif is_view:
+        table_type = "view"
+
+    return Table(name=table_name, parents=(schema,), columns=columns, type=table_type)
 
 
 def postgres_source(
@@ -545,6 +630,7 @@ def postgres_source(
     should_use_incremental_field: bool,
     logger: FilteringBoundLogger,
     db_incremental_field_last_value: Optional[Any],
+    chunk_size_override: Optional[int] = None,
     team_id: Optional[int] = None,
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
@@ -567,20 +653,25 @@ def postgres_source(
             sslkey="/tmp/no.txt",
         ) as connection:
             with connection.cursor() as cursor:
+                logger.debug("Getting table types...")
+                table = _get_table(cursor, schema, table_name, logger)
+
                 inner_query_with_limit = _build_query(
                     schema,
                     table_name,
                     should_use_incremental_field,
+                    table.type,
                     incremental_field,
                     incremental_field_type,
                     db_incremental_field_last_value,
-                    add_limit=True,
+                    add_sampling=True,
                 )
 
                 inner_query_without_limit = _build_query(
                     schema,
                     table_name,
                     should_use_incremental_field,
+                    table.type,
                     incremental_field,
                     incremental_field_type,
                     db_incremental_field_last_value,
@@ -591,10 +682,20 @@ def postgres_source(
                     )
                 )
                 try:
-                    primary_keys = _get_primary_keys(cursor, schema, table_name)
-                    table = _get_table(cursor, schema, table_name)
-                    chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
+                    logger.debug("Checking if source is a read replica...")
+                    using_read_replica = _is_read_replica(cursor)
+                    logger.debug(f"using_read_replica = {using_read_replica}")
+                    logger.debug("Getting primary keys...")
+                    primary_keys = _get_primary_keys(cursor, schema, table_name, logger)
+                    logger.debug("Getting table chunk size...")
+                    if chunk_size_override is not None:
+                        chunk_size = chunk_size_override
+                        logger.debug(f"Using chunk_size_override: {chunk_size_override}")
+                    else:
+                        chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
+                    logger.debug("Getting rows to sync...")
                     rows_to_sync = _get_rows_to_sync(cursor, inner_query_without_limit, logger)
+                    logger.debug("Getting partition settings...")
                     partition_settings = (
                         _get_partition_settings(cursor, schema, table_name, logger)
                         if should_use_incremental_field
@@ -605,8 +706,9 @@ def postgres_source(
                     # Fallback on checking for an `id` field on the table
                     if primary_keys is None and "id" in table:
                         primary_keys = ["id"]
+                        logger.debug("Checking duplicate primary keys...")
                         has_duplicate_primary_keys = _has_duplicate_primary_keys(
-                            cursor, schema, table_name, primary_keys
+                            cursor, schema, table_name, primary_keys, logger
                         )
                 except psycopg.errors.QueryCanceled:
                     if should_use_incremental_field:
@@ -620,19 +722,22 @@ def postgres_source(
     def get_rows(chunk_size: int) -> Iterator[Any]:
         arrow_schema = table.to_arrow_schema()
         with tunnel() as (host, port):
-            with psycopg.connect(
-                host=host,
-                port=port,
-                dbname=database,
-                user=user,
-                password=password,
-                sslmode=sslmode,
-                connect_timeout=5,
-                sslrootcert="/tmp/no.txt",
-                sslcert="/tmp/no.txt",
-                sslkey="/tmp/no.txt",
-                cursor_factory=psycopg.ServerCursor,
-            ) as connection:
+            cursor_factory = psycopg.ServerCursor if not using_read_replica else None
+
+            def get_connection():
+                connection = psycopg.connect(
+                    host=host,
+                    port=port,
+                    dbname=database,
+                    user=user,
+                    password=password,
+                    sslmode=sslmode,
+                    connect_timeout=5,
+                    sslrootcert="/tmp/no.txt",
+                    sslcert="/tmp/no.txt",
+                    sslkey="/tmp/no.txt",
+                    cursor_factory=cursor_factory,
+                )
                 connection.adapters.register_loader("json", JsonAsStringLoader)
                 connection.adapters.register_loader("jsonb", JsonAsStringLoader)
                 connection.adapters.register_loader("int4range", RangeAsStringLoader)
@@ -641,28 +746,119 @@ def postgres_source(
                 connection.adapters.register_loader("tsrange", RangeAsStringLoader)
                 connection.adapters.register_loader("tstzrange", RangeAsStringLoader)
                 connection.adapters.register_loader("daterange", RangeAsStringLoader)
+                return connection
 
-                with connection.cursor(name=f"posthog_{team_id}_{schema}.{table_name}") as cursor:
-                    query = _build_query(
-                        schema,
-                        table_name,
-                        should_use_incremental_field,
-                        incremental_field,
-                        incremental_field_type,
-                        db_incremental_field_last_value,
-                    )
-                    logger.debug(f"Postgres query: {query.as_string()}")
+            def offset_chunking(offset: int, chunk_size: int):
+                # If the db is a read replica and we're running into `conflict with recovery errors,
+                # we create a new query for each chunk. This is due to how the primary replicates
+                # over, we often run into errors when vacuums are happening
+                logger.debug(
+                    f"Using offset chunking to read from read replica. offset = {offset}, chunk_size = {chunk_size}"
+                )
 
-                    cursor.execute(query)
+                query = _build_query(
+                    schema,
+                    table_name,
+                    should_use_incremental_field,
+                    table.type,
+                    incremental_field,
+                    incremental_field_type,
+                    db_incremental_field_last_value,
+                )
 
-                    column_names = [column.name for column in cursor.description or []]
+                successive_errors = 0
+                connection = get_connection()
+                while True:
+                    try:
+                        if connection.closed:
+                            logger.debug("Postgres connection was closed, reopening...")
+                            connection = get_connection()
 
-                    while True:
-                        rows = cursor.fetchmany(chunk_size)
-                        if not rows:
-                            break
+                        with connection.cursor() as cursor:
+                            query_with_limit = cast(
+                                LiteralString, f"{query.as_string()} LIMIT {chunk_size} OFFSET {offset}"
+                            )
+                            query_with_limit_sql = sql.SQL(query_with_limit).format()
 
-                        yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+                            logger.debug(f"Postgres query: {query_with_limit}")
+                            cursor.execute(query_with_limit_sql)
+
+                            column_names = [column.name for column in cursor.description or []]
+                            rows = cursor.fetchall()
+
+                            if not rows or len(rows) == 0:
+                                break
+
+                            offset += len(rows)
+
+                            yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+
+                            successive_errors = 0
+                    except psycopg.errors.SerializationFailure as e:
+                        if "terminating connection due to conflict with recovery" not in "".join(e.args):
+                            raise
+
+                        # This error happens when the read replica is out of sync with the primary
+                        logger.debug(f"SerializationFailure error: {e}. Retrying chunk at offset {offset}")
+
+                        successive_errors += 1
+                        if successive_errors >= 30:
+                            # The connection should be closed here, but want to double check to make sure
+                            if connection.closed is False:
+                                connection.__exit__(type(e), e, None)
+
+                            raise Exception(
+                                f"Hit {successive_errors} successive SerializationFailure errors. Aborting."
+                            ) from e
+                        elif successive_errors >= 5:
+                            chunk_size = max(int(chunk_size / 1.5), 100)
+                            logger.debug(f"Reducing chunk size to {chunk_size} to reduce load on read replica")
+                            time.sleep(2 * successive_errors)
+                        else:
+                            # Linear backoff on successive errors to make sure we give the read replica time to catch up
+                            time.sleep(2 * successive_errors)
+                    except Exception as e:
+                        if connection.closed is False:
+                            connection.__exit__(type(e), e, None)
+                        raise
+
+                if connection.closed is False:
+                    connection.__exit__(None, None, None)
+
+            offset = 0
+            try:
+                with get_connection() as connection:
+                    with connection.cursor(name=f"posthog_{team_id}_{schema}.{table_name}") as cursor:
+                        query = _build_query(
+                            schema,
+                            table_name,
+                            should_use_incremental_field,
+                            table.type,
+                            incremental_field,
+                            incremental_field_type,
+                            db_incremental_field_last_value,
+                        )
+                        logger.debug(f"Postgres query: {query.as_string()}")
+
+                        cursor.execute(query)
+
+                        column_names = [column.name for column in cursor.description or []]
+
+                        while True:
+                            rows = cursor.fetchmany(chunk_size)
+                            if not rows:
+                                break
+
+                            yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+                            offset += len(rows)
+            except psycopg.errors.SerializationFailure as e:
+                # If we hit a SerializationFailure and we're reading from a read replica, we fallback to offset chunking
+                if using_read_replica and "conflict with recovery" in "".join(e.args):
+                    logger.debug(f"Falling back to offset chunking for table due to SerializationFailure error: {e}.")
+                    yield from offset_chunking(offset, chunk_size)
+                    return
+
+                raise
 
     name = NamingConvention().normalize_identifier(table_name)
 

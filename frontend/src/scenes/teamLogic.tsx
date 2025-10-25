@@ -1,19 +1,20 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api, { ApiConfig } from 'lib/api'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
-import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DEFAULT_CURRENCY } from 'lib/utils/geography/currency'
 import { getAppContext } from 'lib/utils/getAppContext'
 import {
-    addProductIntent,
-    addProductIntentForCrossSell,
     type ProductCrossSellProperties,
     type ProductIntentProperties,
+    addProductIntent,
+    addProductIntentForCrossSell,
 } from 'lib/utils/product-intents'
 
 import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
@@ -31,6 +32,10 @@ const parseUpdatedAttributeName = (attr: keyof TeamType | null): string => {
     }
     if (attr === 'app_urls') {
         return 'Authorized URLs'
+    }
+
+    if (attr === 'web_analytics_pre_aggregated_tables_enabled') {
+        return 'New query engine'
     }
 
     if (attr === 'session_recording_minimum_duration_milliseconds') {
@@ -81,6 +86,7 @@ export const teamLogic = kea<teamLogicType>([
                         // If user is anonymous (i.e. viewing a shared dashboard logged out), don't load authenticated stuff
                         return null
                     }
+
                     try {
                         return await api.get('api/environments/@current')
                     } catch {
@@ -136,6 +142,10 @@ export const teamLogic = kea<teamLogicType>([
                         message = payload.feature_flag_confirmation_enabled
                             ? 'Feature flag confirmation enabled'
                             : 'Feature flag confirmation disabled'
+                    } else if (updatedAttribute === 'default_evaluation_environments_enabled') {
+                        message = payload.default_evaluation_environments_enabled
+                            ? 'Default evaluation environments enabled'
+                            : 'Default evaluation environments disabled'
                     } else if (
                         updatedAttribute === 'completed_snippet_onboarding' ||
                         updatedAttribute === 'has_completed_onboarding_for'

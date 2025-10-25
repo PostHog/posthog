@@ -1,5 +1,5 @@
 import { PluginServer } from '../src/server'
-import { LogLevel, PluginServerMode } from '../src/types'
+import { PluginServerMode } from '../src/types'
 import { resetTestDatabase } from './helpers/sql'
 
 jest.setTimeout(20000) // 20 sec timeout - longer indicates an issue
@@ -29,7 +29,7 @@ describe('server', () => {
     // Running all capabilities together takes too long in tests, so they are split up
     it('should not error on startup - ingestion', async () => {
         pluginsServer = new PluginServer({
-            LOG_LEVEL: LogLevel.Debug,
+            LOG_LEVEL: 'debug',
             PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
         })
         await pluginsServer.start()
@@ -37,7 +37,7 @@ describe('server', () => {
 
     it('should not error on startup - cdp', async () => {
         pluginsServer = new PluginServer({
-            LOG_LEVEL: LogLevel.Debug,
+            LOG_LEVEL: 'debug',
             PLUGIN_SERVER_MODE: PluginServerMode.cdp_processed_events,
         })
         await pluginsServer.start()
@@ -45,8 +45,8 @@ describe('server', () => {
 
     it('should not error on startup - replay', async () => {
         pluginsServer = new PluginServer({
-            LOG_LEVEL: LogLevel.Debug,
-            PLUGIN_SERVER_MODE: PluginServerMode.recordings_blob_ingestion,
+            LOG_LEVEL: 'debug',
+            PLUGIN_SERVER_MODE: PluginServerMode.recordings_blob_ingestion_v2,
         })
         await pluginsServer.start()
     })

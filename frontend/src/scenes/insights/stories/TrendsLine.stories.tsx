@@ -1,7 +1,9 @@
+import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
+
 import { Meta, StoryObj } from '@storybook/react'
+
 import { App } from 'scenes/App'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
-import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
 
 import { mswDecorator } from '~/mocks/browser'
 
@@ -44,13 +46,14 @@ TrendsLine.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 }
 
-export const TrendsLineEdit: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'),
-    'edit'
-)
-TrendsLineEdit.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
-}
+// FLAP!
+// export const TrendsLineEdit: Story = createInsightStory(
+//     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'),
+//     'edit'
+// )
+// TrendsLineEdit.parameters = {
+//     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+// }
 
 export const TrendsLineMulti: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json')

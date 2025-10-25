@@ -1,6 +1,8 @@
-import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
-import { isValidRegexp } from 'lib/utils/regexp'
 import { useEffect, useState } from 'react'
+
+import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
+
+import { isValidRegexp } from 'lib/utils/regexp'
 import { AiRegexHelperButton } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
 import { AiRegexHelper } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
 

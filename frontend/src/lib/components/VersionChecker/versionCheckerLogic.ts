@@ -1,13 +1,14 @@
 import { actions, afterMount, kea, key, listeners, path, props, reducers, sharedListeners } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { isNotNil } from 'lib/utils'
 import {
+    SemanticVersion,
     diffVersions,
     highestVersion,
     isEqualVersion,
     parseVersion,
-    SemanticVersion,
     tryParseVersion,
     versionToString,
 } from 'lib/utils/semver'

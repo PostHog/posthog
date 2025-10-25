@@ -5,7 +5,7 @@ from django.db.models.functions import Coalesce
 
 from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
 from posthog.models.team import Team
-from posthog.models.utils import UniqueConstraintByExpression, UUIDModel
+from posthog.models.utils import UniqueConstraintByExpression, UUIDTModel
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 
@@ -32,7 +32,7 @@ class PropertyFormat(models.TextChoices):
     WithSlashesIncreasing = "DD/MM/YYYY hh:mm:ss", "DD/MM/YYYY hh:mm:ss"
 
 
-class PropertyDefinition(UUIDModel):
+class PropertyDefinition(UUIDTModel):
     class Type(models.IntegerChoices):
         EVENT = 1, "event"
         PERSON = 2, "person"

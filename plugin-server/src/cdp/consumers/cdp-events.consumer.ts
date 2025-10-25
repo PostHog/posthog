@@ -1,15 +1,17 @@
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
+import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
+
 import { convertToHogFunctionInvocationGlobals } from '../../cdp/utils'
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
-import { runInstrumentedFunction } from '../../main/utils'
-import { Hub, RawClickHouseEvent } from '../../types'
+import { HealthCheckResult, Hub, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
+import { HogRateLimiterService } from '../services/monitoring/hog-rate-limiter.service'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import {
     CyclotronJobInvocation,
@@ -27,13 +29,19 @@ export const counterParseError = new Counter({
     labelNames: ['error'],
 })
 
-export const counterMissingAddon = new Counter({
-    name: 'cdp_function_missing_addon',
-    help: 'A function invocation was missing an addon',
+const counterQuotaLimited = new Counter({
+    name: 'cdp_function_quota_limited',
+    help: 'A function invocation was quota limited',
     labelNames: ['team_id'],
 })
 
-export const counterHogFunctionStateOnEvent = new Counter({
+const counterRateLimited = new Counter({
+    name: 'cdp_function_rate_limited',
+    help: 'A function invocation was rate limited',
+    labelNames: ['kind'],
+})
+
+const counterHogFunctionStateOnEvent = new Counter({
     name: 'cdp_hog_function_state_on_event',
     help: 'Metric the state of a hog function that matched an event',
     labelNames: ['state', 'kind'],
@@ -45,10 +53,13 @@ export class CdpEventsConsumer extends CdpConsumerBase {
     private cyclotronJobQueue: CyclotronJobQueue
     protected kafkaConsumer: KafkaConsumer
 
+    private hogRateLimiter: HogRateLimiterService
+
     constructor(hub: Hub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-processed-events-consumer') {
         super(hub)
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, 'hog')
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
+        this.hogRateLimiter = new HogRateLimiterService(hub, this.redis)
     }
 
     public async processBatch(
@@ -67,7 +78,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             // This is all IO so we can set them off in the background and start processing the next batch
             backgroundTask: Promise.all([
                 this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued),
-                this.hogFunctionMonitoringService.produceQueuedMessages().catch((err) => {
+                this.hogFunctionMonitoringService.flush().catch((err) => {
                     captureException(err)
                     logger.error('🔴', 'Error producing queued messages for monitoring', { err })
                 }),
@@ -85,58 +96,93 @@ export class CdpEventsConsumer extends CdpConsumerBase {
      * Finds all matching hog functions for the given globals.
      * Filters them for their disabled state as well as masking configs
      */
+    @instrumented('cdpConsumer.handleEachBatch.queueMatchingFunctions')
     protected async createHogFunctionInvocations(
         invocationGlobals: HogFunctionInvocationGlobals[]
     ): Promise<CyclotronJobInvocation[]> {
-        return await this.runInstrumented('handleEachBatch.queueMatchingFunctions', async () => {
-            // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
-            await this.groupsManager.enrichGroups(invocationGlobals)
+        // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
+        await this.groupsManager.enrichGroups(invocationGlobals)
 
-            const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
-            const [hogFunctionsByTeam, teamsById] = await Promise.all([
-                this.hogFunctionManager.getHogFunctionsForTeams(teamsToLoad, this.hogTypes, this.filterHogFunction),
-                this.hub.teamManager.getTeams(teamsToLoad),
-            ])
+        const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
+        const [hogFunctionsByTeam, teamsById] = await Promise.all([
+            this.hogFunctionManager.getHogFunctionsForTeams(teamsToLoad, this.hogTypes, this.filterHogFunction),
+            this.hub.teamManager.getTeams(teamsToLoad),
+        ])
 
-            const possibleInvocations = (
-                await Promise.all(
-                    invocationGlobals.map(async (globals) => {
-                        const teamHogFunctions = hogFunctionsByTeam[globals.project.id]
+        const possibleInvocations = (
+            await Promise.all(
+                invocationGlobals.map(async (globals) => {
+                    const teamHogFunctions = hogFunctionsByTeam[globals.project.id]
 
-                        const { invocations, metrics, logs } = await this.hogExecutor.buildHogFunctionInvocations(
-                            teamHogFunctions,
-                            globals
-                        )
+                    const { invocations, metrics, logs } = await this.hogExecutor.buildHogFunctionInvocations(
+                        teamHogFunctions,
+                        globals
+                    )
 
-                        this.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_function')
-                        this.hogFunctionMonitoringService.queueLogs(logs, 'hog_function')
-                        this.heartbeat()
+                    this.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_function')
+                    this.hogFunctionMonitoringService.queueLogs(logs, 'hog_function')
+                    this.heartbeat()
 
-                        return invocations
-                    })
-                )
-            ).flat()
+                    return invocations
+                })
+            )
+        ).flat()
 
-            const states = await this.hogWatcher.getEffectiveStates(possibleInvocations.map((x) => x.hogFunction.id))
-            const validInvocations: CyclotronJobInvocationHogFunction[] = []
+        const states = await instrumentFn('cdpConsumer.handleEachBatch.hogWatcher.getEffectiveStates', async () => {
+            return await this.hogWatcher.getEffectiveStates(possibleInvocations.map((x) => x.hogFunction.id))
+        })
+        const rateLimits = await instrumentFn('cdpConsumer.handleEachBatch.hogRateLimiter.rateLimitMany', async () => {
+            return await this.hogRateLimiter.rateLimitMany(possibleInvocations.map((x) => [x.hogFunction.id, 1]))
+        })
 
-            // Iterate over adding them to the list and updating their priority
-            possibleInvocations.forEach((item) => {
+        const validInvocations: CyclotronJobInvocationHogFunction[] = []
+
+        // Iterate over adding them to the list and updating their priority
+        await Promise.all(
+            possibleInvocations.map(async (item, index) => {
                 // Disable invocations for teams that don't have the addon (for now just metric them out..)
 
-                if (
-                    !teamsById[`${item.teamId}`]?.available_features.includes('data_pipelines') &&
-                    item.hogFunction.is_addon_required
-                ) {
-                    // NOTE: This counter is temporary until we are confident in enabling this
-                    counterMissingAddon.labels({ team_id: item.teamId }).inc()
-                    // TODO: Later add the below code
+                try {
+                    const rateLimit = rateLimits[index][1]
+                    if (rateLimit.isRateLimited) {
+                        counterRateLimited.labels({ kind: 'hog_function' }).inc()
+                        // NOTE: We don't return here as we are just monitoring this feature currently
+                        // this.hogFunctionMonitoringService.queueAppMetric(
+                        //     {
+                        //         team_id: item.teamId,
+                        //         app_source_id: item.functionId,
+                        //         metric_kind: 'failure',
+                        //         metric_name: 'rate_limited',
+                        //         count: 1,
+                        //     },
+                        //     'hog_function'
+                        // )
+                        // return
+                    }
+                } catch (e) {
+                    captureException(e)
+                    logger.error('🔴', 'Error checking rate limit for hog function', { err: e })
+                }
+
+                const isQuotaLimited = await this.hub.quotaLimiting.isTeamQuotaLimited(
+                    item.teamId,
+                    'cdp_trigger_events'
+                )
+
+                // The legacy addon was not usage based so we skip dropping if they are on it
+                const isTeamOnLegacyAddon = !!teamsById[`${item.teamId}`]?.available_features.includes('data_pipelines')
+
+                if (isQuotaLimited && !isTeamOnLegacyAddon) {
+                    counterQuotaLimited.labels({ team_id: item.teamId }).inc()
+
+                    // TODO: Once happy - we add the below code to track a quota limited metric and skip the invocation
+
                     // this.hogFunctionMonitoringService.queueAppMetric(
                     //     {
                     //         team_id: item.teamId,
                     //         app_source_id: item.functionId,
                     //         metric_kind: 'failure',
-                    //         metric_name: 'missing_addon',
+                    //         metric_name: 'quota_limited',
                     //         count: 1,
                     //     },
                     //     'hog_function'
@@ -170,188 +216,208 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 if (state === HogWatcherState.degraded) {
                     item.queuePriority = 2
                     if (this.hub.CDP_OVERFLOW_QUEUE_ENABLED) {
-                        item.queue = 'hog_overflow'
+                        item.queue = 'hogoverflow'
                     }
                 }
 
                 validInvocations.push(item)
             })
+        )
 
-            // Now we can filter by masking configs
-            const { masked, notMasked: notMaskedInvocations } = await this.hogMasker.filterByMasking(validInvocations)
+        // Now we can filter by masking configs
+        const { masked, notMasked: notMaskedInvocations } = await this.hogMasker.filterByMasking(validInvocations)
 
-            this.hogFunctionMonitoringService.queueAppMetrics(
-                masked.map((item) => ({
-                    team_id: item.teamId,
-                    app_source_id: item.functionId,
-                    metric_kind: 'other',
-                    metric_name: 'masked',
-                    count: 1,
-                })),
-                'hog_function'
-            )
+        this.hogFunctionMonitoringService.queueAppMetrics(
+            masked.map((item) => ({
+                team_id: item.teamId,
+                app_source_id: item.functionId,
+                metric_kind: 'other',
+                metric_name: 'masked',
+                count: 1,
+            })),
+            'hog_function'
+        )
 
-            const eventsTriggeredDestinationById: Record<string, { team_id: number; event_uuid: string }> = {}
-            const uniqueDestinationsById: Record<
-                string,
-                { team_id: number; template_id: string; invocation_id: string }
-            > = {}
+        const triggeredInvocationsMetrics: MinimalAppMetric[] = []
 
-            notMaskedInvocations.forEach(({ state, hogFunction, id }) => {
-                const eventKey = `${state.globals.project.id}:${state.globals.event.uuid}`
-                if (!eventsTriggeredDestinationById[eventKey] && hogFunction.type === 'destination') {
-                    eventsTriggeredDestinationById[eventKey] = {
-                        team_id: state.globals.project.id,
-                        event_uuid: state.globals.event.uuid,
-                    }
-                }
-
-                const destinationKey = `${state.globals.project.id}:${id}`
-                if (!uniqueDestinationsById[destinationKey] && hogFunction.type === 'destination') {
-                    uniqueDestinationsById[destinationKey] = {
-                        team_id: state.globals.project.id,
-                        template_id: hogFunction.template_id ?? 'custom',
-                        invocation_id: id,
-                    }
-                }
+        notMaskedInvocations.forEach((item) => {
+            triggeredInvocationsMetrics.push({
+                team_id: item.teamId,
+                app_source_id: item.functionId,
+                metric_kind: 'other',
+                metric_name: 'triggered',
+                count: 1,
             })
 
-            const uniqueEventMetrics: MinimalAppMetric[] = Object.values(eventsTriggeredDestinationById).map(
-                ({ team_id, event_uuid }) => {
-                    return {
-                        app_source: 'cdp_destination',
-                        metric_kind: 'success',
-                        metric_name: 'event_triggered_destination',
-                        team_id,
-                        app_source_id: event_uuid,
-                        count: 1,
-                    }
-                }
-            )
-            this.hogFunctionMonitoringService.queueAppMetrics(uniqueEventMetrics, 'hog_function')
-
-            const uniqueDestinationMetrics: MinimalAppMetric[] = Object.values(uniqueDestinationsById).map(
-                ({ team_id, template_id, invocation_id }) => {
-                    return {
-                        app_source: 'cdp_destination',
-                        metric_kind: 'success',
-                        metric_name: 'destination_invoked',
-                        team_id,
-                        app_source_id: template_id,
-                        instance_id: invocation_id,
-                        count: 1,
-                    }
-                }
-            )
-            this.hogFunctionMonitoringService.queueAppMetrics(uniqueDestinationMetrics, 'hog_function')
-
-            return notMaskedInvocations
+            if (item.hogFunction.type === 'destination') {
+                triggeredInvocationsMetrics.push({
+                    team_id: item.teamId,
+                    app_source_id: item.functionId,
+                    metric_kind: 'billing',
+                    metric_name: 'billable_invocation',
+                    count: 1,
+                })
+            }
         })
+
+        this.hogFunctionMonitoringService.queueAppMetrics(triggeredInvocationsMetrics, 'hog_function')
+
+        return notMaskedInvocations
     }
 
     /**
      * Finds all matching hog flows for the given globals.
      * Filters them for their disabled state as well as masking configs
      */
+    @instrumented('cdpConsumer.handleEachBatch.queueMatchingFlows')
     protected async createHogFlowInvocations(
         invocationGlobals: HogFunctionInvocationGlobals[]
     ): Promise<CyclotronJobInvocation[]> {
-        return await this.runInstrumented('handleEachBatch.queueMatchingFlows', async () => {
-            // TODO: Add back in group enrichment if necessary
-            // await this.groupsManager.enrichGroups(invocationGlobals)
+        // TODO: Add back in group enrichment if necessary
+        // await this.groupsManager.enrichGroups(invocationGlobals)
 
-            const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
-            const hogFlowsByTeam = await this.hogFlowManager.getHogFlowsForTeams(teamsToLoad)
+        const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
+        const hogFlowsByTeam = await this.hogFlowManager.getHogFlowsForTeams(teamsToLoad)
 
-            const possibleInvocations = (
-                await Promise.all(
-                    invocationGlobals.map(async (globals) => {
-                        const teamHogFlows = hogFlowsByTeam[globals.project.id]
+        const possibleInvocations = (
+            await Promise.all(
+                invocationGlobals.map(async (globals) => {
+                    const teamHogFlows = hogFlowsByTeam[globals.project.id]
 
-                        const { invocations, metrics, logs } = await this.hogFlowExecutor.buildHogFlowInvocations(
-                            teamHogFlows,
-                            globals
-                        )
+                    const { invocations, metrics, logs } = await this.hogFlowExecutor.buildHogFlowInvocations(
+                        teamHogFlows,
+                        globals
+                    )
 
-                        this.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_flow')
-                        this.hogFunctionMonitoringService.queueLogs(logs, 'hog_flow')
-                        this.heartbeat()
+                    this.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_flow')
+                    this.hogFunctionMonitoringService.queueLogs(logs, 'hog_flow')
+                    this.heartbeat()
 
-                        return invocations
-                    })
-                )
-            ).flat()
+                    return invocations
+                })
+            )
+        ).flat()
 
-            const states = await this.hogWatcher.getEffectiveStates(possibleInvocations.map((x) => x.hogFlow.id))
-            const validInvocations: CyclotronJobInvocation[] = []
+        const states = await instrumentFn('cdpConsumer.handleEachBatch.hogWatcher.getEffectiveStates', async () => {
+            return await this.hogWatcher.getEffectiveStates(possibleInvocations.map((x) => x.hogFlow.id))
+        })
+        const rateLimits = await instrumentFn('cdpConsumer.handleEachBatch.hogRateLimiter.rateLimitMany', async () => {
+            return await this.hogRateLimiter.rateLimitMany(possibleInvocations.map((x) => [x.hogFlow.id, 1]))
+        })
+        const validInvocations: CyclotronJobInvocation[] = []
 
-            // Iterate over adding them to the list and updating their priority
-            possibleInvocations.forEach((item) => {
-                const state = states[item.hogFlow.id].state
-                if (state === HogWatcherState.disabled) {
+        // Iterate over adding them to the list and updating their priority
+        possibleInvocations.forEach((item, index) => {
+            try {
+                const rateLimit = rateLimits[index][1]
+                if (rateLimit.isRateLimited) {
+                    counterRateLimited.labels({ kind: 'hog_flow' }).inc()
                     this.hogFunctionMonitoringService.queueAppMetric(
                         {
                             team_id: item.teamId,
                             app_source_id: item.functionId,
                             metric_kind: 'failure',
-                            metric_name: 'disabled_permanently',
+                            metric_name: 'rate_limited',
                             count: 1,
                         },
                         'hog_flow'
                     )
                     return
                 }
+            } catch (e) {
+                captureException(e)
+                logger.error('🔴', 'Error checking rate limit for hog flow', { err: e })
+            }
 
-                if (state === HogWatcherState.degraded) {
-                    item.queuePriority = 2
-                }
+            const state = states[item.hogFlow.id].state
+            if (state === HogWatcherState.disabled) {
+                this.hogFunctionMonitoringService.queueAppMetric(
+                    {
+                        team_id: item.teamId,
+                        app_source_id: item.functionId,
+                        metric_kind: 'failure',
+                        metric_name: 'disabled_permanently',
+                        count: 1,
+                    },
+                    'hog_flow'
+                )
+                return
+            }
 
-                validInvocations.push(item)
+            if (state === HogWatcherState.degraded) {
+                item.queuePriority = 2
+            }
+
+            validInvocations.push(item)
+        })
+
+        // Now we can filter by masking configs
+        const { masked, notMasked: notMaskedInvocations } = await this.hogMasker.filterByMasking(validInvocations)
+
+        this.hogFunctionMonitoringService.queueAppMetrics(
+            masked.map((item) => ({
+                team_id: item.teamId,
+                app_source_id: item.functionId,
+                metric_kind: 'other',
+                metric_name: 'masked',
+                count: 1,
+            })),
+            'hog_flow'
+        )
+
+        const triggeredInvocationsMetrics: MinimalAppMetric[] = []
+
+        notMaskedInvocations.forEach((item) => {
+            triggeredInvocationsMetrics.push({
+                team_id: item.teamId,
+                app_source_id: item.functionId,
+                metric_kind: 'other',
+                metric_name: 'triggered',
+                count: 1,
             })
 
-            // TODO: Add back in Masking options
-
-            return validInvocations
+            triggeredInvocationsMetrics.push({
+                team_id: item.teamId,
+                app_source_id: item.functionId,
+                metric_kind: 'billing',
+                metric_name: 'billable_invocation',
+                count: 1,
+            })
         })
+
+        this.hogFunctionMonitoringService.queueAppMetrics(triggeredInvocationsMetrics, 'hog_flow')
+
+        return notMaskedInvocations
     }
 
-    // This consumer always parses from kafka
+    @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        return await this.runWithHeartbeat(() =>
-            runInstrumentedFunction({
-                statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
-                func: async () => {
-                    const events: HogFunctionInvocationGlobals[] = []
+        const events: HogFunctionInvocationGlobals[] = []
 
-                    await Promise.all(
-                        messages.map(async (message) => {
-                            try {
-                                const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
+        await Promise.all(
+            messages.map(async (message) => {
+                try {
+                    const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
 
-                                const [teamHogFunctions, team] = await Promise.all([
-                                    this.hogFunctionManager.getHogFunctionsForTeam(clickHouseEvent.team_id, [
-                                        'destination',
-                                    ]),
-                                    this.hub.teamManager.getTeam(clickHouseEvent.team_id),
-                                ])
+                    const [teamHogFunctions, teamHogFlows, team] = await Promise.all([
+                        this.hogFunctionManager.getHogFunctionsForTeam(clickHouseEvent.team_id, this.hogTypes),
+                        this.hogFlowManager.getHogFlowsForTeam(clickHouseEvent.team_id),
+                        this.hub.teamManager.getTeam(clickHouseEvent.team_id),
+                    ])
 
-                                if (!teamHogFunctions.length || !team) {
-                                    return
-                                }
-                                events.push(
-                                    convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.hub.SITE_URL)
-                                )
-                            } catch (e) {
-                                logger.error('Error parsing message', e)
-                                counterParseError.labels({ error: e.message }).inc()
-                            }
-                        })
-                    )
+                    if ((!teamHogFunctions.length && !teamHogFlows.length) || !team) {
+                        return
+                    }
 
-                    return events
-                },
+                    events.push(convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.hub.SITE_URL))
+                } catch (e) {
+                    logger.error('Error parsing message', e)
+                    counterParseError.labels({ error: e.message }).inc()
+                }
             })
         )
+
+        return events
     }
 
     public async start(): Promise<void> {
@@ -364,7 +430,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 size: messages.length,
             })
 
-            return await this.runInstrumented('handleEachBatch', async () => {
+            return await instrumentFn('cdpConsumer.handleEachBatch', async () => {
                 const invocationGlobals = await this._parseKafkaBatch(messages)
                 const { backgroundTask } = await this.processBatch(invocationGlobals)
 
@@ -384,7 +450,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
         logger.info('💤', 'Consumer stopped!')
     }
 
-    public isHealthy() {
+    public isHealthy(): HealthCheckResult {
         return this.kafkaConsumer.isHealthy()
     }
 }

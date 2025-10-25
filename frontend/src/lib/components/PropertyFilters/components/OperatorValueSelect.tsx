@@ -1,4 +1,7 @@
-import { LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
+import { useEffect, useState } from 'react'
+
+import { LemonDropdownProps, LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
+
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { dayjs } from 'lib/dayjs'
 import {
@@ -11,7 +14,6 @@ import {
     isOperatorRange,
     isOperatorRegex,
 } from 'lib/utils'
-import { useEffect, useState } from 'react'
 
 import {
     GroupTypeIndex,
@@ -36,26 +38,40 @@ export interface OperatorValueSelectProps {
     operatorSelectProps?: Partial<Omit<LemonSelectProps<any>, 'onChange'>>
     eventNames?: string[]
     propertyDefinitions: PropertyDefinition[]
-    defaultOpen?: boolean
     addRelativeDateTimeOptions?: boolean
     groupTypeIndex?: GroupTypeIndex
     size?: 'xsmall' | 'small' | 'medium'
+    startVisible?: LemonDropdownProps['startVisible']
+    /**
+     * in some contexts you want to externally limit the available operators
+     * this won't add an operator if it isn't valid
+     * i.e. it limits the options shown from the options that would have been shown
+     * **/
+    operatorAllowlist?: Array<PropertyOperator>
 }
 
 interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
     operator: PropertyOperator
     operators: Array<PropertyOperator>
     onChange: (operator: PropertyOperator) => void
-    defaultOpen?: boolean
+    startVisible?: LemonDropdownProps['startVisible']
 }
 
-function getValidationError(operator: PropertyOperator, value: any, property?: string): string | null {
+function getRegexValidationError(operator: PropertyOperator, value: any): string | null {
     if (isOperatorRegex(operator)) {
         try {
             new RegExp(value)
         } catch (e: any) {
             return e.message
         }
+    }
+    return null
+}
+
+function getValidationError(operator: PropertyOperator, value: any, property?: string): string | null {
+    const regexErrorMessage = getRegexValidationError(operator, value)
+    if (regexErrorMessage != null) {
+        return regexErrorMessage
     }
     if (isOperatorRange(operator) && isNaN(value)) {
         let message = `Range operators only work with numeric values`
@@ -79,11 +95,12 @@ export function OperatorValueSelect({
     operatorSelectProps,
     propertyDefinitions = [],
     eventNames = [],
-    defaultOpen,
     addRelativeDateTimeOptions,
     groupTypeIndex = undefined,
     size,
     editable,
+    startVisible,
+    operatorAllowlist,
 }: OperatorValueSelectProps): JSX.Element {
     const lookupKey = type === PropertyFilterType.DataWarehousePersonProperty ? 'id' : 'name'
     const propertyDefinition = propertyDefinitions.find((pd) => pd[lookupKey] === propertyKey)
@@ -118,6 +135,8 @@ export function OperatorValueSelect({
             propertyType = PropertyType.Flag
         } else if (propertyKey === 'assignee' && type === PropertyFilterType.ErrorTrackingIssue) {
             propertyType = PropertyType.Assignee
+        } else if (propertyKey === 'first_seen' && type === PropertyFilterType.ErrorTrackingIssue) {
+            propertyType = PropertyType.DateTime
         } else if (
             type === PropertyFilterType.Event &&
             propertyKey &&
@@ -130,7 +149,10 @@ export function OperatorValueSelect({
 
         const operatorMapping: Record<string, string> = chooseOperatorMap(propertyType)
 
-        const operators = Object.keys(operatorMapping) as Array<PropertyOperator>
+        const operators = (Object.keys(operatorMapping) as Array<PropertyOperator>).filter((op) => {
+            return !operatorAllowlist || operatorAllowlist.includes(op)
+        })
+
         setOperators(operators)
         if ((currentOperator !== operator && operators.includes(startingOperator)) || !propertyDefinition) {
             setCurrentOperator(startingOperator)
@@ -145,8 +167,7 @@ export function OperatorValueSelect({
             }
             setCurrentOperator(defaultProperty)
         }
-    }, [propertyDefinition, propertyKey, operator]) // oxlint-disable-line react-hooks/exhaustive-deps
-
+    }, [propertyDefinition, propertyKey, operator, operatorAllowlist]) // oxlint-disable-line react-hooks/exhaustive-deps
     return (
         <>
             <div data-attr="taxonomic-operator">
@@ -156,7 +177,7 @@ export function OperatorValueSelect({
                         operators={operators}
                         onChange={(newOperator: PropertyOperator) => {
                             const tentativeValidationError =
-                                newOperator && value ? getValidationError(newOperator, value, propertyKey) : null
+                                newOperator && value ? getRegexValidationError(newOperator, value) : null
                             if (tentativeValidationError) {
                                 setValidationError(tentativeValidationError)
                                 return
@@ -166,6 +187,9 @@ export function OperatorValueSelect({
                             setCurrentOperator(newOperator)
                             if (isOperatorCohort(newOperator)) {
                                 onChange(newOperator, value || null)
+                            } else if (isOperatorRange(newOperator) && isNaN(value as any)) {
+                                // If the new operator is range and the value is not a number, we want to set the new value to null
+                                onChange(newOperator, null)
                             } else if (isOperatorFlag(newOperator)) {
                                 onChange(newOperator, newOperator)
                             } else if (isOperatorFlag(currentOperator || PropertyOperator.Exact)) {
@@ -182,7 +206,7 @@ export function OperatorValueSelect({
                         }}
                         {...operatorSelectProps}
                         size={size}
-                        defaultOpen={defaultOpen}
+                        startVisible={startVisible}
                     />
                 ) : (
                     <span>{allOperatorsToHumanName(currentOperator)} </span>
@@ -230,7 +254,14 @@ export function OperatorValueSelect({
     )
 }
 
-export function OperatorSelect({ operator, operators, onChange, className, size }: OperatorSelectProps): JSX.Element {
+export function OperatorSelect({
+    operator,
+    operators,
+    onChange,
+    className,
+    size,
+    startVisible,
+}: OperatorSelectProps): JSX.Element {
     const operatorOptions = operators.map((op) => ({
         label: <span className="operator-value-option">{allOperatorsMapping[op || PropertyOperator.Exact]}</span>,
         value: op || PropertyOperator.Exact,
@@ -250,6 +281,7 @@ export function OperatorSelect({ operator, operators, onChange, className, size 
             menu={{
                 closeParentPopoverOnClickInside: false,
             }}
+            startVisible={startVisible}
         />
     )
 }

@@ -1,14 +1,17 @@
-from typing import Union, Optional
+from typing import Optional, Union
+
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
+from posthog.schema import PersonsArgMaxVersion, PersonsOnEventsMode
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.parser import parse_select, parse_expr
-from posthog.hogql.printer import prepare_ast_for_printing, print_ast
-from posthog.hogql.visitor import clone_expr, CloningVisitor
+from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing
+from posthog.hogql.visitor import CloningVisitor, clone_expr
+
 from posthog.models import PropertyDefinition
-from posthog.schema import PersonsOnEventsMode, PersonsArgMaxVersion
-from posthog.test.base import ClickhouseTestMixin, APIBaseTest
 
 
 def _expr(s: Union[str, ast.Expr, None], placeholders: Optional[dict[str, ast.Expr]] = None) -> Union[ast.Expr, None]:
@@ -75,7 +78,7 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
 
     def print_query(self, query: str):
         context = self.prep_context()
-        return print_ast(node=_select(query), context=context, dialect="clickhouse", pretty=False)
+        return prepare_and_print_ast(node=_select(query), context=context, dialect="clickhouse", pretty=False)[0]
 
     def test_person_properties(self):
         actual = self.get_clause("SELECT * FROM events WHERE person.properties.email = 'jimmy@posthog.com'")

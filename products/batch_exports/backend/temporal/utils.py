@@ -1,17 +1,18 @@
-import asyncio
-import collections.abc
-import contextlib
-import functools
 import re
-import typing
 import uuid
+import typing
+import asyncio
+import functools
+import contextlib
+import collections.abc
 
 import orjson
 import pyarrow as pa
+from structlog import get_logger
 
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import aupdate_batch_export_run
-from posthog.temporal.common.logger import get_logger
+
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 
 T = typing.TypeVar("T")
@@ -190,7 +191,7 @@ class JsonType(pa.ExtensionType):
 
 def cast_record_batch_json_columns(
     record_batch: pa.RecordBatch,
-    json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
+    json_columns: collections.abc.Iterable[str] = ("properties", "person_properties", "set", "set_once"),
 ) -> pa.RecordBatch:
     """Cast json_columns in record_batch to JsonType.
 
@@ -216,7 +217,7 @@ def cast_record_batch_json_columns(
 
 def cast_record_batch_schema_json_columns(
     schema: pa.Schema,
-    json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
+    json_columns: collections.abc.Iterable[str] = ("properties", "person_properties", "set", "set_once"),
 ):
     column_names = set(schema.names)
     intersection = column_names & set(json_columns)
@@ -241,8 +242,11 @@ FutureLike = (
 )
 
 
+_P = typing.ParamSpec("_P")
+
+
 def make_retryable_with_exponential_backoff(
-    func: typing.Callable[..., collections.abc.Awaitable[_Result]],
+    func: typing.Callable[_P, collections.abc.Awaitable[_Result]],
     timeout: float | int | None = None,
     max_attempts: int = 5,
     initial_retry_delay: float | int = 2,
@@ -250,11 +254,11 @@ def make_retryable_with_exponential_backoff(
     exponential_backoff_coefficient: int = 2,
     retryable_exceptions: tuple[type[Exception], ...] = (Exception,),
     is_exception_retryable: typing.Callable[[Exception], bool] = lambda _: True,
-) -> typing.Callable[..., collections.abc.Awaitable[_Result]]:
+) -> typing.Callable[_P, collections.abc.Coroutine[typing.Any, typing.Any, _Result]]:
     """Retry the provided async `func` until `max_attempts` is reached."""
-    functools.wraps(func)
 
-    async def inner(*args, **kwargs):
+    @functools.wraps(func)
+    async def inner(*args: _P.args, **kwargs: _P.kwargs) -> _Result:
         attempt = 0
 
         while True:

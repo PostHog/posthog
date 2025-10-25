@@ -1,20 +1,26 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { Scene } from 'scenes/sceneTypes'
-import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
+import { sceneConfigurations } from 'scenes/scenes'
+import { SURVEY_CREATED_SOURCE, SURVEY_PAGE_SIZE, SurveyTemplate } from 'scenes/surveys/constants'
+import { sanitizeSurvey } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { AvailableFeature, Breadcrumb, ProductKey, ProgressStatus, Survey } from '~/types'
+import { ActivityScope, AvailableFeature, Breadcrumb, ProductKey, ProgressStatus, Survey } from '~/types'
 
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import type { surveysLogicType } from './surveysLogicType'
 
 export enum SurveysTabs {
@@ -100,7 +106,14 @@ function updateSurvey(surveys: Survey[], id: string, updatedSurvey: Survey): Sur
 export const surveysLogic = kea<surveysLogicType>([
     path(['scenes', 'surveys', 'surveysLogic']),
     connect(() => ({
-        values: [userLogic, ['hasAvailableFeature'], teamLogic, ['currentTeam', 'currentTeamLoading']],
+        values: [
+            userLogic,
+            ['hasAvailableFeature'],
+            teamLogic,
+            ['currentTeam', 'currentTeamLoading'],
+            enabledFlagLogic,
+            ['featureFlags as enabledFlags'],
+        ],
         actions: [teamLogic, ['loadCurrentTeam', 'addProductIntent']],
     })),
     actions({
@@ -191,6 +204,34 @@ export const surveysLogic = kea<surveysLogicType>([
                     ...values.data,
                     surveys: updateSurvey(values.data.surveys, id, updatedSurvey),
                     searchSurveys: updateSurvey(values.data.searchSurveys, id, updatedSurvey),
+                }
+            },
+            createSurveyFromTemplate: async (surveyTemplate: SurveyTemplate) => {
+                const response = await api.surveys.create(
+                    sanitizeSurvey({
+                        ...surveyTemplate,
+                        name: surveyTemplate.templateType,
+                    })
+                )
+
+                actions.addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_CREATED,
+                    metadata: {
+                        survey_id: response.id,
+                        source: SURVEY_CREATED_SOURCE.SURVEY_EMPTY_STATE,
+                        template_type: surveyTemplate.templateType,
+                    },
+                })
+
+                // Navigate to the created survey
+                router.actions.push(urls.survey(response.id))
+
+                // Return updated data with the new survey
+                return {
+                    ...values.data,
+                    surveys: [response, ...values.data.surveys],
+                    surveysCount: values.data.surveysCount + 1,
                 }
             },
         },
@@ -344,8 +385,9 @@ export const surveysLogic = kea<surveysLogicType>([
             (): Breadcrumb[] => [
                 {
                     key: Scene.Surveys,
-                    name: 'Surveys',
+                    name: sceneConfigurations[Scene.Surveys].name || 'Surveys',
                     path: urls.surveys(),
+                    iconType: sceneConfigurations[Scene.Surveys].iconType || 'default_icon_type',
                 },
             ],
         ],
@@ -362,6 +404,12 @@ export const surveysLogic = kea<surveysLogicType>([
             (currentTeam) => {
                 return !currentTeam?.surveys_opt_in
             },
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            () => [],
+            (): SidePanelSceneContext => ({
+                activity_scope: ActivityScope.SURVEY,
+            }),
         ],
     }),
     actionToUrl(({ values }) => ({

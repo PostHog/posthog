@@ -3,7 +3,8 @@ import fs from 'fs/promises'
 import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 
-import { runInstrumentedFunction } from '../main/utils'
+import { instrumentFn } from '~/common/tracing/tracing-utils'
+
 import { PluginsServerConfig } from '../types'
 import { isTestEnv } from './env-utils'
 import { parseJSON } from './json-parse'
@@ -67,11 +68,13 @@ export class GeoIPService {
 
         try {
             geoipLoadCounter.inc({ reason })
-            return await runInstrumentedFunction({
-                statsKey: 'geoip_load_mmdb',
-                logExecutionTime: true,
-                func: async () => await Reader.open(this.config.MMDB_FILE_LOCATION),
-            })
+            return await instrumentFn(
+                {
+                    key: 'geoip_load_mmdb',
+                    logExecutionTime: true,
+                },
+                async () => await Reader.open(this.config.MMDB_FILE_LOCATION)
+            )
         } catch (e) {
             logger.warn('🌎', 'Loading MMDB from disk failed!', {
                 error: e.message,

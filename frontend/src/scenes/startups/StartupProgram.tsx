@@ -1,7 +1,9 @@
-import { IconArrowRight, IconCheck, IconUpload, IconX } from '@posthog/icons'
-import { LemonButton, LemonFileInput, LemonInput, LemonSelect, lemonToast, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { IconArrowRight, IconCheck, IconUpload, IconX } from '@posthog/icons'
+import { LemonButton, LemonFileInput, LemonInput, LemonSelect, Link, Spinner, lemonToast } from '@posthog/lemon-ui'
+
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { ClimberHog1, ClimberHog2, YCHog } from 'lib/components/hedgehogs'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
@@ -17,7 +19,7 @@ import { urls } from 'scenes/urls'
 import { BillingProductV2Type, ProductKey } from '~/types'
 
 import { RAISED_OPTIONS } from './constants'
-import { startupProgramLogic } from './startupProgramLogic'
+import { StartupProgramLogicProps, startupProgramLogic } from './startupProgramLogic'
 
 const YC_DEAL_BOOKFACE = 'https://bookface.ycombinator.com/deals/687'
 
@@ -42,12 +44,10 @@ const BillingUpgradeCTAWrapper: React.FC<{ platformAndSupportProduct: BillingPro
     )
 }
 
-export const scene: SceneExport = {
+export const scene: SceneExport<StartupProgramLogicProps> = {
     component: StartupProgram,
     logic: startupProgramLogic,
-    paramsToProps: ({ params: { referrer } }): { referrer?: string } => ({
-        referrer: referrer || undefined,
-    }),
+    paramsToProps: ({ params: { referrer } }) => ({ referrer: referrer || undefined }),
 }
 
 export function StartupProgram(): JSX.Element {
@@ -195,8 +195,8 @@ export function StartupProgram(): JSX.Element {
                             <IconCheck className="text-success shrink-0 mt-1 mr-2" />
                             <div>
                                 <h4 className="font-semibold">
-                                    $50,000 in PostHog credit{' '}
-                                    <span className="text-[0.66em] align-super text-muted">1</span>
+                                    $50,000 in PostHog credit
+                                    {isYC && <span className="text-[0.66em] align-super text-muted"> 1</span>}
                                 </h4>
                                 <p className="text-muted text-sm">Valid for 1 year to use across all products</p>
                             </div>
@@ -205,8 +205,8 @@ export function StartupProgram(): JSX.Element {
                             <IconCheck className="text-success shrink-0 mt-1 mr-2" />
                             <div>
                                 <h4 className="font-semibold">
-                                    Exclusive founder merch{' '}
-                                    <span className="text-[0.66em] align-super text-muted">2</span>
+                                    Exclusive founder merch
+                                    {isYC && <span className="text-[0.66em] align-super text-muted"> 2</span>}
                                 </h4>
                                 <p className="text-muted text-sm">
                                     Who wouldn't want free laptop stickers, hats, or t-shirts?
@@ -216,8 +216,22 @@ export function StartupProgram(): JSX.Element {
                         <div className="flex items-start">
                             <IconCheck className="text-success shrink-0 mt-1 mr-2" />
                             <div>
-                                <h4 className="font-semibold">50% off Mintlify and Speakeasy for 6 months</h4>
-                                <p className="text-muted text-sm">The best products deserve the best documentation</p>
+                                <h4 className="font-semibold">50% off Mintlify for 6 months</h4>
+                                <p className="text-muted text-sm">So you can build better documentation</p>
+                            </div>
+                        </div>
+                        <div className="flex items-start">
+                            <IconCheck className="text-success shrink-0 mt-1 mr-2" />
+                            <div>
+                                <h4 className="font-semibold">50% off Speakeasy for 6 months</h4>
+                                <p className="text-muted text-sm">So you can build better APIs, faster</p>
+                            </div>
+                        </div>
+                        <div className="flex items-start">
+                            <IconCheck className="text-success shrink-0 mt-1 mr-2" />
+                            <div>
+                                <h4 className="font-semibold">$5,000 in Chroma credit</h4>
+                                <p className="text-muted text-sm">Great for building better AI agents</p>
                             </div>
                         </div>
                         {isYC && (

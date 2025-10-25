@@ -35,7 +35,7 @@
 </head>
 
 <body>
-    <script>
+    <script nonce="{{ request.csp_nonce }}">
         posthog.init('{{api_token}}', {
             api_host: window.location.origin,
             loaded: (posthog) => {
@@ -76,7 +76,7 @@
             <p>The one-stop shop for all your hedgehog movies.</p>
             <br>
 
-            <a href='/demo/1' id='sign-up' ><button id='sign-up-cta' data-attr="sign-up-button">Sign up</button></a>
+            <a href='/demo/1' id='sign-up'><button id='sign-up-cta' data-attr="sign-up-button">Sign up</button></a>
         </header>
         {% endif %}
 
@@ -93,6 +93,7 @@
             </form>
         </section>
         {% endif %}
+
         {% if request.path == '/demo/2' %}
         <section>
             <form action='/demo/3'>
@@ -101,8 +102,8 @@
                 <input class='form-control' type='text' name='creditcard' placeholder='4000 0000 0000 0000' />
                 <button type='submit'>Pay $10!</button>
         </section>
-        </header>
         {% endif %}
+
         {% if request.path == '/demo/3' %}
         <section style="margin-top: -100px">
             <header>
@@ -140,9 +141,8 @@
                 </div>
             </aside>
         </section>
-
-
         {% endif %}
+
         {% if request.path == '/demo/4' %}
         <section style="margin-top: -100px">
             <header>
@@ -162,48 +162,45 @@
                 </div>
             </figure>
             <br>
+        </section>
+
+        <section>
+            <aside>
+                <div>
+                    <h2>Reviews</h2>
+                </div>
+                <div class="row" style="width:100%;">
+                    <p><em>This movie was so great.</em></p>
+                </div>
+                <div class="row" style="width:100%;">
+                    <p><em>The best thing I have ever seen.</em></p>
+                </div>
+                <div class="row" style="width:100%;">
+                    <p id="new-review"><em></em></p>
+                </div>
+            </aside>
+
+            <aside>
+                <h2>Leave a review</h2>
+                <textarea class='form-control' type='text' name='review' id="review-text"
+                    placeholder='What did you think?'></textarea><br />
+                <a id='submit-review' style="cursor: pointer;">Submit Review</a>
+            </aside>
+        </section>
+
+        <section>
+            <div class="row">&nbsp;</div>
+            <br />
+            <br />
+        </section>
+
+        <section class="copyright" style="margin-top:400px; font-size:12px;">Big Buck Bunny - (c) copyright Blender
+            Foundation | peach.blender.org - [1], CC BY 3.0, https://commons.wikimedia.org/w/index.php?curid=3748497
+        </section>
+        {% endif %}
     </main>
-    <section>
 
-        <aside>
-            <div>
-                <h2>Reviews</h2>
-            </div>
-            <div class="row" style="width:100%;">
-                <p><em>This movie was so great.</em></p>
-            </div>
-            <div class="row" style="width:100%;">
-                <p><em>The best thing I have ever seen.</em></p>
-            </div>
-            <div class="row" style="width:100%;">
-                <p id="new-review"><em></em></p>
-            </div>
-        </aside>
-        <aside>
-            <h2>Leave a review</h2>
-            <textarea class='form-control' type='text' name='review' id="review-text"
-                placeholder='What did you think?'></textarea><br />
-            <a id='submit-review' style="cursor: pointer;">Submit Review</a>
-        </aside>
-
-    </section>
-    <section>
-        <div class="row">&nbsp;</div>
-        <br>
-        <br>
-
-    </section>
-
-    <section class="copyright" style="margin-top:400px; font-size:12px;">Big Buck Bunny - (c) copyright Blender
-        Foundation | peach.blender.org - [1], CC BY 3.0, https://commons.wikimedia.org/w/index.php?curid=3748497
-    </section>
-
-
-    {% endif %}
-
-    </div>
-
-    <script>
+    <script nonce="{{ request.csp_nonce }}">
 
         if (document.getElementById('submit-review')) {
             document.getElementById('submit-review').addEventListener('click', () => {
@@ -217,7 +214,6 @@
             })
         }
     </script>
-
 </body>
 
 </html>

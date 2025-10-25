@@ -1,30 +1,29 @@
+import time
 import uuid
+from collections.abc import Callable
 from contextlib import suppress
 from datetime import datetime, timedelta
-from posthog.geoip import get_geoip_properties
-import time
 from ipaddress import ip_address, ip_network
 from typing import Optional, cast
-from collections.abc import Callable
-from loginas.utils import is_impersonated_session, restore_original_login
-from posthog.rbac.user_access_control import UserAccessControl
-from django.shortcuts import redirect
-import structlog
+
 from django.conf import settings
 from django.contrib.sessions.middleware import SessionMiddleware
+from django.core.cache import cache
 from django.core.exceptions import MiddlewareNotUsed
 from django.db import connection
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import CsrfViewMiddleware
+from django.shortcuts import redirect
 from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
-from django_prometheus.middleware import (
-    Metrics,
-)
+
+import structlog
+from django_prometheus.middleware import Metrics
+from loginas.utils import is_impersonated_session, restore_original_login
 from rest_framework import status
+from social_core.exceptions import AuthFailed
 from statshog.defaults.django import statsd
-from django.core.cache import cache
 
 from posthog.api.decide import get_decide
 from posthog.api.shared import UserBasicSerializer
@@ -32,11 +31,17 @@ from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import generate_exception_response
-from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Notebook, User, Team
-from posthog.rate_limit import DecideRateThrottle
-from posthog.settings import SITE_URL, PROJECT_SWITCHING_TOKEN_ALLOWLIST
-from posthog.user_permissions import UserPermissions
+from posthog.geoip import get_geoip_properties
+from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
+from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.utils import generate_random_token
+from posthog.rate_limit import DecideRateThrottle
+from posthog.rbac.user_access_control import UserAccessControl
+from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
+from posthog.user_permissions import UserPermissions
+
+from products.notebooks.backend.models import Notebook
+
 from .auth import PersonalAPIKeyAuthentication
 from .utils_cors import cors_response
 
@@ -647,20 +652,42 @@ class Fix204Middleware:
         return response
 
 
-# Add CSP to Admin tooling
-class AdminCSPMiddleware:
+class ActivityLoggingMiddleware:
+    """
+    Middleware that sets the current user and impersonation status in activity storage
+    for use by the activity logging system.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest):
+        # Set user in activity storage if authenticated
+        if request.user.is_authenticated:
+            activity_storage.set_user(request.user)
+            activity_storage.set_was_impersonated(is_impersonated_session(request))
+
+        try:
+            response = self.get_response(request)
+        finally:
+            # Clean up activity storage after request
+            activity_storage.clear_all()
+
+        return response
+
+
+class CSPMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
-        is_admin_view = request.path.startswith("/admin/")
-        # add nonce to request before generating response
-        if is_admin_view:
-            nonce = generate_random_token(16)
-            request.admin_csp_nonce = nonce
+        nonce = generate_random_token(16)
+        request.csp_nonce = nonce
 
+        # nonce must be added to request (above) before generating response
         response = self.get_response(request)
 
+        is_admin_view = request.path.startswith("/admin/")
         if is_admin_view:
             # TODO replace with django-loginas `LOGINAS_CSP_FRIENDLY` setting once 0.3.12 is released (https://github.com/skorokithakis/django-loginas/issues/111)
             django_loginas_inline_script_hash = "sha256-YS9p0l7SQLkAEtvGFGffDcYHRcUBpPzMcbSQe1lRuLc="
@@ -668,11 +695,14 @@ class AdminCSPMiddleware:
                 "default-src 'self'",
                 "style-src 'self' 'unsafe-inline'",
                 f"script-src 'self' 'nonce-{nonce}' '{django_loginas_inline_script_hash}'",
+                "font-src data: https://fonts.gstatic.com",
                 "worker-src 'none'",
                 "child-src 'none'",
                 "object-src 'none'",
                 "frame-ancestors 'none'",
                 "manifest-src 'none'",
+                # used by the error page
+                "frame-src https://posthog.com",
                 "base-uri 'self'",
                 "report-uri https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=2",
                 "report-to posthog",
@@ -682,5 +712,67 @@ class AdminCSPMiddleware:
                 'posthog="https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=2"'
             )
             response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
+        else:
+            resource_url = "https://*.posthog.com"
+            if settings.DEBUG or settings.TEST:
+                resource_url = "http://localhost:8234"
+            elif settings.SITE_URL.endswith(".dev.posthog.dev"):
+                resource_url = "https://*.dev.posthog.dev"
+
+            connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
+            csp_parts = [
+                "default-src 'self'",
+                f"style-src 'self' 'unsafe-inline' {resource_url} https://fonts.googleapis.com",
+                f"script-src 'self' 'nonce-{nonce}' {resource_url} https://*.i.posthog.com",
+                f"font-src 'self' {resource_url} https://app-static.eu.posthog.com https://app-static-prod.posthog.com https://d1sdjtjk6xzm7.cloudfront.net https://fonts.gstatic.com https://cdn.jsdelivr.net https://assets.faircado.com https://use.typekit.net",
+                "worker-src 'self'",
+                "child-src 'none'",
+                "object-src 'none'",
+                f"img-src 'self' data: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com",
+                "frame-ancestors https://posthog.com https://preview.posthog.com",
+                f"connect-src 'self' https://status.posthog.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
+                # allow all sites for displaying heatmaps
+                "frame-src https:",
+                "manifest-src 'self'",
+                "base-uri 'self'",
+                "report-uri https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&sample_rate=0.1&v=2",
+                "report-to posthog",
+            ]
+
+            response.headers["Reporting-Endpoints"] = (
+                'posthog="https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&sample_rate=0.1&v=2"'
+            )
+            response.headers["Content-Security-Policy-Report-Only"] = "; ".join(csp_parts)
 
         return response
+
+
+class SocialAuthExceptionMiddleware:
+    """
+    Middleware to handle custom social auth exceptions.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        return self.get_response(request)
+
+    def process_exception(self, request: HttpRequest, exception: Exception) -> HttpResponse | None:
+        # Only handle exceptions on OAuth callback URLs
+        if not request.path.startswith("/complete/"):
+            return None
+
+        if isinstance(exception, AuthFailed) and len(exception.args) >= 1:
+            error = exception.args[0]
+            if error in (
+                "saml_sso_enforced",
+                "google_sso_enforced",
+                "github_sso_enforced",
+                "gitlab_sso_enforced",
+                "sso_enforced",
+            ):
+                return redirect(f"/login?error_code={error}")
+
+        # Handle other exceptions with existing middleware
+        return None

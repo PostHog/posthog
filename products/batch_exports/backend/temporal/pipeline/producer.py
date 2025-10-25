@@ -1,24 +1,22 @@
-import asyncio
 import typing
+import asyncio
 
-from aiobotocore.response import StreamingBody
 from django.conf import settings
 
+from aiobotocore.response import StreamingBody
+
 import posthog.temporal.common.asyncpa as asyncpa
-from posthog.temporal.common.logger import get_logger
-from products.batch_exports.backend.temporal.pipeline.internal_stage import (
-    get_s3_client,
-    get_s3_staging_folder,
-)
-from products.batch_exports.backend.temporal.spmc import (
-    RecordBatchQueue,
-    slice_record_batch,
-)
+from posthog.temporal.common.logger import get_write_only_logger
+
+from products.batch_exports.backend.temporal.pipeline.internal_stage import get_s3_client, get_s3_staging_folder
+from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, slice_record_batch
+from products.batch_exports.backend.temporal.utils import make_retryable_with_exponential_backoff
 
 if typing.TYPE_CHECKING:
     from types_aiobotocore_s3.client import S3Client
 
-LOGGER = get_logger(__name__)
+
+LOGGER = get_write_only_logger(__name__)
 
 
 class Producer:
@@ -106,10 +104,14 @@ class Producer:
             stream: StreamingBody = s3_ob["Body"]
             # read in 128KB chunks of data from S3
             reader = asyncpa.AsyncRecordBatchReader(stream.iter_chunks(chunk_size=128 * 1024))
+
             async for batch in reader:
                 for record_batch_slice in slice_record_batch(batch, max_record_batch_size_bytes, min_records_per_batch):
                     await queue.put(record_batch_slice)
 
         async with asyncio.TaskGroup() as tg:
+            stream_func = make_retryable_with_exponential_backoff(
+                stream_from_s3_file, max_attempts=5, max_retry_delay=1
+            )
             for key in keys:
-                tg.create_task(stream_from_s3_file(key))
+                tg.create_task(stream_func(key))

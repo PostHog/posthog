@@ -1,7 +1,9 @@
-from time import perf_counter
 from contextlib import contextmanager
+from time import perf_counter
 
 from posthog.schema import QueryTiming
+
+TIMING_DECIMAL_PLACES = 3  # round to milliseconds
 
 
 # Not thread safe.
@@ -42,10 +44,11 @@ class HogQLTimings:
     def to_dict(self) -> dict[str, float]:
         timings = {**self.timings}
         for key, start in reversed(self._timing_starts.items()):
-            timings[key] = timings.get(key, 0.0) + (perf_counter() - start)
+            timings[key] = round(timings.get(key, 0.0) + (perf_counter() - start), TIMING_DECIMAL_PLACES)
         return timings
 
     def to_list(self, back_out_stack=True) -> list[QueryTiming]:
         return [
-            QueryTiming(k=key, t=time) for key, time in (self.to_dict() if back_out_stack else self.timings).items()
+            QueryTiming(k=key, t=round(time, TIMING_DECIMAL_PLACES))
+            for key, time in (self.to_dict() if back_out_stack else self.timings).items()
         ]

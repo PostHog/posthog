@@ -1,20 +1,26 @@
-import { IconInfo } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+
+import { IconInfo, IconList } from '@posthog/icons'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+
 import { IconAreaChart } from 'lib/lemon-ui/icons'
+import { AddMetricButton } from 'scenes/experiments/Metrics/AddMetricButton'
+import { METRIC_CONTEXTS } from 'scenes/experiments/Metrics/experimentMetricModalLogic'
 
-import { ExperimentMetric } from '~/queries/schema/schema-general'
+import type { ExperimentMetric } from '~/queries/schema/schema-general'
 
-import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from 'scenes/experiments/constants'
 import { experimentLogic } from '../../experimentLogic'
-import { AddPrimaryMetric, AddSecondaryMetric } from '../shared/AddMetric'
-import { ResultDetails } from './ResultDetails'
+import { modalsLogic } from '../../modalsLogic'
+import { MetricsReorderModal } from '../MetricsReorderModal'
+import { HowToReadTooltip } from './HowToReadTooltip'
 import { MetricsTable } from './MetricsTable'
+import { ResultDetails } from './ResultDetails'
 
-export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
+export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element | null {
     const {
         experiment,
         getInsightType,
+        getOrderedMetrics,
         primaryMetricsResults,
         secondaryMetricsResults,
         secondaryMetricsResultsErrors,
@@ -22,32 +28,55 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
         hasMinimumExposureForResults,
     } = useValues(experimentLogic)
 
+    const { openPrimaryMetricsReorderModal, openSecondaryMetricsReorderModal } = useActions(modalsLogic)
+
     const variants = experiment?.feature_flag?.filters?.multivariate?.variants
     if (!variants) {
-        return <></>
+        return null
     }
 
-    const results = isSecondary ? secondaryMetricsResults : primaryMetricsResults
-    const errors = isSecondary ? secondaryMetricsResultsErrors : primaryMetricsResultsErrors
+    const unorderedResults = isSecondary ? secondaryMetricsResults : primaryMetricsResults
+    const unorderedErrors = isSecondary ? secondaryMetricsResultsErrors : primaryMetricsResultsErrors
 
-    // we know this will be new metric format only, thus the casting
-    let metrics = (isSecondary ? experiment.metrics_secondary : experiment.metrics) as ExperimentMetric[]
+    const metrics = getOrderedMetrics(!!isSecondary)
 
-    const sharedMetrics = experiment.saved_metrics
+    // Create maps of UUID -> result/error from original arrays
+    const resultsMap = new Map()
+    const errorsMap = new Map()
+
+    // Get original metrics in their original order
+    const originalMetrics = isSecondary ? experiment.metrics_secondary : experiment.metrics
+    const sharedMetrics = (experiment.saved_metrics || [])
         .filter((sharedMetric) => sharedMetric.metadata.type === (isSecondary ? 'secondary' : 'primary'))
-        .map((sharedMetric) => ({
-            ...sharedMetric.query,
-            name: sharedMetric.name,
-            sharedMetricId: sharedMetric.saved_metric,
-            isSharedMetric: true,
-        })) as ExperimentMetric[]
+        .map((sharedMetric) => sharedMetric.query)
+    const allOriginalMetrics = [...originalMetrics, ...sharedMetrics]
 
-    if (sharedMetrics) {
-        metrics = [...metrics, ...sharedMetrics]
-    }
+    // Map results and errors by UUID
+    allOriginalMetrics.forEach((metric, index) => {
+        const uuid = metric.uuid || metric.query?.uuid
+        if (uuid) {
+            resultsMap.set(uuid, unorderedResults[index])
+            errorsMap.set(uuid, unorderedErrors[index])
+        }
+    })
+
+    // Reorder results and errors to match the ordered metrics
+    const results = metrics.map((metric) => resultsMap.get(metric.uuid))
+    const errors = metrics.map((metric) => errorsMap.get(metric.uuid))
+
+    const showResultDetails = metrics.length === 1 && results[0] && hasMinimumExposureForResults && !isSecondary
+    const hasSomeResults =
+        results?.some((result) => result?.variant_results && result.variant_results.length > 0) &&
+        hasMinimumExposureForResults
 
     return (
         <div className="mb-4 -mt-2">
+            {experiment?.id && (
+                <>
+                    <MetricsReorderModal isSecondary={false} />
+                    <MetricsReorderModal isSecondary={true} />
+                </>
+            )}
             <div className="flex">
                 <div className="w-1/2 pt-5">
                     <div className="inline-flex items-center deprecated-space-x-2 mb-0">
@@ -65,14 +94,30 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                                 <IconInfo className="text-secondary text-lg" />
                             </Tooltip>
                         )}
+                        {hasSomeResults && !isSecondary && <HowToReadTooltip />}
                     </div>
                 </div>
 
                 <div className="w-1/2 flex flex-col justify-end">
                     <div className="ml-auto">
                         {metrics.length > 0 && (
-                            <div className="mb-2 mt-4 justify-end">
-                                {isSecondary ? <AddSecondaryMetric /> : <AddPrimaryMetric />}
+                            <div className="mb-2 mt-4 justify-end flex gap-2">
+                                <AddMetricButton
+                                    metricContext={isSecondary ? METRIC_CONTEXTS.secondary : METRIC_CONTEXTS.primary}
+                                />
+                                {metrics.length > 1 && (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        onClick={() =>
+                                            isSecondary
+                                                ? openSecondaryMetricsReorderModal()
+                                                : openPrimaryMetricsReorderModal()
+                                        }
+                                        icon={<IconList />}
+                                        tooltip="Reorder metrics"
+                                    />
+                                )}
                             </div>
                         )}
                     </div>
@@ -86,8 +131,9 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                         errors={errors}
                         isSecondary={!!isSecondary}
                         getInsightType={getInsightType}
+                        showDetailsModal={!showResultDetails}
                     />
-                    {metrics.length === 1 && results[0] && hasMinimumExposureForResults && !isSecondary && (
+                    {showResultDetails && (
                         <div className="mt-4">
                             <ResultDetails
                                 metric={metrics[0] as ExperimentMetric}
@@ -96,8 +142,6 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                                     metric: metrics[0] as ExperimentMetric,
                                 }}
                                 experiment={experiment}
-                                metricIndex={0}
-                                isSecondary={!!isSecondary}
                             />
                         </div>
                     )}
@@ -108,17 +152,14 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                         <IconAreaChart fontSize="30" />
                         <div className="text-sm text-center text-balance max-w-sm">
                             <p>
-                                Add up to&nbsp;
-                                {isSecondary ? EXPERIMENT_MAX_SECONDARY_METRICS : EXPERIMENT_MAX_PRIMARY_METRICS}&nbsp;
-                                <span>{isSecondary ? 'secondary' : 'primary'}</span> metrics.
-                            </p>
-                            <p>
                                 {isSecondary
                                     ? 'Secondary metrics provide additional context and help detect unintended side effects.'
                                     : 'Primary metrics represent the main goal of the experiment and directly measure if your hypothesis was successful.'}
                             </p>
                         </div>
-                        {isSecondary ? <AddSecondaryMetric /> : <AddPrimaryMetric />}
+                        <AddMetricButton
+                            metricContext={isSecondary ? METRIC_CONTEXTS.secondary : METRIC_CONTEXTS.primary}
+                        />
                     </div>
                 </div>
             )}

@@ -22,8 +22,16 @@ ADD INDEX IF NOT EXISTS is_deleted_idx (is_deleted) TYPE minmax GRANULARITY 1
 """
 
 operations = [
-    run_sql_with_exceptions(DROP_COLUMNS_INDEX_GROUPS, node_role=NodeRole.ALL, is_alter_on_replicated_table=True),
-    run_sql_with_exceptions(DROP_COLUMNS_GROUPS, node_role=NodeRole.ALL, is_alter_on_replicated_table=True),
-    run_sql_with_exceptions(ADD_COLUMNS_GROUPS, node_role=NodeRole.ALL, is_alter_on_replicated_table=True),
-    run_sql_with_exceptions(ADD_COLUMNS_INDEX_GROUPS, node_role=NodeRole.ALL, is_alter_on_replicated_table=True),
+    run_sql_with_exceptions(
+        DROP_COLUMNS_INDEX_GROUPS, node_roles=[NodeRole.DATA, NodeRole.COORDINATOR], is_alter_on_replicated_table=True
+    ),
+    run_sql_with_exceptions(
+        DROP_COLUMNS_GROUPS, node_roles=[NodeRole.DATA, NodeRole.COORDINATOR], is_alter_on_replicated_table=True
+    ),
+    run_sql_with_exceptions(
+        ADD_COLUMNS_GROUPS, node_roles=[NodeRole.DATA, NodeRole.COORDINATOR], is_alter_on_replicated_table=True
+    ),
+    run_sql_with_exceptions(
+        ADD_COLUMNS_INDEX_GROUPS, node_roles=[NodeRole.DATA, NodeRole.COORDINATOR], is_alter_on_replicated_table=True
+    ),
 ]

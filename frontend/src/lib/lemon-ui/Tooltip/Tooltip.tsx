@@ -1,13 +1,13 @@
 import './Tooltip.scss'
 
 import {
+    FloatingArrow,
+    FloatingPortal,
+    Placement,
     arrow,
     autoUpdate,
     flip,
-    FloatingArrow,
-    FloatingPortal,
     offset as offsetFunc,
-    Placement,
     shift,
     useDismiss,
     useFloating,
@@ -19,8 +19,10 @@ import {
     useTransitionStyles,
 } from '@floating-ui/react'
 import clsx from 'clsx'
+import React, { useEffect, useRef, useState } from 'react'
+import { twMerge } from 'tailwind-merge'
+
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
-import React, { useRef, useState } from 'react'
 
 import { Link } from '../Link'
 
@@ -34,15 +36,21 @@ interface BaseTooltipProps {
     delayMs?: number
     closeDelayMs?: number
     offset?: number
-    arrowOffset?: number
+    arrowOffset?: number | ((placement: Placement) => number)
     placement?: Placement
+    fallbackPlacements?: Placement[]
     className?: string
+    containerClassName?: string
     visible?: boolean
     /**
      * Defaults to true if docLink is provided
      */
     interactive?: boolean
     docLink?: string
+    /**
+     * Run a function when showing the tooltip, for example to log an event.
+     */
+    onOpen?: () => void
 }
 
 export type RequiredTooltipProps = (
@@ -56,6 +64,7 @@ export function Tooltip({
     title,
     className = '',
     placement = 'top',
+    fallbackPlacements,
     offset = 8,
     arrowOffset,
     delayMs = 500,
@@ -63,6 +72,8 @@ export function Tooltip({
     interactive = false,
     visible: controlledOpen,
     docLink,
+    containerClassName,
+    onOpen,
 }: React.PropsWithChildren<RequiredTooltipProps>): JSX.Element {
     const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
     const [isHoveringTooltip, setIsHoveringTooltip] = useState(false) // Track tooltip hover state
@@ -72,6 +83,12 @@ export function Tooltip({
 
     const open = controlledOpen ?? (uncontrolledOpen || isHoveringTooltip)
 
+    useEffect(() => {
+        if (open && onOpen) {
+            onOpen()
+        }
+    }, [open, onOpen])
+
     const { context, refs } = useFloating({
         placement,
         open,
@@ -79,8 +96,8 @@ export function Tooltip({
         whileElementsMounted: autoUpdate,
         middleware: [
             offsetFunc(offset),
-            flip({ fallbackAxisSideDirection: 'start' }),
-            shift(),
+            flip({ fallbackPlacements, fallbackAxisSideDirection: 'start' }),
+            shift({ padding: 4 }),
             arrow({ element: caretRef }),
         ],
     })
@@ -151,7 +168,7 @@ export function Tooltip({
                 <FloatingPortal root={floatingContainer}>
                     <div
                         ref={refs.setFloating}
-                        className="Tooltip max-w-sm"
+                        className={twMerge('Tooltip max-w-sm', containerClassName)}
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ ...context.floatingStyles }}
                         {...getFloatingProps({
@@ -160,10 +177,7 @@ export function Tooltip({
                         })}
                     >
                         <div
-                            className={clsx(
-                                'bg-surface-tooltip text-primary-inverse py-1.5 px-2 break-words rounded text-start',
-                                className
-                            )}
+                            className={clsx('bg-surface-tooltip py-1.5 px-2 break-words rounded text-start', className)}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ ...transitionStyles }}
                         >
@@ -186,7 +200,9 @@ export function Tooltip({
                                 context={context}
                                 width={8}
                                 height={4}
-                                staticOffset={arrowOffset}
+                                staticOffset={
+                                    typeof arrowOffset === 'function' ? arrowOffset(context.placement) : arrowOffset
+                                }
                                 fill="var(--color-bg-surface-tooltip)"
                             />
                         </div>

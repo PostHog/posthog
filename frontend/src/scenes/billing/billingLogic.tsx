@@ -1,8 +1,11 @@
-import { LemonDialog, lemonToast, Link } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { capitalizeFirstLetter, FieldNamePath, forms } from 'kea-forms'
+import { FieldNamePath, capitalizeFirstLetter, forms } from 'kea-forms'
 import { lazyLoaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
+import { LemonDialog, Link, lemonToast } from '@posthog/lemon-ui'
+
 import api, { getJSONOrNull } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -12,23 +15,23 @@ import { LemonButtonPropsBase } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import posthog from 'posthog-js'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import {
     BillingPeriod,
     BillingPlan,
     BillingPlanType,
+    BillingProductV2AddonType,
     BillingProductV2Type,
     BillingType,
     ProductKey,
     StartupProgramLabel,
 } from '~/types'
 
-import type { billingLogicType } from './billingLogicType'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
+import type { billingLogicType } from './billingLogicType'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
@@ -62,6 +65,13 @@ export interface BillingError {
     status: 'info' | 'warning' | 'error'
     message: string
     action: LemonButtonPropsBase
+}
+
+export type SwitchPlanPayload = {
+    from_product_key: string
+    from_plan_key: string
+    to_product_key: string
+    to_plan_key: string
 }
 
 const parseBillingResponse = (data: Partial<BillingType>): BillingType => {
@@ -149,8 +159,8 @@ export const billingLogic = kea<billingLogicType>([
         reportBillingShown: true,
         registerInstrumentationProps: true,
         reportCreditsCTAShown: (creditOverview: any) => ({ creditOverview }),
-        setRedirectPath: true,
-        setIsOnboarding: true,
+        setRedirectPath: (redirectPath: string) => ({ redirectPath }),
+        setIsOnboarding: (isOnboarding: boolean) => ({ isOnboarding }),
         determineBillingAlert: true,
         setUnsubscribeError: (error: null | UnsubscribeError) => ({ error }),
         resetUnsubscribeError: true,
@@ -158,9 +168,11 @@ export const billingLogic = kea<billingLogicType>([
         showPurchaseCreditsModal: (isOpen: boolean) => ({ isOpen }),
         toggleCreditCTAHeroDismissed: (isDismissed: boolean) => ({ isDismissed }),
         setComputedDiscount: (discount: number) => ({ discount }),
+        setCreditBrackets: (creditBrackets: any[]) => ({ creditBrackets }),
         scrollToProduct: (productType: string) => ({ productType }),
+        setSwitchPlanLoading: (productKey: string | null) => ({ productKey }),
     }),
-    connect({
+    connect(() => ({
         values: [
             featureFlagLogic,
             ['featureFlags'],
@@ -181,7 +193,7 @@ export const billingLogic = kea<billingLogicType>([
             lemonBannerLogic({ dismissKey: 'usage-limit-approaching' }),
             ['resetDismissKey as resetUsageLimitApproachingKey'],
         ],
-    }),
+    })),
     reducers({
         billingAlert: [
             null as BillingAlertConfig | null,
@@ -210,17 +222,13 @@ export const billingLogic = kea<billingLogicType>([
         redirectPath: [
             '' as string,
             {
-                setRedirectPath: () => {
-                    return window.location.pathname.includes('/onboarding')
-                        ? window.location.pathname + window.location.search
-                        : ''
-                },
+                setRedirectPath: (_, { redirectPath }) => redirectPath,
             },
         ],
         isOnboarding: [
             false,
             {
-                setIsOnboarding: () => window.location.pathname.includes('/onboarding'),
+                setIsOnboarding: (_, { isOnboarding }) => isOnboarding,
             },
         ],
         unsubscribeError: [
@@ -270,9 +278,21 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
         computedDiscount: [
-            0,
+            null as number | null,
             {
                 setComputedDiscount: (_, { discount }) => discount,
+            },
+        ],
+        creditBrackets: [
+            [],
+            {
+                setCreditBrackets: (_, { creditBrackets }) => creditBrackets || [],
+            },
+        ],
+        switchPlanLoading: [
+            null as string | null,
+            {
+                setSwitchPlanLoading: (_, { productKey }) => productKey,
             },
         ],
     }),
@@ -369,6 +389,32 @@ export const billingLogic = kea<billingLogicType>([
                         return values.billing
                     }
                 },
+                switchFlatrateSubscriptionPlan: async (data: SwitchPlanPayload, breakpoint) => {
+                    try {
+                        await api.create('api/billing/subscription/switch-plan', data)
+
+                        const productDisplayName = capitalizeFirstLetter(data.to_product_key)
+                        lemonToast.success(`You're now on ${productDisplayName}`)
+                        actions.setSwitchPlanLoading(null)
+
+                        // Reload billing, user, and organization to get the updated available features
+                        actions.loadBilling()
+                        await breakpoint(2000)
+                        actions.loadUser()
+                        actions.loadCurrentOrganization()
+
+                        return values.billing as BillingType
+                    } catch (error: any) {
+                        posthog.captureException(error)
+                        lemonToast.error(
+                            (error && error.detail) ||
+                                'There was an error switching your plan. Please try again or contact support.'
+                        )
+                        actions.setSwitchPlanLoading(null)
+                        // Keep the current billing state on failure
+                        return values.billing as BillingType
+                    }
+                },
             },
         ],
         billingError: [
@@ -409,42 +455,47 @@ export const billingLogic = kea<billingLogicType>([
         creditOverview: [
             {
                 eligible: false,
-                estimated_monthly_credit_amount_usd: DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD,
+                estimated_monthly_credit_amount_usd: null,
                 status: 'none',
                 invoice_url: null,
                 collection_method: null,
                 cc_last_four: null,
                 email: null,
+                credit_brackets: [],
             },
             {
                 loadCreditOverview: async () => {
                     // Check if the user is subscribed
                     if (values.billing?.has_active_subscription) {
                         const response = await api.get('api/billing/credits/overview')
+
                         if (!values.creditForm.creditInput) {
-                            actions.setCreditFormValue(
-                                'creditInput',
-                                Math.round(
-                                    (response.estimated_monthly_credit_amount_usd ||
-                                        DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD) * 12
-                                )
-                            )
+                            let spend = DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD
+
+                            if (response.estimated_monthly_credit_amount_usd !== null) {
+                                spend = response.estimated_monthly_credit_amount_usd
+                            }
+
+                            actions.setCreditBrackets(response.credit_brackets)
+                            actions.setCreditFormValue('creditInput', Math.round(spend * 12))
                         }
 
                         if (response.eligible && response.status === 'none') {
                             actions.reportCreditsCTAShown(response)
                         }
+
                         return response
                     }
                     // Return default values if not subscribed
                     return {
                         eligible: false,
-                        estimated_monthly_credit_amount_usd: DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD,
+                        estimated_monthly_credit_amount_usd: null,
                         status: 'none',
                         invoice_url: null,
                         collection_method: null,
                         cc_last_four: null,
                         email: null,
+                        credit_brackets: [],
                     }
                 },
             },
@@ -488,6 +539,40 @@ export const billingLogic = kea<billingLogicType>([
                 return !!billing?.products
                     ?.find((product) => product.type == ProductKey.PLATFORM_AND_SUPPORT)
                     ?.addons.find((addon) => addon.plans.find((plan) => plan.current_plan))
+            },
+        ],
+        platformAddons: [
+            (s) => [s.billing],
+            (billing: BillingType): BillingProductV2AddonType[] => {
+                const platformProduct = billing?.products?.find(
+                    (product: BillingProductV2Type) => product.type === ProductKey.PLATFORM_AND_SUPPORT
+                )
+                return platformProduct?.addons ?? []
+            },
+        ],
+        currentPlatformAddon: [
+            (s) => [s.billing],
+            (billing: BillingType): BillingProductV2AddonType | null => {
+                const platformProduct = billing?.products?.find(
+                    (product: BillingProductV2Type) => product.type === ProductKey.PLATFORM_AND_SUPPORT
+                )
+                return platformProduct?.addons?.find((addon: BillingProductV2AddonType) => !!addon.subscribed) || null
+            },
+        ],
+        unusedPlatformAddonAmount: [
+            (s) => [s.currentPlatformAddon, s.timeRemainingInSeconds, s.timeTotalInSeconds],
+            (
+                currentPlatformAddon: BillingProductV2AddonType | null,
+                timeRemainingInSeconds: number,
+                timeTotalInSeconds: number
+            ): number => {
+                if (!currentPlatformAddon || !timeTotalInSeconds) {
+                    return 0
+                }
+                const unitAmount = parseFloat(currentPlatformAddon.current_amount_usd || '0')
+                const ratio = Math.max(0, Math.min(1, timeRemainingInSeconds / timeTotalInSeconds))
+                const amount = unitAmount * ratio
+                return Math.round(amount * 100) / 100
             },
         ],
         creditDiscount: [(s) => [s.computedDiscount], (computedDiscount) => computedDiscount || 0],
@@ -535,7 +620,7 @@ export const billingLogic = kea<billingLogicType>([
                 const platformAndSupportProduct = billing?.products?.find(
                     (product) => product.type === ProductKey.PLATFORM_AND_SUPPORT
                 )
-                return !!billingPlan && !billing?.trial && !!platformAndSupportProduct && !showCreditCTAHero
+                return !!billingPlan && !!platformAndSupportProduct && !showCreditCTAHero
             },
         ],
         isManagedAccount: [
@@ -547,6 +632,23 @@ export const billingLogic = kea<billingLogicType>([
         accountOwner: [
             (s) => [s.billing],
             (billing: BillingType): { name?: string; email?: string } | null => billing?.account_owner || null,
+        ],
+        estimatedMonthlyCreditAmountUsd: [
+            (s) => [s.creditOverview],
+            (creditOverview): number | null => {
+                if (creditOverview === null) {
+                    return null
+                }
+
+                if (
+                    creditOverview.estimated_monthly_credit_amount_usd === null ||
+                    creditOverview.estimated_monthly_credit_amount_usd === undefined
+                ) {
+                    return DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD
+                }
+
+                return creditOverview.estimated_monthly_credit_amount_usd
+            },
         ],
     }),
     forms(({ actions, values }) => ({
@@ -584,8 +686,7 @@ export const billingLogic = kea<billingLogicType>([
             },
             submit: async ({ creditInput, collectionMethod }) => {
                 await api.create('api/billing/credits/purchase', {
-                    annual_amount_usd: +Math.round(+creditInput - +creditInput * values.creditDiscount),
-                    discount_percent: values.computedDiscount * 100,
+                    annual_credit_amount_usd: +creditInput,
                     collection_method: collectionMethod,
                 })
 
@@ -659,14 +760,16 @@ export const billingLogic = kea<billingLogicType>([
             posthog.capture('credits cta shown', {
                 eligible: creditOverview.eligible,
                 status: creditOverview.status,
-                estimated_monthly_credit_amount_usd:
-                    creditOverview.estimated_monthly_credit_amount_usd || DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD,
+                estimated_monthly_credit_amount_usd: creditOverview.estimated_monthly_credit_amount_usd,
             })
         },
         toggleCreditCTAHeroDismissed: ({ isDismissed }) => {
             if (isDismissed) {
                 posthog.capture('credits cta hero dismissed')
             }
+        },
+        switchFlatrateSubscriptionPlan: async (payload) => {
+            actions.setSwitchPlanLoading(payload.to_product_key)
         },
         loadBillingSuccess: async (_, breakpoint) => {
             actions.registerInstrumentationProps()
@@ -760,7 +863,7 @@ export const billingLogic = kea<billingLogicType>([
                 actions.setBillingAlert({
                     status: 'error',
                     title: 'Usage limit exceeded',
-                    message: `You have exceeded the usage limit for ${productOverLimit.name}. Please 
+                    message: `You have exceeded the usage limit for ${productOverLimit.name}. Please
                         ${productOverLimit.subscribed ? 'increase your billing limit' : 'upgrade your plan'}
                         or ${
                             productOverLimit.name === 'Data warehouse'
@@ -841,17 +944,18 @@ export const billingLogic = kea<billingLogicType>([
         setCreditFormValue: ({ name, value }) => {
             if (name === 'creditInput' || (name as FieldNamePath)?.[0] === 'creditInput') {
                 const spend = +value
-                let discount = 0
-                if (spend >= 100000) {
-                    discount = 0.35
-                } else if (spend >= 60000) {
-                    discount = 0.25
-                } else if (spend >= 20000) {
-                    discount = 0.2
-                } else if (spend >= 3000) {
-                    discount = 0.1
+
+                for (const bracket of values.creditBrackets) {
+                    if (
+                        spend >= bracket.annual_credit_from_inclusive &&
+                        spend < (bracket.annual_credit_to_exclusive || Infinity)
+                    ) {
+                        actions.setComputedDiscount(bracket.discount)
+                        return
+                    }
                 }
-                actions.setComputedDiscount(discount)
+
+                actions.setComputedDiscount(0)
             }
         },
         registerInstrumentationProps: async (_, breakpoint) => {
@@ -893,14 +997,17 @@ export const billingLogic = kea<billingLogicType>([
             }
         },
         scrollToProduct: ({ productType }) => {
-            const element = document.querySelector(`[data-attr="billing-product-addon-${productType}"]`)
+            let element = document.querySelector(`[data-attr="billing-product-addon-${productType}"]`)
+            if (element == null) {
+                element = document.querySelector(`[data-attr="billing-product-${productType}"]`)
+            }
             element?.scrollIntoView({
                 behavior: 'smooth',
                 block: 'center',
             })
         },
     })),
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, values }) => ({
         // IMPORTANT: This needs to be above the "*" so it takes precedence
         '/*/billing': (_params, _search, hash) => {
             if (hash.license) {
@@ -921,12 +1028,28 @@ export const billingLogic = kea<billingLogicType>([
                 })
             }
 
-            actions.setRedirectPath()
-            actions.setIsOnboarding()
+            const redirectPath = window.location.pathname.includes('/onboarding')
+                ? window.location.pathname + window.location.search
+                : ''
+            if (values.redirectPath !== redirectPath) {
+                actions.setRedirectPath(redirectPath)
+            }
+            const isOnboarding = window.location.pathname.includes('/onboarding')
+            if (values.isOnboarding !== isOnboarding) {
+                actions.setIsOnboarding(isOnboarding)
+            }
         },
         '*': () => {
-            actions.setRedirectPath()
-            actions.setIsOnboarding()
+            const redirectPath = window.location.pathname.includes('/onboarding')
+                ? window.location.pathname + window.location.search
+                : ''
+            if (values.redirectPath !== redirectPath) {
+                actions.setRedirectPath(redirectPath)
+            }
+            const isOnboarding = window.location.pathname.includes('/onboarding')
+            if (values.isOnboarding !== isOnboarding) {
+                actions.setIsOnboarding(isOnboarding)
+            }
         },
     })),
 ])

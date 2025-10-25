@@ -1,12 +1,14 @@
 import './LemonInput.scss'
 
 import { useMergeRefs } from '@floating-ui/react'
+import clsx from 'clsx'
+import React, { useRef, useState } from 'react'
+
 import { IconEye, IconSearch, IconX } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { IconEyeHidden } from 'lib/lemon-ui/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import React, { useRef, useState } from 'react'
+import { IconEyeHidden } from 'lib/lemon-ui/icons'
 
 import { RawInputAutosize } from './RawInputAutosize'
 
@@ -122,7 +124,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
         allowClear = allowClear ?? true
         prefix = prefix ?? <IconSearch />
     } else if (type === 'password') {
-        suffix = suffix ?? (
+        const showPasswordButton = (
             <LemonButton
                 size="small"
                 noPadding
@@ -135,6 +137,16 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                 }}
             />
         )
+        if (suffix) {
+            suffix = (
+                <>
+                    {showPasswordButton}
+                    {suffix}
+                </>
+            )
+        } else {
+            suffix = showPasswordButton
+        }
     }
     // allowClear button takes precedence if set
     if (allowClear && value) {
@@ -145,7 +157,9 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                 icon={<IconX />}
                 tooltip="Clear input"
                 onClick={(e) => {
-                    e.stopPropagation()
+                    if (stopPropagation) {
+                        e.stopPropagation()
+                    }
                     if (type === 'number') {
                         onChange?.(0)
                     } else {

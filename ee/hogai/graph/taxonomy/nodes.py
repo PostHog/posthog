@@ -1,46 +1,62 @@
 from abc import ABC, abstractmethod
+from collections import defaultdict
+from functools import cached_property
+from typing import Generic, TypeVar
+
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
-    merge_message_runs,
-    ToolMessage as LangchainToolMessage,
     AIMessage as LangchainAIMessage,
+    ToolMessage as LangchainToolMessage,
+    merge_message_runs,
 )
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 
-from typing import Generic, TypeVar
-from posthog.models import Team, User
+from posthog.schema import MaxEventContext
 
-from .types import EntityType, TaxonomyAgentState
-from .tools import TaxonomyTool
-from functools import cached_property
-from ee.hogai.llm import MaxChatOpenAI
+from posthog.models import Team, User
 from posthog.models.group_type_mapping import GroupTypeMapping
-from .toolkit import TaxonomyAgentToolkit
-from ..mixins import StateClassMixin
+
+from ee.hogai.graph.taxonomy.tools import TaxonomyTool
+from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.utils.helpers import format_events_yaml
+from ee.hogai.utils.types.composed import MaxNodeName
+
 from ..base import BaseAssistantNode
+from ..mixins import StateClassMixin, TaxonomyReasoningNodeMixin
 from .prompts import (
-    PROPERTY_TYPES_PROMPT,
-    TAXONOMY_TOOL_USAGE_PROMPT,
     HUMAN_IN_THE_LOOP_PROMPT,
-    REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
     ITERATION_LIMIT_PROMPT,
+    PROPERTY_TYPES_PROMPT,
+    REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
+    TAXONOMY_TOOL_USAGE_PROMPT,
 )
-from ee.hogai.utils.helpers import format_events_prompt
+from .toolkit import TaxonomyAgentToolkit
+from .types import EntityType, TaxonomyAgentState, TaxonomyNodeName
 
 TaxonomyStateType = TypeVar("TaxonomyStateType", bound=TaxonomyAgentState)
 TaxonomyPartialStateType = TypeVar("TaxonomyPartialStateType", bound=TaxonomyAgentState)
 TaxonomyNodeBound = BaseAssistantNode[TaxonomyStateType, TaxonomyPartialStateType]
 
 
-class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], TaxonomyNodeBound, StateClassMixin, ABC):
+class TaxonomyAgentNode(
+    Generic[TaxonomyStateType, TaxonomyPartialStateType],
+    TaxonomyReasoningNodeMixin,
+    TaxonomyNodeBound,
+    StateClassMixin,
+    ABC,
+):
     """Base node for taxonomy agents."""
 
     def __init__(self, team: Team, user: User, toolkit_class: type["TaxonomyAgentToolkit"]):
         super().__init__(team, user)
-        self._toolkit = toolkit_class(team=team)
+        self._toolkit = toolkit_class(team=team, user=user)
         self._state_class, self._partial_state_class = self._get_state_class(TaxonomyAgentNode)
+
+    @property
+    def node_name(self) -> MaxNodeName:
+        return TaxonomyNodeName.LOOP_NODE
 
     @cached_property
     def _team_group_types(self) -> list[str]:
@@ -62,7 +78,7 @@ class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], Ta
         ).bind_tools(
             self._toolkit.get_tools(),
             tool_choice="required",
-            parallel_tool_calls=False,
+            parallel_tool_calls=True,
         )
 
     def _get_default_system_prompts(self) -> list[str]:
@@ -87,6 +103,13 @@ class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], Ta
 
         return ChatPromptTemplate(all_messages, template_format="mustache")
 
+    def _format_events(self, events_in_context: list[MaxEventContext]) -> str:
+        """
+        Generate the output format for events. Can be overridden by subclasses.
+        Default implementation uses YAML format but it can be overridden to use XML format.
+        """
+        return format_events_yaml(events_in_context, self._team)
+
     def run(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
         """Process the state and return filtering options."""
         progress_messages = state.tool_progress_messages or []
@@ -95,12 +118,12 @@ class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], Ta
         chain = full_conversation | merge_message_runs() | self._get_model(state)
 
         events_in_context = []
-        if ui_context := self._get_ui_context(state):
+        if ui_context := self.context_manager.get_ui_context(state):
             events_in_context = ui_context.events if ui_context.events else []
 
         output_message = chain.invoke(
             {
-                "events": format_events_prompt(events_in_context, self._team),
+                "events": self._format_events(events_in_context),
                 "groups": self._team_group_types,
             },
             config,
@@ -109,9 +132,11 @@ class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], Ta
         if not output_message.tool_calls:
             raise ValueError("No tool calls found in the output message.")
 
-        tool_call = output_message.tool_calls[0]
-        result = AgentAction(tool_call["name"], tool_call["args"], tool_call["id"])
-        intermediate_steps = state.intermediate_steps or []
+        tool_calls = output_message.tool_calls
+        intermediate_steps = []
+        for tool_call in tool_calls:
+            result = AgentAction(tool_call["name"], tool_call["args"], tool_call["id"])
+            intermediate_steps.append((result, None))
 
         # Add the new AI message to the progress log
         ai_message = LangchainAIMessage(
@@ -120,70 +145,99 @@ class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], Ta
 
         return self._partial_state_class(
             tool_progress_messages=[*progress_messages, ai_message],
-            intermediate_steps=[*intermediate_steps, (result, None)],
+            intermediate_steps=intermediate_steps,
             output=state.output,
+            iteration_count=state.iteration_count + 1 if state.iteration_count is not None else 1,
         )
 
 
-class TaxonomyAgentToolsNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], TaxonomyNodeBound, StateClassMixin):
+class TaxonomyAgentToolsNode(
+    Generic[TaxonomyStateType, TaxonomyPartialStateType], TaxonomyReasoningNodeMixin, TaxonomyNodeBound, StateClassMixin
+):
     """Base tools node for taxonomy agents."""
 
     MAX_ITERATIONS = 10
 
     def __init__(self, team: Team, user: User, toolkit_class: type["TaxonomyAgentToolkit"]):
         super().__init__(team, user)
-        self._toolkit = toolkit_class(team=team)
+        self._toolkit = toolkit_class(team=team, user=user)
         self._state_class, self._partial_state_class = self._get_state_class(TaxonomyAgentToolsNode)
 
-    def run(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
+    @property
+    def node_name(self) -> MaxNodeName:
+        return TaxonomyNodeName.TOOLS_NODE
+
+    async def arun(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
         intermediate_steps = state.intermediate_steps or []
-        action, _output = intermediate_steps[-1]
-        tool_input: TaxonomyTool | None = None
-        output = ""
-        tool_result_msg: list[LangchainToolMessage] = []
-
-        try:
-            tool_input = self._toolkit.get_tool_input_model(action)
-        except ValidationError as e:
-            output = str(
-                ChatPromptTemplate.from_template(REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT, template_format="mustache")
-                .format_messages(exception=e.errors(include_url=False))[0]
-                .content
-            )
-        else:
-            if tool_input.name == "final_answer":
-                return self._partial_state_class(
-                    output=tool_input.arguments.answer,  # type: ignore
-                    intermediate_steps=None,
+        tools_metadata: dict[str, list[tuple[TaxonomyTool, str]]] = defaultdict(list)
+        invalid_tools = []
+        steps = []
+        tool_msgs = []
+        for action, _ in intermediate_steps:
+            try:
+                tool_input = self._toolkit.get_tool_input_model(action)
+            except ValidationError as e:
+                output = str(
+                    ChatPromptTemplate.from_template(
+                        REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT, template_format="mustache"
+                    )
+                    .format_messages(exception=e.errors(include_url=False))[0]
+                    .content
                 )
-
-            # The agent has requested help, so we return a message to the root node
-            if tool_input.name == "ask_user_for_help":
-                return self._get_reset_state(
-                    tool_input.arguments.request,  # type: ignore
-                    tool_input.name,
-                    state,
+                steps.append((action, output))
+                tool_msgs.append(
+                    LangchainToolMessage(
+                        content=output,
+                        tool_call_id=action.log,
+                    )
                 )
+                invalid_tools.append(action.log)
+                continue
+            else:
+                if tool_input.name == "final_answer":
+                    return self._partial_state_class(
+                        output=tool_input.arguments.answer,  # type: ignore
+                        intermediate_steps=None,
+                    )
+
+                if tool_input.name == "ask_user_for_help":
+                    return self._get_reset_state(
+                        tool_input.arguments.request,  # type: ignore
+                        tool_input.name,
+                        state,
+                    )
+
+                # For any other tool, collect metadata and prepare for result processing
+                tools_metadata[tool_input.name].append((tool_input, action.log))
 
         # If we're still here, check if we've hit the iteration limit within this cycle
-        if len(intermediate_steps) >= self.MAX_ITERATIONS:
+        if state.iteration_count is not None and state.iteration_count >= self.MAX_ITERATIONS:
             return self._get_reset_state(ITERATION_LIMIT_PROMPT, "max_iterations", state)
 
-        if tool_input and not output:
-            # Use the toolkit to handle tool execution
-            _, output = self._toolkit.handle_tools(tool_input.name, tool_input)
+        # Taxonomy is a separate graph, so it dispatches its own messages
+        reasoning_message = await self.get_reasoning_message(state)
+        if reasoning_message:
+            await self._write_message(reasoning_message)
 
-        if output:
+        tool_results = await self._toolkit.handle_tools(tools_metadata)
+
+        for action, _ in intermediate_steps:
+            if action.log in invalid_tools:
+                continue
+            tool_result = tool_results[action.log]
             tool_msg = LangchainToolMessage(
-                content=output,
+                content=tool_result,
                 tool_call_id=action.log,
             )
-            tool_result_msg.append(tool_msg)
+            tool_msgs.append(tool_msg)
+            steps.append((action, tool_result))
 
         old_msg = state.tool_progress_messages or []
+
         return self._partial_state_class(
-            tool_progress_messages=[*old_msg, *tool_result_msg],
-            intermediate_steps=[*intermediate_steps[:-1], (action, output)],
+            tool_progress_messages=[*old_msg, *tool_msgs],
+            intermediate_steps=steps,
+            iteration_count=state.iteration_count,
         )
 
     def router(self, state: TaxonomyStateType) -> str:

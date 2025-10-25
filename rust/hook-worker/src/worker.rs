@@ -1309,7 +1309,7 @@ mod tests {
                 panic!("error should not be retryable")
             }
         } else {
-            panic!("unexpected error type {:?}", err)
+            panic!("unexpected error type {err:?}")
         }
     }
 }

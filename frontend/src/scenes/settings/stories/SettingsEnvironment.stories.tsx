@@ -1,8 +1,10 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
-import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
+
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -22,7 +24,7 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-05-25',
-        featureFlags: Object.values(FEATURE_FLAGS).filter((flag) => flag !== FEATURE_FLAGS.NEW_SCENE_LAYOUT), // Enable all feature flags for the settings page, except the new scene layout
+        featureFlags: Object.values(FEATURE_FLAGS),
     },
     decorators: [
         mswDecorator({
@@ -32,15 +34,17 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                     cloud: true,
                     realm: 'cloud',
                 },
-                '/api/projects/:id/integrations': { results: [] },
-                '/api/billing/spend/': { results: [] },
-                '/api/billing/usage/': { results: [] },
                 '/api/billing/': { products: [] },
+                '/api/projects/:id/integrations': { results: [] },
                 '/api/projects/:id/core_memory': { results: [] },
                 '/api/projects/:id/hog_functions': { results: [] },
                 '/api/projects/:id/pipeline_destination_configs': { results: [] },
                 '/api/organizations/:id/pipeline_destinations': { results: [] },
                 '/api/environments/:id/batch_exports': { results: [] },
+                '/api/environments/:id/default_evaluation_tags/': {
+                    default_evaluation_tags: [],
+                    enabled: false,
+                },
             },
             patch: {
                 '/api/projects/:id': async (req, res, ctx) => {
@@ -77,6 +81,9 @@ SettingsEnvironmentRevenueAnalytics.args = { sectionId: 'environment-revenue-ana
 
 export const SettingsEnvironmentMarketingAnalytics: Story = Template.bind({})
 SettingsEnvironmentMarketingAnalytics.args = { sectionId: 'environment-marketing-analytics' }
+SettingsEnvironmentMarketingAnalytics.parameters = {
+    featureFlags: [...Object.values(FEATURE_FLAGS), 'advance-marketing-analytics-settings'],
+}
 
 export const SettingsEnvironmentWebAnalytics: Story = Template.bind({})
 SettingsEnvironmentWebAnalytics.args = { sectionId: 'environment-web-analytics' }

@@ -1,5 +1,6 @@
-import { actions, afterMount, beforeUnmount, connect, kea, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, path, reducers } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+
 import { shouldIgnoreInput } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
@@ -8,6 +9,7 @@ import { BarStatus } from './types'
 
 export const commandBarLogic = kea<commandBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'commandBarLogic']),
+
     connect(() => ({
         actions: [eventUsageLogic, ['reportCommandBarStatusChanged']],
     })),
@@ -50,27 +52,26 @@ export const commandBarLogic = kea<commandBarLogicType>([
     })),
     afterMount(({ actions, cache }) => {
         // register keyboard shortcuts
-        cache.onKeyDown = (event: KeyboardEvent) => {
-            if (shouldIgnoreInput(event)) {
-                return
-            }
-            if ((event.ctrlKey || event.metaKey) && (event.key === 'k' || event.key === 'K')) {
-                event.preventDefault()
-                if (event.shiftKey) {
-                    // cmd+shift+k opens actions
-                    actions.toggleActionsBar()
-                } else {
-                    // cmd+k opens search
-                    actions.toggleSearchBar()
+        cache.disposables.add(() => {
+            const onKeyDown = (event: KeyboardEvent): void => {
+                if (shouldIgnoreInput(event)) {
+                    return
                 }
-            } else if (event.shiftKey && event.key === '?') {
-                actions.toggleShortcutOverview()
+                if ((event.ctrlKey || event.metaKey) && (event.key === 'k' || event.key === 'K')) {
+                    event.preventDefault()
+                    if (event.shiftKey) {
+                        // cmd+shift+k opens actions
+                        actions.toggleActionsBar()
+                    } else {
+                        // cmd+k opens search
+                        actions.toggleSearchBar()
+                    }
+                } else if (event.shiftKey && event.key === '?') {
+                    actions.toggleShortcutOverview()
+                }
             }
-        }
-        window.addEventListener('keydown', cache.onKeyDown)
-    }),
-    beforeUnmount(({ cache }) => {
-        // unregister keyboard shortcuts
-        window.removeEventListener('keydown', cache.onKeyDown)
+            window.addEventListener('keydown', onKeyDown)
+            return () => window.removeEventListener('keydown', onKeyDown)
+        }, 'keyboardShortcuts')
     }),
 ])

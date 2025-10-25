@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { LemonButton, LemonColorPicker, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { AnimationType } from 'lib/animations/animations'
 import { DataColorToken } from 'lib/colors'
 import { Animation } from 'lib/components/Animation/Animation'
@@ -36,7 +38,7 @@ export function DashboardInsightColorsModal(): JSX.Element {
     const { setBreakdownColorConfig, setDataColorThemeId, setDashboardMode } = useActions(dashboardLogic)
 
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
-    const { cohorts } = useValues(cohortsModel)
+    const { allCohorts } = useValues(cohortsModel)
 
     const themes = _themes || []
 
@@ -49,7 +51,7 @@ export function DashboardInsightColorsModal(): JSX.Element {
                 const breakdownLabel = formatBreakdownLabel(
                     breakdownValue,
                     breakdownFilter,
-                    cohorts?.results,
+                    allCohorts?.results,
                     formatPropertyValueForDisplay
                 )
                 const formattedLabel = stringWithWBR(breakdownLabel, 20)

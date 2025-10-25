@@ -1,15 +1,17 @@
+import { useActions, useValues } from 'kea'
+import React from 'react'
+
 import { IconFeatures, IconHelmet, IconMap } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import React from 'react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -34,7 +36,7 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 //Support offsite messaging
 const SUPPORT_MESSAGE_OVERRIDE_TITLE = "We're making improvements:"
 const SUPPORT_MESSAGE_OVERRIDE_BODY =
-    "Many of our support engineers are attending an offsite (from 12th to 16th May) so we can make long-term enhancements. We're working different hours, so non-urgent inquiries without priority support may experience a slight delay. We'll be back to full speed from the 19th!"
+    "Many of our support engineers are attending an offsite (from 3rd to 7th November) so we can make long-term enhancements. We're working different hours, so non-urgent inquiries without priority support may experience a slight delay. We'll be back to full speed from the 10th!"
 
 //Support Christmas messaging
 //const SUPPORT_MESSAGE_OVERRIDE_TITLE = '🎄 🎅 Support during the holidays 🎁 ⛄'
@@ -63,7 +65,7 @@ const SupportResponseTimesTable = ({
     const expiredTrialDate = hasExpiredTrial ? dayjs(billing?.trial?.expires_at) : null
     const getResponseTimeFeature = (planName: string): BillingFeatureType | undefined => {
         // Find the plan in supportPlans
-        const plan = supportPlans?.find((p) => p.name === planName)
+        const plan = supportPlans?.find((p) => p.name?.includes(planName))
 
         // Return the support_response_time feature if found
         return plan?.features?.find((f) => f.key === AvailableFeature.SUPPORT_RESPONSE_TIME)
@@ -116,7 +118,7 @@ const SupportResponseTimesTable = ({
                   {
                       name: 'Teams',
                       current_plan: currentPlan === 'teams',
-                      features: [{ note: '1 business day' }],
+                      features: [getResponseTimeFeature('Teams') || { note: '1 business day' }],
                       plan_key: BillingPlan.Teams,
                       legacy_product: true,
                   },
@@ -295,11 +297,11 @@ export function SidePanelSupport(): JSX.Element {
                     ) : (
                         <>
                             {showMaxAI && isBillingLoaded && (
-                                <Section title="Ask Max AI">
+                                <Section title="Ask PostHog AI">
                                     <div>
-                                        <p>Max AI can now answer 80%+ of the support questions we receive! Nice.</p>
+                                        <p>PostHog AI can now answer 80%+ of the support questions we receive! Nice.</p>
                                         <p>
-                                            Let Max read 100s of pages of docs for you, write SQL queries and
+                                            Let PostHog AI read 100s of pages of docs for you, write SQL queries and
                                             expressions, regex patterns, etc.
                                         </p>
                                         <LemonButton
@@ -312,7 +314,7 @@ export function SidePanelSupport(): JSX.Element {
                                             targetBlank={false}
                                             className="mt-2"
                                         >
-                                            Chat with Max AI
+                                            Chat with PostHog AI
                                         </LemonButton>
                                     </div>
                                 </Section>
@@ -320,7 +322,7 @@ export function SidePanelSupport(): JSX.Element {
 
                             {showEmailSupport && isBillingLoaded && (
                                 <Section title="Contact us">
-                                    <p>Can't find what you need and Max unable to help?</p>
+                                    <p>Can't find what you need and PostHog AI unable to help?</p>
                                     <LemonButton
                                         type="secondary"
                                         fullWidth

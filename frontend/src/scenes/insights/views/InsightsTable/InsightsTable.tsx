@@ -1,22 +1,22 @@
 import './InsightsTable.scss'
 
 import { useActions, useValues } from 'kea'
-import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import { compare as compareFn } from 'natural-orderby'
 import { useMemo } from 'react'
+
+import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
-import { isValidBreakdown } from '~/queries/utils'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { ChartDisplayType, ItemMode } from '~/types'
+import { isValidBreakdown } from '~/queries/utils'
+import { ChartDisplayType } from '~/types'
 
 import { entityFilterLogic } from '../../filters/ActionFilter/entityFilterLogic'
 import { AggregationColumnItem, AggregationColumnTitle } from './columns/AggregationColumn'
@@ -27,7 +27,6 @@ import { SeriesColumnItem } from './columns/SeriesColumn'
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
 import { WorldMapColumnItem, WorldMapColumnTitle } from './columns/WorldMapColumn'
 import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
-import { teamLogic } from 'scenes/teamLogic'
 
 export type CalcColumnState = 'total' | 'average' | 'median'
 
@@ -57,6 +56,8 @@ export interface InsightsTableProps {
      * @default false
      */
     isMainInsightView?: boolean
+    /** Whether the insight is in edit mode. */
+    editMode?: boolean
 }
 
 export function InsightsTable({
@@ -67,9 +68,9 @@ export function InsightsTable({
     seriesNameTooltip,
     canCheckUncheckSeries = true,
     isMainInsightView = false,
+    editMode,
 }: InsightsTableProps): JSX.Element {
-    const { insightMode } = useValues(insightSceneLogic)
-    const { insightProps, isInDashboardContext, insight } = useValues(insightLogic)
+    const { insightProps, isInDashboardContext, insight, editingDisabledReason } = useValues(insightLogic)
     const {
         insightDataLoading,
         indexedResults,
@@ -82,15 +83,14 @@ export function InsightsTable({
         breakdownFilter,
         trendsFilter,
         isSingleSeries,
-        hiddenLegendIndexes,
         getTrendsColor,
+        getTrendsHidden,
         insightData,
     } = useValues(trendsDataLogic(insightProps))
-    const { weekStartDay, timezone } = useValues(teamLogic)
-    const { toggleHiddenLegendIndex, updateHiddenLegendIndexes } = useActions(trendsDataLogic(insightProps))
+    const { toggleResultHidden, toggleAllResultsHidden } = useActions(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
-    const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
-    const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
+    const { setDetailedResultsAggregationType } = useActions(insightsTableDataLogic(insightProps))
+    const { weekStartDay, timezone } = useValues(teamLogic)
 
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
         const entityFilter = entityFilterLogic.findMounted({
@@ -106,7 +106,11 @@ export function InsightsTable({
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const hasCheckboxes =
-        isLegend && (!display || ![ChartDisplayType.BoldNumber, ChartDisplayType.WorldMap].includes(display))
+        isLegend &&
+        (!display ||
+            ![ChartDisplayType.BoldNumber, ChartDisplayType.WorldMap, ChartDisplayType.CalendarHeatmap].includes(
+                display
+            ))
     // Build up columns to include. Order matters.
     const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
 
@@ -117,8 +121,9 @@ export function InsightsTable({
                     <SeriesCheckColumnTitle
                         indexedResults={indexedResults}
                         canCheckUncheckSeries={canCheckUncheckSeries}
-                        hiddenLegendIndexes={hiddenLegendIndexes}
-                        updateHiddenLegendIndexes={updateHiddenLegendIndexes}
+                        getTrendsHidden={getTrendsHidden}
+                        toggleAllResultsHidden={toggleAllResultsHidden}
+                        disabledReason={editingDisabledReason}
                     />
                 )}
                 <span>Series</span>
@@ -140,9 +145,10 @@ export function InsightsTable({
                 <SeriesCheckColumnItem
                     item={item}
                     canCheckUncheckSeries={canCheckUncheckSeries}
-                    hiddenLegendIndexes={hiddenLegendIndexes}
-                    toggleHiddenLegendIndex={toggleHiddenLegendIndex}
+                    isHidden={getTrendsHidden(item)}
+                    toggleResultHidden={toggleResultHidden}
                     label={<div className="ml-2 font-normal">{label}</div>}
+                    disabledReason={editingDisabledReason}
                 />
             ) : (
                 label
@@ -187,8 +193,8 @@ export function InsightsTable({
                 render: (_, item: IndexedTrendResult) => <WorldMapColumnItem item={item} />,
                 key: 'breakdown_addendum',
                 sorter: (a, b) => {
-                    const labelA = COUNTRY_CODE_TO_LONG_NAME[a.breakdown_value as string]
-                    const labelB = COUNTRY_CODE_TO_LONG_NAME[b.breakdown_value as string]
+                    const labelA = COUNTRY_CODE_TO_LONG_NAME[a.breakdown_value as string] || ''
+                    const labelB = COUNTRY_CODE_TO_LONG_NAME[b.breakdown_value as string] || ''
                     return labelA.localeCompare(labelB)
                 },
             })
@@ -231,7 +237,9 @@ export function InsightsTable({
         })
     }
 
-    if (hasInsightColors && !isMainInsightView) {
+    // Do not show colors in the table when we display World map.
+    // It is a choropleth where colors don't represent categories
+    if (!isMainInsightView && !embedded && display !== ChartDisplayType.WorldMap) {
         columns.push({
             title: <ColorCustomizationColumnTitle />,
             render: (_, item) => <ColorCustomizationColumnItem item={item} />,
@@ -245,7 +253,9 @@ export function InsightsTable({
                 <AggregationColumnTitle
                     isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
                     aggregation={aggregation}
-                    setAggregationType={(state: CalcColumnState) => setAggregationType(state as AggregationType)}
+                    setAggregationType={(state: CalcColumnState) =>
+                        setDetailedResultsAggregationType(state as AggregationType)
+                    }
                 />
             ),
             render: (_: any, item: IndexedTrendResult) => (
@@ -264,6 +274,11 @@ export function InsightsTable({
     }
 
     const valueColumns: LemonTableColumn<IndexedTrendResult, any>[] = useMemo(() => {
+        // Don't show value columns for non-time-series displays like WorldMap and Heatmap
+        if (display === ChartDisplayType.WorldMap || display === ChartDisplayType.CalendarHeatmap) {
+            return []
+        }
+
         const results = indexedResults?.[0]?.data
         if (!results?.length) {
             return []
@@ -313,7 +328,7 @@ export function InsightsTable({
             dataSource={
                 isLegend || isMainInsightView
                     ? indexedResults
-                    : indexedResults.filter((r) => !hiddenLegendIndexes?.includes(r.id))
+                    : indexedResults.filter((dataset) => !getTrendsHidden(dataset))
             }
             embedded={embedded}
             columns={columns}
@@ -322,7 +337,7 @@ export function InsightsTable({
             disableTableWhileLoading={false}
             emptyState="No insight results"
             data-attr="insights-table-graph"
-            useURLForSorting={insightMode !== ItemMode.Edit}
+            useURLForSorting={!editMode}
             rowRibbonColor={
                 isLegend
                     ? (item) => {

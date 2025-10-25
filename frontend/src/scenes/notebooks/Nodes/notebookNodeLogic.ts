@@ -1,8 +1,8 @@
 import {
+    BuiltLogic,
     actions,
     afterMount,
     beforeUnmount,
-    BuiltLogic,
     connect,
     kea,
     key,
@@ -12,11 +12,11 @@ import {
     reducers,
     selectors,
 } from 'kea'
-import type { notebookNodeLogicType } from './notebookNodeLogicType'
-import { notebookLogicType } from '../Notebook/notebookLogicType'
 import posthog from 'posthog-js'
-import { NotebookNodeMessages, NotebookNodeMessagesListeners } from './messaging/notebook-node-messages'
+
 import { JSONContent, RichContentNode } from 'lib/components/RichContentEditor/types'
+
+import { notebookLogicType } from '../Notebook/notebookLogicType'
 import {
     CustomNotebookNodeAttributes,
     NotebookNodeAction,
@@ -26,6 +26,8 @@ import {
     NotebookNodeSettings,
     NotebookNodeType,
 } from '../types'
+import { NotebookNodeMessages, NotebookNodeMessagesListeners } from './messaging/notebook-node-messages'
+import type { notebookNodeLogicType } from './notebookNodeLogicType'
 
 export type NotebookNodeLogicProps = {
     nodeType: NotebookNodeType
@@ -49,10 +51,6 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         insertAfter: (content: JSONContent) => ({ content }),
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent) => ({ content, nodeType }),
         updateAttributes: (attributes: Partial<NotebookNodeAttributes<any>>) => ({ attributes }),
-        insertReplayCommentByTimestamp: (timestamp: number, sessionRecordingId: string) => ({
-            timestamp,
-            sessionRecordingId,
-        }),
         insertOrSelectNextLine: true,
         setPreviousNode: (node: RichContentNode | null) => ({ node }),
         setNextNode: (node: RichContentNode | null) => ({ node }),
@@ -136,6 +134,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         notebookLogic: [(_, p) => [p.notebookLogic], (notebookLogic) => notebookLogic],
         nodeAttributes: [(_, p) => [p.attributes], (nodeAttributes) => nodeAttributes],
         nodeId: [(_, p) => [p.attributes], (nodeAttributes): string => nodeAttributes.nodeId],
+        nodeType: [(_, p) => [p.nodeType], (nodeType) => nodeType],
         Settings: [() => [(_, props) => props], (props): NotebookNodeSettings | null => props.Settings ?? null],
 
         title: [
@@ -237,19 +236,6 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             }
             values.notebookLogic.actions.insertAfterLastNodeOfType(nodeType, content, insertionPosition)
         },
-
-        insertReplayCommentByTimestamp: ({ timestamp, sessionRecordingId }) => {
-            if (!props.getPos) {
-                return
-            }
-            const insertionPosition = props.getPos()
-            values.notebookLogic.actions.insertReplayCommentByTimestamp({
-                timestamp,
-                sessionRecordingId,
-                knownStartingPosition: insertionPosition,
-                nodeId: values.nodeId,
-            })
-        },
         insertOrSelectNextLine: () => {
             const pos = props.getPos?.()
             if (!pos || !values.isEditable) {
@@ -310,7 +296,11 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                         return ''
                     }
 
-                    return `${key}='${JSON.stringify(value)}'`
+                    if (key === 'title') {
+                        return `title='${JSON.stringify(value)}'`
+                    }
+
+                    return `${key}='${btoa(JSON.stringify(value))}'`
                 })
                 .filter((x) => !!x)
                 .join(' ')

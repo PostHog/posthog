@@ -1,16 +1,18 @@
-import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonInput } from '@posthog/lemon-ui'
+
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { INSIGHTS_PER_PAGE, eventInsightsLogic } from 'scenes/data-management/events/eventInsightsLogic'
+import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
+import { InsightIcon } from 'scenes/saved-insights/SavedInsights'
 import { urls } from 'scenes/urls'
 
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { EventDefinition, QueryBasedInsightModel } from '~/types'
-
-import { eventInsightsLogic, INSIGHTS_PER_PAGE } from 'scenes/data-management/events/eventInsightsLogic'
-import { InsightIcon } from 'scenes/saved-insights/SavedInsights'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { TZLabel } from 'lib/components/TZLabel'
 
 export function EventDefinitionInsights({ definition }: { definition: EventDefinition }): JSX.Element {
     const event = definition.name
@@ -58,11 +60,9 @@ export function EventDefinitionInsights({ definition }: { definition: EventDefin
     ]
 
     return (
-        <div className="saved-insights">
-            <h3>Insights using event</h3>
+        <SceneSection title="Insights using event" className="saved-insights">
             <LemonInput
                 type="search"
-                className="mb-2"
                 placeholder="Search..."
                 onChange={(value) => setFilters({ search: value })}
                 value={filters.search || ''}
@@ -101,6 +101,6 @@ export function EventDefinitionInsights({ definition }: { definition: EventDefin
                 useURLForSorting={false}
                 emptyState="No insights found"
             />
-        </div>
+        </SceneSection>
     )
 }

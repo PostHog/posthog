@@ -1,12 +1,13 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { dayjs } from 'lib/dayjs'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
 import { AppContext, TeamType } from '~/types'
 
 import { hogql } from './utils'
-import { getAppContext } from 'lib/utils/getAppContext'
 
 window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
 

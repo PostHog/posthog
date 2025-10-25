@@ -1,19 +1,20 @@
 from datetime import timedelta
 from functools import cached_property
 from typing import Any, Optional, cast
-from django.db import transaction
 
+from django.conf import settings
+from django.db import transaction
 from django.shortcuts import get_object_or_404
+
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated, BasePermission
+from rest_framework.permissions import BasePermission, IsAuthenticated
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
-from posthog.api.team import TeamSerializer, validate_team_attrs
-from ee.api.rbac.access_control import AccessControlViewSetMixin
-from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.api.team import TEAM_CONFIG_FIELDS_SET, TeamSerializer, validate_team_attrs
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
@@ -36,27 +37,25 @@ from posthog.models.product_intent.product_intent import (
     calculate_product_activation,
 )
 from posthog.models.project import Project
-from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
-from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data, actions_that_require_current_team
+from posthog.models.team.util import actions_that_require_current_team, delete_batch_exports, delete_bulky_postgres_data
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
+    CREATE_ACTIONS,
     APIScopePermission,
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
-    CREATE_ACTIONS,
     get_organization_from_view,
 )
-
+from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
-from posthog.utils import (
-    get_instance_realm,
-    get_ip_address,
-    get_week_start_for_country_code,
-)
-from posthog.api.team import TEAM_CONFIG_FIELDS_SET
+from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
+
+from ee.api.rbac.access_control import AccessControlViewSetMixin
+
+MAX_ALLOWED_PROJECTS_PER_ORG = 1500
 
 
 class ProjectSerializer(serializers.ModelSerializer):
@@ -72,6 +71,16 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     group_types = serializers.SerializerMethodField()  # Compat with TeamSerializer
     live_events_token = serializers.SerializerMethodField()  # Compat with TeamSerializer
     product_intents = serializers.SerializerMethodField()  # Compat with TeamSerializer
+
+    def validate_app_urls(self, value: list[str | None] | None) -> list[str] | None:
+        if value is None:
+            return value
+        return [url for url in value if url]
+
+    def validate_recording_domains(self, value: list[str | None] | None) -> list[str] | None:
+        if value is None:
+            return value
+        return [domain for domain in value if domain]
 
     class Meta:
         model = Project
@@ -230,6 +239,9 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         return ProductIntent.objects.filter(team=team).values(
             "product_type", "created_at", "onboarding_completed_at", "updated_at"
         )
+
+    def validate_access_control(self, value) -> None:
+        return TeamSerializer.validate_access_control(cast(TeamSerializer, self), value)
 
     @staticmethod
     def validate_session_recording_linked_flag(value) -> dict | None:
@@ -439,6 +451,9 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
             if scoped_organizations := self.request.successful_authenticator.personal_api_key.scoped_organizations:
                 queryset = queryset.filter(organization_id__in=scoped_organizations)
+        if isinstance(self.request.successful_authenticator, OAuthAccessTokenAuthentication):
+            if scoped_organizations := self.request.successful_authenticator.access_token.scoped_organizations:
+                queryset = queryset.filter(organization_id__in=scoped_organizations)
         return queryset.filter(id__in=visible_teams_ids)
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
@@ -511,6 +526,13 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         return project.teams.get(id=project.id)
 
     def perform_destroy(self, project: Project):
+        # Check if bulk deletion operations are disabled via environment variable
+        # Projects contain teams, so we need to block project deletion too
+        if settings.DISABLE_BULK_DELETES:
+            raise exceptions.ValidationError(
+                "Project deletion is temporarily disabled during database migration. Please try again later."
+            )
+
         project_id = project.pk
         organization_id = project.organization_id
         project_name = project.name
@@ -635,7 +657,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     @action(
         methods=["PATCH"],
         detail=True,
-        required_scopes=["team:read"],
+        required_scopes=["project:read"],
     )
     def add_product_intent(self, request: request.Request, *args, **kwargs):
         project = self.get_object()
@@ -660,7 +682,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     @action(
         methods=["PATCH"],
         detail=True,
-        required_scopes=["team:read"],
+        required_scopes=["project:read"],
     )
     def complete_product_onboarding(self, request: request.Request, *args, **kwargs):
         project = self.get_object()
@@ -801,7 +823,7 @@ class RootProjectViewSet(ProjectViewSet):
 class PremiumMultiProjectPermission(BasePermission):
     """Require user to have all necessary premium features on their plan for create access to the endpoint."""
 
-    message = "You must upgrade your PostHog plan to be able to create and manage more projects."
+    message = "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
 
     def has_permission(self, request: request.Request, view) -> bool:
         if view.action not in CREATE_ACTIONS:
@@ -819,10 +841,16 @@ class PremiumMultiProjectPermission(BasePermission):
 
         current_non_demo_project_count = organization.teams.exclude(is_demo=True).distinct("project_id").count()
         projects_feature = organization.get_available_feature(AvailableFeature.ORGANIZATIONS_PROJECTS)
+
         if projects_feature:
             allowed_project_count = projects_feature.get("limit")
             # If allowed_project_count is None then the user is allowed unlimited projects
             if allowed_project_count is None:
+                # We have a hard limit of MAX_ALLOWED_PROJECTS_PER_ORG projects per organization
+                # We don't want to block updates if a customer is already over the max allowed
+                if current_non_demo_project_count >= MAX_ALLOWED_PROJECTS_PER_ORG and view.action == "create":
+                    self.message = f"You have reached the maximum limit of {MAX_ALLOWED_PROJECTS_PER_ORG} projects per organization. Contact support if you'd like access to more projects."
+                    return False
                 return True
             # Check current limit against allowed limit
             if current_non_demo_project_count >= allowed_project_count:

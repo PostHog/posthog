@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
@@ -18,10 +19,10 @@ export interface FeatureFlagSnippet {
     instantlyAvailableProperties?: boolean
 }
 
-const LOCAL_EVAL_REMINDER = `Remember to set a personal API key in the SDK to enable local evaluation.
+const LOCAL_EVAL_REMINDER = `Remember to set a feature flags secure API key in the SDK to enable local evaluation.
 `
 
-const REMOTE_CONFIG_REMINDER = `Must initialize SDK with a personal API key to enable remote configuration.`
+const REMOTE_CONFIG_REMINDER = `Must initialize SDK with a feature flags secure API key to enable remote configuration.`
 const ENCRYPTED_PAYLOAD_REMINDER = `Encrypted payloads are automatically decrypted on the server before being sent to the client.`
 
 export function NodeJSSnippet({
@@ -478,6 +479,31 @@ if (${conditional}) {
                 {`${
                     localEvaluation ? '// ' + LOCAL_EVAL_REMINDER : ''
                 }var ${variableName} = ${flagSnippet}${followUpCode}`}
+            </CodeSnippet>
+        </>
+    )
+}
+
+export function JavaSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippet): JSX.Element {
+    const distinctId = 'user distinct id'
+    let snippet = ''
+    if (payload) {
+        snippet = `postHog.getFeatureFlagPayload("${distinctId}", "${flagKey}")`
+    } else if (multivariant) {
+        snippet = `Object flagValue = postHog.getFeatureFlag("${distinctId}", "${flagKey}");
+if ("example-variant".equals(flagValue)) {
+    // Do something differently for this user
+}`
+    } else {
+        snippet = `if (postHog.isFeatureEnabled("${distinctId}", "${flagKey}")) {
+    // Do something differently for this user
+}`
+    }
+
+    return (
+        <>
+            <CodeSnippet language={Language.Java} wrap>
+                {snippet}
             </CodeSnippet>
         </>
     )

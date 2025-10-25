@@ -1,17 +1,20 @@
+import { useState } from 'react'
+
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+
 import {
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { useState } from 'react'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { ISSUE_STATUS_OPTIONS } from '../utils'
-import { StatusIndicator } from './Indicator'
+import { StatusIndicator } from './Indicators'
 
 export const IssueStatusSelect = ({
     status,
@@ -54,23 +57,25 @@ function IssueStatusDropdown({
 }): JSX.Element {
     return (
         <DropdownMenuContent>
-            {options.map((option) => (
-                <DropdownMenuItem
-                    key={option}
-                    className="text-base text-secondary hover:bg-fill-button-tertiary-hover hover:text-fill-button-tertiary px-1"
-                    asChild
-                >
-                    <LemonButton
-                        fullWidth
-                        onClick={() => option !== status && onChange(option)}
-                        role="menuitem"
-                        size="xsmall"
-                        active={option === status}
+            <DropdownMenuGroup>
+                {options.map((option) => (
+                    <DropdownMenuItem
+                        key={option}
+                        className="text-base text-secondary hover:bg-fill-button-tertiary-hover hover:text-fill-button-tertiary px-1"
+                        asChild
                     >
-                        <StatusIndicator status={option} />
-                    </LemonButton>
-                </DropdownMenuItem>
-            ))}
+                        <LemonButton
+                            fullWidth
+                            onClick={() => option !== status && onChange(option)}
+                            role="menuitem"
+                            size="xsmall"
+                            active={option === status}
+                        >
+                            <StatusIndicator status={option} />
+                        </LemonButton>
+                    </DropdownMenuItem>
+                ))}
+            </DropdownMenuGroup>
         </DropdownMenuContent>
     )
 }

@@ -40,7 +40,8 @@ Properties are always associated with an event or entity. When looking for prope
     Properties of specific events. For example, if someone says "users who completed signup", you need to find the "signup" event and then get its properties.
     Use `retrieve_event_properties` with event_name="signup" to get properties of the signup event.
     Example: For filtering on the user's browser during signup, you might use the key $browser from the signup event.
-Here is a non-exhaustive list of known event names:
+
+Here is a non-exhaustive list of known **EVENT NAMES**:
 {{{events}}}
 
 If you find the event name the user is asking for in the list, use it to retrieve the event properties.
@@ -63,17 +64,33 @@ TAXONOMY_TOOL_USAGE_PROMPT = """
    - *CRITICAL*: NEVER use entity tools for event properties. NEVER use event tools for entity properties.
    - *CRITICAL*: DO NOT CALL A TOOL FOR THE SAME ENTITY, EVENT, OR PROPERTY MORE THAN ONCE. IF YOU HAVE NOT FOUND A MATCH YOU MUST TRY WITH THE NEXT BEST MATCH.
 
-4. **Value Handling**: CRITICAL: If found values aren't what the user asked for or none are found, YOU MUST USE THE USER'S ORIGINAL VALUE FROM THEIR QUERY. But if the user has not given a value then you ask the user for clarification.
+4. **Property Value Matching**:
+- IMPORTANT: If tool call returns property values that are related BUT NOT SYNONYMS to the user's requested value: USE USER'S ORIGINAL VALUE.
+For example, if the user asks for $browser to be "Chrome" and the tool call returns '"Firefox", "Safari"', use "Chrome" as the property value. Since "Chrome" is related to "Firefox" and "Safari" since they are all browsers.
+- IMPORTANT: If tool call returns property values that are synonyms, typos, or a variant of the user's requested value: USE FOUND VALUES
+For example the user asks for the city to be "New York" and the tool call returns "New York City", "NYC", use "New York City" as the property value. Since "New York" is related to "New York City" and "NYC" since they are all variants of New York.
 
+5. **Optimization**:
+- Remember that you are able to make parallel tool calls. This is a big performance improvement. Whenever it makes sense to do so, call multiple tools at once.
+- Always aim to optimize your tool calls. This will help you find the correct properties and values faster.
+
+6. **Filter Completion**:
+- Always aim to complete the filter as much as possible. This will help you meet the user's expectations.
+- If you have found most of the properties and values but you are still missing some, return the filter that you have found so far. The user can always ask you to add more properties and values later.
+- Be careful though, if you have not found most of the properties and values, you should use the `ask_user_for_help` tool to ask the user for more information.
+Example: If the user asks to filter for location, url type, date and browser type, and you could not find anything about the url you can return the filter you found.
+
+
+- If the tool call returns no values, you can retry with the next best property or entity.
 </tool_usage>
 """.strip()
 
 HUMAN_IN_THE_LOOP_PROMPT = """
 When you need clarification or determines that additional information is required, you can use the `ask_user_for_help` tool.
 **When to Ask for Help**:
-- Cannot infer the correct entity/group/event type
-- No properties found for the entity/group/event
-- Property values don't match user's request
+- Cannot infer the correct entity/group/event type.
+- Cannot infer the correct property for the entity/group/event.
+- No properties found for the entity/group/event.
 """.strip()
 
 

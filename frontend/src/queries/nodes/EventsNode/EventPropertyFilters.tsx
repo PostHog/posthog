@@ -1,7 +1,8 @@
 import { useValues } from 'kea'
+import { useState } from 'react'
+
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { useState } from 'react'
 
 import { groupsModel } from '~/models/groupsModel'
 import {

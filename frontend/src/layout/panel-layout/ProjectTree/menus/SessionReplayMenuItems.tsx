@@ -1,21 +1,24 @@
 import { useValues } from 'kea'
+import { combineUrl } from 'kea-router'
+
+import { IconChevronRight } from '@posthog/icons'
+
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenuItem,
-    DropdownMenuSub,
-    DropdownMenuSubTrigger,
-    DropdownMenuSubContent,
     DropdownMenuSeparator,
+    DropdownMenuSub,
+    DropdownMenuSubContent,
+    DropdownMenuSubTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
+import { sessionRecordingCollectionsLogic } from 'scenes/session-recordings/collections/sessionRecordingCollectionsLogic'
+import { sessionRecordingSavedFiltersLogic } from 'scenes/session-recordings/filters/sessionRecordingSavedFiltersLogic'
 import { urls } from 'scenes/urls'
 
 import { ReplayTabs } from '~/types'
 
 import { CustomMenuProps } from '../types'
-import { combineUrl } from 'kea-router'
-import { IconChevronRight } from '@posthog/icons'
 
 export function SessionReplayMenuItems({
     MenuItem = DropdownMenuItem,
@@ -25,12 +28,8 @@ export function SessionReplayMenuItems({
     MenuSeparator = DropdownMenuSeparator,
     onLinkClick,
 }: CustomMenuProps): JSX.Element {
-    const { savedFilters, savedFiltersLoading } = useValues(
-        savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home })
-    )
-    const { playlists, playlistsLoading } = useValues(
-        savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
-    )
+    const { savedFilters, savedFiltersLoading } = useValues(sessionRecordingSavedFiltersLogic)
+    const { playlists, playlistsLoading } = useValues(sessionRecordingCollectionsLogic)
 
     function handleKeyDown(e: React.KeyboardEvent<HTMLElement>): void {
         if (e.key === 'Enter' || e.key === ' ') {

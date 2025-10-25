@@ -1,3 +1,6 @@
+import { BindLogic, useActions, useValues } from 'kea'
+import { useCallback, useMemo } from 'react'
+
 import {
     LemonBadge,
     LemonButton,
@@ -8,13 +11,13 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+
+import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { useCallback, useMemo } from 'react'
-import { HogFunctionMetricSparkLine } from 'scenes/hog-functions/metrics/HogFunctionMetricsSparkline'
+import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionType } from '~/types'
@@ -25,7 +28,6 @@ import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
 import { HogFunctionOrderModal } from './HogFunctionOrderModal'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
 import { HogFunctionListLogicProps, hogFunctionsListLogic } from './hogFunctionsListLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const urlForHogFunction = (hogFunction: HogFunctionType): string => {
     if (hogFunction.id.startsWith('plugin-')) {
@@ -42,8 +44,9 @@ export function HogFunctionList({
     hideFeedback = false,
     ...props
 }: HogFunctionListLogicProps & { extraControls?: JSX.Element; hideFeedback?: boolean }): JSX.Element {
-    const { loading, filteredHogFunctions, filters, hogFunctions, canEnableHogFunction, hiddenHogFunctions } =
-        useValues(hogFunctionsListLogic(props))
+    const { loading, filteredHogFunctions, filters, hogFunctions, hiddenHogFunctions } = useValues(
+        hogFunctionsListLogic(props)
+    )
     const { loadHogFunctions, setFilters, resetFilters, toggleEnabled, deleteHogFunction, setReorderModalOpen } =
         useActions(hogFunctionsListLogic(props))
 
@@ -97,12 +100,43 @@ export function HogFunctionList({
                 title: 'Last 7 days',
                 width: 0,
                 render: (_, hogFunction) => {
+                    if (hogFunction.id.startsWith('batch-export-')) {
+                        // TODO: Make this less hacky, maybe with some extended type for managing these values
+                        const batchExportId = hogFunction.id.replace('batch-export-', '')
+                        return (
+                            <Link to={urlForHogFunction(hogFunction) + '?tab=metrics'}>
+                                <AppMetricsSparkline
+                                    logicKey={batchExportId}
+                                    forceParams={{
+                                        appSource: 'batch_export',
+                                        appSourceId: batchExportId,
+                                        metricKind: ['success', 'failure'],
+                                        breakdownBy: 'metric_kind',
+                                        interval: 'day',
+                                        dateFrom: '-7d',
+                                    }}
+                                />
+                            </Link>
+                        )
+                    }
+
                     if (isManualFunction(hogFunction) || hogFunction.type === 'site_app') {
                         return <>N/A</>
                     }
+
                     return (
                         <Link to={urlForHogFunction(hogFunction) + '?tab=metrics'}>
-                            <HogFunctionMetricSparkLine id={hogFunction.id} />
+                            <AppMetricsSparkline
+                                logicKey={hogFunction.id}
+                                forceParams={{
+                                    appSource: 'hog_function',
+                                    appSourceId: hogFunction.id,
+                                    metricKind: ['success', 'failure'],
+                                    breakdownBy: 'metric_kind',
+                                    interval: 'day',
+                                    dateFrom: '-7d',
+                                }}
+                            />
                         </Link>
                     )
                 },
@@ -136,10 +170,6 @@ export function HogFunctionList({
                                                   {
                                                       label: hogFunction.enabled ? 'Pause' : 'Unpause',
                                                       onClick: () => toggleEnabled(hogFunction, !hogFunction.enabled),
-                                                      disabledReason:
-                                                          !canEnableHogFunction(hogFunction) && !hogFunction.enabled
-                                                              ? `Data pipelines add-on is required for enabling new ${humanizedType}`
-                                                              : undefined,
                                                   },
                                                   {
                                                       label: 'Delete',
@@ -178,11 +208,11 @@ export function HogFunctionList({
         }
 
         return columns
-    }, [props.type, canEnableHogFunction, humanizedType, toggleEnabled, deleteHogFunction, isManualFunction]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [props.type, humanizedType, toggleEnabled, deleteHogFunction, isManualFunction]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
-        <>
-            <div className="flex gap-2 items-center mb-2">
+        <div className="flex flex-col gap-4">
+            <div className="flex gap-2 items-center">
                 <LemonInput
                     type="search"
                     placeholder="Search..."
@@ -239,7 +269,6 @@ export function HogFunctionList({
                 />
                 <HogFunctionOrderModal />
             </BindLogic>
-            <div className="mb-8" />
-        </>
+        </div>
     )
 }

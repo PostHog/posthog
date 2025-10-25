@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { router } from 'kea-router'
+
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
@@ -55,10 +56,10 @@ const DEFAULT_SLACK_INPUTS: Record<string, any> = {
 
 export const onboardingErrorTrackingAlertsLogic = kea<onboardingErrorTrackingAlertsLogicType>([
     path(['scenes', 'onboarding', 'error-tracking', 'onboardingErrorTrackingAlertsLogic']),
-    connect({
+    connect(() => ({
         values: [integrationsLogic, ['slackIntegrations', 'slackAvailable']],
         actions: [onboardingLogic, ['goToNextStep']],
-    }),
+    })),
     actions({
         setIntegration: (integration: ErrorTrackingAlertIntegrationType | null) => ({ integration }),
     }),

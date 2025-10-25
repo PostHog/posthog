@@ -1,5 +1,7 @@
-import { LemonColorButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonColorButton } from '@posthog/lemon-ui'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
@@ -11,7 +13,7 @@ export function ColorCustomizationColumnTitle(): JSX.Element {
 }
 
 export function ColorCustomizationColumnItem({ item }: { item: IndexedTrendResult }): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { getTrendsColor } = useValues(trendsDataLogic(insightProps))
     const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
 
@@ -28,6 +30,7 @@ export function ColorCustomizationColumnItem({ item }: { item: IndexedTrendResul
             }}
             type="tertiary"
             size="small"
+            disabledReason={editingDisabledReason}
         />
     )
 }

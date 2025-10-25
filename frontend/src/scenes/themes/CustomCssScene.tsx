@@ -1,14 +1,19 @@
-import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { PageHeader } from 'lib/components/PageHeader'
+
+import { IconWrench } from '@posthog/icons'
+import { LemonButton, Link } from '@posthog/lemon-ui'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { urls } from '../urls'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export const scene: SceneExport = {
     component: CustomCssScene,
@@ -91,11 +96,16 @@ export function CustomCssScene(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col deprecated-space-y-2">
-            <PageHeader
-                buttons={
+        <SceneContent>
+            <SceneTitleSection
+                name="Custom CSS"
+                resourceType={{
+                    type: 'customCss',
+                    forceIcon: <IconWrench />,
+                }}
+                actions={
                     <>
-                        <LemonButton type="secondary" onClick={onPreview}>
+                        <LemonButton type="secondary" onClick={onPreview} size="small">
                             Preview
                         </LemonButton>
                         <LemonButton
@@ -104,6 +114,7 @@ export function CustomCssScene(): JSX.Element {
                                 saveCustomCss()
                                 router.actions.push(urls.projectHomepage())
                             }}
+                            size="small"
                         >
                             Save and set
                         </LemonButton>
@@ -115,6 +126,7 @@ export function CustomCssScene(): JSX.Element {
                 our templates: <Link onClick={() => setPreviewingCustomCss(TRON_THEME)}>Tron</Link>,{' '}
                 <Link onClick={() => setPreviewingCustomCss(BARBIE_THEME)}>Barbie</Link>
             </p>
+            <SceneDivider />
             <CodeEditor
                 className="border"
                 language="css"
@@ -127,6 +139,6 @@ export function CustomCssScene(): JSX.Element {
                     },
                 }}
             />
-        </div>
+        </SceneContent>
     )
 }

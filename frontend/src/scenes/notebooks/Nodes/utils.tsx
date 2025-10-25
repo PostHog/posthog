@@ -1,14 +1,17 @@
 import { ExtendedRegExpMatchArray, InputRule, NodeViewProps, PasteRule } from '@tiptap/core'
-import posthog from 'posthog-js'
 import { NodeType } from '@tiptap/pm/model'
+import posthog from 'posthog-js'
 import { useCallback, useMemo, useRef } from 'react'
-import { tryJsonParse, uuid } from 'lib/utils'
+
 import { TTEditor } from 'lib/components/RichContentEditor/types'
+import { tryJsonParse, uuid } from 'lib/utils'
+
 import { CustomNotebookNodeAttributes, NotebookNodeAttributes } from '../types'
 
 export const INTEGER_REGEX_MATCH_GROUPS = '([0-9]*)(.*)'
 export const SHORT_CODE_REGEX_MATCH_GROUPS = '([0-9a-zA-Z]*)(.*)'
 export const UUID_REGEX_MATCH_GROUPS = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(.*)'
+export const OPTIONAL_PROJECT_NON_CAPTURE_GROUP = '(?:/project/[0-9]*)?'
 
 export function createUrlRegex(path: string | RegExp, origin?: string): RegExp {
     origin = (origin || window.location.origin).replace('.', '\\.')

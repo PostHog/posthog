@@ -12,12 +12,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from ..shared.enums import DifferenceType
-from ..shared.statistics import (
-    ProportionStatistic,
-    RatioStatistic,
-    SampleMeanStatistic,
-    StatisticError,
-)
+from ..shared.statistics import ProportionStatistic, RatioStatistic, SampleMeanStatistic, StatisticError
 from .priors import GaussianPrior
 from .utils import (
     calculate_effect_size_and_variance,

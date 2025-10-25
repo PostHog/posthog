@@ -3,9 +3,9 @@ import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { NodeKind, QuerySchema } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
+import { TileId, WEB_ANALYTICS_DATA_COLLECTION_NODE_ID, WebAnalyticsTile } from './common'
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
 import { pageReportsLogic } from './pageReportsLogic'
-import { TileId, WEB_ANALYTICS_DATA_COLLECTION_NODE_ID, WebAnalyticsTile } from './common'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 import type { webAnalyticsModalLogicType } from './webAnalyticsModalLogicType'
 
@@ -27,9 +27,9 @@ export interface WebAnalyticsModalQuery {
 export const webAnalyticsModalLogic = kea<webAnalyticsModalLogicType>([
     path(['scenes', 'webAnalytics', 'webAnalyticsModalLogic']),
 
-    connect({
+    connect(() => ({
         values: [webAnalyticsLogic, ['tiles as webAnalyticsTiles'], pageReportsLogic, ['tiles as pageReportsTiles']],
-    }),
+    })),
 
     actions({
         openModal: (tileId: TileId, tabId?: string) => ({ tileId, tabId }),

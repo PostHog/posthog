@@ -1,17 +1,20 @@
-import { LemonDialog } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { Editor, EmailEditorProps, EditorRef as _EditorRef } from 'react-email-editor'
+
+import { LemonDialog } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { objectsEqual } from 'lib/utils'
-import { MessageTemplate } from 'products/messaging/frontend/TemplateLibrary/messageTemplatesLogic'
-import { Editor, EditorRef as _EditorRef, EmailEditorProps } from 'react-email-editor'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } from '~/types'
 
-import type { emailTemplaterLogicType } from './emailTemplaterLogicType'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
+
 import { EmailTemplaterType } from './EmailTemplater'
+import type { emailTemplaterLogicType } from './emailTemplaterLogicType'
 
 export type UnlayerMergeTags = NonNullable<EmailEditorProps['options']>['mergeTags']
 
@@ -34,6 +37,9 @@ export interface EmailTemplaterLogicProps {
     onChange: (value: EmailTemplate) => void
     variables?: Record<string, any>
     type: EmailTemplaterType
+    defaultValue?: EmailTemplate | null
+    templating?: boolean | 'hog' | 'liquid'
+    onChangeTemplating?: (templating: 'hog' | 'liquid') => void
 }
 
 export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
@@ -48,6 +54,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         setIsModalOpen: (isModalOpen: boolean) => ({ isModalOpen }),
         applyTemplate: (template: MessageTemplate) => ({ template }),
         closeWithConfirmation: true,
+        setTemplatingEngine: (templating: 'hog' | 'liquid') => ({ templating }),
     }),
     reducers({
         emailEditorRef: [
@@ -73,6 +80,14 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             null as MessageTemplate | null,
             {
                 applyTemplate: (_, { template }) => template,
+            },
+        ],
+        templatingEngine: [
+            'liquid' as 'hog' | 'liquid',
+            {
+                setTemplatingEngine: (_, { templating }) => {
+                    return templating
+                },
             },
         ],
     }),
@@ -102,7 +117,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     })),
 
     selectors({
-        logicProps: [() => [(_, props) => props], (props): EmailTemplaterLogicProps => props],
+        logicProps: [() => [(_, props) => props], (props: EmailTemplaterLogicProps) => props],
         mergeTags: [
             (s) => [s.personPropertyDefinitions],
             (personPropertyDefinitions: PropertyDefinition[]): UnlayerMergeTags => {
@@ -138,26 +153,23 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
     forms(({ actions, values, props }) => ({
         emailTemplate: {
-            defaults: {
-                from: '',
-                subject: '',
-                to: '',
-                html: '',
-                design: null as object | null,
-                text: '',
-            } as EmailTemplate,
-            submit: async (value) => {
+            defaults: props.defaultValue as EmailTemplate,
+            submit: async (formValues: EmailTemplate | undefined) => {
+                if (!formValues) {
+                    return
+                }
                 const editor = values.emailEditorRef?.editor
                 if (!editor || !values.isEmailEditorReady) {
                     return
                 }
-                const [htmlData, textData] = await Promise.all([
-                    new Promise<any>((res) => editor.exportHtml(res)),
-                    new Promise<any>((res) => editor.exportPlainText(res)),
-                ])
+                const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
+                    await Promise.all([
+                        new Promise<any>((res) => editor.exportHtml(res)),
+                        new Promise<any>((res) => editor.exportPlainText(res)),
+                    ])
 
-                const finalValues = {
-                    ...value,
+                const finalValues: EmailTemplate = {
+                    ...formValues,
                     html: escapeHTMLStringCurlies(htmlData.html),
                     text: textData.text,
                     design: htmlData.design,

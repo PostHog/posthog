@@ -1,13 +1,14 @@
 from typing import Any
-from unittest.mock import patch, MagicMock, ANY
-
-from clickhouse_driver.errors import ServerException
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import ANY, MagicMock, patch
+
+import boto3
+from clickhouse_driver.errors import ServerException
+
+from posthog.settings import settings
 from posthog.warehouse.models import DataWarehouseTable
 from posthog.warehouse.models.external_data_source import ExternalDataSource
-import boto3
-from posthog.settings import settings
 
 
 class TestTable(APIBaseTest):
@@ -345,6 +346,19 @@ class TestTable(APIBaseTest):
         )
         assert response.status_code == 400
         assert response.json()["detail"] == "A table with this name already exists."
+
+    def test_update_table_name_to_same_name(self):
+        table = DataWarehouseTable.objects.create(
+            name="test_table", format="Parquet", team=self.team, team_id=self.team.pk, columns={}
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/warehouse_tables/{table.id}",
+            {
+                "name": "test_table",
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["name"] == "test_table"
 
     def test_update_table_name(self):
         table = DataWarehouseTable.objects.create(

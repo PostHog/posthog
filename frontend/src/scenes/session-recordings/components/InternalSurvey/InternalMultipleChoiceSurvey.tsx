@@ -1,18 +1,17 @@
 /**
  * @fileoverview A component that displays an interactive survey within a session recording. It handles survey display, user responses, and submission
  */
-import { LemonButton, LemonCheckbox, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { maxThreadLogic } from 'scenes/max/maxThreadLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
-import { SidePanelTab, SurveyQuestion, SurveyQuestionType } from '~/types'
+import { LemonButton, LemonCheckbox, LemonTextArea, Link } from '@posthog/lemon-ui'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+
+import { SurveyQuestion, SurveyQuestionType } from '~/types'
 
 import { internalMultipleChoiceSurveyLogic } from './internalMultipleChoiceSurveyLogic'
-import { maxLogic } from 'scenes/max/maxLogic'
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
-
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 interface InternalSurveyProps {
     surveyId: string
@@ -169,9 +168,7 @@ export function InternalMultipleChoiceSurvey({ surveyId }: InternalSurveyProps):
     const { survey, surveyResponse, showThankYouMessage, thankYouMessage, openChoice } = useValues(logic)
     const { handleChoiceChange, handleSurveyResponse, setOpenChoice } = useActions(logic)
 
-    const { threadLogicKey, conversation } = useValues(maxLogic)
-    const { askMax } = useActions(maxThreadLogic({ conversationId: threadLogicKey, conversation }))
-    const { openSidePanel } = useActions(sidePanelSettingsLogic)
+    const { askSidePanelMax } = useActions(maxGlobalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     //Because we want to run A/B test to see does it help users or not
@@ -244,8 +241,7 @@ export function InternalMultipleChoiceSurvey({ surveyId }: InternalSurveyProps):
                                                 }
                                                 type="secondary"
                                                 onClick={() => {
-                                                    openSidePanel(SidePanelTab.Max)
-                                                    askMax(
+                                                    askSidePanelMax(
                                                         `I am disabling session replay because of "${openChoice}". Go through PostHog documentation and find a solution to fix this.`
                                                     )
                                                 }}

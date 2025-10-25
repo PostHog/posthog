@@ -1,32 +1,33 @@
 import csv
+import time
 from datetime import datetime
 from io import StringIO
-from typing import TYPE_CHECKING, Any, Optional, TypeAlias
+from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
-import chdb
+
 from django.db import models
 from django.db.models import Q
+
+import chdb
+
+from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
+
+from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.models import FieldOrTable
+from posthog.hogql.database.s3_table import (
+    DataWarehouseTable as HogQLDataWarehouseTable,
+    build_function_call,
+)
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, wrap_query_error
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql import ast
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import (
-    FieldOrTable,
-)
-from posthog.hogql.database.s3_table import S3Table, build_function_call
 from posthog.models.team import Team
-from posthog.models.utils import (
-    CreatedMetaFields,
-    DeletedMetaFields,
-    UpdatedMetaFields,
-    UUIDModel,
-    sane_repr,
-)
-from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.settings import TEST
+from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.util import (
@@ -35,7 +36,6 @@ from posthog.warehouse.models.util import (
     clean_type,
     remove_named_tuples,
 )
-from posthog.sync import database_sync_to_async
 
 from .credential import DataWarehouseCredential
 from .external_table_definitions import external_tables
@@ -70,7 +70,7 @@ ExtractErrors = {
     "Rows have different amount of values": "The provided file has rows with different amount of values",
 }
 
-DataWarehouseTableColumns: TypeAlias = dict[str, dict[str, str | bool]] | dict[str, str]
+type DataWarehouseTableColumns = dict[str, dict[str, str | bool]] | dict[str, str]
 
 
 class DataWarehouseTableManager(models.Manager):
@@ -83,11 +83,14 @@ class DataWarehouseTableManager(models.Manager):
         )
 
 
-class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, DeletedMetaFields):
+class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
     # loading external_data_source and credentials is easily N+1,
     # so we have a custom object manager meaning people can't forget to load them
     # this also means we _always_ have two joins whenever we load tables
     objects = DataWarehouseTableManager()
+
+    # Use if it's certain externaldataschemas aren't needed
+    raw_objects = models.Manager()
 
     class TableFormat(models.TextChoices):
         CSV = "CSV", "CSV"
@@ -102,6 +105,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
 
     url_pattern = models.CharField(max_length=500)
+    queryable_folder = models.CharField(max_length=500, null=True, blank=True)
     credential = models.ForeignKey(DataWarehouseCredential, on_delete=models.CASCADE, null=True, blank=True)
 
     external_data_source = models.ForeignKey("ExternalDataSource", on_delete=models.CASCADE, null=True, blank=True)
@@ -165,10 +169,14 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         placeholder_context = HogQLContext(team_id=self.team.pk)
         s3_table_func = build_function_call(
             url=self.url_pattern,
-            format=self.format,
+            queryable_folder=self.queryable_folder,
+            format="Delta"  # Use deltaLake() to get table schema for evolved tables
+            if self.format == "DeltaS3Wrapper"
+            else self.format,
             access_key=self.credential.access_key,
             access_secret=self.credential.access_secret,
             context=placeholder_context,
+            table_size_mib=self.size_in_s3_mib,
         )
         try:
             # chdb hangs in CI during tests
@@ -179,29 +187,40 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
             # chdb doesn't support parameterized queries
             chdb_query = f"DESCRIBE TABLE (SELECT * FROM {s3_table_func} LIMIT 1)" % quoted_placeholders
 
+            # TODO: upgrade chdb once https://github.com/chdb-io/chdb/issues/342 is actually resolved
+            # See https://github.com/chdb-io/chdb/pull/374 for the fix
             chdb_result = chdb.query(chdb_query, output_format="CSV")
             reader = csv.reader(StringIO(str(chdb_result)))
             result = [tuple(row) for row in reader]
         except Exception as chdb_error:
             capture_exception(chdb_error)
 
-            try:
-                tag_queries(team_id=self.team.pk, table_id=self.id, warehouse_query=True)
+            tag_queries(team_id=self.team.pk, table_id=self.id, warehouse_query=True)
 
-                result = sync_execute(
-                    f"""DESCRIBE TABLE (
-                        SELECT *
-                        FROM {s3_table_func}
-                        LIMIT 1
-                    )""",
-                    args=placeholder_context.values,
-                )
-            except Exception as err:
-                capture_exception(err)
-                if safe_expose_ch_error:
-                    self._safe_expose_ch_error(err)
-                else:
-                    raise
+            # The cluster is a little broken right now, and so this can intermittently fail.
+            # See https://posthog.slack.com/archives/C076R4753Q8/p1756901693184169 for context
+            attempts = 5
+            for i in range(attempts):
+                try:
+                    result = sync_execute(
+                        f"""DESCRIBE TABLE (
+                            SELECT *
+                            FROM {s3_table_func}
+                            LIMIT 1
+                        )""",
+                        args=placeholder_context.values,
+                    )
+                    break
+                except Exception as err:
+                    if i >= attempts - 1:
+                        capture_exception(err)
+                        if safe_expose_ch_error:
+                            self._safe_expose_ch_error(err)
+                        else:
+                            raise
+
+                    # Pause execution slightly to not overload clickhouse
+                    time.sleep(2**i)
 
         if result is None or isinstance(result, int):
             raise Exception("No columns types provided by clickhouse in get_columns")
@@ -222,10 +241,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
             placeholder_context = HogQLContext(team_id=self.team.pk)
             s3_table_func = build_function_call(
                 url=self.url_pattern,
+                queryable_folder=self.queryable_folder,
                 format=self.format,
                 access_key=self.credential.access_key,
                 access_secret=self.credential.access_secret,
                 context=placeholder_context,
+                table_size_mib=self.size_in_s3_mib,
             )
 
             result = sync_execute(
@@ -242,10 +263,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         placeholder_context = HogQLContext(team_id=self.team.pk)
         s3_table_func = build_function_call(
             url=self.url_pattern,
+            queryable_folder=self.queryable_folder,
             format=self.format,
             access_key=self.credential.access_key,
             access_secret=self.credential.access_secret,
             context=placeholder_context,
+            table_size_mib=self.size_in_s3_mib,
         )
         try:
             # chdb hangs in CI during tests
@@ -283,10 +306,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
             placeholder_context = HogQLContext(team_id=self.team.pk)
             s3_table_func = build_function_call(
                 url=self.url_pattern,
+                queryable_folder=self.queryable_folder,
                 format=self.format,
                 access_key=self.credential.access_key,
                 access_secret=self.credential.access_secret,
                 context=placeholder_context,
+                table_size_mib=self.size_in_s3_mib,
             )
 
         except Exception as err:
@@ -294,7 +319,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
             raise
         return s3_table_func, placeholder_context
 
-    def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> S3Table:
+    def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> HogQLDataWarehouseTable:
         columns = self.columns or {}
 
         fields: dict[str, FieldOrTable] = {}
@@ -360,14 +385,16 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
             access_key = self.credential.access_key
             access_secret = self.credential.access_secret
 
-        return S3Table(
+        return HogQLDataWarehouseTable(
             name=self.name,
             url=self.url_pattern,
+            queryable_folder=self.queryable_folder,
             format=self.format,
             access_key=access_key,
             access_secret=access_secret,
             fields=fields,
             structure=", ".join(structure),
+            table_id=str(self.id),
         )
 
     def get_clickhouse_column_type(self, column_name: str) -> Optional[str]:

@@ -1,18 +1,27 @@
-import { IconGear } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 import { DismissableLayer } from '@radix-ui/react-dismissable-layer'
 import { useActions, useValues } from 'kea'
+
+import { IconGear } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 
 import { maxLogic } from '../maxLogic'
-import { SidebarQuestionInput } from './SidebarQuestionInput'
 import { FloatingSuggestionsDisplay } from './FloatingSuggestionsDisplay'
+import { SidebarQuestionInput } from './SidebarQuestionInput'
 
 export function SidebarQuestionInputWithSuggestions(): JSX.Element {
     const { dataProcessingAccepted, activeSuggestionGroup } = useValues(maxLogic)
     const { setActiveGroup } = useActions(maxLogic)
+    const { coreMemory, coreMemoryLoading } = useValues(maxSettingsLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
+
+    const tip =
+        !coreMemoryLoading && !coreMemory?.text
+            ? 'Tip: Run /init to initialize PostHog AI in this project'
+            : 'Try PostHog AI for…'
 
     return (
         <DismissableLayer
@@ -25,10 +34,9 @@ export function SidebarQuestionInputWithSuggestions(): JSX.Element {
         >
             <SidebarQuestionInput />
             <div className="flex flex-col items-center justify-center gap-y-2">
-                <h3 className="text-center text-xs font-medium mb-0 text-secondary">Ask Max about…</h3>
+                <h3 className="text-center text-xs font-medium mb-0 text-secondary">{tip}</h3>
                 <FloatingSuggestionsDisplay
                     type="secondary"
-                    showSuggestions
                     dataProcessingAccepted={dataProcessingAccepted}
                     additionalSuggestions={[
                         <LemonButton
@@ -39,7 +47,7 @@ export function SidebarQuestionInputWithSuggestions(): JSX.Element {
                             size="xsmall"
                             type="secondary"
                             icon={<IconGear />}
-                            tooltip="Edit Max's memory"
+                            tooltip="Edit PostHog AI memory"
                         />,
                     ]}
                 />

@@ -1,9 +1,11 @@
-import { IconCopy } from '@posthog/icons'
 import clsx from 'clsx'
+import React from 'react'
+
+import { IconCopy } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import React from 'react'
 
 interface InlinePropsBase {
     description?: string
@@ -20,6 +22,8 @@ interface InlinePropsBase {
     className?: string
     /** @deprecated */
     style?: React.CSSProperties
+    /** @default true */
+    iconMargin?: boolean
 }
 interface InlinePropsWithStringInside extends InlinePropsBase {
     children: string
@@ -44,6 +48,7 @@ export const CopyToClipboardInline = React.forwardRef<HTMLSpanElement, InlinePro
         iconSize = 'small',
         className,
         style,
+        iconMargin = true,
         ...props
     },
     ref
@@ -55,7 +60,7 @@ export const CopyToClipboardInline = React.forwardRef<HTMLSpanElement, InlinePro
             size={iconSize}
             icon={<IconCopy style={{ ...iconStyle }} />}
             noPadding
-            className="ml-1"
+            className={iconMargin ? 'ml-1' : undefined}
             data-attr="copy-icon"
             onClick={selectable || !children ? copy : undefined}
         />

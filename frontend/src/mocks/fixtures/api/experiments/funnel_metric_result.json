@@ -1,69 +1,67 @@
 {
-    "cache_key": "cache_ff3681af45bf90896cfea5a701aa3fbf",
-    "cache_target_age": "2025-06-04T14:39:45.256584Z",
-    "calculation_trigger": null,
-    "credible_intervals": {
-        "control": [0.23676884629536582, 0.3650951721229643],
-        "test-1": [0.350373407355112, 0.46516893753150507],
-        "test-2": [0.2430427139744995, 0.38105129282680306]
+    "baseline": {
+        "denominator_sum": null,
+        "denominator_sum_squares": null,
+        "key": "control",
+        "number_of_samples": 989,
+        "numerator_denominator_sum_product": null,
+        "sum": 859.0,
+        "sum_squares": 859.0,
+        "step_counts": [859],
+        "validation_failures": []
     },
-    "insight": [],
+    "cache_key": "cache_08a7b94252174a9400b06680a11683bd",
+    "cache_target_age": "2025-09-05T16:14:05.250745Z",
+    "calculation_trigger": null,
+    "credible_intervals": null,
+    "insight": null,
     "is_cached": true,
     "kind": "ExperimentQuery",
-    "last_refresh": "2025-06-03T14:39:45.256584Z",
-    "metric": {
-        "conversion_window": null,
-        "conversion_window_unit": null,
-        "kind": "ExperimentMetric",
-        "metric_type": "funnel",
-        "name": null,
-        "series": [
-            {
-                "custom_name": null,
-                "event": "signup completed",
-                "fixedProperties": null,
-                "kind": "EventsNode",
-                "limit": null,
-                "math": null,
-                "math_group_type_index": null,
-                "math_hogql": null,
-                "math_property": null,
-                "math_property_revenue_currency": null,
-                "math_property_type": null,
-                "name": null,
-                "orderBy": null,
-                "properties": null,
-                "response": null
-            }
-        ]
-    },
-    "next_allowed_client_refresh": "2025-06-03T14:40:45.256584Z",
-    "p_value": 0.0030372158042796535,
-    "probability": {
-        "control": 0.0055,
-        "test-1": 0.994,
-        "test-2": 0.5898
+    "last_refresh": "2025-09-04T16:14:05.250745Z",
+    "metric": null,
+    "next_allowed_client_refresh": "2025-09-04T16:15:05.250745Z",
+    "p_value": null,
+    "probability": null,
+    "query_metadata": {
+        "events": [],
+        "updated_at": "2025-09-04T16:14:11.089132Z"
     },
     "query_status": null,
-    "significance_code": "significant",
-    "significant": true,
-    "stats_version": 2,
+    "significance_code": null,
+    "significant": null,
+    "stats_version": null,
     "timezone": "UTC",
-    "variants": [
+    "variant_results": [
         {
-            "failure_count": 135.0,
-            "key": "control",
-            "success_count": 57.0
-        },
-        {
-            "failure_count": 165.0,
+            "chance_to_win": 0.00010223913233654233,
+            "credible_interval": [-0.10891502266388127, -0.03366202531112027],
+            "denominator_sum": null,
+            "denominator_sum_squares": null,
             "key": "test-1",
-            "success_count": 113.0
+            "method": "bayesian",
+            "number_of_samples": 874,
+            "numerator_denominator_sum_product": null,
+            "significant": true,
+            "sum": 705.0,
+            "sum_squares": 705.0,
+            "step_counts": [705],
+            "validation_failures": []
         },
         {
-            "failure_count": 117.0,
+            "chance_to_win": 0.9831535028773773,
+            "credible_interval": [0.002690288824904803, 0.06708670125273555],
+            "denominator_sum": null,
+            "denominator_sum_squares": null,
             "key": "test-2",
-            "success_count": 52.0
+            "method": "bayesian",
+            "number_of_samples": 1137,
+            "numerator_denominator_sum_product": null,
+            "significant": true,
+            "sum": 1022.0,
+            "sum_squares": 1022.0,
+            "step_counts": [1022],
+            "validation_failures": []
         }
-    ]
+    ],
+    "variants": null
 }

@@ -1,10 +1,16 @@
-import 'react-data-grid/lib/styles.css'
 import './DataGrid.scss'
+import 'react-data-grid/lib/styles.css'
+
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { useCallback, useMemo, useState } from 'react'
+import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
 
 import {
     IconBolt,
     IconBrackets,
     IconCode,
+    IconCode2,
     IconCopy,
     IconDownload,
     IconExpand45,
@@ -14,44 +20,48 @@ import {
     IconPlus,
     IconShare,
 } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
+
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
-
-import { IconTableChart } from 'lib/lemon-ui/icons'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { IconTableChart } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { useCallback, useMemo, useState } from 'react'
-import DataGrid, { SortColumn, RenderHeaderCellProps } from 'react-data-grid'
-import { DataGridProps } from 'react-data-grid'
+import { transformDataTableToDataTableRows } from 'lib/utils/dataTableTransformations'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
+import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
 import { Table } from '~/queries/nodes/DataVisualization/Components/Table'
 import { TableDisplay } from '~/queries/nodes/DataVisualization/Components/TableDisplay'
+import { seriesBreakdownLogic } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
 import { DataTableVisualizationProps } from '~/queries/nodes/DataVisualization/DataVisualization'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
+import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
+import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
+import { type DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { HogQLQueryResponse } from '~/queries/schema/schema-general'
 import { ChartDisplayType, ExporterFormat } from '~/types'
 
+import { copyTableToCsv, copyTableToExcel, copyTableToJson } from '../../../queries/nodes/DataTable/clipboardUtils'
+import TabScroller from './TabScroller'
 import { FixErrorButton } from './components/FixErrorButton'
 import { multitabEditorLogic } from './multitabEditorLogic'
-import { outputPaneLogic, OutputTab } from './outputPaneLogic'
-import { QueryInfo } from './sidebar/QueryInfo'
-import { QueryVariables } from './sidebar/QueryVariables'
-import TabScroller from './TabScroller'
-import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
+import { Endpoint } from './output-pane-tabs/Endpoint'
+import { QueryInfo } from './output-pane-tabs/QueryInfo'
+import { QueryVariables } from './output-pane-tabs/QueryVariables'
+import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 
 interface RowDetailsModalProps {
     isOpen: boolean
@@ -88,6 +98,29 @@ const CLICKHOUSE_TYPES = [
     'Decimal',
     'FixedString',
 ]
+
+const copyMap = {
+    [ExporterFormat.CSV]: {
+        label: 'CSV',
+        copyFn: copyTableToCsv,
+    },
+    [ExporterFormat.JSON]: {
+        label: 'JSON',
+        copyFn: copyTableToJson,
+    },
+    [ExporterFormat.XLSX]: {
+        label: 'Excel',
+        copyFn: copyTableToExcel,
+    },
+}
+
+const createDataTableQuery = (): DataTableNode => ({
+    kind: NodeKind.DataTableNode,
+    source: {
+        kind: NodeKind.HogQLQuery,
+        query: '',
+    },
+})
 
 const cleanClickhouseType = (type: string | undefined): string | undefined => {
     if (!type) {
@@ -174,7 +207,7 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
                                 </pre>
                             ) : (
                                 <div className="overflow-x-auto max-w-full">
-                                    <JSONViewer src={jsonValue} name={null} collapsed={1} />
+                                    <JSONViewer src={jsonValue} name={null} collapsed={1} sortKeys={true} />
                                 </div>
                             )}
                         </div>
@@ -253,21 +286,14 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
     )
 }
 
-export function OutputPane(): JSX.Element {
+export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
     const { editingView } = useValues(multitabEditorLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
-    const {
-        sourceQuery,
-        exportContext,
-        editorKey,
-        editingInsight,
-        updateInsightButtonEnabled,
-        showLegacyFilters,
-        localStorageResponse,
-        queryInput,
-    } = useValues(multitabEditorLogic)
+    const { sourceQuery, exportContext, editingInsight, updateInsightButtonEnabled, showLegacyFilters, queryInput } =
+        useValues(multitabEditorLogic)
     const { saveAsInsight, updateInsight, setSourceQuery, runQuery, shareTab } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
@@ -280,7 +306,7 @@ export function OutputPane(): JSX.Element {
     const { queryCancelled } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
 
-    const response = (dataNodeResponse ?? localStorageResponse) as HogQLQueryResponse | undefined
+    const response = dataNodeResponse as HogQLQueryResponse | undefined
 
     const [progressCache, setProgressCache] = useState<Record<string, number>>({})
 
@@ -456,23 +482,31 @@ export function OutputPane(): JSX.Element {
                             label: 'Materialization',
                             icon: <IconBolt />,
                         },
-                    ].map((tab) => (
-                        <div
-                            key={tab.key}
-                            className={clsx(
-                                'flex-1 flex-row flex items-center bold content-center px-2 pt-[3px] cursor-pointer border-b-[medium]',
-                                {
-                                    'font-semibold !border-brand-yellow': tab.key === activeTab,
-                                    'border-transparent': tab.key !== activeTab,
-                                    'opacity-50 cursor-not-allowed': tab.disabled,
-                                }
-                            )}
-                            onClick={() => !tab.disabled && setActiveTab(tab.key)}
-                        >
-                            <span className="mr-1">{tab.icon}</span>
-                            {tab.label}
-                        </div>
-                    ))}
+                        {
+                            key: OutputTab.Endpoint,
+                            label: 'Endpoint',
+                            icon: <IconCode2 />,
+                            flag: FEATURE_FLAGS.ENDPOINTS,
+                        },
+                    ]
+                        .filter((tab) => !tab.flag || featureFlags[tab.flag])
+                        .map((tab) => (
+                            <div
+                                key={tab.key}
+                                className={clsx(
+                                    'flex-1 flex-row flex items-center bold content-center px-2 pt-[3px] cursor-pointer border-b-[medium] whitespace-nowrap',
+                                    {
+                                        'font-semibold !border-brand-yellow': tab.key === activeTab,
+                                        'border-transparent': tab.key !== activeTab,
+                                        'opacity-50 cursor-not-allowed': tab.disabled,
+                                    }
+                                )}
+                                onClick={() => !tab.disabled && setActiveTab(tab.key)}
+                            >
+                                <span className="mr-1">{tab.icon}</span>
+                                {tab.label}
+                            </div>
+                        ))}
                 </div>
                 <div className="flex gap-2 py-2 px-4 flex-shrink-0">
                     {showLegacyFilters && (
@@ -556,6 +590,28 @@ export function OutputPane(): JSX.Element {
                             {editingInsight ? 'View insight' : 'Create insight'}
                         </LemonButton>
                     )}
+                    {activeTab === OutputTab.Results && (
+                        <LemonMenu
+                            items={Object.values(copyMap).map(({ label, copyFn }) => ({
+                                label,
+                                onClick: () => {
+                                    if (response?.columns && rows.length > 0) {
+                                        const dataTableRows = transformDataTableToDataTableRows(rows, response.columns)
+                                        const query = createDataTableQuery()
+                                        copyFn(dataTableRows, response.columns, query)
+                                    }
+                                },
+                            }))}
+                            placement="bottom-end"
+                        >
+                            <LemonButton
+                                id="sql-editor-copy-dropdown"
+                                disabledReason={!response?.columns || !rows.length ? 'No results to copy' : undefined}
+                                type="secondary"
+                                icon={<IconCopy />}
+                            />
+                        </LemonMenu>
+                    )}
                     {activeTab === OutputTab.Results && exportContext && (
                         <Tooltip title="Export the table results" className={!hasColumns ? 'hidden' : ''}>
                             <ExportButton
@@ -608,16 +664,17 @@ export function OutputPane(): JSX.Element {
                     saveAsInsight={saveAsInsight}
                     queryId={queryId}
                     pollResponse={pollResponse}
-                    editorKey={editorKey}
+                    tabId={tabId}
                     setProgress={setProgress}
                     progress={queryId ? progressCache[queryId] : undefined}
                 />
             </div>
             <div className="flex justify-between px-2 border-t">
-                <div>
-                    {response && !responseError ? <LoadPreviewText localResponse={localStorageResponse} /> : <></>}
+                <div>{response && !responseError ? <LoadPreviewText localResponse={response} /> : <></>}</div>
+                <div className="flex items-center gap-4">
+                    <ElapsedTime />
+                    {featureFlags[FEATURE_FLAGS.QUERY_EXECUTION_DETAILS] ? <QueryExecutionDetails /> : null}
                 </div>
-                <ElapsedTime />
             </div>
             <RowDetailsModal
                 isOpen={!!selectedRow}
@@ -632,8 +689,23 @@ export function OutputPane(): JSX.Element {
 function InternalDataTableVisualization(
     props: DataTableVisualizationProps & { onSaveInsight: () => void }
 ): JSX.Element | null {
-    const { query, visualizationType, showEditingUI, response, responseLoading, isChartSettingsPanelOpen } =
-        useValues(dataVisualizationLogic)
+    const {
+        query,
+        visualizationType,
+        showEditingUI,
+        response,
+        responseLoading,
+        isChartSettingsPanelOpen,
+        xData,
+        yData,
+        chartSettings,
+        dashboardId,
+        dataVisualizationProps,
+        presetChartHeight,
+    } = useValues(dataVisualizationLogic)
+
+    const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
+    const { goalLines } = useValues(displayLogic)
 
     let component: JSX.Element | null = null
 
@@ -651,6 +723,7 @@ function InternalDataTableVisualization(
                 query={query}
                 context={props.context}
                 cachedResults={props.cachedResults as HogQLQueryResponse | undefined}
+                embedded
             />
         )
     } else if (
@@ -659,7 +732,20 @@ function InternalDataTableVisualization(
         visualizationType === ChartDisplayType.ActionsAreaGraph ||
         visualizationType === ChartDisplayType.ActionsStackedBar
     ) {
-        component = <LineGraph />
+        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
+        const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
+        component = (
+            <LineGraph
+                className="p-2"
+                xData={_xData}
+                yData={_yData}
+                visualizationType={visualizationType}
+                chartSettings={chartSettings}
+                dashboardId={dashboardId}
+                goalLines={goalLines}
+                presetChartHeight={presetChartHeight}
+            />
+        )
     } else if (visualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
     }
@@ -667,11 +753,12 @@ function InternalDataTableVisualization(
     return (
         <div className="DataVisualization h-full hide-scrollbar flex flex-1 gap-2">
             <div className="relative w-full flex flex-col gap-4 flex-1">
-                <div className="flex flex-1 flex-row gap-4 overflow-auto hide-scrollbar">
+                <div className="flex flex-1 flex-row overflow-auto hide-scrollbar">
                     {isChartSettingsPanelOpen && (
-                        <div>
+                        <>
                             <SideBar />
-                        </div>
+                            <LemonDivider vertical className="h-full" />
+                        </>
                     )}
                     <div className={clsx('w-full h-full flex-1 overflow-auto')}>{component}</div>
                 </div>
@@ -693,6 +780,7 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
                 query={sourceQuery}
                 excludeDetail
                 title={error}
+                excludeActions={queryCancelled} // Don't display fix/debugger buttons if the query was cancelled
                 fixWithAIComponent={
                     <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
                 }
@@ -712,7 +800,7 @@ const Content = ({
     rows,
     isDarkModeOn,
     vizKey,
-    editorKey,
+    tabId,
     setSourceQuery,
     exportContext,
     saveAsInsight,
@@ -723,6 +811,8 @@ const Content = ({
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
     const { editingView } = useValues(multitabEditorLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const sortedRows = useMemo(() => {
         if (!sortColumns.length) {
@@ -754,7 +844,7 @@ const Content = ({
         return (
             <TabScroller>
                 <div className="px-6 py-4 border-t">
-                    <QueryInfo codeEditorKey={editorKey} />
+                    <QueryInfo tabId={tabId} />
                 </div>
             </TabScroller>
         )
@@ -772,6 +862,15 @@ const Content = ({
             <TabScroller>
                 <div className="px-6 py-4 border-t max-w-1/2">
                     <QueryVariables />
+                </div>
+            </TabScroller>
+        )
+    }
+    if (featureFlags[FEATURE_FLAGS.ENDPOINTS] && activeTab === OutputTab.Endpoint) {
+        return (
+            <TabScroller>
+                <div className="px-6 py-4 border-t">
+                    <Endpoint tabId={tabId} />
                 </div>
             </TabScroller>
         )
@@ -834,7 +933,7 @@ const Content = ({
 
     if (activeTab === OutputTab.Visualization) {
         return (
-            <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar border-t">
+            <div className="flex-1 absolute inset-0 hide-scrollbar border-t">
                 <InternalDataTableVisualization
                     uniqueKey={vizKey}
                     query={sourceQuery}
@@ -843,6 +942,7 @@ const Content = ({
                     cachedResults={undefined}
                     exportContext={exportContext}
                     onSaveInsight={saveAsInsight}
+                    editMode
                 />
             </div>
         )

@@ -5,21 +5,14 @@ This module tests all Bayesian classes for correctness of calculations,
 validation, and edge case handling.
 """
 
+import pytest
 from unittest import TestCase
 
 import numpy as np
-import pytest
 
-from products.experiments.stats.bayesian.method import (
-    BayesianConfig,
-    BayesianMethod,
-    PriorType,
-)
+from products.experiments.stats.bayesian.method import BayesianConfig, BayesianMethod, PriorType
 from products.experiments.stats.bayesian.priors import GaussianPrior
-from products.experiments.stats.bayesian.tests import (
-    BayesianGaussianTest,
-    BayesianResult,
-)
+from products.experiments.stats.bayesian.tests import BayesianGaussianTest, BayesianResult
 from products.experiments.stats.bayesian.utils import (
     calculate_effect_size_and_variance,
     calculate_posterior,

@@ -1,8 +1,12 @@
 import './TaxonomicFilter.scss'
 
-import { IconKeyboard } from '@posthog/icons'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
+
+import { IconKeyboard } from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
+
 import {
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
@@ -10,7 +14,8 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { LemonInput, LemonInputPropsText } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Tooltip, TooltipProps } from 'lib/lemon-ui/Tooltip'
-import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
+import { Icon123 } from 'lib/lemon-ui/icons'
+import { urls } from 'scenes/urls'
 
 import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { defaultDataWarehousePopoverFields, taxonomicFilterLogic } from './taxonomicFilterLogic'
@@ -32,6 +37,7 @@ export function TaxonomicFilter({
     height,
     width,
     excludedProperties,
+    selectedProperties,
     popoverEnabled = true,
     selectFirstItem = true,
     propertyAllowList,
@@ -64,6 +70,7 @@ export function TaxonomicFilter({
         popoverEnabled,
         selectFirstItem,
         excludedProperties,
+        selectedProperties,
         metadataSource,
         propertyAllowList,
         hideBehavioralCohorts,
@@ -136,7 +143,7 @@ export const TaxonomicFilterSearchInput = forwardRef<
     } & Pick<LemonInputPropsText, 'onClick' | 'size' | 'prefix' | 'fullWidth' | 'onChange'> &
         Pick<TooltipProps, 'docLink'>
 >(function UniversalSearchInput({ searchInputRef, onClose, onChange, docLink, ...props }, ref): JSX.Element {
-    const { searchQuery, searchPlaceholder } = useValues(taxonomicFilterLogic)
+    const { searchQuery, searchPlaceholder, showNumericalPropsOnly } = useValues(taxonomicFilterLogic)
     const {
         setSearchQuery: setTaxonomicSearchQuery,
         moveUp,
@@ -161,15 +168,35 @@ export const TaxonomicFilterSearchInput = forwardRef<
             placeholder={`Search ${searchPlaceholder}`}
             value={searchQuery}
             suffix={
-                <Tooltip
-                    title={
-                        'Fuzzy text search, or filter by specific properties and values.' +
-                        (docLink ? ' Check the documentation for more information.' : '')
-                    }
-                    docLink={docLink}
-                >
-                    <IconKeyboard style={{ fontSize: '1.2rem' }} className="text-secondary" />
-                </Tooltip>
+                <>
+                    {showNumericalPropsOnly && (
+                        <Tooltip
+                            title={
+                                <span>
+                                    This filter only shows numerical properties. If you're not seeing your property
+                                    here, make sure it's properly set as numeric in the{' '}
+                                    <Link to={urls.propertyDefinitions()} target="_blank">
+                                        Property Definitions
+                                    </Link>{' '}
+                                    page.
+                                </span>
+                            }
+                        >
+                            <span>
+                                <Icon123 style={{ fontSize: '1.2rem' }} className="text-secondary" />
+                            </span>
+                        </Tooltip>
+                    )}
+                    <Tooltip
+                        title={
+                            'Fuzzy text search, or filter by specific properties and values.' +
+                            (docLink ? ' Check the documentation for more information.' : '')
+                        }
+                        docLink={docLink}
+                    >
+                        <IconKeyboard style={{ fontSize: '1.2rem' }} className="text-secondary" />
+                    </Tooltip>
+                </>
             }
             onKeyDown={(e) => {
                 let shouldPreventDefault = true

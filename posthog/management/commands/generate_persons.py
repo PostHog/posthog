@@ -1,7 +1,9 @@
 import random
 from typing import Any
+
 from django.core.management.base import BaseCommand
-from django.db import transaction
+from django.db import router, transaction
+
 from posthog.models import Person, PersonDistinctId, Team
 from posthog.models.utils import UUIDT
 
@@ -61,8 +63,10 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"Generating {count} persons for team: {team.name}"))
 
         # Generate persons
+        # Use the correct database for Person writes (handles persons_db_writer routing in production)
+        db_alias = router.db_for_write(Person) or "default"
         persons_created = 0
-        with transaction.atomic():
+        with transaction.atomic(using=db_alias):
             for i in range(count):
                 person_data = self._generate_person_data(i, identified_ratio)
 
@@ -845,8 +849,9 @@ class Command(BaseCommand):
 
     def _generate_events_for_persons(self, team: Team, person_count: int):
         """Generate some basic events for the persons"""
-        from posthog.models.event.util import create_event
         from uuid import uuid4
+
+        from posthog.models.event.util import create_event
 
         event_types = ["pageview", "click", "form_submit", "signup", "purchase", "download"]
         pages = ["/", "/pricing", "/features", "/about", "/contact", "/blog", "/docs"]

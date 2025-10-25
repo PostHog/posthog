@@ -1,4 +1,6 @@
 import equal from 'fast-deep-equal'
+
+import { ApiError } from 'lib/api'
 import { getEventNamesForAction } from 'lib/utils'
 
 import { examples } from '~/queries/examples'
@@ -25,7 +27,6 @@ import {
 
 import { nodeKindToDefaultQuery } from '../InsightQuery/defaults'
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
-import { ApiError } from 'lib/api'
 
 export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType[]): string[] => {
     if (!isInsightQueryWithSeries(query)) {
@@ -146,8 +147,6 @@ export const getDefaultQuery = (
             return queryFromKind(NodeKind.StickinessQuery, filterTestAccountsDefault)
         } else if (insightType === InsightType.LIFECYCLE) {
             return queryFromKind(NodeKind.LifecycleQuery, filterTestAccountsDefault)
-        } else if (insightType === InsightType.CALENDAR_HEATMAP) {
-            return queryFromKind(NodeKind.CalendarHeatmapQuery, filterTestAccountsDefault)
         }
     }
 
@@ -184,4 +183,12 @@ export const extractValidationError = (error: Error | Record<string, any> | null
     }
 
     return null
+}
+
+export const isTimeoutError = (error: Error | Record<string, any> | null | undefined): boolean => {
+    if (error instanceof ApiError || (error && typeof error === 'object' && 'status' in error)) {
+        return error?.status === 512
+    }
+
+    return false
 }

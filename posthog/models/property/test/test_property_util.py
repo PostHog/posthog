@@ -1,10 +1,10 @@
 import pytest
-
-from unittest.mock import MagicMock
 from posthog.test.base import BaseTest
+from unittest.mock import MagicMock
+
+from posthog.schema import ErrorTrackingIssueFilter, PropertyOperator
 
 from posthog.models.property.util import property_to_django_filter
-from posthog.schema import ErrorTrackingIssueFilter, PropertyOperator
 
 
 class TestPropertyUtil(BaseTest):

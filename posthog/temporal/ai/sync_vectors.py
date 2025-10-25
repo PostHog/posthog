@@ -1,29 +1,31 @@
-import asyncio
 import json
+import asyncio
 from collections.abc import Coroutine
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, cast
 
-import posthoganalytics
-import structlog
-import temporalio.activity
-import temporalio.common
-import temporalio.exceptions
-import temporalio.workflow
-from azure.core import exceptions as azure_exceptions
 from django.db.models import F, Q
+
+import structlog
+import posthoganalytics
+import temporalio.common
+import temporalio.activity
+import temporalio.workflow
+import temporalio.exceptions
+from azure.core import exceptions as azure_exceptions
 from openai import APIError as OpenAIAPIError
 
-from ee.hogai.summarizers.chains import abatch_summarize_actions
-from ee.hogai.utils.embeddings import aembed_documents, get_async_azure_embeddings_client
-from posthog.clickhouse.query_tagging import tag_queries, Product
+from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Action
 from posthog.models.ai.pg_embeddings import INSERT_BULK_PG_EMBEDDINGS_SQL
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import ClickHouseClient, get_client
 from posthog.temporal.common.utils import get_scheduled_start_time
+
+from ee.hogai.summarizers.chains import abatch_summarize_actions
+from ee.hogai.utils.embeddings import aembed_documents, get_async_azure_embeddings_client
 
 logger = structlog.get_logger(__name__)
 
@@ -292,6 +294,8 @@ async def batch_embed_and_sync_actions(inputs: BatchEmbedAndSyncActionsInputs) -
     embedded_actions: list[tuple[dict[str, Any], list[float]]] = []
 
     while offset < inputs.insert_batch_size:
+        temporalio.activity.heartbeat()
+
         qs_slice = [
             cast(dict[str, Any], action) async for action in actions_to_sync_qs[offset : offset + actions_batch_size]
         ]
@@ -314,6 +318,7 @@ async def batch_embed_and_sync_actions(inputs: BatchEmbedAndSyncActionsInputs) -
         start_dt=inputs.start_dt,
         actions_count=len(embedded_actions),
     )
+    temporalio.activity.heartbeat()
 
     async with get_client() as client:
         await sync_action_vectors(
@@ -403,12 +408,14 @@ class SyncVectorsWorkflow(PostHogWorkflow):
                     max_parallel_requests=inputs.max_parallel_requests,
                     embedding_version=inputs.embedding_versions.actions if inputs.embedding_versions else None,
                 ),
-                start_to_close_timeout=timedelta(minutes=5),
+                start_to_close_timeout=timedelta(minutes=30),
                 retry_policy=temporalio.common.RetryPolicy(
                     initial_interval=timedelta(seconds=30),
                     maximum_attempts=3,
                     non_retryable_error_types=("ClientAuthenticationError",),
                 ),
+                # Azure requests take quite a while to complete, so we need to heartbeat to avoid timeouts.
+                heartbeat_timeout=timedelta(minutes=5),
             )
             if not res.has_more:
                 break

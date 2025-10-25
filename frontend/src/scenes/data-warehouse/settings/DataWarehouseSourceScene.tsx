@@ -1,12 +1,16 @@
 import { actions, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
+
 import { NotFound } from 'lib/components/NotFound'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { DataPipelinesSelfManagedSource } from 'scenes/data-pipelines/DataPipelinesSelfManagedSource'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, PipelineTab } from '~/types'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { Breadcrumb } from '~/types'
 
 import type { dataWarehouseSourceSceneLogicType } from './DataWarehouseSourceSceneType'
 import { Schemas } from './source/Schemas'
@@ -52,18 +56,21 @@ export const dataWarehouseSourceSceneLogic = kea<dataWarehouseSourceSceneLogicTy
             (breadcrumbName): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.Pipeline,
+                        key: Scene.DataPipelines,
                         name: 'Data pipelines',
-                        path: urls.pipeline(PipelineTab.Overview),
+                        path: urls.dataPipelines('overview'),
+                        iconType: 'data_pipeline',
                     },
                     {
-                        key: Scene.Pipeline,
+                        key: [Scene.DataPipelines, 'sources'],
                         name: `Sources`,
-                        path: urls.pipeline(PipelineTab.Sources),
+                        path: urls.dataPipelines('sources'),
+                        iconType: 'data_pipeline',
                     },
                     {
                         key: Scene.DataWarehouseSource,
                         name: breadcrumbName,
+                        iconType: 'data_pipeline',
                     },
                 ]
             },
@@ -76,7 +83,7 @@ export const dataWarehouseSourceSceneLogic = kea<dataWarehouseSourceSceneLogicTy
     })),
     urlToAction(({ actions, values }) => {
         return {
-            [urls.dataWarehouseSource(':id', ':tab')]: (params): void => {
+            [urls.dataWarehouseSource(':id', ':tab' as any)]: (params): void => {
                 let possibleTab = (params.tab ?? 'configuration') as DataWarehouseSourceSceneTab
 
                 if (params.id?.startsWith('self-managed-')) {
@@ -92,14 +99,14 @@ export const dataWarehouseSourceSceneLogic = kea<dataWarehouseSourceSceneLogicTy
     }),
 ])
 
-export const scene: SceneExport = {
+export const scene: SceneExport<(typeof dataWarehouseSourceSceneLogic)['props']> = {
     component: DataWarehouseSourceScene,
     logic: dataWarehouseSourceSceneLogic,
-    paramsToProps: ({ params: { id } }): (typeof dataWarehouseSourceSceneLogic)['props'] => ({ id }),
+    paramsToProps: ({ params: { id } }) => ({ id }),
 }
 
 export function DataWarehouseSourceScene(): JSX.Element {
-    const { currentTab, logicProps } = useValues(dataWarehouseSourceSceneLogic)
+    const { currentTab, logicProps, breadcrumbName } = useValues(dataWarehouseSourceSceneLogic)
     const { setCurrentTab } = useActions(dataWarehouseSourceSceneLogic)
     const { id } = logicProps
 
@@ -135,5 +142,15 @@ export function DataWarehouseSourceScene(): JSX.Element {
               },
           ]
 
-    return <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} />
+    return (
+        <SceneContent>
+            <SceneTitleSection
+                name={breadcrumbName}
+                resourceType={{ type: 'data_pipeline' }}
+                isLoading={breadcrumbName === 'Source'}
+            />
+            <SceneDivider />
+            <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
+        </SceneContent>
+    )
 }

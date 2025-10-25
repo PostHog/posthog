@@ -1,8 +1,10 @@
+import { useEffect, useState } from 'react'
+
 import { LemonCalendarSelectInput } from '@posthog/lemon-ui'
+
 import { PropertyValueProps } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { dayjs } from 'lib/dayjs'
 import { isOperatorDate } from 'lib/utils'
-import { useEffect, useState } from 'react'
 
 import { PropertyFilterValue, PropertyOperator } from '~/types'
 

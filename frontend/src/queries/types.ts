@@ -1,5 +1,7 @@
 import { ComponentType, HTMLProps } from 'react'
 
+import { ExpandableConfig } from 'lib/lemon-ui/LemonTable'
+
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import {
     DataTableNode,
@@ -9,7 +11,9 @@ import {
     RefreshType,
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps, TrendResult } from '~/types'
+
 import { ColumnFeature } from './nodes/DataTable/DataTable'
+import { DataTableRow } from './nodes/DataTable/dataTableLogic'
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
 export interface QueryContext<Q extends QuerySchema = QuerySchema> {
@@ -42,6 +46,10 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     columnFeatures?: ColumnFeature[]
     /** Key to be used in dataNodeLogic so that we can find the dataNodeLogic */
     dataNodeLogicKey?: string
+    /** Override the maximum pagination limit for Data Tables. */
+    dataTableMaxPaginationLimit?: number
+    /** Custom expandable config for DataTable rows */
+    expandable?: ExpandableConfig<DataTableRow>
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

@@ -1,4 +1,5 @@
 import '~/styles'
+
 import './styles.scss'
 
 import { KeaPlugin, resetContext } from 'kea'
@@ -12,6 +13,7 @@ import { windowValuesPlugin } from 'kea-window-values'
 import type { PostHog } from 'posthog-js'
 import { createRoot } from 'react-dom/client'
 
+import { disposablesPlugin } from '~/kea-disposables'
 import { ToolbarApp } from '~/toolbar/ToolbarApp'
 import { ToolbarParams } from '~/types'
 
@@ -25,6 +27,7 @@ interface InitKeaProps {
 const initKeaInToolbar = ({ routerHistory, routerLocation, beforePlugins }: InitKeaProps = {}): void => {
     const plugins = [
         ...(beforePlugins || []),
+        disposablesPlugin,
         localStoragePlugin(),
         windowValuesPlugin({ window: window }),
         routerPlugin({

@@ -1,12 +1,7 @@
 import json
+import math
 from enum import StrEnum
-from typing import (
-    Any,
-    Literal,
-    Optional,
-    Union,
-    cast,
-)
+from typing import Any, Literal, Optional, Union, cast
 
 from posthog.constants import PropertyOperatorType
 from posthog.models.filters.mixins.utils import cached_property
@@ -312,7 +307,7 @@ class Property:
         return {key: value for key, value in vars(self).items() if value is not None}
 
     @staticmethod
-    def _parse_value(value: ValueT, convert_to_number: bool = False) -> Any:
+    def _parse_value(value: Any, convert_to_number: bool = False) -> Any:
         if isinstance(value, list):
             return [Property._parse_value(v, convert_to_number) for v in value]
         if value == "true" or value == "True":
@@ -328,13 +323,21 @@ class Property:
         if not convert_to_number:
             try:
                 # tests if string is a number & returns string if it is a number
-                float(value)
-                return value
+                float_val = float(value)
+                # Don't convert scientific notation that becomes infinity
+                if math.isinf(float_val):
+                    pass  # Continue to try JSON parsing
+                else:
+                    return value
             except (ValueError, TypeError):
                 pass
 
         try:
-            return json.loads(value)
+            parsed = json.loads(value)
+            # Don't allow infinity values from json parsing either
+            if isinstance(parsed, int | float) and math.isinf(parsed):
+                return value
+            return parsed
         except (json.JSONDecodeError, TypeError):
             return value
 

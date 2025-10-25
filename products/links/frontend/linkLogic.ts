@@ -1,8 +1,10 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -112,10 +114,12 @@ export const linkLogic = kea<linkLogicType>([
                     key: 'Link',
                     name: 'Link Management',
                     path: urls.links(),
+                    iconType: 'link',
                 },
                 {
                     key: ['Link', link.id || 'new'],
                     name: `${link.short_code} (${link.redirect_url})`,
+                    iconType: 'link',
                 },
             ],
         ],

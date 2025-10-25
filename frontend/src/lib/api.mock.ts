@@ -49,7 +49,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     api_token: 'default-team-api-token',
     secret_api_token: 'phs_default-team-secret-api-token',
     secret_api_token_backup: 'phs_default-team-secret-api-token-backup',
-    app_urls: ['https://posthog.com/', 'https://app.posthog.com'],
+    app_urls: ['https://posthog.com/', 'https://app.posthog.com', 'https://example.com'],
     recording_domains: ['https://recordings.posthog.com/'],
     name: 'MockHog App + Marketing',
     slack_incoming_webhook: '',
@@ -86,6 +86,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     session_recording_masking_config: {
         maskAllInputs: true,
     },
+    session_recording_retention_period: '30d',
     session_replay_config: null,
     capture_console_log_opt_in: true,
     capture_performance_opt_in: true,
@@ -95,7 +96,6 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     autocapture_exceptions_errors_to_ignore: [],
     effective_membership_level: OrganizationMembershipLevel.Admin,
     user_access_level: AccessControlLevel.Admin,
-    access_control: true,
     group_types: [
         {
             group_type: 'organization',
@@ -135,26 +135,48 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
                 eventName: 'purchase',
                 revenueProperty: 'value',
                 revenueCurrencyProperty: { static: CurrencyCode.ZAR },
+                subscriptionDropoffDays: 45,
+                subscriptionDropoffMode: 'last_event',
                 currencyAwareDecimal: false,
             },
             {
                 eventName: 'subscription_created',
                 revenueProperty: 'subscription_value',
                 revenueCurrencyProperty: { property: 'currency' },
+                subscriptionDropoffDays: 45,
+                subscriptionDropoffMode: 'after_dropoff_period',
                 currencyAwareDecimal: true,
             },
         ],
         filter_test_accounts: false,
         goals: [
+            // Past goal
             {
                 due_date: '2020-12-31',
                 name: '2020 Q4',
                 goal: 1_000_000,
+                mrr_or_gross: 'gross',
             },
+            // Very in the future to avoid flappy snapshots until 2035, assuming I'll be a multimillionaire by then and wont have to handle this
+            // These are both "Current" goals since they're for the same day
             {
-                due_date: '2035-12-31', // Very in the future to avoid flappy snapshots until 2035, assuming I'll be a multimillionaire by then and wont have to handle this
+                due_date: '2035-12-31',
                 name: '2035 Q4',
                 goal: 1_500_000,
+                mrr_or_gross: 'gross',
+            },
+            {
+                due_date: '2035-12-31',
+                name: '2035 Q4 MRR',
+                goal: 1_200_000,
+                mrr_or_gross: 'mrr',
+            },
+            // Future goal
+            {
+                due_date: '2040-12-31',
+                name: '2040 Q4',
+                goal: 1_800_000,
+                mrr_or_gross: 'gross',
             },
         ],
     },
@@ -172,6 +194,8 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         sources_map: {},
     },
     base_currency: CurrencyCode.USD,
+    default_evaluation_environments_enabled: false,
+    managed_viewsets: { revenue_analytics: true },
 }
 
 export const MOCK_DEFAULT_PROJECT: ProjectType = {
@@ -221,15 +245,19 @@ export const MOCK_DEFAULT_USER: UserType = {
         plugin_disabled: false,
         project_weekly_digest_disabled: {},
         all_weekly_digest_disabled: false,
+        error_tracking_issue_assigned: false,
+        discussions_mentioned: false,
     },
     anonymize_data: false,
     toolbar_mode: 'toolbar',
     has_password: true,
+    id: 179,
     is_staff: true,
     is_impersonated: false,
     is_email_verified: true,
     is_2fa_enabled: false,
     has_social_auth: false,
+    has_sso_enforcement: false,
     sensitive_session_expires_at: dayjs().add(1, 'hour').toISOString(),
     theme_mode: null,
     team: MOCK_DEFAULT_TEAM,

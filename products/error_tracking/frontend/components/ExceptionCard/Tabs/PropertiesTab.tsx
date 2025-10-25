@@ -1,20 +1,23 @@
-import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
-import { JSONViewer } from 'lib/components/JSONViewer'
-import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { useActions, useValues } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
-import { exceptionCardLogic } from '../exceptionCardLogic'
+import { IconChevronDown } from '@posthog/icons'
+
+import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
+import { JSONViewer } from 'lib/components/JSONViewer'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItemIndicator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { IconChevronDown } from '@posthog/icons'
-import { ContextDisplay } from '../../ContextDisplay'
+import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrimitive/TabsPrimitive'
+
+import { ContextDisplay } from '../../ContextDisplay/ContextDisplay'
+import { exceptionCardLogic } from '../exceptionCardLogic'
+import { SubHeader } from './SubHeader'
 
 export interface PropertiesTabProps extends TabsPrimitiveContentProps {}
 
@@ -24,9 +27,9 @@ export function PropertiesTab({ ...props }: PropertiesTabProps): JSX.Element {
 
     return (
         <TabsPrimitiveContent {...props}>
-            <div className="flex justify-end items-center border-b-1 bg-surface-secondary">
+            <SubHeader className="justify-end">
                 <ShowDropDownMenu />
-            </div>
+            </SubHeader>
             <div>
                 {showJSONProperties ? (
                     <JSONViewer src={properties} name="event" collapsed={1} collapseStringsAfterLength={80} sortKeys />
@@ -49,27 +52,34 @@ function ShowDropDownMenu(): JSX.Element {
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <LemonButton size="small" sideIcon={<IconChevronDown />}>
+                <ButtonPrimitive size="sm" className="h-[1.4rem] px-2">
                     Show
-                </LemonButton>
+                    <IconChevronDown />
+                </ButtonPrimitive>
             </DropdownMenuTrigger>
             <DropdownMenuContent>
-                <DropdownMenuCheckboxItem
-                    checked={showAdditionalProperties}
-                    onCheckedChange={setShowAdditionalProperties}
-                    asChild
-                >
-                    <ButtonPrimitive menuItem size="sm">
-                        <DropdownMenuItemIndicator intent="checkbox" />
-                        Additional properties
-                    </ButtonPrimitive>
-                </DropdownMenuCheckboxItem>
-                <DropdownMenuCheckboxItem checked={showJSONProperties} onCheckedChange={setShowJSONProperties} asChild>
-                    <ButtonPrimitive menuItem size="sm">
-                        <DropdownMenuItemIndicator intent="checkbox" />
-                        As JSON
-                    </ButtonPrimitive>
-                </DropdownMenuCheckboxItem>
+                <DropdownMenuGroup>
+                    <DropdownMenuCheckboxItem
+                        checked={showAdditionalProperties}
+                        onCheckedChange={setShowAdditionalProperties}
+                        asChild
+                    >
+                        <ButtonPrimitive menuItem size="sm">
+                            <DropdownMenuItemIndicator intent="checkbox" />
+                            Additional properties
+                        </ButtonPrimitive>
+                    </DropdownMenuCheckboxItem>
+                    <DropdownMenuCheckboxItem
+                        checked={showJSONProperties}
+                        onCheckedChange={setShowJSONProperties}
+                        asChild
+                    >
+                        <ButtonPrimitive menuItem size="sm">
+                            <DropdownMenuItemIndicator intent="checkbox" />
+                            As JSON
+                        </ButtonPrimitive>
+                    </DropdownMenuCheckboxItem>
+                </DropdownMenuGroup>
             </DropdownMenuContent>
         </DropdownMenu>
     )

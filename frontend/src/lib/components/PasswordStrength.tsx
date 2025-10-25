@@ -1,7 +1,9 @@
+import zxcvbn from 'zxcvbn'
+
 import { LemonDivider } from '@posthog/lemon-ui'
+
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import zxcvbn from 'zxcvbn'
 
 export type ValidatedPasswordResult = {
     score: number // 0 is no passsword - otherwise 1-5,

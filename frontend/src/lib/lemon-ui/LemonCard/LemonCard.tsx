@@ -1,6 +1,7 @@
 import './LemonCard.scss'
 
 import { IconX } from '@posthog/icons'
+
 import { cn } from 'lib/utils/css-classes'
 
 import { LemonButton } from '../LemonButton'

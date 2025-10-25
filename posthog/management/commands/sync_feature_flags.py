@@ -1,3 +1,5 @@
+# ruff: noqa: T201 allow print statements
+
 from typing import cast
 
 from django.core.management.base import BaseCommand
@@ -13,6 +15,7 @@ INACTIVE_FLAGS = [
     "session-reset-on-load",
     "posthog-3000-nav",
     "insight-horizontal-controls",
+    "flagged-feature-indicator",
 ]
 
 

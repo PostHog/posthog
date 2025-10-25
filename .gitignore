@@ -32,6 +32,7 @@ __pycache__/
 *.swp
 **/*.tsbuildinfo
 *Type.ts
+CLAUDE.local.md
 /env
 /playwright-report/
 /test-results/
@@ -44,9 +45,6 @@ common/hogvm/typescript/dist
 common/plugin_transpiler/dist
 common/tailwind/dist
 coverage-*.xml
-cypress/**/*.diff.png
-cypress/downloads/
-cypress/screenshots/
 debug.log
 docker-compose.prod.yml
 ee/benchmarks/results
@@ -114,3 +112,13 @@ posthog/management/commands/clear_demo_data.py
 
 # Ignore Claude Code settings
 .claude/settings.local.json
+
+# Ignore local mprocs configs
+bin/mprocs*.local.yaml
+
+# Debug output of our session summaries product
+.session-summaries
+
+# Claude Code review outputs
+CODE_REVIEW.md
+CODE_DEBUGGING_SESSION.md

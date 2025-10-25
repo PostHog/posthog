@@ -31,6 +31,7 @@ impl ServerHandle {
         ServerHandle { addr, shutdown }
     }
 
+    #[allow(dead_code)]
     pub async fn for_config_with_mock_redis(
         config: Config,
         limited_tokens: Vec<String>,
@@ -50,8 +51,7 @@ impl ServerHandle {
         // Add handling for token verification
         for (token, team_id) in valid_tokens {
             println!(
-                "Setting up mock for token: {} with key: {}{}",
-                token, TEAM_TOKEN_CACHE_PREFIX, token
+                "Setting up mock for token: {token} with key: {TEAM_TOKEN_CACHE_PREFIX}{token}"
             );
 
             // Create a minimal valid Team object
@@ -67,33 +67,98 @@ impl ServerHandle {
 
             // Serialize to JSON
             let team_json = serde_json::to_string(&team).unwrap();
-            println!("Team JSON for mock: {}", team_json);
+            println!("Team JSON for mock: {team_json}");
 
-            mock_client = mock_client.get_ret(
-                &format!("{}{}", TEAM_TOKEN_CACHE_PREFIX, token),
-                Ok(team_json),
-            );
+            mock_client =
+                mock_client.get_ret(&format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"), Ok(team_json));
         }
 
         tokio::spawn(async move {
             let redis_reader_client = Arc::new(mock_client);
             let redis_writer_client = redis_reader_client.clone();
-            let reader = match get_pool(&config.read_database_url, config.max_pg_connections).await
+
+            let (persons_reader, persons_writer, non_persons_reader, non_persons_writer) = if config
+                .is_persons_db_routing_enabled()
             {
-                Ok(client) => Arc::new(client),
-                Err(e) => {
-                    tracing::error!("Failed to create read Postgres client: {}", e);
-                    return;
-                }
+                // Separate persons and non-persons databases
+                let persons_reader = match get_pool(
+                    &config.get_persons_read_database_url(),
+                    config.max_pg_connections,
+                )
+                .await
+                {
+                    Ok(client) => Arc::new(client),
+                    Err(e) => {
+                        tracing::error!("Failed to create persons read Postgres client: {}", e);
+                        return;
+                    }
+                };
+                let persons_writer = match get_pool(
+                    &config.get_persons_write_database_url(),
+                    config.max_pg_connections,
+                )
+                .await
+                {
+                    Ok(client) => Arc::new(client),
+                    Err(e) => {
+                        tracing::error!("Failed to create persons write Postgres client: {}", e);
+                        return;
+                    }
+                };
+                let non_persons_reader =
+                    match get_pool(&config.read_database_url, config.max_pg_connections).await {
+                        Ok(client) => Arc::new(client),
+                        Err(e) => {
+                            tracing::error!(
+                                "Failed to create non-persons read Postgres client: {}",
+                                e
+                            );
+                            return;
+                        }
+                    };
+                let non_persons_writer =
+                    match get_pool(&config.write_database_url, config.max_pg_connections).await {
+                        Ok(client) => Arc::new(client),
+                        Err(e) => {
+                            tracing::error!(
+                                "Failed to create non-persons write Postgres client: {}",
+                                e
+                            );
+                            return;
+                        }
+                    };
+                (
+                    persons_reader,
+                    persons_writer,
+                    non_persons_reader,
+                    non_persons_writer,
+                )
+            } else {
+                // Same database for both persons and non-persons tables
+                let reader =
+                    match get_pool(&config.read_database_url, config.max_pg_connections).await {
+                        Ok(client) => Arc::new(client),
+                        Err(e) => {
+                            tracing::error!("Failed to create read Postgres client: {}", e);
+                            return;
+                        }
+                    };
+                let writer =
+                    match get_pool(&config.write_database_url, config.max_pg_connections).await {
+                        Ok(client) => Arc::new(client),
+                        Err(e) => {
+                            tracing::error!("Failed to create write Postgres client: {}", e);
+                            return;
+                        }
+                    };
+                (
+                    reader.clone(),
+                    writer.clone(),
+                    reader.clone(),
+                    writer.clone(),
+                )
             };
-            let writer = match get_pool(&config.write_database_url, config.max_pg_connections).await
-            {
-                Ok(client) => Arc::new(client),
-                Err(e) => {
-                    tracing::error!("Failed to create write Postgres client: {}", e);
-                    return;
-                }
-            };
+
             let geoip_service = match common_geoip::GeoIpClient::new(config.get_maxmind_db_path()) {
                 Ok(service) => Arc::new(service),
                 Err(e) => {
@@ -103,7 +168,7 @@ impl ServerHandle {
             };
             let cohort_cache = Arc::new(
                 feature_flags::cohorts::cohort_cache_manager::CohortCacheManager::new(
-                    reader.clone(),
+                    non_persons_reader.clone(),
                     Some(config.cache_max_cohort_entries),
                     Some(config.cache_ttl_seconds),
                 ),
@@ -138,11 +203,18 @@ impl ServerHandle {
                 redis_reader_client.clone(),
             ));
 
+            // Create DatabasePools for tests
+            let database_pools = Arc::new(feature_flags::database_pools::DatabasePools {
+                non_persons_reader: non_persons_reader.clone(),
+                non_persons_writer: non_persons_writer.clone(),
+                persons_reader: persons_reader.clone(),
+                persons_writer: persons_writer.clone(),
+            });
+
             let app = feature_flags::router::router(
                 redis_reader_client,
                 redis_writer_client,
-                reader,
-                writer,
+                database_pools,
                 cohort_cache,
                 geoip_service,
                 health,
@@ -166,6 +238,7 @@ impl ServerHandle {
         ServerHandle { addr, shutdown }
     }
 
+    #[allow(dead_code)]
     pub async fn send_flags_request<T: Into<reqwest::Body>>(
         &self,
         body: T,
@@ -176,10 +249,10 @@ impl ServerHandle {
         let mut url = format!("http://{}/flags", self.addr);
         let mut params = vec![];
         if let Some(v) = version {
-            params.push(format!("v={}", v));
+            params.push(format!("v={v}"));
         }
         if let Some(c) = config {
-            params.push(format!("config={}", c));
+            params.push(format!("config={c}"));
         }
         if !params.is_empty() {
             url.push('?');
@@ -194,6 +267,7 @@ impl ServerHandle {
             .expect("failed to send request")
     }
 
+    #[allow(dead_code)]
     pub async fn send_invalid_header_for_flags_request<T: Into<reqwest::Body>>(
         &self,
         body: T,
@@ -215,6 +289,7 @@ impl Drop for ServerHandle {
     }
 }
 
+#[allow(dead_code)]
 async fn liveness_loop(handle: health::HealthHandle) {
     loop {
         handle.report_healthy().await;

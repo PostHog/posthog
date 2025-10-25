@@ -1,16 +1,17 @@
-import { beforeUnmount, BuiltLogic, connect, kea, path, selectors } from 'kea'
+import { BuiltLogic, beforeUnmount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
+
 import api from 'lib/api'
-import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { DashboardPlacement, DashboardType, InsightModel, QueryBasedInsightModel } from '~/types'
+import { Breadcrumb, DashboardPlacement, DashboardType, InsightModel, QueryBasedInsightModel } from '~/types'
 
 import type { projectHomepageLogicType } from './projectHomepageLogicType'
-import { subscriptions } from 'kea-subscriptions'
 
 export const projectHomepageLogic = kea<projectHomepageLogicType>([
     path(['scenes', 'project-homepage', 'projectHomepageLogic']),
@@ -51,6 +52,16 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
                 }
                 return [createMaxContextHelpers.dashboard(dashboard)]
             },
+        ],
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: 'home',
+                    name: 'Home',
+                    iconType: 'home',
+                },
+            ],
         ],
     }),
 

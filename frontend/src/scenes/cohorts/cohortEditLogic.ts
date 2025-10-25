@@ -1,9 +1,13 @@
-import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router } from 'kea-router'
+import { router } from 'kea-router'
+import posthog from 'posthog-js'
+import { v4 as uuidv4 } from 'uuid'
+
 import api from 'lib/api'
 import { ENTITY_MATCH_TYPE } from 'lib/constants'
+import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
@@ -18,10 +22,10 @@ import {
 } from 'scenes/cohorts/cohortUtils'
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { urls } from 'scenes/urls'
-import { v4 as uuidv4 } from 'uuid'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel, processCohort } from '~/models/cohortsModel'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataTableNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode } from '~/queries/utils'
 import {
@@ -35,24 +39,37 @@ import {
 } from '~/types'
 
 import type { cohortEditLogicType } from './cohortEditLogicType'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 export type CohortLogicProps = {
     id?: CohortType['id']
+    tabId?: string
 }
 
 export const cohortEditLogic = kea<cohortEditLogicType>([
     props({} as CohortLogicProps),
-    key((props) => props.id || 'new'),
+    key((props) => {
+        if (props.id === 'new' || !props.id) {
+            if (props.tabId == null) {
+                return 'new'
+            }
+            return `new-${props.tabId}`
+        }
+        if (props.tabId == null) {
+            return props.id
+        }
+        return `${props.id}-${props.tabId}`
+    }),
     path(['scenes', 'cohorts', 'cohortLogicEdit']),
     connect(() => ({
         actions: [eventUsageLogic, ['reportExperimentExposureCohortEdited']],
+        logic: [cohortsModel],
     })),
 
     actions({
         saveCohort: (cohortParams = {}) => ({ cohortParams }),
         setCohort: (cohort: CohortType) => ({ cohort }),
         deleteCohort: true,
+        restoreCohort: true,
         fetchCohort: (id: CohortType['id']) => ({ id }),
         setCohortMissing: true,
         onCriteriaChange: (newGroup: Partial<CohortGroupType>, id: string) => ({ newGroup, id }),
@@ -71,6 +88,12 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         }),
         setQuery: (query: Node) => ({ query }),
         duplicateCohort: (asStatic: boolean) => ({ asStatic }),
+        updateCohortCount: true,
+        setCreationPersonQuery: (query: Node) => ({ query }),
+        addPersonToCreateStaticCohort: (personId: string) => ({ personId }),
+        removePersonFromCreateStaticCohort: (personId: string) => ({ personId }),
+        removePersonFromCohort: (personId: string) => ({ personId }),
+        resetPersonsToCreateStaticCohort: true,
     }),
 
     reducers(({ props }) => ({
@@ -189,16 +212,69 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             } as DataTableNode,
             {
                 setQuery: (state, { query }) => (isDataTableNode(query) ? query : state),
+                setCohort: (state, { cohort }) => ({
+                    ...state,
+                    source: {
+                        ...state.source,
+                        select: cohort.is_static
+                            ? ['person_display_name -- Person', 'id', 'created_at', 'person.$delete']
+                            : ['person_display_name -- Person', 'id', 'created_at'],
+                    },
+                }),
+            },
+        ],
+        creationPersonQuery: [
+            {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.ActorsQuery,
+                    fixedProperties: [],
+                    select: ['id', 'person_display_name -- Person'],
+                },
+                showPropertyFilter: false,
+                showEventFilter: false,
+                showExport: false,
+                showSearch: true,
+                showActions: false,
+                showElapsedTime: false,
+                showTimings: false,
+            } as DataTableNode,
+            {
+                setCreationPersonQuery: (state, { query }) => (isDataTableNode(query) ? query : state),
+            },
+        ],
+        personsToCreateStaticCohort: [
+            {} as Record<string, boolean>,
+            {
+                addPersonToCreateStaticCohort: (state, { personId }) => ({
+                    ...state,
+                    [personId]: true,
+                }),
+                removePersonFromCreateStaticCohort: (state, { personId }) => {
+                    const newState = { ...state }
+                    delete newState[personId]
+                    return newState
+                },
+                resetPersonsToCreateStaticCohort: () => ({}),
             },
         ],
     })),
 
-    forms(({ actions }) => ({
+    selectors({
+        canRemovePersonFromCohort: [
+            (s) => [s.cohort],
+            (cohort: CohortType) => {
+                return cohort.is_static && typeof cohort.id === 'number'
+            },
+        ],
+    }),
+
+    forms(({ actions, values }) => ({
         cohort: {
             defaults: NEW_COHORT,
-            errors: ({ id, name, csv, is_static, filters }) => ({
+            errors: ({ name, is_static, filters }) => ({
                 name: !name ? 'Cohort name cannot be empty' : undefined,
-                csv: is_static && id === 'new' && !csv ? 'You need to upload a CSV file' : (null as any),
+                csv: undefined,
                 filters: {
                     properties: {
                         values: is_static ? undefined : filters.properties.values.map(validateGroup),
@@ -209,7 +285,16 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 if (cohort.id !== 'new') {
                     actions.saveCohort(cohort)
                 } else {
-                    actions.saveCohort({ ...cohort, _create_in_folder: 'Unfiled/Cohorts' })
+                    const personIds = Object.keys(values.personsToCreateStaticCohort)
+                    if (cohort.is_static && cohort.csv == null && personIds.length === 0) {
+                        lemonToast.error('You need to upload a csv file or add a person manually.')
+                        return
+                    }
+                    actions.saveCohort({
+                        ...cohort,
+                        _create_in_folder: 'Unfiled/Cohorts',
+                        _create_static_person_ids: personIds.length > 0 ? personIds : undefined,
+                    })
                 }
             },
         },
@@ -235,6 +320,19 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         return values.cohort
                     }
                 },
+                restoreCohort: async () => {
+                    try {
+                        const restoredCohort = await api.cohorts.update(values.cohort.id, {
+                            deleted: false,
+                        })
+                        actions.setCohort(restoredCohort)
+                        lemonToast.success('Cohort restored successfully.')
+                        return restoredCohort
+                    } catch (error) {
+                        lemonToast.error(`Failed to restore cohort: '${error}'`)
+                        return values.cohort
+                    }
+                },
                 saveCohort: async ({ cohortParams }, breakpoint) => {
                     const existingCohort = values.cohort
                     let cohort = { ...existingCohort, ...cohortParams }
@@ -255,6 +353,43 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         }
                     } catch (error: any) {
                         breakpoint()
+
+                        // Only capture exception if we don't have proper error details
+                        // This indicates an unexpected failure (network, timeout, etc.)
+                        if (!error.detail) {
+                            console.error('Cohort creation failed unexpectedly:', error, {
+                                cohort_name: cohort.name,
+                                operation_type: cohort.id === 'new' ? 'create' : 'update',
+                                is_static: cohort.is_static,
+                            })
+                            posthog.captureException(error, {
+                                cohort_operation: 'Cohort creation failed unexpectedly',
+                                // Cohort context (most valuable)
+                                cohort_name: cohort.name,
+                                is_static: cohort.is_static,
+                                operation_type: cohort.id === 'new' ? 'create' : 'update',
+                                has_csv: !!cohortFormData.get?.('csv'),
+                                file_size: (() => {
+                                    const csvFile = cohortFormData.get?.('csv')
+                                    return csvFile instanceof File ? csvFile.size : undefined
+                                })(),
+
+                                // Error context
+                                error_status: error.status,
+                                error_status_text: error.statusText,
+                                error_message: error.message,
+                                error_name: error.name,
+                                error_type: typeof error,
+
+                                // Browser context
+                                user_agent: navigator.userAgent.substring(0, 100),
+                                is_online: navigator.onLine,
+
+                                // Request context
+                                timestamp: new Date().toISOString(),
+                            })
+                        }
+
                         lemonToast.error(error.detail || 'Failed to save cohort')
                         return values.cohort
                     }
@@ -275,6 +410,13 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         })
                         mountedDataNodeLogic?.actions.loadData('force_blocking')
                     }
+                    if (existingCohort.id === 'new') {
+                        router.actions.push(urls.cohort(cohort.id))
+                        if (existingCohort.is_static) {
+                            actions.resetPersonsToCreateStaticCohort()
+                        }
+                        return { ...NEW_COHORT }
+                    }
                     return processCohort(cohort)
                 },
                 onCriteriaChange: ({ newGroup, id }) => {
@@ -293,6 +435,13 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         }
                     }
                     return processCohort(cohort)
+                },
+                updateCohortCount: async () => {
+                    const cohort = await api.cohorts.get(values.cohort.id)
+                    return {
+                        ...values.cohort,
+                        count: cohort.count,
+                    }
                 },
             },
         ],
@@ -331,16 +480,43 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 },
             },
         ],
+
+        removePersonFromCohort: [
+            null as any,
+            {
+                removePersonFromCohort: async ({ personId }) => {
+                    if (!values.cohort.id || values.cohort.id === 'new') {
+                        throw new Error('Cannot remove person from unsaved cohort')
+                    }
+
+                    try {
+                        await api.cohorts.removePersonFromCohort(values.cohort.id, personId)
+                        lemonToast.success('Person removed from cohort')
+                    } catch (error: any) {
+                        throw error
+                    }
+                    // Refresh cohort data + count
+                    const dataLogic = dataNodeLogic.findMounted({
+                        key: createCohortDataNodeLogicKey(values.cohort.id),
+                    })
+                    if (dataLogic) {
+                        dataLogic.actions.loadData('force_blocking')
+                    }
+                    actions.updateCohortCount()
+                },
+            },
+        ],
     })),
     listeners(({ actions, values }) => ({
         deleteCohort: () => {
-            cohortsModel.findMounted()?.actions.deleteCohort({ id: values.cohort.id, name: values.cohort.name })
-            router.actions.push(urls.cohorts())
+            cohortsModel.actions.deleteCohort({ id: values.cohort.id, name: values.cohort.name })
         },
-        submitCohort: () => {
-            if (values.cohortHasErrors) {
-                lemonToast.error('There was an error submiting this cohort. Make sure the cohort filters are correct.')
-            }
+        submitCohortFailure: () => {
+            scrollToFormError({
+                extraErrorSelectors: ['.CohortCriteriaRow__Criteria--error'],
+                fallbackErrorMessage:
+                    'There was an error submitting this cohort. Make sure the cohort filters are correct.',
+            })
         },
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
             if (cohort.is_calculating) {
@@ -368,10 +544,6 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 }
             }
         },
-    })),
-
-    actionToUrl(({ values }) => ({
-        saveCohortSuccess: () => urls.cohort(values.cohort.id),
     })),
 
     afterMount(({ actions, props }) => {

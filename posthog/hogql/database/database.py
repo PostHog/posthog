@@ -1,21 +1,29 @@
 import dataclasses
 from collections.abc import Callable
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    ClassVar,
-    Literal,
-    Optional,
-    TypeAlias,
-    Union,
-    cast,
-)
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db.models import Prefetch, Q
+
+from opentelemetry import trace
 from pydantic import BaseModel, ConfigDict
 
-from posthog.exceptions_capture import capture_exception
+from posthog.schema import (
+    DatabaseSchemaDataWarehouseTable,
+    DatabaseSchemaField,
+    DatabaseSchemaManagedViewTable,
+    DatabaseSchemaPostHogTable,
+    DatabaseSchemaSchema,
+    DatabaseSchemaSource,
+    DatabaseSchemaSystemTable,
+    DatabaseSchemaViewTable,
+    DatabaseSerializedFieldType,
+    HogQLQuery,
+    HogQLQueryModifiers,
+    PersonsOnEventsMode,
+    SessionTableVersion,
+)
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -41,12 +49,9 @@ from posthog.hogql.database.models import (
     VirtualTable,
 )
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
-from posthog.hogql.database.schema.channel_type import (
-    create_initial_channel_type,
-    create_initial_domain_type,
-)
-from posthog.hogql.database.schema.revenue_analytics import RawPersonsRevenueAnalyticsTable
+from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
+from posthog.hogql.database.schema.document_embeddings import DocumentEmbeddingsTable, RawDocumentEmbeddingsTable
 from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
     ErrorTrackingIssueFingerprintOverridesTable,
     RawErrorTrackingIssueFingerprintOverridesTable,
@@ -55,6 +60,7 @@ from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides im
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
+from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
 from posthog.hogql.database.schema.log_entries import (
     BatchExportLogEntriesTable,
@@ -68,64 +74,57 @@ from posthog.hogql.database.schema.person_distinct_id_overrides import (
     RawPersonDistinctIdOverridesTable,
     join_with_person_distinct_id_overrides_table,
 )
-from posthog.hogql.database.schema.person_distinct_ids import (
-    PersonDistinctIdsTable,
-    RawPersonDistinctIdsTable,
-)
-from posthog.hogql.database.schema.persons import (
-    PersonsTable,
-    RawPersonsTable,
-    join_with_persons_table,
-)
+from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsTable, RawPersonDistinctIdsTable
+from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable, join_with_persons_table
+from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
 from posthog.hogql.database.schema.pg_embeddings import PgEmbeddingsTable
-from posthog.hogql.database.schema.query_log import QueryLogTable, RawQueryLogTable
+from posthog.hogql.database.schema.query_log_archive import QueryLogArchiveTable, RawQueryLogArchiveTable
 from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
     SessionReplayEventsTable,
     join_replay_table_to_sessions_table_v2,
+    join_replay_table_to_sessions_table_v3,
 )
-from posthog.hogql.database.schema.sessions_v1 import (
-    RawSessionsTableV1,
-    SessionsTableV1,
-)
+from posthog.hogql.database.schema.sessions_v1 import RawSessionsTableV1, SessionsTableV1
 from posthog.hogql.database.schema.sessions_v2 import (
     RawSessionsTableV2,
     SessionsTableV2,
     join_events_table_to_sessions_table_v2,
 )
-from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
-from posthog.hogql.database.schema.web_analytics_preaggregated import (
-    WebStatsDailyTable,
-    WebBouncesDailyTable,
-    WebStatsHourlyTable,
-    WebBouncesHourlyTable,
-    WebStatsCombinedTable,
-    WebBouncesCombinedTable,
+from posthog.hogql.database.schema.sessions_v3 import (
+    RawSessionsTableV3,
+    SessionsTableV3,
+    join_events_table_to_sessions_table_v3,
 )
+from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
+from posthog.hogql.database.schema.system import SystemTables
+from posthog.hogql.database.schema.web_analytics_preaggregated import (
+    WebBouncesCombinedTable,
+    WebBouncesDailyTable,
+    WebBouncesHourlyTable,
+    WebPreAggregatedBouncesTable,
+    WebPreAggregatedStatsTable,
+    WebStatsCombinedTable,
+    WebStatsDailyTable,
+    WebStatsHourlyTable,
+)
+from posthog.hogql.database.utils import get_join_field_chain
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
+
+from posthog.exceptions_capture import capture_exception
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
-from posthog.schema import (
-    DatabaseSchemaDataWarehouseTable,
-    DatabaseSchemaField,
-    DatabaseSchemaManagedViewTable,
-    DatabaseSchemaPostHogTable,
-    DatabaseSchemaSchema,
-    DatabaseSchemaSource,
-    DatabaseSchemaViewTable,
-    DatabaseSerializedFieldType,
-    HogQLQuery,
-    HogQLQueryModifiers,
-    PersonsOnEventsMode,
-    SessionTableVersion,
-)
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.table import DataWarehouseTable, DataWarehouseTableColumns
 
+from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
+
 if TYPE_CHECKING:
     from posthog.models import Team
+
+tracer = trace.get_tracer(__name__)
 
 
 class Database(BaseModel):
@@ -145,13 +144,14 @@ class Database(BaseModel):
     cohort_people: CohortPeople = CohortPeople()
     static_cohort_people: StaticCohortPeople = StaticCohortPeople()
     log_entries: LogEntriesTable = LogEntriesTable()
-    query_log: QueryLogTable = QueryLogTable()
+    query_log: QueryLogArchiveTable = QueryLogArchiveTable()
     app_metrics: AppMetrics2Table = AppMetrics2Table()
     console_logs_log_entries: ReplayConsoleLogsLogEntriesTable = ReplayConsoleLogsLogEntriesTable()
     batch_export_log_entries: BatchExportLogEntriesTable = BatchExportLogEntriesTable()
-    sessions: Union[SessionsTableV1, SessionsTableV2] = SessionsTableV1()
+    sessions: Union[SessionsTableV1, SessionsTableV2, SessionsTableV3] = SessionsTableV1()
     heatmaps: HeatmapsTable = HeatmapsTable()
     exchange_rate: ExchangeRateTable = ExchangeRateTable()
+    document_embeddings: DocumentEmbeddingsTable = DocumentEmbeddingsTable()
 
     # Web analytics pre-aggregated tables (internal use only)
     web_stats_daily: WebStatsDailyTable = WebStatsDailyTable()
@@ -161,8 +161,13 @@ class Database(BaseModel):
     web_stats_combined: WebStatsCombinedTable = WebStatsCombinedTable()
     web_bounces_combined: WebBouncesCombinedTable = WebBouncesCombinedTable()
 
+    # V2 Pre-aggregated tables (will replace the above tables after we backfill)
+    web_pre_aggregated_stats: WebPreAggregatedStatsTable = WebPreAggregatedStatsTable()
+    web_pre_aggregated_bounces: WebPreAggregatedBouncesTable = WebPreAggregatedBouncesTable()
+
     # Revenue analytics tables
-    raw_persons_revenue_analytics: RawPersonsRevenueAnalyticsTable = RawPersonsRevenueAnalyticsTable()
+    persons_revenue_analytics: PersonsRevenueAnalyticsTable = PersonsRevenueAnalyticsTable()
+    groups_revenue_analytics: GroupsRevenueAnalyticsTable = GroupsRevenueAnalyticsTable()
 
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()
@@ -173,14 +178,17 @@ class Database(BaseModel):
     raw_error_tracking_issue_fingerprint_overrides: RawErrorTrackingIssueFingerprintOverridesTable = (
         RawErrorTrackingIssueFingerprintOverridesTable()
     )
-    raw_sessions: Union[RawSessionsTableV1, RawSessionsTableV2] = RawSessionsTableV1()
-    raw_query_log: RawQueryLogTable = RawQueryLogTable()
+    raw_sessions: Union[RawSessionsTableV1, RawSessionsTableV2, RawSessionsTableV3] = RawSessionsTableV1()
+    raw_sessions_v3: Union[RawSessionsTableV1, RawSessionsTableV2, RawSessionsTableV3] = RawSessionsTableV3()
+    raw_query_log: RawQueryLogArchiveTable = RawQueryLogArchiveTable()
+    raw_document_embeddings: RawDocumentEmbeddingsTable = RawDocumentEmbeddingsTable()
     pg_embeddings: PgEmbeddingsTable = PgEmbeddingsTable()
     # logs table for logs product
     logs: LogsTable = LogsTable()
 
     # system tables
     numbers: NumbersTable = NumbersTable()
+    system: TableGroup = SystemTables()
 
     # These are the tables exposed via SQL editor autocomplete and data management
     _table_names: ClassVar[list[str]] = [
@@ -189,6 +197,7 @@ class Database(BaseModel):
         "persons",
         "sessions",
         "query_log",
+        *system.resolve_all_table_names(),
     ]
 
     _warehouse_table_names: list[str] = []
@@ -277,6 +286,9 @@ class Database(BaseModel):
 
     def get_posthog_tables(self) -> list[str]:
         return self._table_names
+
+    def get_system_tables(self) -> list[str]:
+        return [*self.system.resolve_all_table_names(), "query_log"]
 
     def get_warehouse_tables(self) -> list[str]:
         return self._warehouse_table_names + self._warehouse_self_managed_table_names
@@ -370,6 +382,46 @@ def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: D
     )
 
 
+def _setup_group_key_fields(database: Database, team: "Team") -> None:
+    """
+    Set up group key fields as ExpressionFields that handle filtering based on GroupTypeMapping.created_at.
+    For $group_N fields, this returns:
+    - Empty string if no GroupTypeMapping exists for that index
+    - if(timestamp < mapping.created_at, '', $group_N) if GroupTypeMapping exists
+    """
+    group_mappings = {mapping.group_type_index: mapping for mapping in GroupTypeMapping.objects.filter(team=team)}
+
+    for group_index in range(5):
+        field_name = f"$group_{group_index}"
+
+        group_mapping = group_mappings.get(group_index, None)
+        # If no mapping exists or the mapping predated this feature, leave the original field unchanged
+        if group_mapping and group_mapping.created_at:
+            # Store the original field as a "raw" version before replacing
+            original_field = database.events.fields[field_name]
+            raw_field_name = f"_{field_name}_raw"
+            database.events.fields[raw_field_name] = original_field.model_copy(update={"hidden": True})
+
+            created_at_str = group_mapping.created_at.strftime("%Y-%m-%d %H:%M:%S")
+
+            database.events.fields[field_name] = ExpressionField(
+                name=field_name,
+                expr=ast.Call(
+                    name="if",
+                    args=[
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["timestamp"]),
+                            op=ast.CompareOperationOp.Lt,
+                            right=ast.Constant(value=created_at_str),
+                        ),
+                        ast.Constant(value=""),
+                        ast.Field(chain=[raw_field_name]),
+                    ],
+                ),
+                isolate_scope=True,
+            )
+
+
 def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timings: HogQLTimings) -> None:
     poe = cast(VirtualTable, database.events.fields["poe"])
 
@@ -393,20 +445,24 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
             properties_path=["poe", "properties"],
         )
 
-    # TODO: POE is not well supported yet, that part is a stub
-    with timings.measure("revenue"):
-        field_name = "$virt_revenue"
-        database.persons.fields[field_name] = ast.FieldTraverser(chain=["revenue_analytics", "revenue"])
-        poe.fields[field_name] = ast.FieldTraverser(chain=["properties", field_name])
-    with timings.measure("revenue_last_30_days"):
-        field_name = "$virt_revenue_last_30_days"
-        database.persons.fields[field_name] = ast.FieldTraverser(chain=["revenue_analytics", "revenue_last_30_days"])
-        poe.fields[field_name] = ast.FieldTraverser(chain=["properties", field_name])
+    # :KLUDGE: Currently calculated at runtime via the `revenue_analytics` table,
+    # it'd be wise to make these computable fields in the future, but that's a big uplift
+    revenue_fields = ["revenue", "revenue_last_30_days"]
+    with timings.measure("revenue_analytics_virtual_fields"):
+        for field in revenue_fields:
+            with timings.measure(field):
+                field_name = f"$virt_{field}"
+                chain = ["revenue_analytics", field]
+
+                database.persons.fields[field_name] = ast.FieldTraverser(chain=chain)
+                database.groups.fields[field_name] = ast.FieldTraverser(chain=chain)
+                poe.fields[field_name] = ast.FieldTraverser(chain=chain)
 
 
 TableStore = dict[str, Table | TableGroup]
 
 
+@tracer.start_as_current_span("create_hogql_database")
 def create_hogql_database(
     team_id: Optional[int] = None,
     *,
@@ -414,13 +470,11 @@ def create_hogql_database(
     modifiers: Optional[HogQLQueryModifiers] = None,
     timings: Optional[HogQLTimings] = None,
 ) -> Database:
-    from posthog.hogql.database.s3_table import S3Table
+    from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
     from posthog.hogql.query import create_default_modifiers_for_team
+
     from posthog.models import Team
     from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseSavedQuery
-    from products.revenue_analytics.backend.views.revenue_analytics_base_view import (
-        RevenueAnalyticsBaseView,
-    )
 
     if timings is None:
         timings = HogQLTimings()
@@ -437,6 +491,10 @@ def create_hogql_database(
 
         # Team is definitely not None at this point, make mypy believe that
         team = cast("Team", team)
+
+        # Set team_id for the create_hogql_database tracing span
+        span = trace.get_current_span()
+        span.set_attribute("team_id", team.pk)
 
     with timings.measure("modifiers"):
         modifiers = create_default_modifiers_for_team(team, modifiers)
@@ -472,9 +530,9 @@ def create_hogql_database(
             modifiers.sessionTableVersion == SessionTableVersion.V2
             or modifiers.sessionTableVersion == SessionTableVersion.AUTO
         ):
-            raw_sessions = RawSessionsTableV2()
+            raw_sessions: Union[RawSessionsTableV2, RawSessionsTableV3] = RawSessionsTableV2()
             database.raw_sessions = raw_sessions
-            sessions = SessionsTableV2()
+            sessions: Union[SessionsTableV2, SessionsTableV3] = SessionsTableV2()
             database.sessions = sessions
             events = database.events
             events.fields["session"] = LazyJoin(
@@ -496,11 +554,35 @@ def create_hogql_database(
                 join_function=join_replay_table_to_sessions_table_v2,
             )
             cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events
+        elif modifiers.sessionTableVersion == SessionTableVersion.V3:
+            sessions = SessionsTableV3()
+            database.sessions = sessions
+            events = database.events
+            events.fields["session"] = LazyJoin(
+                from_field=["$session_id"],
+                join_table=sessions,
+                join_function=join_events_table_to_sessions_table_v3,
+            )
+            replay_events = database.session_replay_events
+            replay_events.fields["session"] = LazyJoin(
+                from_field=["session_id"],
+                join_table=sessions,
+                join_function=join_replay_table_to_sessions_table_v3,
+            )
+            cast(LazyJoin, replay_events.fields["events"]).join_table = events
+            raw_replay_events = database.raw_session_replay_events
+            raw_replay_events.fields["session"] = LazyJoin(
+                from_field=["session_id"],
+                join_table=sessions,
+                join_function=join_replay_table_to_sessions_table_v3,
+            )
+            cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events
 
     with timings.measure("virtual_fields"):
         _use_virtual_fields(database, modifiers, timings)
 
     with timings.measure("group_type_mapping"):
+        _setup_group_key_fields(database, team)
         for mapping in GroupTypeMapping.objects.filter(project_id=team.project_id):
             if database.events.fields.get(mapping.group_type) is None:
                 database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
@@ -512,25 +594,29 @@ def create_hogql_database(
 
     with timings.measure("data_warehouse_saved_query"):
         with timings.measure("select"):
-            saved_queries = list(DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True))
+            saved_queries = list(
+                DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
+                .filter(managed_viewset__isnull=True)  # Ignore managed views for now
+                .exclude(deleted=True)
+                .select_related("table", "table__credential")
+            )
+
         for saved_query in saved_queries:
             with timings.measure(f"saved_query_{saved_query.name}"):
                 views[saved_query.name] = saved_query.hogql_definition(modifiers)
 
-    # For every Stripe source, let's generate its own revenue view
-    # Prefetch related schemas and tables to avoid N+1
     with timings.measure("revenue_analytics_views"):
         revenue_views = []
         try:
-            revenue_views = RevenueAnalyticsBaseView.for_team(team, timings)
+            revenue_views = list(build_all_revenue_analytics_views(team, timings))
         except Exception as e:
             capture_exception(e)
 
-        # Each view will have a name similar to stripe.prefix.table_name
-        # We want to create a nested table group where stripe is the parent,
-        # prefix is the child of stripe, and table_name is the child of prefix
-        # allowing you to access the table as stripe[prefix][table_name] in a dict fashion
-        # but still allowing the bare stripe.prefix.table_name string access
+        # Each view will have a name similar to `stripe.<prefix>.<table_name>`
+        # We want to create a nested table group where `stripe` is the parent,
+        # `<prefix>` is the child of `stripe`, and `<table_name>` is the child of `<prefix>`
+        # allowing you to access the table as `stripe[prefix][table_name]` in a dict fashion
+        # but still allowing the bare `stripe.prefix.table_name` string access
         for view in revenue_views:
             try:
                 views[view.name] = view
@@ -539,10 +625,20 @@ def create_hogql_database(
                 capture_exception(e)
                 continue
 
+    class WarehousePropertiesVirtualTable(VirtualTable):
+        fields: dict[str, FieldOrTable]
+        parent_table: HogQLDataWarehouseTable
+
+        def to_printed_hogql(self):
+            return self.parent_table.to_printed_hogql()
+
+        def to_printed_clickhouse(self, context):
+            return self.parent_table.to_printed_clickhouse(context)
+
     with timings.measure("data_warehouse_tables"):
         with timings.measure("select"):
             tables = list(
-                DataWarehouseTable.objects.filter(team_id=team.pk)
+                DataWarehouseTable.raw_objects.filter(team_id=team.pk)
                 .exclude(deleted=True)
                 .select_related("credential", "external_data_source")
             )
@@ -558,18 +654,9 @@ def create_hogql_database(
 
                 # If the warehouse table has no _properties_ field, then set it as a virtual table
                 if s3_table.fields.get("properties") is None:
-
-                    class WarehouseProperties(VirtualTable):
-                        fields: dict[str, FieldOrTable] = s3_table.fields
-                        parent_table: S3Table = s3_table
-
-                        def to_printed_hogql(self):
-                            return self.parent_table.to_printed_hogql()
-
-                        def to_printed_clickhouse(self, context):
-                            return self.parent_table.to_printed_clickhouse(context)
-
-                    s3_table.fields["properties"] = WarehouseProperties(hidden=True)
+                    s3_table.fields["properties"] = WarehousePropertiesVirtualTable(
+                        fields=s3_table.fields, parent_table=s3_table, hidden=True
+                    )
 
                 if table.external_data_source:
                     warehouse_tables[table.name] = s3_table
@@ -629,23 +716,31 @@ def create_hogql_database(
                 expr=parse_expr(warehouse_modifier.id_field),
             )
 
-        if "timestamp" not in table.fields.keys() or not isinstance(
-            table.fields.get("timestamp"), DateTimeDatabaseField
-        ):
+        table_has_no_timestamp_field = "timestamp" not in table.fields.keys()
+        timestamp_field_is_datetime = isinstance(table.fields.get("timestamp"), DateTimeDatabaseField)
+
+        if table_has_no_timestamp_field or not timestamp_field_is_datetime:
             table_model = get_table(team=team, warehouse_modifier=warehouse_modifier)
             timestamp_field_type = table_model.get_clickhouse_column_type(warehouse_modifier.timestamp_field)
+            modifier_timestamp_field_is_timestamp = warehouse_modifier.timestamp_field == "timestamp"
 
             # If field type is none or datetime, we can use the field directly
             if timestamp_field_type is None or timestamp_field_type.startswith("DateTime"):
-                table.fields["timestamp"] = ExpressionField(
-                    name="timestamp",
-                    expr=ast.Field(chain=[warehouse_modifier.timestamp_field]),
-                )
+                if modifier_timestamp_field_is_timestamp:
+                    table.fields["timestamp"] = DateTimeDatabaseField(name="timestamp")
+                else:
+                    table.fields["timestamp"] = ExpressionField(
+                        name="timestamp",
+                        expr=ast.Field(chain=[warehouse_modifier.timestamp_field]),
+                    )
             else:
-                table.fields["timestamp"] = ExpressionField(
-                    name="timestamp",
-                    expr=ast.Call(name="toDateTime", args=[ast.Field(chain=[warehouse_modifier.timestamp_field])]),
-                )
+                if modifier_timestamp_field_is_timestamp:
+                    table.fields["timestamp"] = UnknownDatabaseField(name="timestamp")
+                else:
+                    table.fields["timestamp"] = ExpressionField(
+                        name="timestamp",
+                        expr=ast.Call(name="toDateTime", args=[ast.Field(chain=[warehouse_modifier.timestamp_field])]),
+                    )
 
         # TODO: Need to decide how the distinct_id and person_id fields are going to be handled
         if "distinct_id" not in table.fields.keys():
@@ -724,42 +819,12 @@ def create_hogql_database(
                 source_table = database.get_table(join.source_table_name)
                 joining_table = database.get_table(join.joining_table_name)
 
-                field = parse_expr(join.source_table_key)
-                if isinstance(field, ast.Field):
-                    from_field = field.chain
-                elif (
-                    isinstance(field, ast.Alias)
-                    and isinstance(field.expr, ast.Call)
-                    and isinstance(field.expr.args[0], ast.Field)
-                ):
-                    from_field = field.expr.args[0].chain
-                elif isinstance(field, ast.Call) and isinstance(field.args[0], ast.Field):
-                    from_field = field.args[0].chain
-                else:
-                    capture_exception(
-                        Exception(
-                            f"Data Warehouse Join HogQL expression should be a Field or Call node: {join.source_table_key}"
-                        )
-                    )
+                from_field = get_join_field_chain(join.source_table_key)
+                if from_field is None:
                     continue
 
-                field = parse_expr(join.joining_table_key)
-                if isinstance(field, ast.Field):
-                    to_field = field.chain
-                elif (
-                    isinstance(field, ast.Alias)
-                    and isinstance(field.expr, ast.Call)
-                    and isinstance(field.expr.args[0], ast.Field)
-                ):
-                    to_field = field.expr.args[0].chain
-                elif isinstance(field, ast.Call) and isinstance(field.args[0], ast.Field):
-                    to_field = field.args[0].chain
-                else:
-                    capture_exception(
-                        Exception(
-                            f"Data Warehouse Join HogQL expression should be a Field or Call node: {join.joining_table_key}"
-                        )
-                    )
+                to_field = get_join_field_chain(join.joining_table_key)
+                if to_field is None:
                     continue
 
                 source_table.fields[join.field_name] = LazyJoin(
@@ -876,8 +941,9 @@ class SerializedField:
     chain: Optional[list[str | int]] = None
 
 
-DatabaseSchemaTable: TypeAlias = (
+type DatabaseSchemaTable = (
     DatabaseSchemaPostHogTable
+    | DatabaseSchemaSystemTable
     | DatabaseSchemaDataWarehouseTable
     | DatabaseSchemaViewTable
     | DatabaseSchemaManagedViewTable
@@ -886,13 +952,11 @@ DatabaseSchemaTable: TypeAlias = (
 
 def serialize_database(
     context: HogQLContext,
+    include_only: Optional[set[str]] = None,
 ) -> dict[str, DatabaseSchemaTable]:
-    from posthog.warehouse.models.datawarehouse_saved_query import (
-        DataWarehouseSavedQuery,
-    )
-    from products.revenue_analytics.backend.views.revenue_analytics_base_view import (
-        RevenueAnalyticsBaseView,
-    )
+    from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 
     tables: dict[str, DatabaseSchemaTable] = {}
 
@@ -902,11 +966,14 @@ def serialize_database(
     if context.team_id is None:
         raise ResolutionError("Must provide team_id to serialize_database")
 
-    # PostHog Tables
+    # PostHog tables
     posthog_tables = context.database.get_posthog_tables()
     for table_key in posthog_tables:
+        if include_only and table_key not in include_only:
+            continue
+
         field_input: dict[str, Any] = {}
-        table = getattr(context.database, table_key, None)
+        table = context.database.get_table(table_key)
         if isinstance(table, FunctionCallTable):
             field_input = table.get_asterisk()
         elif isinstance(table, Table):
@@ -915,6 +982,23 @@ def serialize_database(
         fields = serialize_fields(field_input, context, table_key.split("."), table_type="posthog")
         fields_dict = {field.name: field for field in fields}
         tables[table_key] = DatabaseSchemaPostHogTable(fields=fields_dict, id=table_key, name=table_key)
+
+    # System tables
+    system_tables = context.database.get_system_tables()
+    for table_key in system_tables:
+        if include_only and table_key not in include_only:
+            continue
+
+        system_field_input: dict[str, Any] = {}
+        table = context.database.get_table(table_key)
+        if isinstance(table, FunctionCallTable):
+            system_field_input = table.get_asterisk()
+        elif isinstance(table, Table):
+            system_field_input = table.fields
+
+        fields = serialize_fields(system_field_input, context, table_key.split("."), table_type="posthog")
+        fields_dict = {field.name: field for field in fields}
+        tables[table_key] = DatabaseSchemaSystemTable(fields=fields_dict, id=table_key, name=table_key)
 
     # Data Warehouse Tables and Views - Fetch all related data in one go
     warehouse_table_names = context.database.get_warehouse_tables()
@@ -988,6 +1072,9 @@ def serialize_database(
         else:
             table_key = warehouse_table.name
 
+        if include_only and table_key not in include_only:
+            continue
+
         field_input = {}
         table = context.database.get_table(table_key)
         if isinstance(table, Table):
@@ -1022,6 +1109,9 @@ def serialize_database(
     # Process views using prefetched data
     views_dict = {view.name: view for view in all_views}
     for view_name in views:
+        if include_only and view_name not in include_only:
+            continue
+
         view: Table | TableGroup | None = getattr(context.database, view_name, None)
         if view is None:
             continue
@@ -1038,7 +1128,7 @@ def serialize_database(
                 fields=fields_dict,
                 id=view.name,  # We don't have a UUID for revenue views because they're not saved, just reuse the name
                 name=view.name,
-                kind=view.get_database_schema_table_kind(),
+                kind=view.DATABASE_SCHEMA_TABLE_KIND,
                 source_id=view.source_id,
                 query=HogQLQuery(query=view.query),
             )

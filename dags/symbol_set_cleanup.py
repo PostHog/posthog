@@ -1,10 +1,13 @@
 import datetime
-import dagster
+
 from django.db.models import Q
 from django.utils import timezone
 
+import dagster
+
+from products.error_tracking.backend.models import ErrorTrackingSymbolSet
+
 from dags.common import JobOwners
-from posthog.models.error_tracking.error_tracking import ErrorTrackingSymbolSet
 
 
 class SymbolSetSelectionConfig(dagster.Config):

@@ -1,4 +1,7 @@
-import { IconArrowLeft, IconCopy, IconPencil } from '@posthog/icons'
+import { useValues } from 'kea'
+import { router } from 'kea-router'
+
+import { IconCopy, IconPencil } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -8,11 +11,10 @@ import {
     LemonTag,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
-import { router } from 'kea-router'
+
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -24,6 +26,7 @@ import { AvailableFeature } from '~/types'
 import { isLegacySharedMetric } from '../utils'
 import { SharedMetric } from './sharedMetricLogic'
 import { sharedMetricsLogic } from './sharedMetricsLogic'
+
 export const scene: SceneExport = {
     component: SharedMetrics,
     logic: sharedMetricsLogic,
@@ -122,15 +125,6 @@ export function SharedMetrics(): JSX.Element {
 
     return (
         <div className="deprecated-space-y-4">
-            <LemonButton
-                type="tertiary"
-                className="inline-flex"
-                to={urls.experiments()}
-                icon={<IconArrowLeft />}
-                size="small"
-            >
-                Back to experiments
-            </LemonButton>
             <LemonBanner type="info">
                 Shared metrics let you create reusable metrics that you can quickly add to any experiment. They are
                 ideal for tracking key metrics like conversion rates or revenue across different experiments without

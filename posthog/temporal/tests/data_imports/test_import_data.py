@@ -1,8 +1,9 @@
 from typing import Any
+
+import pytest
 from unittest import mock
 
 from flaky import flaky
-import pytest
 
 from posthog.models.team.team import Team
 from posthog.temporal.data_imports.settings import import_data_activity_sync
@@ -13,6 +14,7 @@ from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from posthog.warehouse.models.table import DataWarehouseTable
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 def _setup(team: Team, job_inputs: dict[Any, Any]) -> ImportDataActivityInputs:
@@ -21,7 +23,7 @@ def _setup(team: Team, job_inputs: dict[Any, Any]) -> ImportDataActivityInputs:
         source_id="source_id",
         connection_id="connection_id",
         status=ExternalDataSource.Status.COMPLETED,
-        source_type=ExternalDataSource.Type.POSTGRES,
+        source_type=ExternalDataSourceType.POSTGRES,
         job_inputs=job_inputs,
     )
     credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=team)
@@ -89,6 +91,7 @@ def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
             db_incremental_field_last_value=None,
             incremental_field=None,
             incremental_field_type=None,
+            chunk_size_override=None,
             team_id=team.id,
         )
 
@@ -125,6 +128,7 @@ def test_postgres_source_without_ssh_tunnel(activity_environment, team, **kwargs
             incremental_field=None,
             incremental_field_type=None,
             db_incremental_field_last_value=None,
+            chunk_size_override=None,
             team_id=team.id,
         )
 
@@ -173,6 +177,7 @@ def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, team, **
             incremental_field=None,
             incremental_field_type=None,
             db_incremental_field_last_value=None,
+            chunk_size_override=None,
             team_id=team.id,
         )
 
@@ -237,5 +242,6 @@ def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, team, **k
             incremental_field=None,
             incremental_field_type=None,
             db_incremental_field_last_value=None,
+            chunk_size_override=None,
             team_id=team.id,
         )

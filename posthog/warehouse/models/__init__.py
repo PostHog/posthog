@@ -1,4 +1,6 @@
 from .credential import *
+from .data_modeling_job import *
+from .datawarehouse_managed_viewset import *
 from .datawarehouse_saved_query import *
 from .datawarehouse_saved_query_draft import *
 from .external_data_job import *
@@ -6,6 +8,6 @@ from .external_data_schema import *
 from .external_data_source import *
 from .join import *
 from .modeling import *
-from .table import *
 from .query_tab_state import *
-from .data_modeling_job import *
+from .revenue_analytics_config import *
+from .table import *

@@ -1,6 +1,5 @@
 import { dateFilterToText } from 'lib/utils'
 import { InsightTypeMetadata, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
-import { InsightFreshness } from './InsightFreshness'
 
 import { Node, NodeKind } from '~/queries/schema/schema-general'
 import {
@@ -11,7 +10,18 @@ import {
     isInsightVizNode,
 } from '~/queries/utils'
 
-export function TopHeading({ query, lastRefresh }: { query: Node | null; lastRefresh?: string | null }): JSX.Element {
+import { InsightFreshness } from './InsightFreshness'
+import { TileOverridesWarning } from './TileOverridesWarning'
+
+export function TopHeading({
+    query,
+    lastRefresh,
+    hasTileOverrides,
+}: {
+    query: Node | null
+    lastRefresh?: string | null
+    hasTileOverrides?: boolean | null
+}): JSX.Element {
     let insightType: InsightTypeMetadata
 
     if (query?.kind) {
@@ -50,6 +60,7 @@ export function TopHeading({ query, lastRefresh }: { query: Node | null; lastRef
                 </>
             ) : null}
             {lastRefresh ? <InsightFreshness lastRefresh={lastRefresh} /> : null}
+            {hasTileOverrides ? <TileOverridesWarning /> : null}
         </div>
     )
 }

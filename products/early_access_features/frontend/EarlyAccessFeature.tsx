@@ -1,33 +1,45 @@
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+import { router } from 'kea-router'
+import { useState } from 'react'
+
 import { IconFlag, IconQuestion, IconTrash, IconX } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
-    LemonDivider,
     LemonInput,
     LemonMenu,
     LemonSelect,
     LemonSkeleton,
     LemonTag,
-    LemonTextArea,
     Link,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
-import { router } from 'kea-router'
+
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
+import { SceneFile } from 'lib/components/Scenes/SceneFile'
+import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
+import { SceneSelect } from 'lib/components/Scenes/SceneSelect'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import { useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import {
+    ScenePanel,
+    ScenePanelActionsSection,
+    ScenePanelDivider,
+    ScenePanelInfoSection,
+} from '~/layout/scenes/SceneLayout'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { Node, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
 import {
@@ -44,31 +56,21 @@ import {
     ReplayTabs,
 } from '~/types'
 
-import { SceneFile } from 'lib/components/Scenes/SceneFile'
-
-import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
-import { SceneSelect } from 'lib/components/Scenes/SceneSelect'
-import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
-import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
-import { earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
 import { InstructionsModal } from './InstructionsModal'
+import { EarlyAccessFeatureLogicProps, earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
 
 const RESOURCE_TYPE = 'early-access-feature'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<EarlyAccessFeatureLogicProps> = {
     component: EarlyAccessFeature,
     logic: earlyAccessFeatureLogic,
-    paramsToProps: ({ params: { id } }): (typeof earlyAccessFeatureLogic)['props'] => ({
+    paramsToProps: ({ params: { id } }) => ({
         id: id && id !== 'new' ? id : 'new',
     }),
     settingSectionId: 'environment-feature-flags',
 }
 
-export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
+export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.Element {
     const {
         earlyAccessFeature,
         earlyAccessFeatureLoading,
@@ -88,9 +90,6 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
         setEarlyAccessFeatureValue,
         showGAPromotionConfirmation,
     } = useActions(earlyAccessFeatureLogic)
-
-    const { featureFlags } = useValues(featureFlagLogic)
-    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
 
@@ -128,415 +127,340 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
 
     return (
         <Form id="early-access-feature" formKey="earlyAccessFeature" logic={earlyAccessFeatureLogic}>
-            <PageHeader
-                buttons={
-                    !earlyAccessFeatureLoading ? (
-                        canShowSaveButtons ? (
-                            <>
-                                <LemonButton
-                                    type="secondary"
-                                    data-attr="cancel-feature"
-                                    onClick={() => {
-                                        if (isEditingFeature) {
-                                            editFeature(false)
-                                            loadEarlyAccessFeature()
-                                        } else {
-                                            router.actions.push(urls.earlyAccessFeatures())
-                                        }
-                                    }}
-                                    disabledReason={isEarlyAccessFeatureSubmitting ? 'Saving…' : undefined}
-                                >
-                                    Cancel
-                                </LemonButton>
-                                <LemonButton
-                                    type="primary"
-                                    htmlType="submit"
-                                    data-attr="save-feature"
-                                    onClick={() => {
-                                        // Check if user is promoting to General Availability
-                                        const isPromotingToGA =
-                                            earlyAccessFeature.stage === EarlyAccessFeatureStage.GeneralAvailability
-
-                                        if (isPromotingToGA) {
-                                            showGAPromotionConfirmation(() =>
-                                                submitEarlyAccessFeatureRequest(earlyAccessFeature)
-                                            )
-                                        } else {
-                                            submitEarlyAccessFeatureRequest(earlyAccessFeature)
-                                        }
-                                    }}
-                                    loading={isEarlyAccessFeatureSubmitting}
-                                    form="early-access-feature"
-                                >
-                                    {isNewEarlyAccessFeature ? 'Save as draft' : 'Save'}
-                                </LemonButton>
-                            </>
-                        ) : (
-                            <>
-                                {!newSceneLayout && (
-                                    <LemonButton
-                                        data-attr="delete-feature"
-                                        status="danger"
-                                        type="secondary"
-                                        onClick={() => {
-                                            LemonDialog.open({
-                                                title: 'Permanently delete feature?',
-                                                description:
-                                                    'Doing so will remove any opt in conditions from the feature flag.',
-                                                primaryButton: {
-                                                    children: 'Delete',
-                                                    type: 'primary',
-                                                    status: 'danger',
-                                                    'data-attr': 'confirm-delete-feature',
-                                                    onClick: () => {
-                                                        // conditional above ensures earlyAccessFeature is not NewEarlyAccessFeature
-                                                        deleteEarlyAccessFeature(
-                                                            (earlyAccessFeature as EarlyAccessFeatureType)?.id
-                                                        )
-                                                    },
-                                                },
-                                                secondaryButton: {
-                                                    children: 'Close',
-                                                    type: 'secondary',
-                                                },
-                                            })
-                                        }}
-                                    >
-                                        Delete
-                                    </LemonButton>
-                                )}
-                                {!newSceneLayout && earlyAccessFeature.stage == EarlyAccessFeatureStage.Beta && (
-                                    <LemonButton
-                                        data-attr="archive-feature"
-                                        type="secondary"
-                                        onClick={() => updateStage(EarlyAccessFeatureStage.Archived)}
-                                    >
-                                        Archive
-                                    </LemonButton>
-                                )}
-                                {!newSceneLayout && earlyAccessFeature.stage == EarlyAccessFeatureStage.Archived && (
-                                    <LemonButton
-                                        data-attr="reactive-feature"
-                                        type="secondary"
-                                        onClick={() => updateStage(EarlyAccessFeatureStage.Beta)}
-                                    >
-                                        Reactivate beta
-                                    </LemonButton>
-                                )}
-                                {earlyAccessFeature.stage == EarlyAccessFeatureStage.Draft && (
-                                    <LemonMenu
-                                        items={[
-                                            {
-                                                title: 'Choose stage',
-                                                items: [
-                                                    {
-                                                        label: 'Concept',
-                                                        onClick: () => updateStage(EarlyAccessFeatureStage.Concept),
-                                                    },
-                                                    {
-                                                        label: 'Alpha',
-                                                        onClick: () => updateStage(EarlyAccessFeatureStage.Alpha),
-                                                    },
-                                                    {
-                                                        label: 'Beta (default)',
-                                                        onClick: () => updateStage(EarlyAccessFeatureStage.Beta),
-                                                    },
-                                                    {
-                                                        label: 'General availability',
-                                                        onClick: () =>
-                                                            updateStage(EarlyAccessFeatureStage.GeneralAvailability),
-                                                    },
-                                                ],
-                                            },
-                                        ]}
-                                    >
-                                        <LemonButton tooltip="Publish this feature to make it available" type="primary">
-                                            Release
-                                        </LemonButton>
-                                    </LemonMenu>
-                                )}
-                                {!newSceneLayout && <LemonDivider vertical />}
-                                {earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability && (
-                                    <LemonButton
-                                        type="secondary"
-                                        onClick={() => editFeature(true)}
-                                        loading={false}
-                                        data-attr="edit-feature"
-                                    >
-                                        Edit
-                                    </LemonButton>
-                                )}
-                            </>
-                        )
-                    ) : undefined
-                }
-            />
-
-            <ScenePanel>
-                <ScenePanelMetaInfo>
-                    <SceneTextInput
-                        name="name"
-                        defaultValue={earlyAccessFeature.name}
-                        onSave={(value) => {
-                            setEarlyAccessFeatureValue('name', value)
-                        }}
-                        dataAttrKey={RESOURCE_TYPE}
-                    />
-                    <SceneTextarea
-                        name="description"
-                        defaultValue={earlyAccessFeature.description || ''}
-                        onSave={(value) => {
-                            setEarlyAccessFeatureValue('description', value)
-                        }}
-                        dataAttrKey={RESOURCE_TYPE}
-                        optional
-                    />
-
-                    <SceneSelect
-                        onSave={(value) => {
-                            setEarlyAccessFeatureValue('stage', value)
-                        }}
-                        value={earlyAccessFeature.stage}
-                        name="stage"
-                        dataAttrKey={RESOURCE_TYPE}
-                        options={[
-                            {
-                                label: 'Draft (default)',
-                                value: 'draft',
-                                disabled: true,
-                            },
-                            {
-                                label: 'Concept',
-                                value: 'concept',
-                            },
-                            {
-                                label: 'Alpha',
-                                value: 'alpha',
-                            },
-                            {
-                                label: 'Beta',
-                                value: 'beta',
-                            },
-                            {
-                                label: 'General availability / Archived',
-                                value: 'general-availability',
-                            },
-                        ]}
-                    />
-                    <SceneFile dataAttrKey={RESOURCE_TYPE} />
-                </ScenePanelMetaInfo>
-
-                <ScenePanelDivider />
-
-                <ScenePanelActions>
-                    <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />
-                    <ScenePanelDivider />
-                    <ButtonPrimitive
-                        onClick={() => {
-                            LemonDialog.open({
-                                title: 'Permanently delete feature?',
-                                description: 'Doing so will remove any opt in conditions from the feature flag.',
-                                primaryButton: {
-                                    children: 'Delete',
-                                    type: 'primary',
-                                    status: 'danger',
-                                    'data-attr': 'confirm-delete-feature',
-                                    onClick: () => {
-                                        // conditional above ensures earlyAccessFeature is not NewEarlyAccessFeature
-                                        deleteEarlyAccessFeature((earlyAccessFeature as EarlyAccessFeatureType)?.id)
-                                    },
-                                },
-                                secondaryButton: {
-                                    children: 'Close',
-                                    type: 'secondary',
-                                },
-                            })
-                        }}
-                        variant="danger"
-                        menuItem
-                        data-attr={`${RESOURCE_TYPE}-delete`}
-                    >
-                        <IconTrash />
-                        Delete
-                    </ButtonPrimitive>
-                </ScenePanelActions>
-            </ScenePanel>
-
-            <div className={clsx(isEditingFeature || isNewEarlyAccessFeature ? 'max-w-160' : null)}>
-                <div className="flex flex-col gap-4 flex-2 min-w-[15rem]">
-                    {isNewEarlyAccessFeature && (
-                        <LemonField name="name" label="Name">
-                            <LemonInput data-attr="feature-name" />
-                        </LemonField>
-                    )}
-
-                    {earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && !isEditingFeature && (
-                        <LemonBanner type="info">
-                            The{' '}
-                            <LemonTag type="default" className="uppercase">
-                                Concept
-                            </LemonTag>{' '}
-                            stage assigns the feature flag to the user. Gate your code behind a different feature flag
-                            if you'd like to keep it hidden, and then switch your code to this feature flag when you're
-                            ready to release to your early access users.
-                        </LemonBanner>
-                    )}
-                    <div className="flex flex-wrap gap-4 items-start">
-                        <div className="flex-1 min-w-[20rem]">
-                            {'feature_flag' in earlyAccessFeature ? (
-                                <LemonField.Pure label="Connected Feature flag">
-                                    <div>
+            <SceneContent>
+                <SceneTitleSection
+                    name={earlyAccessFeature.name}
+                    description={earlyAccessFeature.description}
+                    resourceType={{
+                        type: 'early_access_feature',
+                    }}
+                    canEdit
+                    onNameChange={(value) => {
+                        setEarlyAccessFeatureValue('name', value)
+                    }}
+                    onDescriptionChange={(value) => {
+                        setEarlyAccessFeatureValue('description', value)
+                    }}
+                    forceEdit={isEditingFeature || isNewEarlyAccessFeature}
+                    actions={
+                        <>
+                            {!earlyAccessFeatureLoading ? (
+                                canShowSaveButtons ? (
+                                    <>
                                         <LemonButton
                                             type="secondary"
-                                            onClick={() =>
-                                                earlyAccessFeature.feature_flag &&
-                                                router.actions.push(
-                                                    urls.featureFlag(earlyAccessFeature.feature_flag.id)
-                                                )
-                                            }
-                                            icon={<IconFlag />}
+                                            data-attr="cancel-feature"
+                                            onClick={() => {
+                                                if (isEditingFeature) {
+                                                    editFeature(false)
+                                                    loadEarlyAccessFeature()
+                                                } else {
+                                                    router.actions.push(urls.earlyAccessFeatures())
+                                                }
+                                            }}
+                                            size="small"
+                                            disabledReason={isEarlyAccessFeatureSubmitting ? 'Saving…' : undefined}
                                         >
-                                            {earlyAccessFeature.feature_flag.key}
+                                            Cancel
                                         </LemonButton>
-                                    </div>
-                                </LemonField.Pure>
-                            ) : (
-                                <LemonField
-                                    name="feature_flag_id"
-                                    label="Link feature flag (optional)"
-                                    info={<>A feature flag will be generated from feature name if not provided</>}
-                                >
-                                    {({ value, onChange }) => (
-                                        <div className="flex">
-                                            <FlagSelector value={value} onChange={onChange} />
-                                            {value && (
-                                                <LemonButton
-                                                    className="ml-2"
-                                                    icon={<IconX />}
-                                                    size="small"
-                                                    onClick={() => onChange(undefined)}
-                                                    aria-label="close"
-                                                />
-                                            )}
-                                        </div>
-                                    )}
-                                </LemonField>
-                            )}
-                        </div>
+                                        <LemonButton
+                                            type="primary"
+                                            htmlType="submit"
+                                            data-attr="save-feature"
+                                            onClick={() => {
+                                                // Check if user is promoting to General Availability
+                                                const isPromotingToGA =
+                                                    earlyAccessFeature.stage ===
+                                                    EarlyAccessFeatureStage.GeneralAvailability
 
-                        {!isNewEarlyAccessFeature && earlyAccessFeature.stage !== 'draft' ? (
-                            <div className="flex-1 min-w-[20rem]">
-                                <b>Stage</b>
-                                <div>
-                                    {isEditingFeature ? (
-                                        <LemonField name="stage">
-                                            <LemonSelect
-                                                options={[
+                                                if (isPromotingToGA) {
+                                                    showGAPromotionConfirmation(() =>
+                                                        submitEarlyAccessFeatureRequest(earlyAccessFeature)
+                                                    )
+                                                } else {
+                                                    submitEarlyAccessFeatureRequest(earlyAccessFeature)
+                                                }
+                                            }}
+                                            loading={isEarlyAccessFeatureSubmitting}
+                                            form="early-access-feature"
+                                            size="small"
+                                        >
+                                            {isNewEarlyAccessFeature ? 'Save as draft' : 'Save'}
+                                        </LemonButton>
+                                    </>
+                                ) : (
+                                    <>
+                                        {earlyAccessFeature.stage == EarlyAccessFeatureStage.Draft && (
+                                            <LemonMenu
+                                                items={[
                                                     {
-                                                        value: 'concept',
-                                                        label: 'Concept',
-                                                    },
-                                                    {
-                                                        value: 'alpha',
-                                                        label: 'Alpha',
-                                                    },
-                                                    {
-                                                        value: 'beta',
-                                                        label: 'Beta',
-                                                    },
-                                                    {
-                                                        value: 'general-availability',
-                                                        label: 'General availability',
+                                                        title: 'Choose stage',
+                                                        items: [
+                                                            {
+                                                                label: 'Concept',
+                                                                onClick: () =>
+                                                                    updateStage(EarlyAccessFeatureStage.Concept),
+                                                            },
+                                                            {
+                                                                label: 'Alpha',
+                                                                onClick: () =>
+                                                                    updateStage(EarlyAccessFeatureStage.Alpha),
+                                                            },
+                                                            {
+                                                                label: 'Beta (default)',
+                                                                onClick: () =>
+                                                                    updateStage(EarlyAccessFeatureStage.Beta),
+                                                            },
+                                                            {
+                                                                label: 'General availability / Archived',
+                                                                onClick: () =>
+                                                                    updateStage(
+                                                                        EarlyAccessFeatureStage.GeneralAvailability
+                                                                    ),
+                                                            },
+                                                        ],
                                                     },
                                                 ]}
-                                            />
-                                        </LemonField>
-                                    ) : (
-                                        <LemonTag
-                                            type={
-                                                earlyAccessFeature.stage === EarlyAccessFeatureStage.Beta
-                                                    ? 'warning'
-                                                    : earlyAccessFeature.stage ===
-                                                        EarlyAccessFeatureStage.GeneralAvailability
-                                                      ? 'success'
-                                                      : 'default'
-                                            }
-                                            className="mt-2 uppercase"
-                                        >
-                                            {earlyAccessFeature.stage}
-                                        </LemonTag>
+                                            >
+                                                <LemonButton
+                                                    tooltip="Publish this feature to make it available"
+                                                    type="primary"
+                                                    size="small"
+                                                >
+                                                    Release
+                                                </LemonButton>
+                                            </LemonMenu>
+                                        )}
+                                        {earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability && (
+                                            <LemonButton
+                                                type="secondary"
+                                                onClick={() => editFeature(true)}
+                                                loading={false}
+                                                data-attr="edit-feature"
+                                                size="small"
+                                            >
+                                                Edit
+                                            </LemonButton>
+                                        )}
+                                    </>
+                                )
+                            ) : undefined}
+                        </>
+                    }
+                />
+
+                <SceneDivider />
+
+                <ScenePanel>
+                    <ScenePanelInfoSection>
+                        <SceneSelect
+                            onSave={(value) => {
+                                setEarlyAccessFeatureValue('stage', value)
+                            }}
+                            value={earlyAccessFeature.stage}
+                            name="stage"
+                            dataAttrKey={RESOURCE_TYPE}
+                            options={[
+                                {
+                                    label: 'Draft (default)',
+                                    value: 'draft',
+                                    disabled: true,
+                                },
+                                {
+                                    label: 'Concept',
+                                    value: 'concept',
+                                },
+                                {
+                                    label: 'Alpha',
+                                    value: 'alpha',
+                                },
+                                {
+                                    label: 'Beta',
+                                    value: 'beta',
+                                },
+                                {
+                                    label: 'General availability / Archived',
+                                    value: 'general-availability',
+                                },
+                            ]}
+                        />
+                        <SceneFile dataAttrKey={RESOURCE_TYPE} />
+                    </ScenePanelInfoSection>
+
+                    <ScenePanelDivider />
+
+                    <ScenePanelActionsSection>
+                        <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />
+                        <ScenePanelDivider />
+                        <ButtonPrimitive
+                            onClick={() => {
+                                LemonDialog.open({
+                                    title: 'Permanently delete feature?',
+                                    description: 'Doing so will remove any opt in conditions from the feature flag.',
+                                    primaryButton: {
+                                        children: 'Delete',
+                                        type: 'primary',
+                                        status: 'danger',
+                                        'data-attr': 'confirm-delete-feature',
+                                        onClick: () => {
+                                            // conditional above ensures earlyAccessFeature is not NewEarlyAccessFeature
+                                            deleteEarlyAccessFeature((earlyAccessFeature as EarlyAccessFeatureType)?.id)
+                                        },
+                                    },
+                                    secondaryButton: {
+                                        children: 'Close',
+                                        type: 'secondary',
+                                    },
+                                })
+                            }}
+                            variant="danger"
+                            menuItem
+                            data-attr={`${RESOURCE_TYPE}-delete`}
+                        >
+                            <IconTrash />
+                            Delete
+                        </ButtonPrimitive>
+                    </ScenePanelActionsSection>
+                </ScenePanel>
+
+                {earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && !isEditingFeature && (
+                    <LemonBanner type="info">
+                        The{' '}
+                        <LemonTag type="default" className="uppercase">
+                            Concept
+                        </LemonTag>{' '}
+                        stage assigns the feature flag to the user. Gate your code behind a different feature flag if
+                        you'd like to keep it hidden, and then switch your code to this feature flag when you're ready
+                        to release to your early access users.
+                    </LemonBanner>
+                )}
+                <div className="flex-1 min-w-[20rem] max-w-prose">
+                    {'feature_flag' in earlyAccessFeature ? (
+                        <LemonField.Pure label="Connected Feature flag">
+                            <div>
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={() =>
+                                        earlyAccessFeature.feature_flag &&
+                                        router.actions.push(urls.featureFlag(earlyAccessFeature.feature_flag.id))
+                                    }
+                                    icon={<IconFlag />}
+                                >
+                                    {earlyAccessFeature.feature_flag.key}
+                                </LemonButton>
+                            </div>
+                        </LemonField.Pure>
+                    ) : (
+                        <LemonField
+                            name="feature_flag_id"
+                            label="Link feature flag (optional)"
+                            info={<>A feature flag will be generated from feature name if not provided</>}
+                        >
+                            {({ value, onChange }) => (
+                                <div className="flex">
+                                    <FlagSelector value={value} onChange={onChange} />
+                                    {value && (
+                                        <LemonButton
+                                            className="ml-2"
+                                            icon={<IconX />}
+                                            size="small"
+                                            onClick={() => onChange(undefined)}
+                                            aria-label="close"
+                                        />
                                     )}
                                 </div>
-                            </div>
-                        ) : null}
-                    </div>
-                    <div className="flex flex-wrap gap-4 items-start">
-                        <div className="flex-1 min-w-[20rem]">
-                            {isEditingFeature || isNewEarlyAccessFeature ? (
-                                <LemonField name="description" label="Description" showOptional>
-                                    <LemonTextArea
-                                        className="ph-ignore-input"
-                                        placeholder="Help your users understand the feature"
-                                    />
-                                </LemonField>
-                            ) : (
-                                <div className="mb-2">
-                                    <b>Description</b>
-                                    <div>
-                                        {earlyAccessFeature.description ? (
-                                            earlyAccessFeature.description
-                                        ) : (
-                                            <span className="text-secondary">No description</span>
-                                        )}
-                                    </div>
-                                </div>
                             )}
-                        </div>
-                        <div className="flex-1 min-w-[20rem]">
-                            {isEditingFeature || isNewEarlyAccessFeature ? (
-                                <LemonField name="documentation_url" label="Documentation URL" showOptional>
-                                    <LemonInput
-                                        autoComplete="off"
-                                        autoCapitalize="off"
-                                        autoCorrect="off"
-                                        spellCheck={false}
-                                    />
-                                </LemonField>
-                            ) : (
-                                <div className="mb-2">
-                                    <b>Documentation URL</b>
-                                    <div>
-                                        {earlyAccessFeature.documentation_url ? (
-                                            <Link to={earlyAccessFeature.documentation_url} target="_blank">
-                                                {earlyAccessFeature.documentation_url}
-                                            </Link>
-                                        ) : (
-                                            <span className="text-secondary">No documentation URL</span>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
+                        </LemonField>
+                    )}
                 </div>
+
+                {!isNewEarlyAccessFeature && earlyAccessFeature.stage !== 'draft' ? (
+                    <div className="flex-1 min-w-[20rem] max-w-prose">
+                        <b>Stage</b>
+                        <div>
+                            {isEditingFeature ? (
+                                <LemonField name="stage">
+                                    <LemonSelect
+                                        options={[
+                                            {
+                                                value: 'concept',
+                                                label: 'Concept',
+                                            },
+                                            {
+                                                value: 'alpha',
+                                                label: 'Alpha',
+                                            },
+                                            {
+                                                value: 'beta',
+                                                label: 'Beta',
+                                            },
+                                            {
+                                                value: 'general-availability',
+                                                label: 'General availability / Archived',
+                                            },
+                                        ]}
+                                    />
+                                </LemonField>
+                            ) : (
+                                <LemonTag
+                                    type={
+                                        earlyAccessFeature.stage === EarlyAccessFeatureStage.Beta
+                                            ? 'warning'
+                                            : earlyAccessFeature.stage === EarlyAccessFeatureStage.GeneralAvailability
+                                              ? 'success'
+                                              : 'default'
+                                    }
+                                    className="mt-2 uppercase"
+                                >
+                                    {earlyAccessFeature.stage}
+                                </LemonTag>
+                            )}
+                        </div>
+                    </div>
+                ) : null}
+
+                {isEditingFeature || isNewEarlyAccessFeature ? (
+                    <div className="max-w-prose">
+                        <LemonField name="documentation_url" label="Documentation URL" showOptional>
+                            <LemonInput autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
+                        </LemonField>
+                    </div>
+                ) : (
+                    <div>
+                        <b>Documentation URL</b>
+                        <div>
+                            {earlyAccessFeature.documentation_url ? (
+                                <Link to={earlyAccessFeature.documentation_url} target="_blank">
+                                    {earlyAccessFeature.documentation_url}
+                                </Link>
+                            ) : (
+                                <span className="text-secondary">No documentation URL</span>
+                            )}
+                        </div>
+                    </div>
+                )}
+
                 {destinationFilters && (
                     <>
-                        <LemonDivider className="my-8" />
-                        <h3>Notifications</h3>
-                        <p>Get notified when people opt in or out of your feature.</p>
-                        <LinkedHogFunctions
-                            type="destination"
-                            forceFilterGroups={[destinationFilters]}
-                            subTemplateIds={['early-access-feature-enrollment']}
-                        />
+                        <SceneDivider />
+                        <SceneSection
+                            title="Notifications"
+                            description="Get notified when people opt in or out of your feature."
+                        >
+                            <LinkedHogFunctions
+                                type="destination"
+                                forceFilterGroups={[destinationFilters]}
+                                subTemplateIds={['early-access-feature-enrollment']}
+                            />
+                        </SceneSection>
                     </>
                 )}
                 {!isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature && (
                     <>
-                        <LemonDivider className="my-8" />
-                        <div className="flex gap-4 justify-between items-start">
-                            <div>
-                                <h3>Users</h3>
+                        <SceneDivider />
+                        <SceneSection
+                            title="Users"
+                            description={
                                 <p>
                                     When a user opts in or out of the feature they will be listed here. You can choose
                                     to{' '}
@@ -544,28 +468,31 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                         implement your own opt-in interface or use our provided app.
                                     </Link>
                                 </p>
-                            </div>
-                            <LemonButton
-                                key="help-button"
-                                onClick={toggleImplementOptInInstructionsModal}
-                                sideIcon={<IconQuestion />}
-                                type="secondary"
-                            >
-                                Implement public opt-in
-                            </LemonButton>
-                        </div>
-                        <PersonList earlyAccessFeature={earlyAccessFeature} />
+                            }
+                            actions={
+                                <LemonButton
+                                    key="help-button"
+                                    onClick={toggleImplementOptInInstructionsModal}
+                                    sideIcon={<IconQuestion />}
+                                    type="secondary"
+                                >
+                                    Implement public opt-in
+                                </LemonButton>
+                            }
+                        >
+                            <PersonList earlyAccessFeature={earlyAccessFeature} />
+                        </SceneSection>
                     </>
                 )}
-            </div>
 
-            {'id' in earlyAccessFeature ? (
-                <InstructionsModal
-                    flag={earlyAccessFeature.feature_flag.key}
-                    visible={implementOptInInstructionsModal}
-                    onClose={toggleImplementOptInInstructionsModal}
-                />
-            ) : null}
+                {'id' in earlyAccessFeature ? (
+                    <InstructionsModal
+                        flag={earlyAccessFeature.feature_flag.key}
+                        visible={implementOptInInstructionsModal}
+                        onClose={toggleImplementOptInInstructionsModal}
+                    />
+                ) : null}
+            </SceneContent>
         </Form>
     )
 }
@@ -621,6 +548,7 @@ export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element
             <LemonTabs
                 activeKey={activeTab}
                 onChange={(newKey) => setActiveTab(newKey)}
+                sceneInset
                 tabs={[
                     {
                         key: EarlyAccessFeatureTabs.OptedIn,

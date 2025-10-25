@@ -1,19 +1,21 @@
-import asyncio
-import collections.abc
-import dataclasses
-import datetime as dt
-import json
-import operator
 import re
-import unittest.mock
+import json
 import uuid
+import asyncio
+import datetime as dt
+import operator
+import dataclasses
+import collections.abc
 
-import psycopg
 import pytest
-import pytest_asyncio
+import unittest.mock
+
 from django.conf import settings
 from django.test import override_settings
+
+import psycopg
 from psycopg import sql
+from psycopg.errors import SerializationFailure
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -21,47 +23,36 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog import constants
-from posthog.batch_exports.service import (
-    BackfillDetails,
-    BatchExportModel,
-    BatchExportSchema,
-)
+from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
-from posthog.temporal.tests.utils.models import (
-    acreate_batch_export,
-    adelete_batch_export,
-    afetch_batch_export_runs,
-)
-from posthog.temporal.tests.utils.persons import (
-    generate_test_person_distinct_id2_in_clickhouse,
-    generate_test_persons_in_clickhouse,
-)
-from products.batch_exports.backend.temporal.batch_exports import (
-    finish_batch_export_run,
-    start_batch_export_run,
-)
+from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
+
+from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.postgres_batch_export import (
     PostgresBatchExportInputs,
     PostgresBatchExportWorkflow,
     PostgresInsertInputs,
+    PostgreSQLClient,
     PostgreSQLHeartbeatDetails,
+    PostgreSQLTransactionError,
     insert_into_postgres_activity,
     postgres_default_fields,
     remove_invalid_json,
+    run_in_retryable_transaction,
 )
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
-from products.batch_exports.backend.temporal.spmc import (
-    Producer,
-    RecordBatchQueue,
-    RecordBatchTaskError,
+from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue, RecordBatchTaskError
+from products.batch_exports.backend.tests.temporal.utils.clickhouse import FlakyClickHouseClient
+from products.batch_exports.backend.tests.temporal.utils.persons import (
+    generate_test_person_distinct_id2_in_clickhouse,
+    generate_test_persons_in_clickhouse,
 )
-from products.batch_exports.backend.tests.temporal.utils import (
-    FlakyClickHouseClient,
+from products.batch_exports.backend.tests.temporal.utils.records import (
     get_record_batch_from_queue,
-    mocked_start_batch_export_run,
     remove_duplicates_from_records,
 )
+from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -257,7 +248,7 @@ def postgres_config():
     }
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def postgres_connection(postgres_config, setup_postgres_test_db):
     connection = await psycopg.AsyncConnection.connect(
         user=postgres_config["user"],
@@ -644,7 +635,7 @@ def table_name(ateam, interval):
     return f"test_table_{ateam.pk}_{interval}"
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def persons_table_without_primary_key(postgres_connection, postgres_config, table_name):
     """Managed a table for a persons batch export without a primary key."""
     self_managed_table_name = table_name + f"_self_managed_{uuid.uuid4().hex}"
@@ -724,7 +715,7 @@ async def test_insert_into_postgres_activity_inserts_fails_on_missing_primary_ke
         assert result.error.message.startswith("An operation could not be completed as")
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def postgres_batch_export(ateam, table_name, postgres_config, interval, exclude_events, temporal_client):
     destination_data = {
         "type": "Postgres",
@@ -1468,3 +1459,93 @@ async def test_insert_into_postgres_activity_completes_range_when_there_is_a_fai
 )
 def test_remove_invalid_json(input_data, expected_data):
     assert remove_invalid_json(input_data) == expected_data
+
+
+async def test_run_in_retryable_transaction_raises_non_retryable_error_after_max_retries(
+    postgres_config, setup_postgres_test_db
+):
+    """Test that `run_in_retryable_transaction` retries on serialization failure and eventually raises a
+    `PostgreSQLTransactionError`.
+    """
+
+    attempt_count = 0
+
+    async def raise_serialization_failure():
+        nonlocal attempt_count
+        attempt_count += 1
+        raise SerializationFailure("test error")
+
+    postgres_client = PostgreSQLClient(
+        user=postgres_config["user"],
+        password=postgres_config["password"],
+        database=postgres_config["database"],
+        host=postgres_config["host"],
+        port=postgres_config["port"],
+        has_self_signed_cert=False,
+    )
+
+    async with postgres_client.connect() as pg_client:
+        with pytest.raises(
+            PostgreSQLTransactionError, match="A transaction failed to complete after 3 attempts: test error"
+        ):
+            await run_in_retryable_transaction(pg_client.connection, raise_serialization_failure)
+
+    assert attempt_count == 3
+
+
+async def test_run_in_retryable_transaction_retries_successfully_on_serialization_failure(
+    postgres_config, setup_postgres_test_db
+):
+    """Test that `run_in_retryable_transaction` retries on serialization failure and eventually succeeds."""
+
+    attempt_count = 0
+
+    async def raise_serialization_failure():
+        nonlocal attempt_count
+        attempt_count += 1
+        if attempt_count == 2:
+            return "success"
+        raise SerializationFailure("test error")
+
+    postgres_client = PostgreSQLClient(
+        user=postgres_config["user"],
+        password=postgres_config["password"],
+        database=postgres_config["database"],
+        host=postgres_config["host"],
+        port=postgres_config["port"],
+        has_self_signed_cert=False,
+    )
+
+    async with postgres_client.connect() as pg_client:
+        result = await run_in_retryable_transaction(pg_client.connection, raise_serialization_failure)
+        assert result == "success"
+
+    assert attempt_count == 2
+
+
+async def test_run_in_retryable_transaction_raises_error_if_fn_raises_non_serialization_failure(
+    postgres_config, setup_postgres_test_db
+):
+    """Test that `run_in_retryable_transaction` raises an error if the function raises a non-serialization failure."""
+
+    attempt_count = 0
+
+    async def raise_error():
+        nonlocal attempt_count
+        attempt_count += 1
+        raise ValueError("test error")
+
+    postgres_client = PostgreSQLClient(
+        user=postgres_config["user"],
+        password=postgres_config["password"],
+        database=postgres_config["database"],
+        host=postgres_config["host"],
+        port=postgres_config["port"],
+        has_self_signed_cert=False,
+    )
+
+    async with postgres_client.connect() as pg_client:
+        with pytest.raises(ValueError, match="test error"):
+            await run_in_retryable_transaction(pg_client.connection, raise_error)
+
+    assert attempt_count == 1

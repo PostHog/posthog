@@ -1,7 +1,9 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { isGroupType } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -10,6 +12,7 @@ import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
+import { extractValidationError } from '~/queries/nodes/InsightViz/utils'
 import { performQuery } from '~/queries/query'
 import {
     ActorsQuery,
@@ -19,8 +22,8 @@ import {
     InsightActorsQuery,
     InsightActorsQueryOptions,
     InsightActorsQueryOptionsResponse,
-    insightActorsQueryOptionsResponseKeys,
     NodeKind,
+    insightActorsQueryOptionsResponseKeys,
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
@@ -305,8 +308,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
         validationError: [
             (s) => [s.errorObject],
             (errorObject): string | null => {
-                // We use 512 for query timeouts
-                return errorObject?.status === 400 || errorObject?.status === 512 ? errorObject.detail : null
+                return extractValidationError(errorObject)
             },
         ],
         propertiesTimelineFilterFromUrl: [

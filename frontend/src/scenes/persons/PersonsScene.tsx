@@ -1,33 +1,55 @@
+import { useActions, useAsyncActions, useValues } from 'kea'
+
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonMenu } from '@posthog/lemon-ui'
-import { useActions, useAsyncActions, useValues } from 'kea'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
-import { personsSceneLogic } from './personsSceneLogic'
+import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
-import { ProductKey, OnboardingStepKey } from '~/types'
-import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
-import { SceneExport } from 'scenes/sceneTypes'
+import { OnboardingStepKey, ProductKey } from '~/types'
+
+import { personsSceneLogic } from './personsSceneLogic'
 
 export const scene: SceneExport = {
     component: PersonsScene,
     logic: personsSceneLogic,
 }
 
-export function PersonsScene(): JSX.Element {
+export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
+    if (!tabId) {
+        // TODO: sometimes when opening a property filter on a scene, the tabId is suddently empty.
+        // If I remove the "{closable && !disabledReason && ...}" block from within
+        // "frontend/src/lib/components/PropertyFilters/components/PropertyFilterButton.tsx"
+        // ... then the issue goes away. We should still figure out why this happens.
+        // Throwing seems to make it go away.
+        throw new Error('PersonsScene rendered with no tabId')
+    }
+
     const { query } = useValues(personsSceneLogic)
     const { setQuery } = useActions(personsSceneLogic)
     const { resetDeletedDistinctId } = useAsyncActions(personsSceneLogic)
     const { currentTeam } = useValues(teamLogic)
 
     return (
-        <>
-            <PersonsManagementSceneTabs
-                tabKey="persons"
-                buttons={
+        <SceneContent>
+            <PersonsManagementSceneTabs tabKey="persons" />
+
+            <SceneTitleSection
+                name={sceneConfigurations[Scene.Persons].name}
+                description={sceneConfigurations[Scene.Persons].description}
+                resourceType={{
+                    type: sceneConfigurations[Scene.Persons].iconType || 'default_icon_type',
+                }}
+                actions={
                     <LemonMenu
                         items={[
                             {
@@ -59,7 +81,11 @@ export function PersonsScene(): JSX.Element {
                     </LemonMenu>
                 }
             />
+            <SceneDivider />
+
             <Query
+                uniqueKey={`persons-query-${tabId}`}
+                attachTo={personsSceneLogic({ tabId })}
                 query={query}
                 setQuery={setQuery}
                 context={{
@@ -84,6 +110,6 @@ export function PersonsScene(): JSX.Element {
                 }}
                 dataAttr="persons-table"
             />
-        </>
+        </SceneContent>
     )
 }

@@ -1,12 +1,9 @@
-from typing import Optional
 from collections.abc import Callable
+from typing import Optional
 
 import structlog
 
-from posthog.constants import (
-    AvailableFeature,
-    ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER,
-)
+from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER, AvailableFeature
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.dashboard_tile import DashboardTile, Text
@@ -706,7 +703,7 @@ def create_group_type_mapping_detail_dashboard(group_type_mapping, user) -> Dash
     dashboard = Dashboard.objects.create(
         name=f"Template dashboard for {singular} overview",
         description=f"This dashboard template powers the Overview page for all {plural}. Any insights will automatically filter to the selected {singular}.",
-        team=group_type_mapping.team,
+        team_id=group_type_mapping.team_id,
         created_by=user,
         creation_mode="template",
     )

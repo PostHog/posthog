@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
 import { isEventFilter } from 'lib/components/UniversalFilters/utils'
@@ -14,8 +14,10 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { groupLogic, GroupLogicProps } from 'scenes/groups/groupLogic'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { GroupLogicProps, groupLogic } from 'scenes/groups/groupLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 import { RelatedFeatureFlags } from 'scenes/persons/RelatedFeatureFlags'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
@@ -23,11 +25,16 @@ import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/util
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
-import type { ActionFilter, Group } from '~/types'
+import type { ActionFilter } from '~/types'
 import {
     ActivityScope,
     FilterLogicalOperator,
+    GroupsTabType,
     Group as IGroup,
     PersonsTabType,
     PropertyDefinitionType,
@@ -37,18 +44,12 @@ import {
 
 import { GroupOverview } from './GroupOverview'
 import { RelatedGroups } from './RelatedGroups'
-import { NotebookNodeType } from 'scenes/notebooks/types'
 import { GroupNotebookCard } from './cards/GroupNotebookCard'
 
-interface GroupSceneProps {
-    groupTypeIndex?: string
-    groupKey?: string
-}
-
-export const scene: SceneExport = {
+export const scene: SceneExport<GroupLogicProps> = {
     component: Group,
     logic: groupLogic,
-    paramsToProps: ({ params: { groupTypeIndex, groupKey } }: { params: GroupSceneProps }): GroupLogicProps => ({
+    paramsToProps: ({ params: { groupTypeIndex, groupKey } }) => ({
         groupTypeIndex: parseInt(groupTypeIndex ?? '0'),
         groupKey: decodeURIComponent(groupKey ?? ''),
     }),
@@ -85,6 +86,7 @@ export function Group(): JSX.Element {
     const { setGroupEventsQuery, editProperty, deleteProperty } = useActions(groupLogic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { aggregationLabel } = useValues(groupsModel)
 
     if (!groupData || !groupType) {
         return groupDataLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="group" />
@@ -93,11 +95,18 @@ export function Group(): JSX.Element {
     const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
-        <>
-            <PageHeader
-                caption={<GroupCaption groupData={groupData} groupTypeName={groupTypeName} />}
-                buttons={
+        <SceneContent>
+            <SceneTitleSection
+                name={groupData.group_key}
+                resourceType={{ type: 'group' }}
+                forceBackTo={{
+                    name: capitalizeFirstLetter(aggregationLabel(groupTypeIndex).plural),
+                    key: 'groups',
+                    path: urls.groups(groupTypeIndex),
+                }}
+                actions={
                     <NotebookSelectButton
+                        size="small"
                         type="secondary"
                         resource={{
                             type: NotebookNodeType.Group,
@@ -109,20 +118,24 @@ export function Group(): JSX.Element {
                     />
                 }
             />
+            <SceneDivider />
+            <GroupCaption groupData={groupData} groupTypeName={groupTypeName} />
+            <SceneDivider />
             <LemonTabs
+                sceneInset
                 activeKey={groupTab ?? 'overview'}
                 onChange={(tab) => router.actions.push(urls.group(String(groupTypeIndex), groupKey, true, tab))}
                 tabs={[
                     {
-                        key: 'overview',
+                        key: GroupsTabType.OVERVIEW,
                         label: <span data-attr="groups-overview-tab">Overview</span>,
                         content: <GroupOverview groupData={groupData} />,
                     },
                     ...(featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE] && groupData.notebook
                         ? [
                               {
-                                  key: 'notebook',
-                                  label: <span data-attr="groups-notebook-tab">Notebook</span>,
+                                  key: GroupsTabType.NOTES,
+                                  label: <span data-attr="groups-notes-tab">Notes</span>,
                                   content: <GroupNotebookCard shortId={groupData.notebook} />,
                               },
                           ]
@@ -265,6 +278,6 @@ export function Group(): JSX.Element {
                     },
                 ]}
             />
-        </>
+        </SceneContent>
     )
 }

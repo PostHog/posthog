@@ -1,11 +1,12 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { lazyLoaders, loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import {
-    sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
+    sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { addRecordingToPlaylist, removeRecordingFromPlaylist } from 'scenes/session-recordings/player/utils/playerUtils'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
@@ -148,11 +149,16 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
         allPlaylists: [
             (s) => [s.playlists, s.currentPlaylists, s.searchQuery],
             (playlists, currentPlaylists, searchQuery) => {
-                const otherPlaylists = searchQuery
-                    ? playlists
-                    : playlists.filter((x) => !currentPlaylists.find((y) => x.short_id === y.short_id))
+                const nonSyntheticPlaylists = playlists.filter((x) => !x.is_synthetic)
+                const nonSyntheticCurrentPlaylists = currentPlaylists.filter((x) => !x.is_synthetic)
 
-                const selectedPlaylists = !searchQuery ? currentPlaylists : []
+                const otherPlaylists = searchQuery
+                    ? nonSyntheticPlaylists
+                    : nonSyntheticPlaylists.filter(
+                          (x) => !nonSyntheticCurrentPlaylists.find((y) => x.short_id === y.short_id)
+                      )
+
+                const selectedPlaylists = !searchQuery ? nonSyntheticCurrentPlaylists : []
 
                 const results: {
                     selected: boolean
@@ -163,7 +169,7 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
                         playlist: x,
                     })),
                     ...otherPlaylists.map((x) => ({
-                        selected: !!currentPlaylists.find((y) => x.short_id === y.short_id),
+                        selected: !!nonSyntheticCurrentPlaylists.find((y) => x.short_id === y.short_id),
                         playlist: x,
                     })),
                 ]
@@ -171,7 +177,10 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
                 return results
             },
         ],
-        pinnedCount: [(s) => [s.currentPlaylists], (currentPlaylists) => currentPlaylists.length],
+        pinnedCount: [
+            (s) => [s.currentPlaylists],
+            (currentPlaylists) => currentPlaylists.filter((x) => !x.is_synthetic).length,
+        ],
     })),
 
     afterMount(({ actions }) => {

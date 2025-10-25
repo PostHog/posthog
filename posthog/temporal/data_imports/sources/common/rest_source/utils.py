@@ -1,5 +1,5 @@
+from collections.abc import Iterable, Mapping
 from typing import Any
-from collections.abc import Mapping, Iterable
 
 from dlt.common import logger
 from dlt.extract.source import DltSource

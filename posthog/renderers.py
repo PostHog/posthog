@@ -1,5 +1,5 @@
 import orjson
-from rest_framework.renderers import JSONRenderer, BaseRenderer
+from rest_framework.renderers import BaseRenderer, JSONRenderer
 from rest_framework.utils.encoders import JSONEncoder
 
 CleaningMarker = bool | dict[int, "CleaningMarker"]

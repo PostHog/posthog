@@ -1,10 +1,12 @@
 'use client'
 
-import { IconCheckCircle } from '@posthog/icons'
 import * as ContextMenuPrimitive from '@radix-ui/react-context-menu'
+import * as React from 'react'
+
+import { IconCheckCircle } from '@posthog/icons'
+
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
-import * as React from 'react'
 
 const ContextMenu = ContextMenuPrimitive.Root
 
@@ -14,7 +16,7 @@ const ContextMenuGroup = React.forwardRef<
     React.ElementRef<typeof ContextMenuPrimitive.Group>,
     React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Group>
 >(({ className, ...props }, ref): JSX.Element => {
-    return <ContextMenuPrimitive.Group ref={ref} className={cn('flex flex-col gap-px', className)} {...props} />
+    return <ContextMenuPrimitive.Group ref={ref} className={cn('flex flex-col gap-px p-1', className)} {...props} />
 })
 ContextMenuGroup.displayName = ContextMenuPrimitive.Group.displayName
 

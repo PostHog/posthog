@@ -1,10 +1,15 @@
 import DOMPurify from 'dompurify'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
+import posthog from 'posthog-js'
+
 import { dayjs } from 'lib/dayjs'
-import { QuestionProcessedResponses, SurveyRatingResults } from 'scenes/surveys/surveyLogic'
+import { dateStringToDayJs } from 'lib/utils'
+import { NewSurvey, SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
+import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
     EventPropertyFilter,
+    QuestionProcessedResponses,
     Survey,
     SurveyAppearance,
     SurveyDisplayConditions,
@@ -12,6 +17,8 @@ import {
     SurveyEventProperties,
     SurveyQuestion,
     SurveyQuestionType,
+    SurveyRates,
+    SurveyStats,
     SurveyType,
 } from '~/types'
 
@@ -91,22 +98,59 @@ export const getResponseFieldWithId = (
 }
 
 export function sanitizeSurveyDisplayConditions(
-    displayConditions?: SurveyDisplayConditions | null
+    displayConditions?: SurveyDisplayConditions | null,
+    surveyType?: SurveyType
 ): SurveyDisplayConditions | null {
     if (!displayConditions) {
         return null
     }
 
-    return {
-        ...displayConditions,
-        url: displayConditions.url?.trim(),
-        selector: displayConditions.selector?.trim(),
+    if (surveyType === SurveyType.ExternalSurvey) {
+        return {
+            actions: {
+                values: [],
+            },
+            events: {
+                values: [],
+            },
+            deviceTypes: undefined,
+            deviceTypesMatchType: undefined,
+            linkedFlagVariant: undefined,
+            seenSurveyWaitPeriodInDays: undefined,
+            url: undefined,
+            urlMatchType: undefined,
+        }
     }
+
+    const trimmedUrl = displayConditions.url?.trim()
+    const trimmedSelector = displayConditions.selector?.trim()
+    const trimmedLinkedFlagVariant = displayConditions.linkedFlagVariant?.trim()
+
+    const sanitized: SurveyDisplayConditions = {
+        ...displayConditions,
+        ...(trimmedUrl && { url: trimmedUrl }),
+        ...(trimmedSelector && { selector: trimmedSelector }),
+        ...(trimmedLinkedFlagVariant && { linkedFlagVariant: trimmedLinkedFlagVariant }),
+    }
+
+    // Remove the original keys if they were empty after trimming
+    if (!trimmedUrl) {
+        delete sanitized.url
+    }
+    if (!trimmedSelector) {
+        delete sanitized.selector
+    }
+    if (!trimmedLinkedFlagVariant) {
+        delete sanitized.linkedFlagVariant
+    }
+
+    return sanitized
 }
 
 export function sanitizeSurveyAppearance(
     appearance?: SurveyAppearance | null,
-    isPartialResponsesEnabled = false
+    isPartialResponsesEnabled = false,
+    surveyType?: SurveyType
 ): SurveyAppearance | null {
     if (!appearance) {
         return null
@@ -123,6 +167,8 @@ export function sanitizeSurveyAppearance(
         submitButtonTextColor: sanitizeColor(appearance.submitButtonTextColor),
         thankYouMessageHeader: sanitizeHTML(appearance.thankYouMessageHeader ?? ''),
         thankYouMessageDescription: sanitizeHTML(appearance.thankYouMessageDescription ?? ''),
+        surveyPopupDelaySeconds:
+            surveyType === SurveyType.ExternalSurvey ? undefined : appearance.surveyPopupDelaySeconds,
     }
 }
 
@@ -352,16 +398,58 @@ export function isSurveyRunning(survey: Survey): boolean {
     return !!(survey.start_date && !survey.end_date)
 }
 
-export const DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss'
+export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boolean {
+    const conditions = sanitizeSurveyDisplayConditions(survey.conditions)
+    if (!conditions) {
+        return false
+    }
 
-export function getSurveyStartDateForQuery(survey: Survey): string {
-    return dayjs(survey.created_at).utc().startOf('day').format(DATE_FORMAT)
-}
+    // check string fields
+    if (conditions.url) {
+        return true
+    }
 
-export function getSurveyEndDateForQuery(survey: Survey): string {
-    return survey.end_date
-        ? dayjs(survey.end_date).utc().endOf('day').format(DATE_FORMAT)
-        : dayjs().utc().endOf('day').format(DATE_FORMAT)
+    if (conditions.selector) {
+        return true
+    }
+
+    if (conditions.linkedFlagVariant) {
+        return true
+    }
+
+    // check numeric fields
+    if (conditions.seenSurveyWaitPeriodInDays !== undefined && conditions.seenSurveyWaitPeriodInDays !== null) {
+        return true
+    }
+
+    // check array fields
+    if (conditions.deviceTypes && conditions.deviceTypes.length > 0) {
+        return true
+    }
+
+    // check enum fields
+    if (conditions.urlMatchType !== undefined && conditions.urlMatchType !== null) {
+        return true
+    }
+
+    if (conditions.deviceTypesMatchType !== undefined && conditions.deviceTypesMatchType !== null) {
+        return true
+    }
+
+    // check complex object fields
+    if (conditions.actions && conditions.actions.values && conditions.actions.values.length > 0) {
+        return true
+    }
+
+    if (conditions.events && conditions.events.values && conditions.events.values.length > 0) {
+        return true
+    }
+
+    if (conditions.events?.repeatedActivation !== undefined && conditions.events.repeatedActivation !== null) {
+        return true
+    }
+
+    return false
 }
 
 export function buildPartialResponsesFilter(survey: Survey): string {
@@ -391,7 +479,11 @@ export function buildPartialResponsesFilter(survey: Survey): string {
     ) --- Filter to ensure we only get one response per ${SurveyEventProperties.SURVEY_SUBMISSION_ID}`
 }
 
-export function sanitizeSurvey(survey: Partial<Survey>): Partial<Survey> {
+interface SanitizeSurveyOptions {
+    keepEmptyConditions?: boolean
+}
+
+export function sanitizeSurvey(survey: Partial<Survey>, options?: SanitizeSurveyOptions): Partial<Survey> {
     const sanitizedQuestions =
         survey.questions?.map((question) => ({
             ...question,
@@ -399,7 +491,11 @@ export function sanitizeSurvey(survey: Partial<Survey>): Partial<Survey> {
             description: sanitizeHTML(question.description ?? ''),
         })) || []
 
-    const sanitizedAppearance = sanitizeSurveyAppearance(survey.appearance, survey.enable_partial_responses ?? false)
+    const sanitizedAppearance = sanitizeSurveyAppearance(
+        survey.appearance,
+        survey.enable_partial_responses ?? false,
+        survey.type
+    )
 
     // Remove widget-specific fields if survey type is not Widget
     if (survey.type !== SurveyType.Widget && sanitizedAppearance) {
@@ -408,10 +504,118 @@ export function sanitizeSurvey(survey: Partial<Survey>): Partial<Survey> {
         delete sanitizedAppearance.widgetColor
     }
 
-    return {
+    const conditions = sanitizeSurveyDisplayConditions(survey.conditions, survey.type)
+    const sanitized: Partial<Survey> = {
         ...survey,
-        conditions: sanitizeSurveyDisplayConditions(survey.conditions),
+        conditions: conditions,
         questions: sanitizedQuestions,
         appearance: sanitizedAppearance,
     }
+
+    if (survey.type === SurveyType.ExternalSurvey) {
+        sanitized.remove_targeting_flag = true
+        sanitized.linked_flag_id = null
+        sanitized.targeting_flag_filters = undefined
+    }
+
+    if (options?.keepEmptyConditions !== true && (!conditions || Object.keys(conditions).length === 0)) {
+        delete sanitized.conditions
+    }
+    if (!sanitizedAppearance || Object.keys(sanitizedAppearance).length === 0) {
+        delete sanitized.appearance
+    }
+
+    return sanitized
+}
+
+export function calculateSurveyRates(stats: SurveyStats | null): SurveyRates {
+    const defaultRates: SurveyRates = {
+        response_rate: 0.0,
+        dismissal_rate: 0.0,
+        unique_users_response_rate: 0.0,
+        unique_users_dismissal_rate: 0.0,
+    }
+
+    if (!stats) {
+        return defaultRates
+    }
+
+    const shownCount = stats[SurveyEventName.SHOWN].total_count
+    if (shownCount > 0) {
+        const sentCount = stats[SurveyEventName.SENT].total_count
+        const dismissedCount = stats[SurveyEventName.DISMISSED].total_count
+        const uniqueUsersShownCount = stats[SurveyEventName.SHOWN].unique_persons
+        const uniqueUsersSentCount = stats[SurveyEventName.SENT].unique_persons
+        const uniqueUsersDismissedCount = stats[SurveyEventName.DISMISSED].unique_persons
+
+        return {
+            response_rate: parseFloat(((sentCount / shownCount) * 100).toFixed(2)),
+            dismissal_rate: parseFloat(((dismissedCount / shownCount) * 100).toFixed(2)),
+            unique_users_response_rate: parseFloat(((uniqueUsersSentCount / uniqueUsersShownCount) * 100).toFixed(2)),
+            unique_users_dismissal_rate: parseFloat(
+                ((uniqueUsersDismissedCount / uniqueUsersShownCount) * 100).toFixed(2)
+            ),
+        }
+    }
+    return defaultRates
+}
+
+export function captureMaxAISurveyCreationException(error?: string, source?: SURVEY_CREATED_SOURCE): void {
+    posthog.captureException(error || 'Undefined error when creating MaxAI survey', {
+        action: 'max-ai-survey-creation-failed',
+        source: source,
+    })
+}
+
+export const DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss'
+
+export function getSurveyStartDateForQuery(survey: Pick<Survey, 'created_at'>): string {
+    return dayjs.utc(survey.created_at).startOf('day').format(DATE_FORMAT)
+}
+
+export function getSurveyEndDateForQuery(survey: Pick<Survey, 'end_date'>): string {
+    return survey.end_date
+        ? dayjs.utc(survey.end_date).endOf('day').format(DATE_FORMAT)
+        : dayjs.utc().endOf('day').format(DATE_FORMAT)
+}
+
+export interface SurveyDateRange {
+    date_from: string | null
+    date_to: string | null
+}
+
+export function buildSurveyTimestampFilter(
+    survey: Pick<Survey, 'created_at' | 'end_date'>,
+    dateRange?: SurveyDateRange | null
+): string {
+    // If no date range provided, use the survey's default date range
+    let fromDate = getSurveyStartDateForQuery(survey)
+    let toDate = getSurveyEndDateForQuery(survey)
+
+    if (!dateRange) {
+        return `AND timestamp >= '${fromDate}'
+        AND timestamp <= '${toDate}'`
+    }
+
+    // ----- Handle FROM date -----
+    if (dateRange.date_from) {
+        // Parse user-provided date and ensure it's not before survey creation
+        const userFromDate = dateStringToDayJs(dateRange.date_from)?.startOf('day')
+
+        if (userFromDate && userFromDate.isAfter(fromDate)) {
+            fromDate = userFromDate.format(DATE_FORMAT)
+        }
+    }
+
+    // ----- Handle TO date -----
+    if (dateRange.date_to) {
+        const userToDate = dateStringToDayJs(dateRange.date_to)?.endOf('day')
+
+        if (userToDate && userToDate.isBefore(toDate)) {
+            toDate = userToDate.format(DATE_FORMAT)
+        }
+    }
+
+    return `AND timestamp >= '${fromDate}'
+    AND timestamp <= '${toDate}'`
 }

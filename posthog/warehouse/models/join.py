@@ -1,6 +1,7 @@
+from datetime import datetime
 from typing import Optional, cast
 from warnings import warn
-from datetime import datetime
+
 from django.db import models
 
 from posthog.hogql import ast
@@ -9,12 +10,13 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import LazyJoinToAdd
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_expr
+
 from posthog.models.team import Team
-from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDTModel
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 
-class DataWarehouseViewLink(CreatedMetaFields, UUIDModel, DeletedMetaFields):
+class DataWarehouseViewLink(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     """Deprecated model, use DataWarehouseJoin instead"""
 
     def __init_subclass__(cls, **kwargs):
@@ -34,7 +36,7 @@ class DataWarehouseViewLink(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     to_join_key = models.CharField(max_length=400)
 
 
-class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
+class DataWarehouseJoin(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     source_table_name = models.CharField(max_length=400)
     source_table_key = models.CharField(max_length=400)
@@ -53,7 +55,10 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         self.save()
 
     def join_function(
-        self, override_source_table_key: Optional[str] = None, override_joining_table_key: Optional[str] = None
+        self,
+        override_source_table_key: Optional[str] = None,
+        override_joining_table_key: Optional[str] = None,
+        override_join_type: Optional[str] = None,
     ):
         def _join_function(
             join_to_add: LazyJoinToAdd,
@@ -68,8 +73,8 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             if not join_to_add.fields_accessed:
                 raise ResolutionError(f"No fields requested from {join_to_add.to_table}")
 
-            left = self.__parse_table_key_expression(_source_table_key, join_to_add.from_table)
-            right = self.__parse_table_key_expression(_joining_table_key, join_to_add.to_table)
+            left = self.parse_table_key_expression(_source_table_key, join_to_add.from_table)
+            right = self.parse_table_key_expression(_joining_table_key, join_to_add.to_table)
 
             join_expr = ast.JoinExpr(
                 table=ast.SelectQuery(
@@ -79,7 +84,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                     ],
                     select_from=ast.JoinExpr(table=ast.Field(chain=self.joining_table_name_chain)),
                 ),
-                join_type="LEFT JOIN",
+                join_type=override_join_type or "LEFT JOIN",
                 alias=join_to_add.to_table,
                 constraint=ast.JoinConstraint(
                     expr=ast.CompareOperation(
@@ -110,8 +115,8 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             if not timestamp_key:
                 raise ResolutionError("experiments_timestamp_key is not set for this join")
 
-            left = self.__parse_table_key_expression(self.source_table_key, join_to_add.from_table)
-            right = self.__parse_table_key_expression(self.joining_table_key, join_to_add.to_table)
+            left = self.parse_table_key_expression(self.source_table_key, join_to_add.from_table)
+            right = self.parse_table_key_expression(self.joining_table_key, join_to_add.to_table)
 
             whereExpr: list[ast.Expr] = [
                 ast.CompareOperation(
@@ -200,29 +205,8 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
         return _join_function_for_experiments
 
-    def join_for_persons_revenue_analytics_table(self) -> ast.JoinExpr:
-        from posthog.hogql import ast
-
-        left = self.__parse_table_key_expression(self.source_table_key, self.source_table_name)
-        right = self.__parse_table_key_expression(self.joining_table_key, self.joining_table_name)
-
-        join_expr = ast.JoinExpr(
-            table=ast.Field(chain=self.joining_table_name_chain),
-            join_type="LEFT JOIN",
-            alias=self.joining_table_name,
-            constraint=ast.JoinConstraint(
-                expr=ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=left,
-                    right=right,
-                ),
-                constraint_type="ON",
-            ),
-        )
-
-        return join_expr
-
-    def __parse_table_key_expression(self, table_key: str, table_name: str) -> ast.Expr:
+    @classmethod
+    def parse_table_key_expression(cls, table_key: str, table_name: str) -> ast.Expr:
         expr = parse_expr(table_key)
         if isinstance(expr, ast.Field):
             expr.chain = [table_name, *expr.chain]

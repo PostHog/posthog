@@ -4,18 +4,20 @@ from langchain.schema import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
-from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
-from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
-from ee.hogai.graph.sql.toolkit import SQL_SCHEMA
-from ee.hogai.tool import MaxTool
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
+
 from posthog.warehouse.models import Database
+
+from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
+from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
+from ee.hogai.graph.sql.toolkit import SQL_SCHEMA
+from ee.hogai.tool import MaxTool
 
 _hogql_functions: str | None = None
 
@@ -182,7 +184,7 @@ class HogQLQueryFixerTool(MaxTool):
     name: str = "fix_hogql_query"
     description: str = "Fixes any error in the current HogQL query"
     thinking_message: str = "Fixing errors in the SQL query"
-    root_system_prompt_template: str = SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
+    context_prompt_template: str = SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
 
     def _run_impl(self) -> tuple[str, str | None]:
         database = create_hogql_database(team=self._team)
@@ -246,14 +248,13 @@ The newly updated query gave us this error:
         # We also ensure the generated SQL is valid
         assert result.query is not None
         try:
-            print_ast(parse_select(result.query), context=hogql_context, dialect="clickhouse")
+            result.query = result.query.rstrip(";").strip()
+            prepare_and_print_ast(parse_select(result.query), context=hogql_context, dialect="clickhouse")
         except (ExposedHogQLError, ResolutionError) as err:
             err_msg = str(err)
             if err_msg.startswith("no viable alternative"):
                 # The "no viable alternative" ANTLR error is horribly unhelpful, both for humans and LLMs
                 err_msg = 'ANTLR parsing error: "no viable alternative at input". This means that the query isn\'t valid HogQL.'
             raise PydanticOutputParserException(llm_output=result.query, validation_message=err_msg)
-        except Exception as e:
-            raise PydanticOutputParserException(llm_output=result.query, validation_message=str(e))
 
         return result.query

@@ -1,6 +1,8 @@
+import { BindLogic, useActions, useValues } from 'kea'
+
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonInput, Link, Tooltip } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { humanFriendlyNumber } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -10,8 +12,9 @@ import { ExperimentFunnelsQuery, ExperimentTrendsQuery, NodeKind } from '~/queri
 import { ExperimentIdType, InsightType } from '~/types'
 
 import { MetricInsightId } from '../constants'
-import { minimumSampleSizePerVariant, recommendedExposureForCountData } from '../legacyExperimentCalculations'
 import { experimentLogic } from '../experimentLogic'
+import { minimumSampleSizePerVariant, recommendedExposureForCountData } from '../legacyExperimentCalculations'
+
 interface ExperimentCalculatorProps {
     experimentId: ExperimentIdType
 }

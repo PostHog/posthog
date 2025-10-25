@@ -1,26 +1,29 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
+import { TrendsCalendarHeatMap } from 'scenes/insights/views/CalendarHeatMap'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { WorldMap } from 'scenes/insights/views/WorldMap'
 
+import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { ChartDisplayType, InsightType, ItemMode } from '~/types'
+import { ChartDisplayType, InsightType } from '~/types'
 
 import { trendsDataLogic } from './trendsDataLogic'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from './viz'
 
 interface Props {
     view: InsightType
-    context?: QueryContext
+    context?: QueryContext<InsightVizNode>
     embedded?: boolean
     inSharedMode?: boolean
+    editMode?: boolean
 }
 
-export function TrendInsight({ view, context, embedded, inSharedMode }: Props): JSX.Element {
-    const { insightMode } = useValues(insightSceneLogic)
+export function TrendInsight({ view, context, embedded, inSharedMode, editMode }: Props): JSX.Element {
     const { insightProps, showPersonsModal: insightLogicShowPersonsModal } = useValues(insightLogic)
     const showPersonsModal = insightLogicShowPersonsModal && !inSharedMode
 
@@ -35,7 +38,8 @@ export function TrendInsight({ view, context, embedded, inSharedMode }: Props): 
             display === ChartDisplayType.ActionsLineGraph ||
             display === ChartDisplayType.ActionsLineGraphCumulative ||
             display === ChartDisplayType.ActionsAreaGraph ||
-            display === ChartDisplayType.ActionsBar
+            display === ChartDisplayType.ActionsBar ||
+            display === ChartDisplayType.ActionsUnstackedBar
         ) {
             return (
                 <ActionsLineGraph
@@ -62,7 +66,8 @@ export function TrendInsight({ view, context, embedded, inSharedMode }: Props): 
                 <ActionsTable
                     embedded
                     filterKey={`trends_${view}`}
-                    canEditSeriesNameInline={insightMode === ItemMode.Edit}
+                    canEditSeriesNameInline={editMode}
+                    editMode={editMode}
                     isMainInsightView={true}
                 />
             )
@@ -97,6 +102,16 @@ export function TrendInsight({ view, context, embedded, inSharedMode }: Props): 
                 />
             )
         }
+        if (display === ChartDisplayType.CalendarHeatmap) {
+            return (
+                <TrendsCalendarHeatMap
+                    showPersonsModal={showPersonsModal}
+                    context={context}
+                    inCardView={embedded}
+                    inSharedMode={inSharedMode}
+                />
+            )
+        }
     }
 
     return (
@@ -108,6 +123,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode }: Props): 
             )}
             {!embedded &&
                 display !== ChartDisplayType.WorldMap && // the world map doesn't need this cta
+                display !== ChartDisplayType.CalendarHeatmap && // the heatmap doesn't need this cta
                 breakdownFilter &&
                 hasBreakdownMore && (
                     <div className="p-4">

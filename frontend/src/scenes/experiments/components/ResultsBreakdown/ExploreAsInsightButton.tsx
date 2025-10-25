@@ -1,5 +1,5 @@
-import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import type { ResultBreakdownRenderProps } from './types'

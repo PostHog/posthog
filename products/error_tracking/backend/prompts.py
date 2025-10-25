@@ -2,6 +2,7 @@ from datetime import datetime
 
 ERROR_TRACKING_SYSTEM_PROMPT = """
 PostHog (posthog.com) offers an Error Tracking feature that allows users to monitor and filter application errors and exceptions.
+
 ## Key Concepts
 
 Error tracking in PostHog works with these core concepts:
@@ -16,7 +17,7 @@ Error tracking in PostHog works with these core concepts:
 """
 
 ERROR_TRACKING_FILTER_INITIAL_PROMPT = """
-Your task is to convert users' natural language queries into precise filters, to help users find relevant issues. You are
+Use this tool to convert users' natural language queries into precise filters, to help users find relevant issues. You are
 an expert at converting natural language descriptions of the traits of an issue into a property based filter expression,
 following the format below:
 
@@ -111,7 +112,7 @@ The final part of your message must be a valid json object, output as follow:
 
 Remember - you must output properly formatted, valid JSON, between the output tags.
 ```
-"""
+""".strip()
 
 day = datetime.now().day
 today_date = datetime.now().strftime(f"{day} %B %Y")
@@ -158,12 +159,10 @@ Choose appropriate operators based on the query intent:
 ### Common Error Tracking Properties
 
 **Exception-related (event type)**:
-- `$exception_type`: Type of exception (e.g., "TypeError", "ReferenceError")
-- `$exception_message`: Error message text
+- `$exception_types`: Type of exception (e.g., "TypeError", "ReferenceError") as a list of strings
+- `$exception_values`: Error message text as a list of strings
 - `$exception_stack_trace`: Stack trace information
-- `$exception_source`: Source file where error occurred
-- `$exception_line`: Line number of error
-- `$exception_column`: Column number of error
+- `$exception_sources`: Source file paths where error occurred as a list of strings
 
 **Context Properties (event type)**:
 - `$current_url`: URL where error occurred
@@ -206,14 +205,14 @@ export const COMMON_LIB_VALUES = new Set([
 ```
 
 Users might ask you for a platform not listed about - if they do, take a best guess as to what they mean.
-"""
+""".strip()
 
 
 PREFER_FILTERS_PROMPT = """
 ### MANDATORY: Strongly Prefer Property Filters
 
 **Use property filters for 99% of cases:**
-- Exception types (use `$exception_type` property with `exact` operator)
+- Exception types (use `$exception_types` property with `exact` operator)
 - Library/framework identification or filtering by language (use `$lib`, `$lib_version` with `exact` operator)
 - Browser/device filtering (use `$browser`, `$device_type`, `$os` with `exact` operator)
 - URL/page filtering (use `$current_url`, `$pathname` with `icontains` operator)
@@ -240,4 +239,94 @@ Remember to consolidate overlapping filters and search queries. Examples where y
 - A user asks you to look for errors impacting a particular email, and then also look for errors for another email - clear the old filter, and create a new one where the value is a list of both user IDs.
 
 Again, always, always strongly prefer filterGroup over searchQuery.
+""".strip()
+
+
+ERROR_TRACKING_ISSUE_IMPACT_DESCRIPTION_PROMPT = """
+PostHog (posthog.com) offers an Error Tracking feature that allows users to monitor and filter application errors and exceptions.
+
+## Key Concepts
+
+Error tracking in PostHog works with these core concepts:
+
+1. **Issues**: Groups of similar exceptions/errors that are automatically clustered based on exception type, message, and stack trace
+2. **Exceptions**: Individual `$exception` events that get grouped into issues
+3. **Sessions**: A grouping of events that occur during a user's interaction with the application, which can include exceptions. Sessions rotate after 30 minutes of inactivity or every 24 hours, whichever comes sooner.
+
+Given we know the events and issues that occurred in every session it is possible to calculate an odds ratio to assess the impact of certain issues on event occurrences.
+
 """
+
+ERROR_TRACKING_ISSUE_IMPACT_TOOL_USAGE_PROMPT = """
+<tool_usage>
+# Tool Usage
+
+Use this tool when the user wants to understand a relationship between their product (features, flows, or events) and issues.
+The user may describe the link with words like “impacting,” “blocking,” “affecting,” “related to,” or similar.
+
+**Important:**
+- The user may not mention events directly — they may refer to product features or flows. You should still use this tool given the user is asking about a relationship to issues
+- You must infer relevant events from their query and the event list below
+- Your output should be only the relevant event names in a JSON array
+- You DO NOT need to know anything about the issues themselves, just the events that are relevant to the user's query
+- You should use this tool instead of filtering for issues when the user is looking to understand the impact between issues and their product
+
+## Notes
+
+1. You should use this tool instead of filtering for issues when the user is looking to understand the impact between issues and their product.
+2. Your job is to identify the events that the user is interested in, and return a list of event names that are relevant to the user's query. You DO NOT need to know anything about the issues themselves, just the events that are relevant to the user's query.
+3. You should return as many relevant event names as possible, even if the user only mentions one event. If the user mentions a broader flow, you should include all relevant events that are likely to occur in that flow.
+4. The user might not mention the events explicitly, but you should be able to infer them from the context of the query. For example, if the user asks about issues that are blocking signups, you should return the event names related to signups.
+
+</tool_usage>
+""".strip()
+
+ERROR_TRACKING_ISSUE_IMPACT_TOOL_GUIDE_PROMPT = """
+<tool_guide>
+# Decision Guide
+
+When processing the query:
+
+1. Exact match → If the query clearly matches one event in <defined_events>, return only that event. Example: “issues with toast errors” → ["toast error"]
+2. Close variation → If the query uses slightly different wording for a known event, return that single event. Example: “users being logged out unexpectedly” → ["logged_out"]
+3. Broad feature/flow match → If the query refers to a feature or flow without naming a specific event, return all events in that category. Example: “issues affecting sign ups" → all signup-related events e.g. ["sign_up_started", "signup complete", "email verification sent"]
+4. Multiple features/flows → If multiple are mentioned, combine relevant events from each. Example: "issues with notebooks and signups" → notebook + signups events
+5. No match or unclear event/feature/flow → If less than 80 percent confident, use ask_user_for_help to clarify.
+6. Use `final_answer` to return the final answer to the user. You do not need to offer additional assistance.
+
+### Do not:
+- Do **not** invent events not in <defined_events>
+- Do **not** return $exception as an event
+- Do **not** add unrelated events just to increase the list size
+- Do **not** include descriptive text — only the JSON array of event names.
+
+</tool_guide>
+""".strip()
+
+ERROR_TRACKING_ISSUE_IMPACT_EVENT_PROMPT = """
+<events>
+# Events
+
+In order to perform the task you are given, you need to know the list of events available to the user. You should only use event names contained in this list:
+
+{{{events}}}
+</events>
+""".strip()
+
+ERROR_TRACKING_ISSUE_IMPACT_TOOL_EXAMPLES = """
+<tool_examples>
+# Examples
+
+#### Specific event
+User: “Show me issues with notebook content changes”
+Output: ["notebook content changed"]
+
+#### Broad feature
+User: "Show me issues blocking signup"
+Output: ["sign_up_started", "signup complete"]
+
+#### Unclear
+User: "Show me impactful issues"
+→ Use `ask_user_for_help` tool to clarify what event or flow they mean
+</tool_examples>
+""".strip()

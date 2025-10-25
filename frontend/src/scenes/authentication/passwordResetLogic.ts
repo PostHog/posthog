@@ -2,10 +2,11 @@ import { kea, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
 import api from 'lib/api'
 import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import posthog from 'posthog-js'
 
 import type { passwordResetLogicType } from './passwordResetLogicType'
 
@@ -97,13 +98,18 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
                     return
                 }
                 try {
-                    await api.create(`api/reset/${values.validatedResetToken.uuid}/`, {
+                    const response = await api.create(`api/reset/${values.validatedResetToken.uuid}/`, {
                         password,
                         token: values.validatedResetToken.token,
                     })
                     lemonToast.success('Your password has been changed. Redirecting…')
                     await breakpoint(3000)
-                    window.location.href = '/' // We need the refresh
+
+                    const url = new URL('/login', window.location.origin)
+                    if (response.email) {
+                        url.searchParams.set('email', response.email)
+                    }
+                    window.location.href = url.href // We need the refresh
                 } catch (e: any) {
                     actions.setPasswordResetManualErrors({ password: e.detail })
                     throw e

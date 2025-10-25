@@ -1,11 +1,13 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { PageHeader } from 'lib/components/PageHeader'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { DatawarehouseTableForm } from 'scenes/data-warehouse/new/DataWarehouseTableForm'
 import { dataWarehouseTableLogic } from 'scenes/data-warehouse/new/dataWarehouseTableLogic'
 import { urls } from 'scenes/urls'
 
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { DataWarehouseTable } from '~/types'
 
 interface SelfManagedProps {
@@ -18,6 +20,23 @@ export const DataPipelinesSelfManagedSource = ({ id }: SelfManagedProps): JSX.El
 
     return (
         <BindLogic logic={dataWarehouseTableLogic} props={{ id }}>
+            <SceneTitleSection
+                name={table.name}
+                description={table.url_pattern}
+                resourceType={{ type: 'data_pipeline' }}
+                actions={
+                    <LemonButton
+                        type="secondary"
+                        onClick={() => {
+                            editingTable(false)
+                            router.actions.push(urls.dataPipelines('sources'))
+                        }}
+                        size="small"
+                    >
+                        Cancel
+                    </LemonButton>
+                }
+            />
             <DataPipelinesSelfManagedSourceTable table={table} updateTable={updateTable} editingTable={editingTable} />
         </BindLogic>
     )
@@ -29,22 +48,9 @@ interface Props {
     editingTable: (editing: boolean) => void
 }
 
-export function DataPipelinesSelfManagedSourceTable({ table, updateTable, editingTable }: Props): JSX.Element {
+export function DataPipelinesSelfManagedSourceTable({ table, updateTable }: Props): JSX.Element {
     return (
         <>
-            <PageHeader
-                buttons={
-                    <LemonButton
-                        type="secondary"
-                        onClick={() => {
-                            editingTable(false)
-                            router.actions.push(urls.pipeline())
-                        }}
-                    >
-                        Cancel
-                    </LemonButton>
-                }
-            />
             <div className="deprecated-space-y-4">
                 <DatawarehouseTableForm
                     onUpdate={() =>

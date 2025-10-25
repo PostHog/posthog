@@ -1,8 +1,10 @@
 import './LemonBanner.scss'
 
-import { IconInfo, IconWarning, IconX } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
+import { IconInfo, IconWarning, IconX } from '@posthog/icons'
+
 import { LemonButton, SideAction } from 'lib/lemon-ui/LemonButton'
 import { LemonButtonPropsBase } from 'lib/lemon-ui/LemonButton'
 
@@ -25,6 +27,7 @@ export interface LemonBannerProps {
      */
     hideIcon?: boolean
     square?: boolean
+    icon?: React.ReactNode
 }
 
 /** Generic alert message. */
@@ -37,6 +40,7 @@ export function LemonBanner({
     dismissKey = '',
     hideIcon,
     square = false,
+    icon,
 }: LemonBannerProps): JSX.Element | null {
     const logic = lemonBannerLogic({ dismissKey })
     const { isDismissed } = useValues(logic)
@@ -65,7 +69,9 @@ export function LemonBanner({
         >
             <div className="flex items-center gap-2 grow @md:!px-1">
                 {!hideIcon &&
-                    (type === 'warning' || type === 'error' ? (
+                    (icon ? (
+                        icon
+                    ) : type === 'warning' || type === 'error' ? (
                         <IconWarning className={clsx('LemonBanner__icon', hideIcon !== false && 'hidden @md:!block')} />
                     ) : (
                         <IconInfo className={clsx('LemonBanner__icon', hideIcon !== false && 'hidden @md:!block')} />

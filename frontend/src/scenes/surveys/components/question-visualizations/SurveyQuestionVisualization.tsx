@@ -1,16 +1,19 @@
+import { useValues } from 'kea'
+
 import { IconInfo } from '@posthog/icons'
 import { LemonDivider, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+
 import { StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
+import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
+import { AnalyzeResponsesButton } from 'scenes/surveys/components/AnalyzeResponsesButton'
 import { MultipleChoiceQuestionViz } from 'scenes/surveys/components/question-visualizations/MultipleChoiceQuestionViz'
 import { ResponseSummariesButton } from 'scenes/surveys/components/question-visualizations/OpenQuestionSummarizer'
 import { OpenQuestionViz } from 'scenes/surveys/components/question-visualizations/OpenQuestionViz'
 import { SurveyQuestionLabel } from 'scenes/surveys/constants'
-import { QuestionProcessedResponses, surveyLogic } from 'scenes/surveys/surveyLogic'
-import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
+import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { SurveyQuestion, SurveyQuestionType } from '~/types'
+import { QuestionProcessedResponses, SurveyQuestion, SurveyQuestionType } from '~/types'
 
 import { SCALE_LABELS } from '../../constants'
 import { NPSBreakdownSkeleton, RatingQuestionViz } from './RatingQuestionViz'
@@ -18,6 +21,7 @@ import { NPSBreakdownSkeleton, RatingQuestionViz } from './RatingQuestionViz'
 interface Props {
     question: SurveyQuestion
     questionIndex: number
+    demoData?: QuestionProcessedResponses // For demo mode
 }
 
 function QuestionTitle({
@@ -25,6 +29,7 @@ function QuestionTitle({
     questionIndex,
     totalResponses = 0,
 }: Props & { totalResponses?: number }): JSX.Element {
+    const { isSurveyAnalysisMaxToolEnabled } = useValues(surveyLogic)
     return (
         <div className="flex flex-col">
             <div className="inline-flex gap-1 max-w-fit font-semibold text-secondary items-center">
@@ -54,9 +59,10 @@ function QuestionTitle({
                 <h3 className="text-xl font-bold mb-0">
                     Question {questionIndex + 1}: {question.question}
                 </h3>
-                {question.type === SurveyQuestionType.Open && totalResponses > 5 && (
+                {question.type === SurveyQuestionType.Open && totalResponses > 5 && !isSurveyAnalysisMaxToolEnabled && (
                     <ResponseSummariesButton questionIndex={questionIndex} questionId={question.id} />
                 )}
+                {isSurveyAnalysisMaxToolEnabled && <AnalyzeResponsesButton />}
             </div>
         </div>
     )
@@ -149,9 +155,35 @@ function QuestionLoadingSkeleton({ question }: { question: SurveyQuestion }): JS
     }
 }
 
-export function SurveyQuestionVisualization({ question, questionIndex }: Props): JSX.Element | null {
+export function SurveyQuestionVisualization({ question, questionIndex, demoData }: Props): JSX.Element | null {
     const { consolidatedSurveyResults, consolidatedSurveyResultsLoading, surveyBaseStatsLoading } =
         useValues(surveyLogic)
+
+    if (demoData) {
+        return (
+            <div className="flex flex-col gap-2">
+                <QuestionTitle
+                    question={question}
+                    questionIndex={questionIndex}
+                    totalResponses={demoData.totalResponses}
+                />
+                <div className="flex flex-col gap-4">
+                    {question.type === SurveyQuestionType.Rating && demoData.type === SurveyQuestionType.Rating && (
+                        <RatingQuestionViz question={question} questionIndex={questionIndex} processedData={demoData} />
+                    )}
+                    {(question.type === SurveyQuestionType.SingleChoice ||
+                        question.type === SurveyQuestionType.MultipleChoice) &&
+                        (demoData.type === SurveyQuestionType.SingleChoice ||
+                            demoData.type === SurveyQuestionType.MultipleChoice) && (
+                            <MultipleChoiceQuestionViz responseData={demoData.data} />
+                        )}
+                    {question.type === SurveyQuestionType.Open && demoData.type === SurveyQuestionType.Open && (
+                        <OpenQuestionViz question={question} responseData={demoData.data} />
+                    )}
+                </div>
+            </div>
+        )
+    }
 
     if (!question.id || question.type === SurveyQuestionType.Link) {
         return null

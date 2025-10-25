@@ -1,13 +1,15 @@
-import { LemonButton, LemonSelect, lemonToast, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useCallback } from 'react'
+
+import { LemonButton, LemonSelect, Spinner, lemonToast } from '@posthog/lemon-ui'
+
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { useCallback } from 'react'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
-import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
+import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -52,7 +54,7 @@ const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName:
     const { toggleEditJoinModal } = useActions(viewLinkLogic)
     const { joins, joinsLoading } = useValues(dataWarehouseJoinsLogic)
     const { loadJoins } = useActions(dataWarehouseJoinsLogic)
-    const { loadDatabase } = useActions(dataWarehouseSceneLogic)
+    const { loadDatabase } = useActions(dataWarehouseSettingsSceneLogic)
 
     const join = joins.find((n) => n.source_table_name === tableName && n.field_name === fieldName)
 
@@ -96,7 +98,7 @@ const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName:
 
 export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange }: DatabaseTableProps): JSX.Element {
     const dataSource = Object.values(tables.find(({ name }) => name === table)?.fields ?? {})
-    const { dataWarehouseTables, databaseLoading } = useValues(dataWarehouseSceneLogic)
+    const { dataWarehouseTables, databaseLoading } = useValues(dataWarehouseSettingsSceneLogic)
 
     return (
         <LemonTable

@@ -1,12 +1,13 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DragEventHandler, useState } from 'react'
 
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { notebookLogicType } from '../Notebook/notebookLogicType'
 import { NotebookSelectList } from '../NotebookSelectButton/NotebookSelectButton'
-import { notebookPanelLogic } from './notebookPanelLogic'
 import { NotebookNodeType } from '../types'
+import { notebookPanelLogic } from './notebookPanelLogic'
 
 export function NotebookPanelDropzone(): JSX.Element | null {
     const [isDragActive, setIsDragActive] = useState(false)

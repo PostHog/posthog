@@ -55,11 +55,11 @@ fn decide_on_error(
         }
     } else {
         let error_msg = match current_date_range {
-            Some(dr) => format!("{} (Date range: {})", user_message, dr),
+            Some(dr) => format!("{user_message} (Date range: {dr})"),
             None => user_message.to_string(),
         };
         let display_msg = match current_date_range {
-            Some(dr) => format!("{} (Date range: {})", user_message, dr),
+            Some(dr) => format!("{user_message} (Date range: {dr})"),
             None => user_message.to_string(),
         };
         ErrorHandlingDecision::Pause {
@@ -156,8 +156,8 @@ impl Job {
                 let size = source
                     .size(&key)
                     .await
-                    .with_context(|| format!("Failed to get size for part {}", key))?;
-                debug!("Got size for part {}: {:?}", key, size);
+                    .with_context(|| format!("Failed to get size for part {key}"))?;
+                debug!("Got size for part {key}: {size:?}");
                 parts.push(PartState {
                     key,
                     current_offset: 0,
@@ -242,12 +242,10 @@ impl Job {
                             let mut model = self.model.lock().await;
                             let msg = match current_date_range.as_deref() {
                                 Some(dr) => format!(
-                                    "Max backoff attempts reached for date range {} (attempt {}). Pausing.",
-                                    dr, next_attempt
+                                    "Max backoff attempts reached for date range {dr} (attempt {next_attempt}). Pausing."
                                 ),
                                 None => format!(
-                                    "Max backoff attempts reached (attempt {}). Pausing.",
-                                    next_attempt
+                                    "Max backoff attempts reached (attempt {next_attempt}). Pausing."
                                 ),
                             };
                             model
@@ -288,7 +286,12 @@ impl Job {
                         display_msg,
                     } => {
                         let mut model = self.model.lock().await;
-                        error!(job_id = %model.id, error = ?e, "Pausing job due to error: {}", error_msg);
+                        error!(
+                            job_id = %model.id,
+                            user_msg = %error_msg,
+                            "Pausing job due to error: {:#}",
+                            e
+                        );
                         model
                             .pause(self.context.clone(), error_msg, Some(display_msg))
                             .await?;
@@ -366,7 +369,7 @@ impl Job {
                 self.context.config.chunk_size as u64,
             )
             .await
-            .context(format!("Fetching part chunk {:?}", next_part))?;
+            .context(format!("Fetching part chunk {next_part:?}"))?;
 
         let is_last_chunk = match next_part.total_size {
             Some(total_size) => next_part.current_offset + next_chunk.len() as u64 > total_size,
@@ -380,7 +383,7 @@ impl Job {
         // This is computationally expensive, so we run it in a blocking task
         let parsed = tokio::task::spawn_blocking(move || (m_tf)(next_chunk))
             .await?
-            .context(format!("Processing part chunk {:?}", next_part))?;
+            .context(format!("Processing part chunk {next_part:?}"))?;
 
         info!(
             "Parsed part chunk {:?}, consumed {} bytes",
@@ -472,7 +475,7 @@ impl Job {
 
         // Iterate through the parts list and update the relevant part
         let Some(part) = model_state.parts.iter_mut().find(|p| p.key == key) else {
-            return Err(Error::msg(format!("No part found with key {}", key)));
+            return Err(Error::msg(format!("No part found with key {key}")));
         };
 
         part.current_offset += consumed as u64;
@@ -762,6 +765,9 @@ mod tests {
                     content: crate::parse::content::ContentType::Captured,
                 },
                 sink: super::config::SinkConfig::NoOp,
+                import_events: true,
+                generate_identify_events: false,
+                generate_group_identify_events: false,
             },
             secrets: super::config::JobSecrets {
                 secrets: std::collections::HashMap::new(),
@@ -793,7 +799,7 @@ mod tests {
         let user_message = "Connection failed";
         let date_range = "2023-01-01 00:00 UTC to 2023-01-01 01:00 UTC";
 
-        let display_message = format!("{} (Date range: {})", user_message, date_range);
+        let display_message = format!("{user_message} (Date range: {date_range})");
         assert_eq!(
             display_message,
             "Connection failed (Date range: 2023-01-01 00:00 UTC to 2023-01-01 01:00 UTC)"

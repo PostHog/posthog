@@ -1,14 +1,11 @@
 import pytest
+from posthog.test.base import FuzzyInt
 
 from posthog.async_migrations.runner import start_async_migration
-from posthog.async_migrations.setup import (
-    get_async_migration_definition,
-    setup_async_migrations,
-)
+from posthog.async_migrations.setup import get_async_migration_definition, setup_async_migrations
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest
 from posthog.models.event.util import create_event
 from posthog.models.utils import UUIDT
-from posthog.test.base import FuzzyInt
 
 pytestmark = pytest.mark.async_migrations
 

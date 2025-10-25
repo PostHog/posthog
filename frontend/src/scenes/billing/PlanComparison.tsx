@@ -1,22 +1,24 @@
 import './PlanComparison.scss'
 
-import { IconCheckCircle, IconWarning, IconX } from '@posthog/icons'
-import { LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import React, { useState } from 'react'
+import useResizeObserver from 'use-resize-observer'
+
+import { IconCheckCircle, IconWarning, IconX } from '@posthog/icons'
+import { LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import React, { useState } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
-import useResizeObserver from 'use-resize-observer'
 
 import { BillingFeatureType, BillingPlanType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
+import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 import { convertLargeNumberToWords, getProration } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
-import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
 export function PlanIcon({
     feature,

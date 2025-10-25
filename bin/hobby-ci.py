@@ -1,16 +1,16 @@
 #!/usr/local/bin/python
+# ruff: noqa: T201 allow print statements
 
-import datetime
 import os
-import random
-import string
 import sys
 import time
+import random
+import string
+import datetime
 
-import digitalocean
-import requests
 import urllib3
-
+import requests
+import digitalocean
 
 DOMAIN = "posthog.cc"
 

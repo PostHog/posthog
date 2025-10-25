@@ -1,16 +1,19 @@
-import { LemonButton, LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 import { BuiltLogic, useActions, useValues } from 'kea'
-import { Children, isValidElement, MouseEvent, ReactElement, useCallback } from 'react'
-import { match, P } from 'ts-pattern'
+import { Children, MouseEvent, ReactElement, isValidElement, useCallback } from 'react'
+import { P, match } from 'ts-pattern'
+
+import { LemonButton, LemonTable, LemonTableColumn, LemonTableProps } from '@posthog/lemon-ui'
 
 import type { DataSourceLogic } from './types'
 
-export interface DataSourceTableProps<T> {
+export interface DataSourceTableProps<T extends Record<string, any>> {
     dataSource: BuiltLogic<DataSourceLogic<T>>
     className?: string
     children?: React.ReactNode
     embedded?: boolean
+    expandable?: LemonTableProps<T>['expandable']
     onRowClick?: (item: T, evt: MouseEvent) => void
+    rowRibbonColor?: LemonTableProps<T>['rowRibbonColor']
 }
 
 export function DataSourceTable<T extends Record<string, any>>({
@@ -18,6 +21,8 @@ export function DataSourceTable<T extends Record<string, any>>({
     className,
     embedded = false,
     onRowClick,
+    rowRibbonColor,
+    expandable,
     children,
 }: DataSourceTableProps<T>): JSX.Element {
     const { items, itemsLoading } = useValues(dataSource)
@@ -60,6 +65,8 @@ export function DataSourceTable<T extends Record<string, any>>({
             onRow={onRow}
             className={className}
             footer={<DataSourceTableFooter dataSource={dataSource} />}
+            rowRibbonColor={rowRibbonColor}
+            expandable={expandable}
         />
     )
 }

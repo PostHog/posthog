@@ -1,4 +1,7 @@
 from typing import Literal
+
+from posthog.test.base import BaseTest
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.test.tables import (
@@ -8,9 +11,8 @@ from posthog.hogql.database.test.tables import (
     create_nested_aapl_stock_view,
 )
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
-from posthog.test.base import BaseTest
 
 
 class TestView(BaseTest):
@@ -32,7 +34,7 @@ class TestView(BaseTest):
         )
 
     def _select(self, query: str, dialect: Literal["clickhouse", "hogql"] = "clickhouse") -> str:
-        return print_ast(parse_select(query), self.context, dialect=dialect)
+        return prepare_and_print_ast(parse_select(query), self.context, dialect=dialect)[0]
 
     def test_view_table_select(self):
         self._init_database()

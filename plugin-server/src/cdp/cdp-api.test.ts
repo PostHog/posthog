@@ -1,24 +1,24 @@
-// eslint-disable-next-line simple-import-sort/imports
 import '../../tests/helpers/mocks/producer.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
-import express from 'ultimate-express'
+import { Server } from 'http'
 import supertest from 'supertest'
+import express from 'ultimate-express'
+
+import { setupExpressApp } from '~/api/router'
 
 import { forSnapshot } from '../../tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { Hub, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
-import { createHogFunction, insertHogFunction as _insertHogFunction } from './_tests/fixtures'
+import { insertHogFunction as _insertHogFunction, createHogFunction } from './_tests/fixtures'
+import { deleteKeysWithPrefix } from './_tests/redis'
 import { CdpApi } from './cdp-api'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
-import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
-import { Server } from 'http'
-import { setupExpressApp } from '~/api/router'
 import { createCdpRedisPool } from './redis'
-import { deleteKeysWithPrefix } from './_tests/redis'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
+import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
 
 describe('CDP API', () => {
     let hub: Hub
@@ -178,6 +178,7 @@ describe('CDP API', () => {
                 headers: { 'Content-Type': 'application/json' },
                 json: () => Promise.resolve({ real: true }),
                 text: () => Promise.resolve(JSON.stringify({ real: true })),
+                dump: () => Promise.resolve(),
             })
         )
 
@@ -201,6 +202,43 @@ describe('CDP API', () => {
         })
     })
 
+    it('function will return skipped if no invocations', async () => {
+        mockFetch.mockImplementationOnce(() =>
+            Promise.resolve({
+                status: 201,
+                headers: { 'Content-Type': 'application/json' },
+                json: () => Promise.resolve({ real: true }),
+                text: () => Promise.resolve(JSON.stringify({ real: true })),
+                dump: () => Promise.resolve(),
+            })
+        )
+
+        hogFunction = await insertHogFunction({
+            name: 'test hog function',
+            ...HOG_EXAMPLES.simple_fetch,
+            ...HOG_INPUTS_EXAMPLES.simple_fetch,
+            ...HOG_FILTERS_EXAMPLES.elements_text_filter,
+        })
+
+        const res = await supertest(app)
+            .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
+            .send({ globals, mock_async_functions: false })
+
+        expect(res.status).toEqual(200)
+
+        expect(res.body.status).toMatchInlineSnapshot(`"skipped"`)
+
+        expect(res.body).toMatchObject({
+            errors: [],
+            logs: [
+                {
+                    level: 'info',
+                    message: 'Mapping trigger not matching filters was ignored.',
+                },
+            ],
+        })
+    })
+
     it('can invoke a function with multiple fetches', async () => {
         mockFetch.mockImplementation(() =>
             Promise.resolve({
@@ -208,6 +246,7 @@ describe('CDP API', () => {
                 headers: { 'Content-Type': 'application/json' },
                 json: () => Promise.resolve({ real: true }),
                 text: () => Promise.resolve(JSON.stringify({ real: true })),
+                dump: () => Promise.resolve(),
             })
         )
         const res = await supertest(app)
@@ -240,6 +279,7 @@ describe('CDP API', () => {
                 headers: { 'Content-Type': 'application/json' },
                 json: () => Promise.resolve({ real: true }),
                 text: () => Promise.resolve(JSON.stringify({ real: true })),
+                dump: () => Promise.resolve(),
             })
         })
 
@@ -343,6 +383,8 @@ describe('CDP API', () => {
             message: log.message,
         }))
 
+        expect(res.body.status).toMatchInlineSnapshot(`"success"`)
+
         expect(minimalLogs).toMatchObject([
             { level: 'info', message: 'Mapping trigger not matching filters was ignored.' },
             {
@@ -381,6 +423,8 @@ describe('CDP API', () => {
             .send({ globals, mock_async_functions: true })
 
         expect(res.status).toEqual(200)
+
+        expect(res.body.status).toMatchInlineSnapshot(`"success"`)
 
         expect(res.body.logs.map((log: any) => log.message).slice(0, -1)).toMatchInlineSnapshot(`
             [

@@ -1,8 +1,11 @@
 import pytest
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
+
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
+
 from products.data_warehouse.backend.hogql_fixer_ai import _get_schema_description, _get_system_prompt, _get_user_prompt
 
 

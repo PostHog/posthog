@@ -1,5 +1,8 @@
-import { LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
+
+import { LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
+
 import { execHog } from 'lib/hog'
 import { lightenDarkenColor } from 'lib/utils'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
@@ -11,14 +14,14 @@ import { QueryContext } from '~/queries/types'
 import { LoadNext } from '../../DataNode/LoadNext'
 import { renderColumn } from '../../DataTable/renderColumn'
 import { renderColumnMeta } from '../../DataTable/renderColumnMeta'
-import { convertTableValue, dataVisualizationLogic, TableDataCell } from '../dataVisualizationLogic'
-import posthog from 'posthog-js'
+import { TableDataCell, convertTableValue, dataVisualizationLogic } from '../dataVisualizationLogic'
 
 interface TableProps {
     query: DataVisualizationNode
     uniqueKey: string | number | undefined
     context: QueryContext<DataVisualizationNode> | undefined
     cachedResults: HogQLQueryResponse | undefined
+    embedded?: boolean
 }
 
 export const DEFAULT_PAGE_SIZE = 500
@@ -135,6 +138,7 @@ export const Table = (props: TableProps): JSX.Element => {
             }
             footer={tabularData.length > 0 ? <LoadNext query={props.query} /> : null}
             rowClassName="DataVizRow"
+            embedded={props.embedded}
         />
     )
 }

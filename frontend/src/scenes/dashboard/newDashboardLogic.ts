@@ -1,8 +1,8 @@
 import { actions, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
 import api from 'lib/api'
-import { DashboardRestrictionLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -23,7 +23,6 @@ export interface NewDashboardForm {
     description: ''
     show: boolean
     useTemplate: string
-    restrictionLevel: DashboardRestrictionLevel
     _create_in_folder?: string | null
 }
 
@@ -32,11 +31,11 @@ const defaultFormValues: NewDashboardForm = {
     description: '',
     show: false,
     useTemplate: '',
-    restrictionLevel: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
 }
 
 export interface NewDashboardLogicProps {
     featureFlagId?: number
+    initialTags?: string[]
 }
 
 // Currently this is a very generic recursive function incase we want to add template variables to aspects beyond events
@@ -61,8 +60,6 @@ export function applyTemplate(
                         mathAvailability = MathAvailability.ActorsOnly
                     } else if (queryKind === NodeKind.FunnelsQuery) {
                         mathAvailability = MathAvailability.FunnelsOnly
-                    } else if (queryKind === NodeKind.CalendarHeatmapQuery) {
-                        mathAvailability = MathAvailability.CalendarHeatmapOnly
                     }
                     return (
                         queryKind === NodeKind.RetentionQuery
@@ -167,17 +164,13 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             },
         ],
     }),
-    forms(({ actions }) => ({
+    forms(({ actions, props }) => ({
         newDashboard: {
             defaults: defaultFormValues,
-            errors: ({ name, restrictionLevel }) => ({
+            errors: ({ name }) => ({
                 name: !name ? 'Please give your dashboard a name.' : null,
-                restrictionLevel: !restrictionLevel ? 'Restriction level needs to be specified.' : null,
             }),
-            submit: async (
-                { name, description, useTemplate, restrictionLevel, show, _create_in_folder },
-                breakpoint
-            ) => {
+            submit: async ({ name, description, useTemplate, show, _create_in_folder }, breakpoint) => {
                 actions.setIsLoading(true)
                 try {
                     const result: DashboardType = await api.create(
@@ -186,7 +179,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                             name: name,
                             description: description,
                             use_template: useTemplate,
-                            restriction_level: restrictionLevel,
+                            ...(props.initialTags && { tags: props.initialTags }),
                             ...(typeof _create_in_folder === 'string' ? { _create_in_folder } : {}),
                         } as Partial<DashboardType>
                     )

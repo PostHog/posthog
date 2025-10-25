@@ -1,33 +1,35 @@
 from typing import cast
-from posthog.exceptions_capture import capture_exception
+
 from posthog.schema import (
-    ExternalDataSourceType,
+    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
-    Type4,
+    SourceFieldInputConfigType,
 )
+
+from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
+from posthog.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig
 from posthog.temporal.data_imports.sources.mongodb.mongo import (
-    get_schemas as get_mongo_schemas,
-    filter_mongo_incremental_fields,
     _parse_connection_string,
+    filter_mongo_incremental_fields,
+    get_schemas as get_mongo_schemas,
     mongo_source,
 )
-from posthog.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig
-from posthog.warehouse.models import ExternalDataSource
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class MongoDBSource(BaseSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
     @property
-    def source_type(self) -> ExternalDataSource.Type:
-        return ExternalDataSource.Type.MONGODB
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.MONGODB
 
-    def get_schemas(self, config: MongoDBSourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(self, config: MongoDBSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         mongo_schemas = get_mongo_schemas(config)
 
         filtered_results = [
@@ -73,7 +75,8 @@ class MongoDBSource(BaseSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
             schemas = self.get_schemas(config, team_id)
             if len(schemas) == 0:
                 return False, "No collections found in database"
-        except OperationFailure:
+        except OperationFailure as e:
+            capture_exception(e)
             return False, "MongoDB authentication failed"
         except Exception as e:
             capture_exception(e)
@@ -95,17 +98,19 @@ class MongoDBSource(BaseSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=ExternalDataSourceType.MONGO_DB,
+            name=SchemaExternalDataSourceType.MONGO_DB,
             label="MongoDB",
             caption="Enter your MongoDB connection string to automatically pull your MongoDB data into the PostHog Data warehouse.",
             betaSource=True,
+            iconPath="/static/services/Mongodb.svg",
+            docsUrl="https://posthog.com/docs/cdp/sources/mongodb",
             fields=cast(
                 list[FieldType],
                 [
                     SourceFieldInputConfig(
                         name="connection_string",
                         label="Connection String",
-                        type=Type4.TEXT,
+                        type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="mongodb://username:password@host:port/database?authSource=admin",
                     )

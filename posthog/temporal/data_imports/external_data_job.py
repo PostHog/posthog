@@ -1,18 +1,21 @@
-import dataclasses
-import datetime as dt
-import json
 import re
+import json
 import typing
+import datetime as dt
+import dataclasses
+
+from django.db import close_old_connections
 
 import posthoganalytics
-from django.db import close_old_connections
+from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 # TODO: remove dependency
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
+from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import trigger_schedule_buffer_one
 from posthog.temporal.data_imports.metrics import get_data_import_finished_metric
 from posthog.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
@@ -38,28 +41,31 @@ from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
 )
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 from posthog.utils import get_machine_id
-from posthog.warehouse.data_load.source_templates import (
-    create_warehouse_templates_for_source,
-)
+from posthog.warehouse.data_load.source_templates import create_warehouse_templates_for_source
 from posthog.warehouse.external_data_source.jobs import update_external_job_status
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSource, ExternalDataSchema
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.models.external_data_schema import update_should_sync
-from posthog.temporal.common.client import sync_connect
+from posthog.warehouse.types import ExternalDataSourceType
+
+LOGGER = get_logger(__name__)
 
 Any_Source_Errors: list[str] = [
     "Could not establish session to SSH gateway",
     "Primary key required for incremental syncs",
     "The primary keys for this table are not unique",
+    "Integration matching query does not exist",
 ]
 
-Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
-    ExternalDataSource.Type.BIGQUERY: ["PermissionDenied: 403 request failed", "NotFound: 404"],
-    ExternalDataSource.Type.STRIPE: [
+Non_Retryable_Schema_Errors: dict[ExternalDataSourceType, list[str]] = {
+    ExternalDataSourceType.BIGQUERY: ["PermissionDenied: 403 request failed", "NotFound: 404"],
+    ExternalDataSourceType.STRIPE: [
         "401 Client Error: Unauthorized for url: https://api.stripe.com",
         "403 Client Error: Forbidden for url: https://api.stripe.com",
         "Expired API Key provided",
+        "Invalid API Key provided",
+        "PermissionError",
     ],
-    ExternalDataSource.Type.POSTGRES: [
+    ExternalDataSourceType.POSTGRES: [
         "NoSuchTableError",
         "is not permitted to log in",
         "Tenant or user not found connection to server",
@@ -78,33 +84,56 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
         "QueryTimeoutException",
         "TemporaryFileSizeExceedsLimitException",
         "Name or service not known",
-        "Network is unreachable Is the server running on that host and accepting TCP/IP connections",
+        "Network is unreachable",
         "InsufficientPrivilege",
-        "Unable to connect to the database. Please check your connection details and network access",
+        "OperationalError: connection failed: connection to server at",
+        "password authentication failed connection",
     ],
-    ExternalDataSource.Type.ZENDESK: ["404 Client Error: Not Found for url", "403 Client Error: Forbidden for url"],
-    ExternalDataSource.Type.MYSQL: [
+    ExternalDataSourceType.ZENDESK: [
+        "404 Client Error: Not Found for url",
+        "403 Client Error: Forbidden for url",
+        "401 Client Error",
+    ],
+    ExternalDataSourceType.MYSQL: [
         "Can't connect to MySQL server on",
         "No primary key defined for table",
         "Access denied for user",
         "sqlstate 42S02",  # Table not found error
+        "ProgrammingError: (1146",  # Table not found error
+        "OperationalError: (1356",  # View not found error
+        "Bad handshake",
     ],
-    ExternalDataSource.Type.SALESFORCE: [
+    ExternalDataSourceType.SALESFORCE: [
         "400 Client Error: Bad Request for url",
         "403 Client Error: Forbidden for url",
     ],
-    ExternalDataSource.Type.SNOWFLAKE: [
+    ExternalDataSourceType.SNOWFLAKE: [
         "This account has been marked for decommission",
         "404 Not Found",
         "Your free trial has ended",
         "Your account is suspended due to lack of payment method",
+        "MFA authentication is required",
     ],
-    ExternalDataSource.Type.CHARGEBEE: ["403 Client Error: Forbidden for url", "Unauthorized for url"],
-    ExternalDataSource.Type.HUBSPOT: ["missing or invalid refresh token"],
-    ExternalDataSource.Type.GOOGLEADS: ["PERMISSION_DENIED"],
-    ExternalDataSource.Type.METAADS: [
+    ExternalDataSourceType.CHARGEBEE: ["403 Client Error: Forbidden for url", "Unauthorized for url"],
+    ExternalDataSourceType.HUBSPOT: ["missing or invalid refresh token", "missing or unknown hub id"],
+    ExternalDataSourceType.GOOGLEADS: [
+        "PERMISSION_DENIED",
+        "UNAUTHENTICATED",
+        "ACCESS_TOKEN_SCOPE_INSUFFICIENT",
+        "Account has been deleted",
+    ],
+    ExternalDataSourceType.METAADS: [
         "Failed to refresh token for Meta Ads integration. Please re-authorize the integration."
     ],
+    ExternalDataSourceType.MONGODB: ["The DNS query name does not exist", "authentication failed"],
+    ExternalDataSourceType.MSSQL: ["Adaptive Server connection failed", "Login failed for user"],
+    ExternalDataSourceType.GOOGLESHEETS: [
+        "the header row in the worksheet contains duplicates",
+        "can't be found",
+        "SpreadsheetNotFound",
+    ],
+    ExternalDataSourceType.LINKEDINADS: ["REVOKED_ACCESS_TOKEN"],
+    ExternalDataSourceType.REDDITADS: ["401 Client Error", "404 Client Error"],
 }
 
 
@@ -131,7 +160,8 @@ class UpdateExternalDataJobStatusInputs:
 
 @activity.defn
 def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) -> None:
-    logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
 
     close_old_connections()
 
@@ -165,7 +195,7 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
         internal_error_normalized = re.sub("[\n\r\t]", " ", inputs.internal_error)
 
         source: ExternalDataSource = ExternalDataSource.objects.get(pk=inputs.source_id)
-        non_retryable_errors = Non_Retryable_Schema_Errors.get(ExternalDataSource.Type(source.source_type))
+        non_retryable_errors = Non_Retryable_Schema_Errors.get(ExternalDataSourceType(source.source_type))
 
         if non_retryable_errors is None:
             non_retryable_errors = Any_Source_Errors
@@ -188,30 +218,25 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
             )
             update_should_sync(schema_id=inputs.schema_id, team_id=inputs.team_id, should_sync=False)
 
-    # Clean up permission errors for all source types (runs regardless of internal_error)
-    enhanced_latest_error = inputs.latest_error
+    # Produce a more user friendly error message to be displayed in the UI
+    latest_error = inputs.latest_error
     try:
         schema = ExternalDataSchema.objects.get(pk=inputs.schema_id)
 
-        # Debug logging
-        logger.debug(f"Enhancing error for source_type={source.source_type}, schema_name={schema.name}")
-        logger.debug(f"Raw error: {inputs.latest_error or inputs.internal_error}")
-
-        enhanced_latest_error = enhance_source_error(
+        latest_error = user_friendly_error_message(
             source_type=source.source_type,
             schema_name=schema.name,
             raw_error=inputs.latest_error or inputs.internal_error,
         )
 
-        logger.debug(f"Enhanced error: {enhanced_latest_error}")
-
+        logger.exception(latest_error)
     except Exception:
-        enhanced_latest_error = inputs.latest_error
+        latest_error = inputs.latest_error
 
     job = update_external_job_status(
         job_id=job_id,
         status=ExternalDataJob.Status(inputs.status),
-        latest_error=enhanced_latest_error,
+        latest_error=latest_error,
         team_id=inputs.team_id,
     )
 
@@ -244,7 +269,7 @@ def create_source_templates(inputs: CreateSourceTemplateInputs) -> None:
 @activity.defn
 def trigger_schedule_buffer_one_activity(schedule_id: str) -> None:
     schema = ExternalDataSchema.objects.get(id=schedule_id)
-    logger = bind_temporal_worker_logger_sync(team_id=schema.team.pk)
+    logger = LOGGER.bind(team_id=schema.team.pk)
 
     logger.debug(f"Triggering temporal schedule {schedule_id} with policy 'buffer one'")
 
@@ -333,9 +358,9 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )
 
             timeout_params = (
-                {"start_to_close_timeout": dt.timedelta(weeks=1), "retry_policy": RetryPolicy(maximum_attempts=3)}
+                {"start_to_close_timeout": dt.timedelta(weeks=1), "retry_policy": RetryPolicy(maximum_attempts=9)}
                 if incremental
-                else {"start_to_close_timeout": dt.timedelta(hours=24), "retry_policy": RetryPolicy(maximum_attempts=1)}
+                else {"start_to_close_timeout": dt.timedelta(hours=24), "retry_policy": RetryPolicy(maximum_attempts=3)}
             )
 
             await workflow.execute_activity(
@@ -355,7 +380,9 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
             await workflow.execute_activity(
                 calculate_table_size_activity,
-                CalculateTableSizeActivityInputs(team_id=inputs.team_id, schema_id=str(inputs.external_data_schema_id)),
+                CalculateTableSizeActivityInputs(
+                    team_id=inputs.team_id, schema_id=str(inputs.external_data_schema_id), job_id=job_id
+                ),
                 start_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
@@ -404,7 +431,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )
 
 
-def enhance_source_error(source_type: str, schema_name: str, raw_error: str | None) -> str | None:
+def user_friendly_error_message(source_type: str, schema_name: str, raw_error: str | None) -> str | None:
     """
     Enhance or clarify raw source errors before saving to the job.
     Returns the enhanced error if applicable, otherwise returns the original.
@@ -415,8 +442,7 @@ def enhance_source_error(source_type: str, schema_name: str, raw_error: str | No
 
     error_lower = raw_error.lower()
 
-    # Stripe permission errors for newer tables
-    if source_type == ExternalDataSource.Type.STRIPE:
+    if source_type == ExternalDataSourceType.STRIPE:
         if any(keyword in error_lower for keyword in ["permission", "403", "401", "rak_"]):
             table_names = {
                 "Dispute": "disputes",
@@ -430,59 +456,36 @@ def enhance_source_error(source_type: str, schema_name: str, raw_error: str | No
         if "expired api key" in error_lower:
             return "Your Stripe API key has expired. Please create a new key and reconnect."
 
-    # Salesforce session errors
-    if source_type == ExternalDataSource.Type.SALESFORCE and "invalid_session_id" in error_lower:
+    if source_type == ExternalDataSourceType.SALESFORCE and "invalid_session_id" in error_lower:
         return "Your Salesforce session has expired. Please reconnect the source."
 
-    # HubSpot token errors
-    if source_type == ExternalDataSource.Type.HUBSPOT and "missing or invalid refresh token" in error_lower:
+    if source_type == ExternalDataSourceType.HUBSPOT and "missing or invalid refresh token" in error_lower:
         return "Your HubSpot connection is invalid or expired. Please reconnect it."
 
-    # Database connection errors
-    if source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL, ExternalDataSource.Type.MSSQL]:
-        if any(
-            keyword in error_lower
-            for keyword in ["authentication failed", "password authentication failed", "access denied"]
-        ):
-            return "Database authentication failed. Please check your username and password."
-        if any(keyword in error_lower for keyword in ["connection refused", "could not connect", "timeout"]):
-            return "Unable to connect to the database. Please check your connection details and network access."
-        if "does not exist" in error_lower or "database" in error_lower and "not found" in error_lower:
-            return "Database or table not found. Please verify your database name and table names."
-
-    # Snowflake account issues
-    if source_type == ExternalDataSource.Type.SNOWFLAKE:
+    if source_type == ExternalDataSourceType.SNOWFLAKE:
         if any(keyword in error_lower for keyword in ["account suspended", "trial ended", "decommission"]):
             return "Your Snowflake account has been suspended or trial has ended. Please check your account status."
         if "invalid credentials" in error_lower or "authentication failed" in error_lower:
             return "Snowflake authentication failed. Please check your username, password, and account details."
 
-    # BigQuery permission errors
-    if source_type == ExternalDataSource.Type.BIGQUERY:
+    if source_type == ExternalDataSourceType.BIGQUERY:
         if "permission denied" in error_lower or "403" in error_lower:
             return "BigQuery permission denied. Please check that your service account has the necessary permissions."
         if "not found" in error_lower:
             return "BigQuery dataset or table not found. Please verify your project, dataset, and table names."
 
-    # Zendesk API errors
-    if source_type == ExternalDataSource.Type.ZENDESK:
+    if source_type == ExternalDataSourceType.ZENDESK:
         if any(keyword in error_lower for keyword in ["401", "403", "unauthorized", "forbidden"]):
             return "Zendesk authentication failed. Please check your API token and subdomain."
 
-    # Chargebee API errors
-    if source_type == ExternalDataSource.Type.CHARGEBEE:
+    if source_type == ExternalDataSourceType.CHARGEBEE:
         if any(keyword in error_lower for keyword in ["401", "403", "unauthorized", "forbidden"]):
             return "Chargebee authentication failed. Please check your API key and site name."
 
-    # Cloud storage errors (S3, GCS, R2, Azure)
-    if source_type in ["aws", "google-cloud", "cloudflare-r2", "azure"]:
-        if any(keyword in error_lower for keyword in ["access denied", "forbidden", "403", "unauthorized", "401"]):
-            return "Access denied to cloud storage. Please check your credentials and bucket permissions."
-        if any(keyword in error_lower for keyword in ["bucket not found", "container not found", "no such bucket"]):
-            return "Storage bucket/container not found. Please verify your bucket name and region."
-        if any(keyword in error_lower for keyword in ["invalid credentials", "authentication failed"]):
-            return "Cloud storage authentication failed. Please check your access keys or service account."
-        if any(keyword in error_lower for keyword in ["network error", "connection timeout", "timeout"]):
-            return "Unable to connect to cloud storage. Please check your network connection and region settings."
+    if source_type == ExternalDataSourceType.GOOGLESHEETS:
+        if "must be real number, not str" in error_lower:
+            return "Import failed: all cells in a numerical column must have a value and not be blank"
+        if "the header row in the worksheet contains duplicates" in error_lower:
+            return "Import failed: There exists duplicate column headers. Please make sure all column headers have values and aren't duplicated."
 
     return raw_error

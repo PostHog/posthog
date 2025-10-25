@@ -1,21 +1,24 @@
-import { IconCheck, IconGear, IconPlusSmall } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconCheck, IconGear, IconPlusSmall } from '@posthog/icons'
+
 import { ItemSelectModalButton } from 'lib/components/FileSystem/ItemSelectModal/ItemSelectModal'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuLabel,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { pinnedFolderLogic } from '~/layout/panel-layout/PinnedFolder/pinnedFolderLogic'
 import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { formatUrlAsName } from '~/layout/panel-layout/ProjectTree/utils'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 export function PinnedFolder(): JSX.Element {
     const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
@@ -36,34 +39,36 @@ export function PinnedFolder(): JSX.Element {
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
             <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">
-                <DropdownMenuLabel>Choose pinned folder</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                    asChild
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        setPinnedFolder('shortcuts://')
-                    }}
-                    data-attr="tree-item-menu-open-link-button"
-                >
-                    <ButtonPrimitive menuItem>
-                        {pinnedFolder === 'shortcuts://' ? <IconCheck /> : <IconBlank />}
-                        Shortcuts
-                    </ButtonPrimitive>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                    asChild
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        setPinnedFolder('products://')
-                    }}
-                    data-attr="tree-item-menu-open-link-button"
-                >
-                    <ButtonPrimitive menuItem>
-                        {!pinnedFolder || pinnedFolder === 'products://' ? <IconCheck /> : <IconBlank />}
-                        Products
-                    </ButtonPrimitive>
-                </DropdownMenuItem>
+                <DropdownMenuGroup>
+                    <DropdownMenuLabel>Choose pinned folder</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                        asChild
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            setPinnedFolder('products://')
+                        }}
+                        data-attr="tree-item-menu-open-link-button"
+                    >
+                        <ButtonPrimitive menuItem>
+                            {!pinnedFolder || pinnedFolder === 'products://' ? <IconCheck /> : <IconBlank />}
+                            Apps
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                        asChild
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            setPinnedFolder('shortcuts://')
+                        }}
+                        data-attr="tree-item-menu-open-link-button"
+                    >
+                        <ButtonPrimitive menuItem>
+                            {pinnedFolder === 'shortcuts://' ? <IconCheck /> : <IconBlank />}
+                            Shortcuts
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
+                </DropdownMenuGroup>
             </DropdownMenuContent>
         </DropdownMenu>
     )

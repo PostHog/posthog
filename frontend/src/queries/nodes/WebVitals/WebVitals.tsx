@@ -1,9 +1,12 @@
-import { Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
+import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
+
+import { Link } from '@posthog/lemon-ui'
+
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { ProductIntentContext, addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
@@ -13,15 +16,16 @@ import { QueryContext } from '~/queries/types'
 import { ProductKey } from '~/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
-import { getMetric } from './definitions'
 import { WebVitalsContent } from './WebVitalsContent'
 import { WebVitalsTab } from './WebVitalsTab'
+import { getMetric } from './definitions'
 
 let uniqueNode = 0
 export function WebVitals(props: {
     query: WebVitalsQuery
     cachedResults?: AnyResponseType
     context: QueryContext
+    attachTo?: LogicWrapper | BuiltLogic
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `WebVitals.${uniqueNode++}`)
@@ -34,6 +38,8 @@ export function WebVitals(props: {
         onData,
         dataNodeCollectionId: dataNodeCollectionId ?? key,
     })
+
+    useAttachedLogic(logic, props.attachTo)
 
     const { webVitalsPercentile, webVitalsTab, webVitalsMetricQuery } = useValues(webAnalyticsLogic)
     const { setWebVitalsTab } = useActions(webAnalyticsLogic)
@@ -68,24 +74,28 @@ export function WebVitals(props: {
                         value={INP}
                         isActive={webVitalsTab === 'INP'}
                         setTab={() => setWebVitalsTab('INP')}
+                        isLoading={responseLoading}
                     />
                     <WebVitalsTab
                         metric="LCP"
                         value={LCP}
                         isActive={webVitalsTab === 'LCP'}
                         setTab={() => setWebVitalsTab('LCP')}
+                        isLoading={responseLoading}
                     />
                     <WebVitalsTab
                         metric="FCP"
                         value={FCP}
                         isActive={webVitalsTab === 'FCP'}
                         setTab={() => setWebVitalsTab('FCP')}
+                        isLoading={responseLoading}
                     />
                     <WebVitalsTab
                         metric="CLS"
                         value={CLS}
                         isActive={webVitalsTab === 'CLS'}
                         setTab={() => setWebVitalsTab('CLS')}
+                        isLoading={responseLoading}
                     />
                 </div>
                 <span className="text-xs text-text-tertiary self-center sm:self-end">
@@ -97,7 +107,7 @@ export function WebVitals(props: {
             </div>
 
             <div className="flex flex-col sm:flex-row gap-2">
-                <WebVitalsContent webVitalsQueryResponse={webVitalsQueryResponse} />
+                <WebVitalsContent webVitalsQueryResponse={webVitalsQueryResponse} isLoading={responseLoading} />
                 <div className="flex flex-col flex-1 bg-surface-primary rounded border p-4">
                     <Query
                         query={webVitalsMetricQuery}

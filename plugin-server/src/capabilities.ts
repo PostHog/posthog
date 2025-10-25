@@ -10,8 +10,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 ingestionV2Combined: true,
                 processAsyncWebhooksHandlers: true,
-                sessionRecordingBlobIngestion: true,
-                sessionRecordingBlobOverflowIngestion: config.SESSION_RECORDING_OVERFLOW_ENABLED,
                 sessionRecordingBlobIngestionV2: true,
                 sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED,
                 appManagementSingleton: true,
@@ -21,9 +19,11 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpLegacyOnEvent: true,
                 cdpCyclotronWorker: true,
                 cdpCyclotronWorkerHogFlow: true,
+                cdpCyclotronWorkerDelay: true,
                 cdpBehaviouralEvents: true,
-                cdpAggregationWriter: config.CDP_AGGREGATION_WRITER_ENABLED,
+                cdpCohortMembership: true,
                 cdpApi: true,
+                logsIngestion: true,
             }
 
         case PluginServerMode.local_cdp:
@@ -34,9 +34,10 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpInternalEvents: true,
                 cdpLegacyOnEvent: true,
                 cdpCyclotronWorker: true,
-                // cdpCyclotronWorkerHogFlow: true,
+                cdpCyclotronWorkerHogFlow: true,
+                cdpCyclotronWorkerDelay: true,
                 cdpBehaviouralEvents: true,
-                cdpAggregationWriter: config.CDP_AGGREGATION_WRITER_ENABLED,
+                cdpCohortMembership: true,
                 cdpApi: true,
             }
 
@@ -45,14 +46,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             // `analytics-ingestion` and `recordings-ingestion` modes.
             return {
                 ingestionV2: true,
-            }
-        case PluginServerMode.recordings_blob_ingestion:
-            return {
-                sessionRecordingBlobIngestion: true,
-            }
-        case PluginServerMode.recordings_blob_ingestion_overflow:
-            return {
-                sessionRecordingBlobOverflowIngestion: true,
             }
         case PluginServerMode.recordings_blob_ingestion_v2:
             return {
@@ -87,13 +80,17 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 cdpCyclotronWorkerHogFlow: true,
             }
+        case PluginServerMode.cdp_cyclotron_worker_delay:
+            return {
+                cdpCyclotronWorkerDelay: true,
+            }
         case PluginServerMode.cdp_behavioural_events:
             return {
                 cdpBehaviouralEvents: true,
             }
-        case PluginServerMode.cdp_aggregation_writer:
+        case PluginServerMode.cdp_cohort_membership:
             return {
-                cdpAggregationWriter: true,
+                cdpCohortMembership: true,
             }
         case PluginServerMode.cdp_legacy_on_event:
             return {
@@ -104,6 +101,10 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpApi: true,
                 // NOTE: This is temporary until we have removed plugins
                 appManagementSingleton: true,
+            }
+        case PluginServerMode.ingestion_logs:
+            return {
+                logsIngestion: true,
             }
     }
 }

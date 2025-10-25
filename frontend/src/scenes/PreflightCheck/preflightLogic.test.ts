@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
@@ -79,7 +80,7 @@ describe('preflightLogic', () => {
                         },
                         {
                             id: 'frontend',
-                            name: 'Frontend build · Webpack',
+                            name: 'Frontend build · Vite',
                             status: 'validated',
                         },
                         {
@@ -143,7 +144,7 @@ describe('preflightLogic', () => {
                         },
                         {
                             id: 'frontend',
-                            name: 'Frontend build · Webpack',
+                            name: 'Frontend build · Vite',
                             status: 'validated',
                         },
                         {

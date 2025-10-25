@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'

@@ -1,4 +1,5 @@
 import { actions, kea, key, path, props, reducers } from 'kea'
+
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { FunnelStepWithConversionMetrics, InsightLogicProps } from '~/types'

@@ -1,8 +1,10 @@
-import { IconCheck, IconChevronRight } from '@posthog/icons'
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
+import * as React from 'react'
+
+import { IconCheck, IconChevronRight } from '@posthog/icons'
+
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
-import * as React from 'react'
 
 import { Label } from '../Label/Label'
 
@@ -14,7 +16,13 @@ const DropdownMenu = DropdownMenuPrimitive.Root
 
 const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger
 
-const DropdownMenuGroup = DropdownMenuPrimitive.Group
+const DropdownMenuGroup = React.forwardRef<
+    React.ElementRef<typeof DropdownMenuPrimitive.Group>,
+    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Group>
+>(({ className, ...props }, ref): JSX.Element => {
+    return <DropdownMenuPrimitive.Group ref={ref} className={cn('flex flex-col gap-px p-1', className)} {...props} />
+})
+DropdownMenuGroup.displayName = DropdownMenuPrimitive.Group.displayName
 
 const DropdownMenuPortal = DropdownMenuPrimitive.Portal
 
@@ -24,7 +32,9 @@ const DropdownMenuRadioGroup = React.forwardRef<
     React.ElementRef<typeof DropdownMenuPrimitive.RadioGroup>,
     React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioGroup>
 >(({ className, ...props }, ref): JSX.Element => {
-    return <DropdownMenuPrimitive.RadioGroup ref={ref} className={cn('flex flex-col gap-px', className)} {...props} />
+    return (
+        <DropdownMenuPrimitive.RadioGroup ref={ref} className={cn('flex flex-col gap-px p-1', className)} {...props} />
+    )
 })
 DropdownMenuRadioGroup.displayName = DropdownMenuPrimitive.RadioGroup.displayName
 
@@ -95,7 +105,7 @@ const DropdownMenuContent = React.forwardRef<
             className,
             children,
             sideOffset = 4,
-            collisionPadding = { top: 50, bottom: 50 },
+            collisionPadding = { top: 50, bottom: 50, left: 10, right: 10 },
             matchTriggerWidth,
             ...props
         },

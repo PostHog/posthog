@@ -1,23 +1,26 @@
-import asyncio
-import dataclasses
-import datetime as dt
 import json
 import math
 import time
 import typing
+import asyncio
+import datetime as dt
+import dataclasses
 
 from django.db import close_old_connections
+
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_internal_logger
+from posthog.temporal.common.logger import get_logger
 
-from ee.billing.salesforce_enrichment.enrichment import enrich_accounts_chunked_async
-from ee.billing.salesforce_enrichment.salesforce_client import get_salesforce_client
-from ee.billing.salesforce_enrichment.redis_cache import store_accounts_in_redis, get_cached_accounts_count
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE, SALESFORCE_ACCOUNTS_QUERY
+from ee.billing.salesforce_enrichment.enrichment import enrich_accounts_chunked_async
+from ee.billing.salesforce_enrichment.redis_cache import get_cached_accounts_count, store_accounts_in_redis
+from ee.billing.salesforce_enrichment.salesforce_client import get_salesforce_client
+
+LOGGER = get_logger(__name__)
 
 
 @dataclasses.dataclass
@@ -42,7 +45,7 @@ async def enrich_chunk_activity(inputs: EnrichChunkInputs) -> dict[str, typing.A
     """Activity to enrich a single chunk of Salesforce accounts with concurrent API calls."""
 
     async with Heartbeater():
-        logger = get_internal_logger()
+        logger = LOGGER.bind()
         close_old_connections()
 
         logger.info(
@@ -75,17 +78,19 @@ async def cache_all_accounts_activity() -> dict[str, typing.Any]:
     """Cache all Salesforce accounts in Redis for fast chunk retrieval.
 
     Returns dict with total_accounts count. Reuses existing cache if available."""
-    logger = get_internal_logger()
-    workflow_id = activity.info().workflow_id
+    close_old_connections()
+
+    logger = LOGGER.bind()
+    logger.info("Starting cache_all_accounts_activity")
 
     try:
-        close_old_connections()
-
         # Exit early if cache exists
+        logger.info("Checking Redis cache")
         cached_count = await get_cached_accounts_count()
         if cached_count is not None:
-            logger.info("Cache exists, skipping Salesforce query", workflow_id=workflow_id, cached_total=cached_count)
+            logger.info("Cache exists, skipping Salesforce query", cached_total=cached_count)
             return {"success": True, "total_accounts": cached_count, "cache_reused": True}
+        logger.info("Cache does not exist, querying Salesforce")
 
         # Query all accounts
         sf_start = time.time()
@@ -103,7 +108,6 @@ async def cache_all_accounts_activity() -> dict[str, typing.Any]:
 
         logger.info(
             "Successfully cached accounts",
-            workflow_id=workflow_id,
             total_count=total_count,
             sf_time=round(sf_time, 2),
             redis_time=round(redis_time, 2),
@@ -112,7 +116,7 @@ async def cache_all_accounts_activity() -> dict[str, typing.Any]:
         return {"success": True, "total_accounts": total_count}
 
     except Exception as e:
-        logger.exception("Failed to cache accounts", workflow_id=workflow_id, error=str(e))
+        logger.exception("Failed to cache accounts", error=str(e))
         raise
 
 
@@ -129,10 +133,15 @@ class SalesforceEnrichmentAsyncWorkflow(PostHogWorkflow):
     async def run(self, inputs: SalesforceEnrichmentInputs) -> dict[str, typing.Any]:
         """Run the async Salesforce enrichment workflow with concurrent API calls."""
 
+        logger = LOGGER.bind()
+        logger.info(
+            "Starting Salesforce enrichment workflow", chunk_size=inputs.chunk_size, max_chunks=inputs.max_chunks
+        )
+
         # Cache all accounts in Redis (if not already cached)
         cache_result = await workflow.execute_activity(
             cache_all_accounts_activity,
-            start_to_close_timeout=dt.timedelta(minutes=2),  # should take 10-30s if querying Salesforce
+            start_to_close_timeout=dt.timedelta(minutes=10),  # should take 10-30s if querying Salesforce
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 

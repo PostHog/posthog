@@ -1,5 +1,6 @@
-from posthog.hogql_queries.utils.formula_ast import FormulaAST
 from posthog.test.base import APIBaseTest
+
+from posthog.hogql_queries.utils.formula_ast import FormulaAST
 
 
 class TestFormulaAST(APIBaseTest):

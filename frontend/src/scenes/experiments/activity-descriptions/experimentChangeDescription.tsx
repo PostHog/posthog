@@ -1,11 +1,19 @@
 import clsx from 'clsx'
+import equal from 'fast-deep-equal'
+import { match } from 'ts-pattern'
+
 import { ActivityChange } from 'lib/components/ActivityLog/humanizeActivity'
 import { dayjs } from 'lib/dayjs'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { CONCLUSION_DISPLAY_CONFIG } from 'scenes/experiments/constants'
+import { getExposureConfigDisplayName } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
-import { match } from 'ts-pattern'
+
+import type { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/schema/schema-general'
 import { Experiment, ExperimentConclusion } from '~/types'
+
+import { getMetricChanges } from './metricChangeDescriptions'
 
 const ExperimentConclusionTag = ({ conclusion }: { conclusion: ExperimentConclusion }): JSX.Element => (
     <div className="font-semibold inline-flex items-center gap-2">
@@ -27,11 +35,16 @@ export const nameOrLinkToExperiment = (name: string | null, id?: string): JSX.El
 /**
  * we pick the allowed properties, and shoehorn in deleted because it's missing from the type
  */
-type AllowedExperimentFields = Pick<Experiment, 'conclusion' | 'start_date' | 'end_date' | 'metrics'> & {
+type AllowedExperimentFields = Pick<
+    Experiment,
+    'conclusion' | 'start_date' | 'end_date' | 'metrics' | 'metrics_secondary' | 'exposure_criteria'
+> & {
     deleted: boolean
 }
 
-export const getExperimentChangeDescription = (experimentChange: ActivityChange): string | JSX.Element | null => {
+export const getExperimentChangeDescription = (
+    experimentChange: ActivityChange
+): string | JSX.Element | (string | JSX.Element)[] | null => {
     /**
      * a little type assertion to force field into the allowed experiment fields
      */
@@ -87,15 +100,76 @@ export const getExperimentChangeDescription = (experimentChange: ActivityChange)
 
             return null
         })
-        .with({ field: 'metrics' }, ({ action, before, after }) => {
+        .with({ field: 'metrics', action: 'created', before: null }, () => 'added the first metric to')
+        .with({ field: 'metrics', action: 'changed' }, ({ before, after }) =>
+            getMetricChanges(before as ExperimentMetric[], after as ExperimentMetric[])
+        )
+        .with({ field: 'metrics_secondary', action: 'changed' }, ({ before, after }) =>
+            getMetricChanges(before as ExperimentMetric[], after as ExperimentMetric[])
+        )
+        .with({ field: 'exposure_criteria' }, ({ before, after }) => {
             /**
-             * if a metric is created, the user has added the first metric to the experiment.
+             * exposure criteria is by default `{filter_test_accounts: true}`,
+             * meaning that we use `feature_flag_called` as the event and
+             * first seen as the varian handling.
+             *
+             * if the experiment has a `null` exposure criteria, a created action is logged.
              */
-            if (action === 'created' && before === null && after !== null) {
-                return 'added the first metric to'
+            const typedAfter = after as ExperimentExposureCriteria
+            const typedBefore = before as ExperimentExposureCriteria
+
+            const changes: (string | JSX.Element | null)[] = Object.keys(after || {}).map((key) =>
+                match(key as keyof ExperimentExposureCriteria)
+                    .with('filterTestAccounts', () => {
+                        if (typedAfter?.filterTestAccounts === typedBefore?.filterTestAccounts) {
+                            return null
+                        }
+
+                        return typedAfter?.filterTestAccounts
+                            ? 'added the test account filter'
+                            : 'removed the test account filter'
+                    })
+                    .with('multiple_variant_handling', () => {
+                        if (typedAfter?.multiple_variant_handling === typedBefore?.multiple_variant_handling) {
+                            return null
+                        }
+
+                        return typedAfter?.multiple_variant_handling === 'first_seen'
+                            ? 'changed the variant handling to "first seen"'
+                            : 'changed the variant handling to "exclude from analysis"'
+                    })
+                    .with('exposure_config', () => {
+                        const afterConfig = typedAfter?.exposure_config
+                        const beforeConfig = typedBefore?.exposure_config
+
+                        if (equal(afterConfig, beforeConfig)) {
+                            return null
+                        }
+
+                        if (afterConfig) {
+                            const displayName = getExposureConfigDisplayName(afterConfig)
+                            return (
+                                <span>
+                                    set the exposure configuration to <LemonTag color="purple">{displayName}</LemonTag>
+                                </span>
+                            )
+                        }
+                        return null
+                    })
+                    .exhaustive()
+            )
+
+            // Check if exposure_config was removed (returning to default)
+            if (typedBefore?.exposure_config && !typedAfter?.exposure_config) {
+                changes.push(
+                    <span>
+                        set the exposure configuration to the <LemonTag color="purple">$feature_flag_called</LemonTag>{' '}
+                        default
+                    </span>
+                )
             }
 
-            return null
+            return changes.filter(Boolean) as (string | JSX.Element)[]
         })
         .otherwise(() => null)
 }

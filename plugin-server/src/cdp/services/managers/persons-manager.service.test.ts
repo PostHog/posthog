@@ -20,7 +20,7 @@ describe('PersonsManager', () => {
         hub = await createHub()
         personRepository = new PostgresPersonRepository(hub.db.postgres)
         await resetTestDatabase()
-        manager = new PersonsManagerService(hub)
+        manager = new PersonsManagerService(hub.personRepository)
         team = await getFirstTeam(hub)
         const team2Id = await createTeam(hub.postgres, team.organization_id)
         team2 = (await getTeam(hub, team2Id))!

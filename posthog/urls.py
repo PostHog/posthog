@@ -1,31 +1,25 @@
 from typing import Any, cast
 from urllib.parse import urlparse
 
-import structlog
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, HttpResponseServerError
 from django.template import loader
 from django.urls import include, path, re_path
 from django.utils.http import url_has_allowed_host_and_scheme
-from django.views.decorators.csrf import (
-    csrf_exempt,
-    ensure_csrf_cookie,
-    requires_csrf_token,
-)
-from django_prometheus.exports import ExportToDjangoView
-from drf_spectacular.views import (
-    SpectacularAPIView,
-    SpectacularRedocView,
-    SpectacularSwaggerView,
-)
+from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie, requires_csrf_token
 
+import structlog
+from django_prometheus.exports import ExportToDjangoView
+from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 from two_factor.urls import urlpatterns as tf_urls
 
 from posthog.api import (
     api_not_found,
     authentication,
     decide,
+    github,
     hog_function_template,
+    playwright_setup,
     remote_config,
     report,
     router,
@@ -36,40 +30,45 @@ from posthog.api import (
     uploaded_media,
     user,
 )
-from posthog.api.zendesk_orgcheck import ensure_zendesk_organization
-from posthog.api.web_experiment import web_experiments
+from posthog.api.github_sdk_versions import github_sdk_versions
+from posthog.api.query import progress
+from posthog.api.slack import slack_interactivity_callback
+from posthog.api.survey import public_survey_page, surveys
+from posthog.api.team_sdk_versions import team_sdk_versions
+from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.api.utils import hostname_in_allowed_url_list
-from products.early_access_features.backend.api import early_access_features
-from posthog.api.survey import surveys, public_survey_page
+from posthog.api.web_experiment import web_experiments
+from posthog.api.zendesk_orgcheck import ensure_zendesk_organization
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.demo.legacy import demo_route
 from posthog.models import User
 from posthog.models.instance_setting import get_instance_setting
+from posthog.oauth2_urls import urlpatterns as oauth2_urls
+from posthog.temporal.codec_server import decode_payloads
+
+from products.early_access_features.backend.api import early_access_features
 
 from .utils import opt_slash_path, render_template
 from .views import (
     health,
     login_required,
+    preferences_page,
     preflight_check,
-    redis_values_view,
-    api_key_search_view,
+    render_query,
     robots_txt,
     security_txt,
     stats,
-    preferences_page,
     update_preferences,
 )
-from posthog.api.query import progress
-
-from posthog.api.slack import slack_interactivity_callback
-from posthog.oauth2_urls import urlpatterns as oauth2_urls
 
 logger = structlog.get_logger(__name__)
 
 ee_urlpatterns: list[Any] = []
 try:
-    from ee.urls import extend_api_router
-    from ee.urls import urlpatterns as ee_urlpatterns
+    from ee.urls import (
+        extend_api_router,
+        urlpatterns as ee_urlpatterns,
+    )
 except ImportError:
     if settings.DEBUG:
         logger.warn(f"Could not import ee.urls", exc_info=True)
@@ -84,10 +83,10 @@ def handler500(request):
     500 error handler.
 
     Templates: :template:`500.html`
-    Context: None
+    Context: request
     """
     template = loader.get_template("500.html")
-    return HttpResponseServerError(template.render())
+    return HttpResponseServerError(template.render({"request": request}, request))
 
 
 @ensure_csrf_cookie
@@ -166,8 +165,6 @@ urlpatterns = [
     opt_slash_path("_health", health),
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
-    re_path(r"^admin/redisvalues$", redis_values_view, name="redis_values"),
-    path(r"admin/apikeysearch", api_key_search_view, name="api_key_search"),
     # ee
     *ee_urlpatterns,
     # api
@@ -175,8 +172,13 @@ urlpatterns = [
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress/", progress),
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
     path("api/unsubscribe", unsubscribe.unsubscribe),
+    path("api/alerts/github", github.SecretAlert.as_view()),
+    path("api/sdk_versions/", github_sdk_versions),
+    path("api/team_sdk_versions/", team_sdk_versions),
     opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
     path("api/", include(router.urls)),
+    # Override the tf_urls QRGeneratorView to use the cache-aware version (handles session race conditions)
+    path("account/two_factor/qrcode/", CacheAwareQRGeneratorView.as_view()),
     path("", include(tf_urls)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
@@ -196,6 +198,8 @@ urlpatterns = [
         "api/public_hog_function_templates",
         hog_function_template.PublicHogFunctionTemplateViewSet.as_view({"get": "list"}),
     ),
+    # Test setup endpoint (only available in TEST mode)
+    path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path(
@@ -210,6 +214,7 @@ urlpatterns = [
         "embedded/<str:access_token>",
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
     ),
+    path("render_query", render_query, name="render_query"),
     path("exporter", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
     path(
         "exporter/<str:access_token>",
@@ -246,6 +251,8 @@ if settings.DEBUG:
     # external clients cannot see them. See the gunicorn setup for details on
     # what we do.
     urlpatterns.append(path("_metrics", ExportToDjangoView))
+    # Temporal codec server endpoint for UI decryption - locally only for now
+    urlpatterns.append(path("decode", decode_payloads, name="temporal_decode"))
 
 
 if settings.TEST:
@@ -259,6 +266,9 @@ if settings.TEST:
         return HttpResponse()
 
     urlpatterns.append(path("delete_events/", delete_events))
+    # Temporal codec server endpoint for UI decryption - needed for tests (if not added already in DEBUG)
+    if not settings.DEBUG:
+        urlpatterns.append(path("decode", decode_payloads, name="temporal_decode"))
 
 
 # Routes added individually to remove login requirement

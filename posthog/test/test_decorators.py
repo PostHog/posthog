@@ -1,20 +1,21 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
+
 from freezegun import freeze_time
-from posthog.decorators import cached_by_filters, is_stale_filter
+from posthog.test.base import APIBaseTest, BaseTest
 
 from django.core.cache import cache
 
-from rest_framework.viewsets import GenericViewSet
 from rest_framework.response import Response
+from rest_framework.viewsets import GenericViewSet
+
+from posthog.api import router
+from posthog.decorators import cached_by_filters, is_stale_filter
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-
 from posthog.models.team.team import Team
-from posthog.test.base import APIBaseTest, BaseTest
-from posthog.api import router
 
 if TYPE_CHECKING:
     from posthog.api.routing import TeamAndOrgViewSetMixin

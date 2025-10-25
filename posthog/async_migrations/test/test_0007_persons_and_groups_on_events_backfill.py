@@ -2,29 +2,18 @@ import json
 from uuid import uuid4
 
 import pytest
+from posthog.test.base import ClickhouseTestMixin, run_clickhouse_statement_in_parallel
 
 from posthog.async_migrations.runner import start_async_migration
-from posthog.async_migrations.setup import (
-    get_async_migration_definition,
-    setup_async_migrations,
-)
+from posthog.async_migrations.setup import get_async_migration_definition, setup_async_migrations
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.models import Person
-from posthog.models.async_migration import (
-    AsyncMigration,
-    AsyncMigrationError,
-    MigrationStatus,
-)
+from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from posthog.models.event.util import create_event
 from posthog.models.group.util import create_group
-from posthog.models.person.util import (
-    create_person,
-    create_person_distinct_id,
-    delete_person,
-)
+from posthog.models.person.util import create_person, create_person_distinct_id, delete_person
 from posthog.models.utils import UUIDT
-from posthog.test.base import ClickhouseTestMixin, run_clickhouse_statement_in_parallel
 
 pytestmark = pytest.mark.async_migrations
 
@@ -157,32 +146,32 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         events = query_events()
 
         self.assertEqual(len(events), 3)
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "distinct_id": "1",
                 "person_id": uuid1,
                 "person_properties": json.dumps({"personprop": 1}),
                 "person_created_at": "2022-01-01T00:00:00Z",
-            },
-            events[0],
+            }.items(),
+            events[0].items(),
         )
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "distinct_id": "2",
                 "person_id": uuid1,
                 "person_properties": json.dumps({"personprop": 1}),
                 "person_created_at": "2022-01-01T00:00:00Z",
-            },
-            events[1],
+            }.items(),
+            events[1].items(),
         )
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "distinct_id": "3",
                 "person_id": uuid2,
                 "person_properties": json.dumps({"personprop": 2}),
                 "person_created_at": "2022-01-02T00:00:00Z",
-            },
-            events[2],
+            }.items(),
+            events[2].items(),
         )
 
     def test_duplicated_data_persons(self):
@@ -207,14 +196,14 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
 
         events = query_events()
         self.assertEqual(len(events), 1)
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "distinct_id": "1",
                 "person_id": uuid1,
                 "person_properties": json.dumps({"personprop": 2}),
                 "person_created_at": "2022-01-02T00:00:00Z",
-            },
-            events[0],
+            }.items(),
+            events[0].items(),
         )
 
     def test_deleted_data_persons(self):
@@ -234,14 +223,14 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
 
         events = query_events()
         self.assertEqual(len(events), 1)
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "distinct_id": distinct_id,
                 "person_id": ZERO_UUID,
                 "person_properties": "{}",
                 "person_created_at": ZERO_DATE,
-            },
-            events[0],
+            }.items(),
+            events[0].items(),
         )
 
     def test_data_copy_groups(self):
@@ -301,7 +290,7 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
 
         events = query_events()
         self.assertEqual(len(events), 1)
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "$group_0": "org:7",
                 "group0_properties": json.dumps({"industry": "IT"}),
@@ -318,8 +307,8 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
                 "$group_4": "",
                 "group4_properties": "{}",
                 "group4_created_at": ZERO_DATE,
-            },
-            events[0],
+            }.items(),
+            events[0].items(),
         )
 
     def test_no_extra_tables(self):
@@ -403,32 +392,32 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
 
         events = query_events()
         self.assertEqual(len(events), 3)
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "distinct_id": "1_outside_lower",
                 "person_id": ZERO_UUID,
                 "person_properties": "",
                 "person_created_at": ZERO_DATE,
-            },
-            events[0],
+            }.items(),
+            events[0].items(),
         )
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "distinct_id": "2_outside_upper",
                 "person_id": ZERO_UUID,
                 "person_properties": "",
                 "person_created_at": ZERO_DATE,
-            },
-            events[1],
+            }.items(),
+            events[1].items(),
         )
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "distinct_id": "3_in_range",
                 "person_id": _uuid3,
                 "person_properties": json.dumps({"personprop": 3}),
                 "person_created_at": "2022-01-01T00:00:00Z",
-            },
-            events[2],
+            }.items(),
+            events[2].items(),
         )
 
     def test_team_id_filter_event_not_in_team(self):
@@ -451,14 +440,14 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         events = query_events()
 
         self.assertEqual(len(events), 1)
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "distinct_id": "1",
                 "person_id": ZERO_UUID,
                 "person_properties": "",
                 "person_created_at": ZERO_DATE,
-            },
-            events[0],
+            }.items(),
+            events[0].items(),
         )
 
     def test_team_id_filter_event_in_team(self):
@@ -481,14 +470,14 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         events = query_events()
 
         self.assertEqual(len(events), 1)
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "distinct_id": "1",
                 "person_id": _uuid1,
                 "person_properties": json.dumps({"personprop": 1}),
                 "person_created_at": "2022-01-01T00:00:00Z",
-            },
-            events[0],
+            }.items(),
+            events[0].items(),
         )
 
     def test_postcheck_e2e(self):

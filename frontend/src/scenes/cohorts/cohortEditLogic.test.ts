@@ -1,11 +1,14 @@
+import { api } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
-import { api } from 'lib/api.mock'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { v4 as uuidv4 } from 'uuid'
-import { cohortEditLogic, CohortLogicProps } from 'scenes/cohorts/cohortEditLogic'
+
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { CRITERIA_VALIDATIONS, NEW_CRITERIA, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
+import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -25,6 +28,17 @@ import {
 
 jest.mock('uuid', () => ({
     v4: jest.fn().mockReturnValue('mocked-uuid'),
+}))
+
+jest.mock('lib/forms/scrollToFormError', () => ({
+    scrollToFormError: jest.fn(),
+}))
+
+jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
+    lemonToast: {
+        error: jest.fn(),
+        success: jest.fn(),
+    },
 }))
 
 describe('cohortEditLogic', () => {
@@ -89,6 +103,24 @@ describe('cohortEditLogic', () => {
             .toFinishAllListeners()
             .toDispatchActions(['setCohort', 'deleteCohort', router.actionCreators.push(urls.cohorts())])
         expect(api.update).toHaveBeenCalledTimes(1)
+    })
+
+    it('restore cohort', async () => {
+        await initCohortLogic({ id: 1 })
+        await expectLogic(logic, async () => {
+            logic.actions.setCohort({ ...mockCohort, deleted: true })
+            logic.actions.restoreCohort()
+        })
+            .toFinishAllListeners()
+            .toDispatchActions(['setCohort', 'restoreCohort'])
+        expect(api.update).toHaveBeenCalledTimes(1)
+        expect(api.update).toHaveBeenCalledWith(
+            expect.anything(),
+            {
+                deleted: false,
+            },
+            expect.anything()
+        )
     })
 
     describe('form validation', () => {
@@ -604,8 +636,26 @@ describe('cohortEditLogic', () => {
                     id: 'new',
                 })
                 logic.actions.submitCohort()
-            }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
+            }).toDispatchActions(['setCohort', 'submitCohort'])
             expect(api.update).toHaveBeenCalledTimes(0)
+        })
+
+        it('calls scrollToFormError with fallback message on submitCohortFailure', async () => {
+            await initCohortLogic({ id: 1 })
+            const mockScrollToFormError = scrollToFormError as jest.Mock
+
+            const testError = new Error('Test cohort submission error')
+            const testErrors = { name: 'Invalid name' }
+
+            await expectLogic(logic, async () => {
+                logic.actions.submitCohortFailure(testError, testErrors)
+            }).toDispatchActions(['submitCohortFailure'])
+
+            expect(mockScrollToFormError).toHaveBeenCalledWith({
+                extraErrorSelectors: ['.CohortCriteriaRow__Criteria--error'],
+                fallbackErrorMessage:
+                    'There was an error submitting this cohort. Make sure the cohort filters are correct.',
+            })
         })
     })
 

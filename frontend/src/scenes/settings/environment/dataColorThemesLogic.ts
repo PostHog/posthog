@@ -1,4 +1,5 @@
 import { actions, connect, kea, listeners, path } from 'kea'
+
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 
 import { dataColorThemesModalLogic } from './dataColorThemeModalLogic'

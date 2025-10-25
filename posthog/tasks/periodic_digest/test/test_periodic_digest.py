@@ -1,20 +1,18 @@
-from datetime import datetime, timedelta
-from unittest.mock import ANY, MagicMock, patch
-from uuid import uuid4
 import json
-from parameterized import parameterized
-from django.utils.timezone import now
-from freezegun import freeze_time
 import random
+from datetime import datetime, timedelta
+from uuid import uuid4
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest
+from unittest.mock import ANY, MagicMock, patch
+
+from django.utils.timezone import now
+
+from parameterized import parameterized
+
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLIST_NAMES
-from posthog.models import (
-    Dashboard,
-    EventDefinition,
-    Experiment,
-    FeatureFlag,
-    Survey,
-    Team,
-)
+from posthog.models import Dashboard, EventDefinition, Experiment, FeatureFlag, Survey, Team
 from posthog.models.messaging import MessagingRecord
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
@@ -25,9 +23,10 @@ from posthog.session_recordings.models.session_recording_playlist import (
 )
 from posthog.session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
 from posthog.tasks.periodic_digest.periodic_digest import send_all_periodic_digest_reports
-from posthog.test.base import APIBaseTest
-from posthog.warehouse.models import ExternalDataSource
 from posthog.tasks.periodic_digest.playlist_digests import get_teams_with_interesting_playlists
+from posthog.warehouse.models import ExternalDataSource
+
+from ee.models.rbac.access_control import AccessControl
 
 
 @freeze_time("2024-01-01T00:01:00Z")  # A Monday
@@ -647,8 +646,7 @@ class TestPeriodicDigestReport(APIBaseTest):
     def test_periodic_digest_report_respects_team_access(self, mock_capture: MagicMock) -> None:
         # Create a second team in the same organization
         team_2 = Team.objects.create(organization=self.organization, name="Second Team")
-        team_2.access_control = True
-        team_2.save()
+        AccessControl.objects.create(team=team_2, access_level="none", resource="project", resource_id=str(team_2.id))
 
         # Create test data for both teams
         with freeze_time("2024-01-15T00:01:00Z"):
@@ -665,7 +663,13 @@ class TestPeriodicDigestReport(APIBaseTest):
         user_2 = self._create_user("test2@posthog.com")
         self.organization.members.add(user_2)
         org_membership = OrganizationMembership.objects.get(organization=self.organization, user=user_2)
-        team_2.explicit_memberships.create(parent_membership=org_membership)
+        AccessControl.objects.create(
+            team=team_2,
+            access_level="member",
+            resource="project",
+            resource_id=str(team_2.id),
+            organization_member=org_membership,
+        )
 
         # Run the periodic digest report task
         send_all_periodic_digest_reports()

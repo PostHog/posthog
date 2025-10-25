@@ -1,6 +1,7 @@
 import { Meta } from '@storybook/react'
 import { useActions } from 'kea'
 import { useEffect } from 'react'
+
 import { App } from 'scenes/App'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -38,6 +39,9 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-02-01',
         pageUrl: urls.projectHomepage(),
+        testOptions: {
+            waitForLoadersToDisappear: true,
+        },
     },
 }
 export default meta

@@ -1,12 +1,12 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { Hub, LogLevel, Plugin, PluginConfig } from '../../../src/types'
+import { Hub, Plugin, PluginConfig } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import {
-    constructInlinePluginInstance,
     INLINE_PLUGIN_MAP,
     INLINE_PLUGIN_URLS,
+    constructInlinePluginInstance,
     syncInlinePlugins,
 } from '../../../src/worker/vm/inline/inline'
 import { VersionParts } from '../../../src/worker/vm/inline/semver-flattener'
@@ -19,7 +19,7 @@ describe('Inline plugin', () => {
     beforeAll(async () => {
         console.info = jest.fn() as any
         console.warn = jest.fn() as any
-        hub = await createHub({ LOG_LEVEL: LogLevel.Info })
+        hub = await createHub({ LOG_LEVEL: 'info' })
         await resetTestDatabase()
     })
 

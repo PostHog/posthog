@@ -1,13 +1,5 @@
 from typing import cast
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.printer import to_printed_hogql
-from posthog.hogql.property import action_to_expr
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
-from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.models import Action
 from posthog.schema import (
     CachedEventTaxonomyQueryResponse,
     EventTaxonomyItem,
@@ -15,29 +7,46 @@ from posthog.schema import (
     EventTaxonomyQueryResponse,
 )
 
+from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.printer import to_printed_hogql
+from posthog.hogql.property import action_to_expr
+from posthog.hogql.query import execute_hogql_query
 
-class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
+from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.models import Action
+
+
+class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTaxonomyQueryResponse]):
     """
     Retrieves the event or action taxonomy for the last 30 days: properties and N-most
     frequent property values for a property.
     """
 
     query: EventTaxonomyQuery
-    response: EventTaxonomyQueryResponse
     cached_response: CachedEventTaxonomyQueryResponse
+    settings: HogQLGlobalSettings | None
 
-    def calculate(self):
+    def __init__(self, *args, settings: HogQLGlobalSettings | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.settings = settings
+
+    def _calculate(self):
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team)
 
-        response = execute_hogql_query(
-            query_type="EventTaxonomyQuery",
-            query=query,
-            team=self.team,
-            timings=self.timings,
-            modifiers=self.modifiers,
-            limit_context=self.limit_context,
-        )
+        with tags_context(product=Product.MAX_AI):
+            response = execute_hogql_query(
+                query_type="EventTaxonomyQuery",
+                query=query,
+                team=self.team,
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+            )
 
         results: list[EventTaxonomyItem] = []
         for prop, sample_values, sample_count in response.results:
@@ -159,7 +168,10 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
                 ast.Or(
                     exprs=[
                         ast.CompareOperation(
-                            left=ast.Field(chain=["properties", prop]),
+                            left=ast.Call(
+                                name="JSONExtractString",
+                                args=[ast.Field(chain=["properties"]), ast.Constant(value=prop)],
+                            ),
                             op=ast.CompareOperationOp.NotEq,
                             right=ast.Constant(value=""),
                         )

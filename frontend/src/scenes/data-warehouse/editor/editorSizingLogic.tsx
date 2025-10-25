@@ -1,5 +1,6 @@
 import { actions, connect, kea, listeners, path, props, selectors } from 'kea'
-import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
+
+import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 
 import type { editorSizingLogicType } from './editorSizingLogicType'
 
@@ -43,7 +44,7 @@ export const editorSizingLogic = kea<editorSizingLogicType>([
         },
     })),
     selectors({
-        editorSceneRef: [() => [(_, props) => props.editorSceneRef], (editorSceneRef) => editorSceneRef],
+        editorSceneRef: [(p) => [p.editorSceneRef], (editorSceneRef) => editorSceneRef],
         sourceNavigatorWidth: [
             (s) => [s.sourceNavigatorDesiredSize],
             (desiredSize) => Math.max(desiredSize || NAVIGATOR_DEFAULT_WIDTH, MINIMUM_NAVIGATOR_WIDTH),
@@ -55,13 +56,10 @@ export const editorSizingLogic = kea<editorSizingLogicType>([
         ],
         queryTabsWidth: [(s) => [s.queryPaneDesiredSize], (desiredSize) => desiredSize || NAVIGATOR_DEFAULT_WIDTH],
         sourceNavigatorResizerProps: [
-            () => [(_, props) => props.sourceNavigatorResizerProps],
+            (_, p) => [p.sourceNavigatorResizerProps],
             (sourceNavigatorResizerProps) => sourceNavigatorResizerProps,
         ],
-        queryPaneResizerProps: [
-            () => [(_, props) => props.queryPaneResizerProps],
-            (queryPaneResizerProps) => queryPaneResizerProps,
-        ],
+        queryPaneResizerProps: [(_, p) => [p.queryPaneResizerProps], (queryPaneResizerProps) => queryPaneResizerProps],
         sidebarWidth: [
             (s) => [s.sidebarDesiredSize],
             (desiredSize: number | null) => {
@@ -74,9 +72,6 @@ export const editorSizingLogic = kea<editorSizingLogicType>([
                 )
             },
         ],
-        sidebarResizerProps: [
-            () => [(_, props) => props.sidebarResizerProps],
-            (sidebarResizerProps: ResizerLogicProps) => sidebarResizerProps,
-        ],
+        sidebarResizerProps: [(_, p) => [p.sidebarResizerProps], (sidebarResizerProps) => sidebarResizerProps],
     }),
 ])

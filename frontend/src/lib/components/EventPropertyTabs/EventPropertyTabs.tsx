@@ -1,14 +1,16 @@
-import { useState } from 'react'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP, POSTHOG_EVENT_PROMOTED_PROPERTIES } from '~/taxonomy/taxonomy'
-import { EventType, RecordingEventType } from '~/types'
-import { LemonTab, LemonTabs, LemonTabsProps } from 'lib/lemon-ui/LemonTabs'
-import { AutocaptureImageTab, autocaptureToImage } from 'lib/utils/autocapture-previews'
-import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { useValues } from 'kea'
+import { useState } from 'react'
+
+import { INTERNAL_EXCEPTION_PROPERTY_KEYS } from '@posthog/products-error-tracking/frontend/utils'
 
 import { eventPropertyFilteringLogic } from 'lib/components/EventPropertyTabs/eventPropertyFilteringLogic'
-import { INTERNAL_EXCEPTION_PROPERTY_KEYS } from '@posthog/products-error-tracking/frontend/utils'
+import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { dayjs } from 'lib/dayjs'
+import { LemonTab, LemonTabs, LemonTabsProps } from 'lib/lemon-ui/LemonTabs'
+import { AutocaptureImageTab, autocaptureToImage } from 'lib/utils/autocapture-previews'
+
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, POSTHOG_EVENT_PROMOTED_PROPERTIES } from '~/taxonomy/taxonomy'
+import { EventType, RecordingEventType } from '~/types'
 
 export interface TabContentComponentFnProps {
     event: EventType | RecordingEventType
@@ -26,6 +28,7 @@ type EventPropertyTabKey =
     | '$set_once_properties'
     | 'raw'
     | 'conversation'
+    | 'evaluation'
     | 'exception_properties'
     | 'error_display'
     | 'debug_properties'
@@ -43,14 +46,21 @@ export const EventPropertyTabs = ({
     barClassName?: LemonTabsProps<EventPropertyTabKey>['barClassName']
 }): JSX.Element => {
     const isAIGenerationEvent = event.event === '$ai_generation'
-    const isAIEvent = isAIGenerationEvent || event.event === '$ai_span' || event.event === '$ai_trace'
+    const isAIConversationEvent = isAIGenerationEvent || event.event === '$ai_span' || event.event === '$ai_trace'
+    const isAIEvaluationEvent = event.event === '$ai_evaluation'
 
     const isErrorEvent = event.event === '$exception'
 
     const { filterProperties } = useValues(eventPropertyFilteringLogic)
 
     const [activeTab, setActiveTab] = useState<EventPropertyTabKey>(
-        isAIEvent ? 'conversation' : isErrorEvent ? 'error_display' : 'properties'
+        isAIConversationEvent
+            ? 'conversation'
+            : isAIEvaluationEvent
+              ? 'evaluation'
+              : isErrorEvent
+                ? 'error_display'
+                : 'properties'
     )
 
     const promotedKeys = POSTHOG_EVENT_PROMOTED_PROPERTIES[event.event]
@@ -88,13 +98,20 @@ export const EventPropertyTabs = ({
         isErrorEvent && {
             key: 'error_display',
             label: 'Exception',
-            content: tabContentComponentFn({ event, properties: errorProperties, tabKey: 'error_display' }),
+            content: tabContentComponentFn({ event, properties: event.properties, tabKey: 'error_display' }),
         },
-        isAIEvent
+        isAIConversationEvent
             ? {
                   key: 'conversation',
                   label: 'Conversation',
                   content: tabContentComponentFn({ event, properties, tabKey: 'conversation' }),
+              }
+            : null,
+        isAIEvaluationEvent
+            ? {
+                  key: 'evaluation',
+                  label: 'Evaluation',
+                  content: tabContentComponentFn({ event, properties, tabKey: 'evaluation' }),
               }
             : null,
         {

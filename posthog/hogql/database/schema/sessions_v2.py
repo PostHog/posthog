@@ -1,38 +1,36 @@
 import re
-from typing import cast, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional, cast
+
+from posthog.schema import BounceRatePageViewMode, CustomChannelRule, SessionsV2JoinMode
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
-    StringDatabaseField,
-    DateTimeDatabaseField,
-    IntegerDatabaseField,
-    Table,
-    FieldOrTable,
-    StringArrayDatabaseField,
-    DatabaseField,
-    LazyTable,
-    FloatDatabaseField,
     BooleanDatabaseField,
-    LazyTableToAdd,
+    DatabaseField,
+    DateTimeDatabaseField,
+    FieldOrTable,
+    FloatDatabaseField,
+    IntegerDatabaseField,
     LazyJoinToAdd,
+    LazyTable,
+    LazyTableToAdd,
+    StringArrayDatabaseField,
+    StringDatabaseField,
+    Table,
 )
-from posthog.hogql.database.schema.channel_type import (
-    create_channel_type_expr,
-    ChannelTypeExprs,
-    DEFAULT_CHANNEL_TYPES,
-)
-from posthog.hogql.database.schema.sessions_v1 import null_if_empty, DEFAULT_BOUNCE_RATE_DURATION_SECONDS
+from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES, ChannelTypeExprs, create_channel_type_expr
+from posthog.hogql.database.schema.sessions_v1 import DEFAULT_BOUNCE_RATE_DURATION_SECONDS, null_if_empty
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV2
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+
 from posthog.models.property_definition import PropertyType
-from posthog.models.raw_sessions.sql import (
+from posthog.models.raw_sessions.sessions_v2 import (
     RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL,
     RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER,
 )
 from posthog.queries.insight import insight_sync_execute
-from posthog.schema import BounceRatePageViewMode, CustomChannelRule, SessionsV2JoinMode
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -43,6 +41,7 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "distinct_id": StringDatabaseField(name="distinct_id", nullable=False),
     "min_timestamp": DateTimeDatabaseField(name="min_timestamp", nullable=False),
     "max_timestamp": DateTimeDatabaseField(name="max_timestamp", nullable=False),
+    "max_inserted_at": DateTimeDatabaseField(name="max_inserted_at", nullable=False),
     "urls": StringArrayDatabaseField(name="urls", nullable=False),
     # many of the fields in the raw tables are AggregateFunction state, rather than simple types
     "entry_url": DatabaseField(name="entry_url", nullable=False),
@@ -88,6 +87,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "distinct_id": StringDatabaseField(name="distinct_id"),
     "$start_timestamp": DateTimeDatabaseField(name="$start_timestamp"),
     "$end_timestamp": DateTimeDatabaseField(name="$end_timestamp"),
+    "max_inserted_at": DateTimeDatabaseField(name="max_inserted_at"),
     "$urls": StringArrayDatabaseField(name="$urls"),
     "$num_uniq_urls": IntegerDatabaseField(name="$num_uniq_urls"),
     "$entry_current_url": StringDatabaseField(name="$entry_current_url"),
@@ -240,6 +240,7 @@ def select_from_sessions_table_v2(
         "distinct_id": arg_max_merge_field("distinct_id"),
         "$start_timestamp": ast.Call(name="min", args=[ast.Field(chain=[table_name, "min_timestamp"])]),
         "$end_timestamp": ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_timestamp"])]),
+        "max_inserted_at": ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_inserted_at"])]),
         "$urls": ast.Call(
             name="arrayDistinct",
             args=[
@@ -463,7 +464,7 @@ class SessionsTableV2(LazyTable):
         ]
 
 
-def session_id_to_session_id_v7_expr(session_id: ast.Expr) -> ast.Expr:
+def session_id_to_session_id_v7_as_uint128_expr(session_id: ast.Expr) -> ast.Expr:
     return ast.Call(
         name="_toUInt128",
         args=[ast.Call(name="toUUID", args=[session_id])],
@@ -494,7 +495,9 @@ def join_events_table_to_sessions_table_v2(
         join_expr.constraint = ast.JoinConstraint(
             expr=ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
-                left=session_id_to_session_id_v7_expr(ast.Field(chain=[join_to_add.from_table, "$session_id"])),
+                left=session_id_to_session_id_v7_as_uint128_expr(
+                    ast.Field(chain=[join_to_add.from_table, "$session_id"])
+                ),
                 right=ast.Field(chain=[join_to_add.to_table, "session_id_v7"]),
             ),
             constraint_type="ON",
@@ -505,6 +508,7 @@ def join_events_table_to_sessions_table_v2(
 def get_lazy_session_table_properties_v2(search: Optional[str]):
     # some fields shouldn't appear as properties
     hidden_fields = {
+        "max_inserted_at",
         "team_id",
         "distinct_id",
         "session_id",

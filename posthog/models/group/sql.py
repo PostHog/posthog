@@ -1,14 +1,21 @@
+from posthog import settings
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.table_engines import ReplacingMergeTree
+from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
+from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_GROUPS
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
+from posthog.settings import CLICKHOUSE_CLUSTER
 
 GROUPS_TABLE = "groups"
+GROUPS_TABLE_MV = f"{GROUPS_TABLE}_mv"
+GROUPS_WRITABLE_TABLE = f"writable_{GROUPS_TABLE}"
+KAFKA_GROUPS_TABLE = f"kafka_{GROUPS_TABLE}"
 
 DROP_GROUPS_TABLE_SQL = f"DROP TABLE {GROUPS_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
-TRUNCATE_GROUPS_TABLE_SQL = f"TRUNCATE TABLE {GROUPS_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+DROP_GROUPS_TABLE_MV_SQL = f"DROP TABLE IF EXISTS {GROUPS_TABLE_MV}"
+DROP_KAFKA_GROUPS_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_GROUPS_TABLE}"
+
+TRUNCATE_GROUPS_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {GROUPS_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 
 GROUPS_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
@@ -30,7 +37,7 @@ def GROUPS_TABLE_ENGINE():
 def GROUPS_TABLE_SQL(on_cluster=True):
     return (
         GROUPS_TABLE_BASE_SQL
-        + """Order By (team_id, group_type_index, group_key)
+        + """ORDER BY (team_id, group_type_index, group_key)
 {storage_policy}
 """
     ).format(
@@ -51,11 +58,20 @@ def KAFKA_GROUPS_TABLE_SQL(on_cluster=True):
     )
 
 
-# You must include the database here because of a bug in clickhouse
-# related to https://github.com/ClickHouse/ClickHouse/issues/10471
-GROUPS_TABLE_MV_SQL = f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {GROUPS_TABLE}_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-TO {CLICKHOUSE_DATABASE}.{GROUPS_TABLE}
+def GROUPS_WRITABLE_TABLE_SQL():
+    # This is a table used for writing from the ingestion layer. It's not sharded, thus it uses the single shard cluster.
+    return GROUPS_TABLE_BASE_SQL.format(
+        table_name="writable_" + GROUPS_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        engine=Distributed(data_table=GROUPS_TABLE, cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER),
+        extra_fields=KAFKA_COLUMNS,
+    )
+
+
+def GROUPS_TABLE_MV_SQL(target_table=GROUPS_WRITABLE_TABLE, on_cluster=True):
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {GROUPS_TABLE_MV} {ON_CLUSTER_CLAUSE(on_cluster)}
+TO {target_table}
 AS SELECT
 group_type_index,
 group_key,
@@ -64,13 +80,13 @@ team_id,
 group_properties,
 _timestamp,
 _offset
-FROM {CLICKHOUSE_DATABASE}.kafka_{GROUPS_TABLE}
+FROM {KAFKA_GROUPS_TABLE}
 """
+
 
 # { ..., "group_0": 1325 }
 # To join with events join using $group_{group_type_index} column
 
-TRUNCATE_GROUPS_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {GROUPS_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 
 INSERT_GROUP_SQL = """
 INSERT INTO groups (group_type_index, group_key, team_id, group_properties, created_at, _timestamp, _offset) SELECT %(group_type_index)s, %(group_key)s, %(team_id)s, %(group_properties)s, %(created_at)s, %(_timestamp)s, 0

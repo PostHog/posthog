@@ -1,28 +1,31 @@
-from datetime import datetime
 import re
-from typing import Any, Optional, Union
 import uuid
+from datetime import datetime
+from typing import Any, Optional, Union
 from urllib.parse import urlparse
 
-from django.core.exceptions import ValidationError
-from django.db import models
 from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.db import models, transaction
+
+from dlt.common.normalizers.naming.snake_case import NamingConvention
+
+from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FieldOrTable, SavedQuery
+from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+
 from posthog.models.team import Team
-from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel
-from posthog.schema import HogQLQueryModifiers
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDTModel
+from posthog.sync import database_sync_to_async
 from posthog.warehouse.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
     clean_type,
     remove_named_tuples,
 )
-from posthog.hogql.database.s3_table import S3Table
-from posthog.sync import database_sync_to_async
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 
 def validate_saved_query_name(value):
@@ -44,7 +47,7 @@ def validate_saved_query_name(value):
         )
 
 
-class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
+class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     class Status(models.TextChoices):
         """Possible states of this SavedQuery."""
 
@@ -74,9 +77,21 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     )
     sync_frequency_interval = models.DurationField(default=None, null=True, blank=True)
 
+    # In case the saved query is materialized to a table, this will be set
     table = models.ForeignKey("posthog.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
+    is_materialized = models.BooleanField(default=False, blank=True, null=True)
+
     # The name of the view at the time of soft deletion
     deleted_name = models.CharField(max_length=128, default=None, null=True, blank=True)
+
+    # If this view is managed by a DataWarehouseManagedViewSet, this will be set
+    managed_viewset = models.ForeignKey(
+        "posthog.DataWarehouseManagedViewSet",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="saved_queries",
+    )
 
     class Meta:
         constraints = [
@@ -89,6 +104,28 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     @property
     def name_chain(self) -> list[str]:
         return self.name.split(".")
+
+    def revert_materialization(self):
+        from posthog.warehouse.data_load.saved_query_service import delete_saved_query_schedule
+        from posthog.warehouse.models import DataWarehouseModelPath
+
+        with transaction.atomic():
+            self.sync_frequency_interval = None
+            self.last_run_at = None
+            self.latest_error = None
+            self.status = None
+            self.is_materialized = False
+
+            # delete the materialized table reference
+            if self.table is not None:
+                self.table.soft_delete()
+                self.table_id = None
+
+            delete_saved_query_schedule(str(self.id))
+
+            self.save()
+
+            DataWarehouseModelPath.objects.filter(team=self.team, path__lquery=f"*{{1,}}.{self.id.hex}").delete()
 
     def soft_delete(self):
         self.deleted = True
@@ -137,6 +174,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         from posthog.hogql.parser import parse_select
         from posthog.hogql.query import create_default_modifiers_for_team
         from posthog.hogql.resolver import resolve_types
+
         from posthog.models.property.util import S3TableVisitor
 
         context = HogQLContext(
@@ -171,13 +209,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
         return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
 
-    @property
-    def is_materialized(self):
-        return self.table is not None and (
-            self.status == DataWarehouseSavedQuery.Status.COMPLETED or self.last_run_at is not None
-        )
-
-    def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> Union[SavedQuery, S3Table]:
+    def hogql_definition(
+        self, modifiers: Optional[HogQLQueryModifiers] = None
+    ) -> Union[SavedQuery, HogQLDataWarehouseTable]:
         if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
             return self.table.hogql_definition(modifiers)
 

@@ -1,25 +1,23 @@
 from __future__ import annotations
 
+import math
+import contextlib
 import collections
 from collections.abc import Iterator
-import contextlib
 from typing import Any, Optional
-import math
 
+import certifi
 from bson import ObjectId
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from pymongo import MongoClient
 from pymongo.collection import Collection
+from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
-
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.pipelines.pipeline.utils import (
-    DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
-)
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
 from posthog.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig
 from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
 
@@ -46,7 +44,8 @@ def get_indexes(connection_string: str, collection_name: str) -> list[str]:
 
             index_cursor = collection.list_indexes()
         return [field for index in index_cursor for field in index["key"].keys()]
-    except Exception:
+    except Exception as e:
+        capture_exception(e)
         return []
 
 
@@ -102,7 +101,9 @@ def mongo_client(connection_string: str, connection_params: dict[str, Any]) -> I
     """Yield a MongoDB client with the given parameters."""
     # For SRV connections, use the full connection string
     if connection_params["is_srv"]:
-        client: MongoClient = MongoClient(connection_string, serverSelectionTimeoutMS=10000)
+        client: MongoClient = MongoClient(
+            connection_string, serverSelectionTimeoutMS=10000, tls=True, tlsCAFile=certifi.where()
+        )
         try:
             yield client
         finally:
@@ -127,6 +128,7 @@ def mongo_client(connection_string: str, connection_params: dict[str, Any]) -> I
 
     if connection_params["tls"]:
         connection_kwargs["tls"] = True
+        connection_kwargs["tlsCAFile"] = certifi.where()
 
     client = MongoClient(**connection_kwargs)
 
@@ -168,7 +170,7 @@ def _get_partition_settings(
 
 def _parse_connection_string(connection_string: str) -> dict[str, Any]:
     """Parse MongoDB connection string and extract connection parameters."""
-    from urllib.parse import urlparse, parse_qs
+    from urllib.parse import parse_qs, urlparse
 
     # Handle mongodb:// and mongodb+srv:// schemes
     parsed = urlparse(connection_string)

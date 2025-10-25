@@ -2,6 +2,10 @@ import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { lazyLoaders, loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { isAnyPropertyfilter, isHogQLPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -15,14 +19,21 @@ import {
 } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { objectClean, objectsEqual } from 'lib/utils'
+import { isString, objectClean, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import posthog from 'posthog-js'
+import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
+import { urls } from 'scenes/urls'
 
-import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { groupsModel } from '~/models/groupsModel'
-import { NodeKind, RecordingOrder, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema/schema-general'
+import {
+    NodeKind,
+    RecordingOrder,
+    RecordingsQuery,
+    RecordingsQueryResponse,
+    VALID_RECORDING_ORDERS,
+} from '~/queries/schema/schema-general'
 import {
     EntityTypes,
     FilterLogicalOperator,
@@ -35,6 +46,7 @@ import {
     RecordingUniversalFilters,
     SessionRecordingId,
     SessionRecordingType,
+    UniversalFilterValue,
 } from '~/types'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
@@ -42,20 +54,67 @@ import { filtersFromUniversalFilterGroups } from '../utils'
 import { playlistLogic } from './playlistLogic'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlaylistLogicType'
-import { lemonToast } from '@posthog/lemon-ui'
 import { sessionRecordingsPlaylistSceneLogic } from './sessionRecordingsPlaylistSceneLogic'
-import { urls } from 'scenes/urls'
-import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 
 export type PersonUUID = string
 
-interface Params {
-    filters?: RecordingUniversalFilters
-    simpleFilters?: LegacyRecordingFilters
-    advancedFilters?: LegacyRecordingFilters
+interface ReplayURLBaseSearchParams {
     sessionRecordingId?: SessionRecordingId
+}
+
+/**
+ * Allows a caller to send an event property and value that will be converted into the appropriate filters.
+ */
+type EventPropertyShortcutSearchParams = ReplayURLBaseSearchParams & {
+    eventProperty: string
+    eventPropertyValue: string
+}
+
+/**
+ * Allows a caller to send a person property and value that will be converted into the appropriate filters.
+ */
+type PersonPropertyShortcutSearchParams = ReplayURLBaseSearchParams & {
+    personProperty: string
+    personPropertyValue: string
+}
+
+type ReplayURLSearchParams = ReplayURLBaseSearchParams & {
+    filters?: RecordingUniversalFilters
     order?: RecordingsQuery['order']
     order_direction?: RecordingsQuery['order_direction']
+}
+
+type ReplayURLSearchParamTypes =
+    | ReplayURLSearchParams
+    | EventPropertyShortcutSearchParams
+    | PersonPropertyShortcutSearchParams
+
+const isEventPropertyShortcutSearchParams = (x: ReplayURLSearchParamTypes): x is EventPropertyShortcutSearchParams => {
+    return (x as EventPropertyShortcutSearchParams).eventProperty !== undefined
+}
+
+const isPersonPropertyShortcutSearchParams = (
+    x: ReplayURLSearchParamTypes
+): x is PersonPropertyShortcutSearchParams => {
+    return (x as PersonPropertyShortcutSearchParams).personProperty !== undefined
+}
+
+function isValidRecordingOrder(order: unknown): boolean {
+    return !!order && isString(order) && VALID_RECORDING_ORDERS.includes(order as RecordingOrder)
+}
+
+function isValidRecordingOrderDirection(direction: unknown): boolean {
+    return !!direction && isString(direction) && ['ASC', 'DESC'].includes(direction)
+}
+
+const isReplayURLSearchParams = (x: ReplayURLSearchParamTypes): x is ReplayURLSearchParams => {
+    const replayURLSearchParams = x as ReplayURLSearchParams
+    return (
+        (replayURLSearchParams.filters === undefined || isValidRecordingFilters(replayURLSearchParams.filters)) &&
+        (replayURLSearchParams.order === undefined || isValidRecordingOrder(replayURLSearchParams.order)) &&
+        (replayURLSearchParams.order_direction === undefined ||
+            isValidRecordingOrderDirection(replayURLSearchParams.order_direction))
+    )
 }
 
 interface NoEventsToMatch {
@@ -133,7 +192,7 @@ const handleLoadCollectionRecordings = (shortId: string): void => {
  * @param filters - The filters to check.
  * @returns True if the filters are valid, false otherwise.
  */
-export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilters>): boolean {
+export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilters> | undefined): boolean {
     if (!filters || typeof filters !== 'object') {
         return false
     }
@@ -193,8 +252,12 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
     const properties: RecordingsQuery['properties'] = []
     const console_log_filters: RecordingsQuery['console_log_filters'] = []
     const having_predicates: RecordingsQuery['having_predicates'] = []
+    let comment_text: RecordingsQuery['comment_text'] = undefined
 
-    const order: RecordingsQuery['order'] = universalFilters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY
+    // it was possible to store an invalid order key in local storage sometimes, let's just ignore that instead of erroring
+    const order: RecordingsQuery['order'] = isValidRecordingOrder(universalFilters.order)
+        ? universalFilters.order
+        : DEFAULT_RECORDING_FILTERS_ORDER_BY
     const order_direction: RecordingsQuery['order_direction'] = universalFilters.order_direction || 'DESC'
 
     const durationFilter = universalFilters.duration[0]
@@ -230,6 +293,8 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
                     })
                 } else if (f.key === 'snapshot_source' && f.value) {
                     having_predicates.push(f)
+                } else if (f.key === 'comment_text') {
+                    comment_text = f
                 }
             } else {
                 properties.push(f)
@@ -248,6 +313,7 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
         actions,
         console_log_filters,
         having_predicates,
+        comment_text,
         filter_test_accounts: universalFilters.filter_test_accounts,
         operand: universalFilters.filter_group.type,
     }
@@ -257,6 +323,9 @@ export function convertLegacyFiltersToUniversalFilters(
     simpleFilters?: LegacyRecordingFilters,
     advancedFilters?: LegacyRecordingFilters
 ): RecordingUniversalFilters {
+    // we want to remove this, so set a tombstone, lets us see if the dead come back to life
+    posthog.capture('legacy_recording_filters_converted_tombstone')
+
     const filters = combineLegacyRecordingFilters(simpleFilters || {}, advancedFilters || {})
 
     const events = filters.events ?? []
@@ -458,7 +527,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
             {
                 loadSessionRecordings: async ({ direction, userModifiedFilters }, breakpoint) => {
-                    const params: RecordingsQuery = {
+                    const params: RecordingsQuery & { add_events_to_property_queries?: '1' } = {
                         ...convertUniversalFiltersToRecordingsQuery(values.filters),
                         person_uuid: props.personUUID ?? '',
                         // KLUDGE: some persons have >8MB of distinct_ids,
@@ -469,6 +538,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         // TODO: maybe we can slice this instead
                         distinct_ids: (props.distinctIds?.length || 0) < 100 ? props.distinctIds : undefined,
                         limit: RECORDINGS_LIMIT,
+                    }
+
+                    if (values.allowEventPropertyExpansion) {
+                        params.add_events_to_property_queries = '1'
                     }
 
                     if (userModifiedFilters) {
@@ -532,7 +605,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                         recordings = [...recordings, ...fetchedRecordings.results]
                     }
-                    // TODO: Check for pinnedRecordings being IDs and fetch them, returning the merged list
 
                     return recordings
                 },
@@ -894,6 +966,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     selectors({
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlaylistLogicProps => props],
 
+        allowEventPropertyExpansion: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => {
+                return !!featureFlags[FEATURE_FLAGS.RECORDINGS_PLAYER_EVENT_PROPERTY_EXPANSION]
+            },
+        ],
+
         matchingEventsMatchType: [
             (s) => [s.filters],
             (filters): MatchingEventsMatchType => {
@@ -1112,17 +1191,23 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             replace: boolean
         ): [
             string,
-            Params,
+            ReplayURLSearchParamTypes,
             Record<string, any>,
             {
                 replace: boolean
             },
         ] => {
-            const params: Params = objectClean({
+            const params: ReplayURLSearchParamTypes = objectClean({
                 ...router.values.searchParams,
                 filters: objectsEqual(values.filters, getDefaultFilters(props.personUUID)) ? undefined : values.filters,
                 sessionRecordingId: values.selectedRecordingId ?? undefined,
             })
+
+            // we don't keep these if they're still in the URL at this point
+            delete (params as any).eventProperty
+            delete (params as any).eventPropertyValue
+            delete (params as any).personProperty
+            delete (params as any).personPropertyValue
 
             if (!objectsEqual(params, router.values.searchParams)) {
                 return [router.values.location.pathname, params, router.values.hashParams, { replace }]
@@ -1143,7 +1228,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     }),
 
     urlToAction(({ actions, values, props }) => {
-        const urlToAction = (_: any, params: Params): void => {
+        const urlToAction = (_: any, params: ReplayURLSearchParamTypes): void => {
             if (!props.updateSearchParams) {
                 return
             }
@@ -1153,20 +1238,56 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 actions.setSelectedRecordingId(nulledSessionRecordingId)
             }
 
-            // Support legacy URLs. Can be removed shortly after release
-            if (params.simpleFilters || params.advancedFilters) {
-                if (!equal(params.filters, values.filters)) {
-                    actions.setFilters(
-                        convertLegacyFiltersToUniversalFilters(params.simpleFilters, params.advancedFilters)
-                    )
+            let quickEventFilter: UniversalFilterValue | null = null
+            let quickPersonFilter: UniversalFilterValue | null = null
+            if (isEventPropertyShortcutSearchParams(params)) {
+                quickEventFilter = {
+                    type: PropertyFilterType.Event,
+                    operator: PropertyOperator.Exact,
+                    key: params.eventProperty,
+                    value: params.eventPropertyValue,
                 }
             }
 
-            if (params.filters && !equal(params.filters, values.filters)) {
-                actions.setFilters(params.filters)
+            if (isPersonPropertyShortcutSearchParams(params)) {
+                quickPersonFilter = {
+                    type: PropertyFilterType.Person,
+                    operator: PropertyOperator.Exact,
+                    key: params.personProperty,
+                    value: params.personPropertyValue,
+                }
             }
-            if (params.order && !equal(params.order, values.filters.order)) {
-                actions.setFilters({ ...values.filters, order: params.order })
+
+            if (quickEventFilter || quickPersonFilter) {
+                actions.setFilters({
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    ...(quickEventFilter ? [quickEventFilter] : []),
+                                    ...(quickPersonFilter ? [quickPersonFilter] : []),
+                                ],
+                            },
+                        ],
+                    },
+                })
+                return
+            }
+
+            if (isReplayURLSearchParams(params)) {
+                const updatedFilters = {
+                    ...(params.filters && !equal(params.filters, values.filters) ? params.filters : {}),
+                    ...(params.order && !equal(params.order, values.filters.order) ? { order: params.order } : {}),
+                    ...(params.order_direction && !equal(params.order_direction, values.filters.order_direction)
+                        ? { order_direction: params.order_direction }
+                        : {}),
+                }
+
+                if (Object.keys(updatedFilters).length > 0) {
+                    actions.setFilters({ ...values.filters, ...updatedFilters })
+                }
             }
         }
         return {

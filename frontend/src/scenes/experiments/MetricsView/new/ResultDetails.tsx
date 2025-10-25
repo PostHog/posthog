@@ -1,46 +1,117 @@
+import { router } from 'kea-router'
+import posthog from 'posthog-js'
+
 import { IconRewindPlay } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
-import { router } from 'kea-router'
+
 import { humanFriendlyNumber } from 'lib/utils'
-import posthog from 'posthog-js'
-import { ResultsBreakdown } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdown'
-import { ResultsBreakdownSkeleton } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdownSkeleton'
-import { ResultsQuery } from 'scenes/experiments/components/ResultsBreakdown/ResultsQuery'
+import { VariantTag } from 'scenes/experiments/ExperimentView/components'
+import { FunnelChart } from 'scenes/experiments/charts/funnel/FunnelChart'
 import { getViewRecordingFilters } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
-import { CachedExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
-import { Experiment, FilterLogicalOperator, RecordingUniversalFilters, ReplayTabs } from '~/types'
-
-import { ResultsInsightInfoBanner } from 'scenes/experiments/components/ResultsBreakdown/ResultsInsightInfoBanner'
 import {
+    CachedNewExperimentQueryResponse,
+    ExperimentMetric,
+    NodeKind,
+    isExperimentFunnelMetric,
+    isExperimentMeanMetric,
+    isExperimentRatioMetric,
+} from '~/queries/schema/schema-general'
+import {
+    EntityType,
+    Experiment,
+    FilterLogicalOperator,
+    FunnelStep,
+    FunnelStepWithNestedBreakdown,
+    RecordingUniversalFilters,
+    ReplayTabs,
+} from '~/types'
+
+import {
+    ExperimentVariantResult,
+    formatChanceToWinForGoal,
+    formatMetricValue,
     formatPValue,
-    formatChanceToWin,
+    getIntervalLabel,
+    getVariantInterval,
     isBayesianResult,
     isFrequentistResult,
-    getVariantInterval,
-    getIntervalLabel,
-    ExperimentVariantResult,
 } from '../shared/utils'
+
+/**
+ * Convert new experiment results directly to DataDrivenFunnel format
+ */
+function convertExperimentResultToFunnelSteps(
+    result: CachedNewExperimentQueryResponse,
+    metric: ExperimentMetric
+): FunnelStepWithNestedBreakdown[] {
+    const allResults = [result.baseline, ...(result.variant_results || [])]
+    // Use step_counts from any variant that has data, not just baseline (which might have 0 users)
+    const stepCountsSource = allResults.find((r) => r.step_counts && r.step_counts.length > 0) || result.baseline
+    const numSteps = (stepCountsSource.step_counts?.length || 0) + 1
+    const funnelSteps: FunnelStepWithNestedBreakdown[] = []
+
+    for (let stepIndex = 0; stepIndex < numSteps; stepIndex++) {
+        const variantSteps: FunnelStep[] = allResults.map((variantResult, variantIndex) => {
+            let count: number
+            if (stepIndex === 0) {
+                count = variantResult.number_of_samples
+            } else {
+                count = variantResult.step_counts?.[stepIndex - 1] || 0
+            }
+
+            let stepName: string
+            if (stepIndex === 0) {
+                stepName = 'Experiment exposure'
+            } else if (isExperimentFunnelMetric(metric) && metric.series?.[stepIndex - 1]) {
+                const series = metric.series[stepIndex - 1]
+                if (series.kind === NodeKind.EventsNode) {
+                    stepName = series.custom_name || series.name || series.event || `Step ${stepIndex}`
+                } else {
+                    stepName = series.custom_name || series.name || `Action ${series.id}`
+                }
+            } else {
+                stepName = `Step ${stepIndex}`
+            }
+
+            return {
+                name: stepName,
+                custom_name: null,
+                count: count,
+                type: 'events' as EntityType,
+                breakdown_value: variantResult.key,
+                breakdown_index: variantIndex,
+            } as FunnelStep & { breakdown_index: number }
+        })
+
+        const baseStep = variantSteps[0]
+        const totalCount = variantSteps.reduce((sum, step) => sum + step.count, 0)
+
+        funnelSteps.push({
+            ...baseStep,
+            count: totalCount,
+            nested_breakdown: variantSteps,
+        })
+    }
+
+    return funnelSteps
+}
 
 export function ResultDetails({
     experiment,
     result,
     metric,
-    metricIndex,
-    isSecondary,
 }: {
     experiment: Experiment
-    result: CachedExperimentQueryResponse
+    result: CachedNewExperimentQueryResponse
     metric: ExperimentMetric
-    metricIndex: number
-    isSecondary: boolean
 }): JSX.Element {
     const columns: LemonTableColumns<ExperimentVariantResult & { key: string }> = [
         {
             key: 'variant',
             title: 'Variant',
-            render: (_, item) => <div className="font-semibold">{item.key}</div>,
+            render: (_, item) => <VariantTag experimentId={experiment.id} variantKey={item.key} />,
         },
         {
             key: 'total-users',
@@ -49,11 +120,12 @@ export function ResultDetails({
         },
         {
             key: 'value',
-            title: metric.metric_type === 'mean' ? 'Mean' : 'Conversion rate',
-            render: (_, item) => {
-                const value = item.sum / item.number_of_samples
-                return metric.metric_type === 'mean' ? value.toFixed(2) : `${(value * 100).toFixed(2)}%`
-            },
+            title: isExperimentMeanMetric(metric)
+                ? 'Mean'
+                : isExperimentRatioMetric(metric)
+                  ? 'Ratio'
+                  : 'Conversion rate',
+            render: (_, item) => formatMetricValue(item, metric),
         },
         {
             key: 'statistical_measure',
@@ -67,7 +139,7 @@ export function ResultDetails({
                 }
 
                 if (isBayesianResult(item)) {
-                    return <div className="font-semibold">{formatChanceToWin(item.chance_to_win)}</div>
+                    return <div className="font-semibold">{formatChanceToWinForGoal(item, metric.goal)}</div>
                 } else if (isFrequentistResult(item)) {
                     return <div className="font-semibold">{formatPValue(item.p_value)}</div>
                 }
@@ -154,39 +226,18 @@ export function ResultDetails({
     ]
 
     return (
-        <div className="space-y-2">
+        <div className="space-y-4">
             <LemonTable columns={columns} dataSource={dataSource} loading={false} />
-            {metric.metric_type === 'funnel' && (
-                <ResultsBreakdown
-                    result={result}
+            {isExperimentFunnelMetric(metric) && (
+                <FunnelChart
+                    steps={convertExperimentResultToFunnelSteps(result, metric)}
+                    showPersonsModal={false}
+                    disableBaseline={true}
+                    inCardView={true}
+                    experimentResult={result}
                     experiment={experiment}
-                    metricIndex={metricIndex}
-                    isPrimary={!isSecondary}
-                >
-                    {({
-                        query,
-                        breakdownResultsLoading,
-                        breakdownResults,
-                        exposureDifference,
-                        breakdownLastRefresh,
-                    }) => {
-                        return (
-                            <>
-                                {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
-                                {query && breakdownResults && (
-                                    <>
-                                        <ResultsInsightInfoBanner exposureDifference={exposureDifference} />
-                                        <ResultsQuery
-                                            query={query}
-                                            breakdownResults={breakdownResults}
-                                            breakdownLastRefresh={breakdownLastRefresh}
-                                        />
-                                    </>
-                                )}
-                            </>
-                        )
-                    }}
-                </ResultsBreakdown>
+                    metric={metric}
+                />
             )}
         </div>
     )

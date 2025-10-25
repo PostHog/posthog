@@ -1,17 +1,18 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 
-import { initKeaTests } from '~/test/init'
 import { Scene } from '~/scenes/sceneTypes'
+import { initKeaTests } from '~/test/init'
 
 import { topBarSettingsButtonLogic } from './topBarSettingsButtonLogic'
-import { urls } from 'scenes/urls'
-import { router } from 'kea-router'
 
 const groupsScene = (): any => ({
-    scene: { component: () => null, logic: null, settingSectionId: 'environment-crm' },
+    scene: { component: () => null, logic: null, settingSectionId: 'environment-customer-analytics' },
 })
 const personsScene = (): any => ({
     scene: { component: () => null, logic: null, settingSectionId: 'environment-product-analytics' },
@@ -23,7 +24,7 @@ const scenes: Record<string, () => any> = {
 }
 
 describe('topBarSettingsButtonLogic', () => {
-    describe('loadedSceneSettingsSectionId selector for environment-crm', () => {
+    describe('loadedSceneSettingsSectionId selector for environment-customer-analytics', () => {
         let logic: ReturnType<typeof topBarSettingsButtonLogic.build>
         let sceneLogicInstance: ReturnType<typeof sceneLogic.build>
 
@@ -42,17 +43,17 @@ describe('topBarSettingsButtonLogic', () => {
             sceneLogicInstance?.unmount()
         })
 
-        it('returns environment-crm when CRM feature flag is enabled', async () => {
+        it('returns environment-customer-analytics when CRM feature flag is enabled', async () => {
             featureFlagLogic.actions.setFeatureFlags([], {
                 [FEATURE_FLAGS.CRM_ITERATION_ONE]: true,
             })
 
             await expectLogic(logic).toMatchValues({
-                loadedSceneSettingsSectionId: 'environment-crm',
+                loadedSceneSettingsSectionId: 'environment-customer-analytics',
             })
         })
 
-        it('returns undefined when CRM feature flag is disabled for environment-crm', async () => {
+        it('returns undefined when CRM feature flag is disabled for environment-customer-analytics', async () => {
             featureFlagLogic.actions.setFeatureFlags([], {
                 [FEATURE_FLAGS.CRM_ITERATION_ONE]: false,
             })

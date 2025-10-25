@@ -44,6 +44,12 @@ impl FormatConfig {
         let transform_context = TransformContext {
             team_id: model.team_id,
             token: context.get_token_for_team_id(model.team_id).await?,
+            job_id: model.id,
+            identify_cache: context.identify_cache.clone(),
+            group_cache: context.group_cache.clone(),
+            import_events: model.import_config.import_events,
+            generate_identify_events: model.import_config.generate_identify_events,
+            generate_group_identify_events: model.import_config.generate_group_identify_events,
         };
 
         match content {
@@ -84,15 +90,16 @@ impl FormatConfig {
                 let parser = move |data| {
                     let parsed: Parsed<Vec<AmplitudeEvent>> = format_parse(data)?;
                     let consumed = parsed.consumed;
-                    let result: Result<_, Error> = parsed
+                    let result: Vec<_> = parsed
                         .data
                         .into_par_iter()
                         .map(&event_transform)
-                        .filter_map(|x| x.transpose())
+                        .filter_map(|x| x.ok())
+                        .flatten()
                         .collect();
 
                     Ok(Parsed {
-                        data: result?,
+                        data: result,
                         consumed,
                     })
                 };
@@ -181,8 +188,7 @@ pub fn newline_delim<T: Send>(
                 }
                 Err(e) => {
                     return Err(e.context(format!(
-                        "Starting at byte {} of current chunk",
-                        last_validly_consumed_byte
+                        "Starting at byte {last_validly_consumed_byte} of current chunk"
                     )));
                 }
             }

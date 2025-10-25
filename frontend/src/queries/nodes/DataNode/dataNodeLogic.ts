@@ -15,6 +15,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+
 import api, { ApiMethodOptions } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -23,10 +24,11 @@ import { shouldCancelQuery, uuid } from 'lib/utils'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { compareDataNodeQuery, haveVariablesOrFiltersChanged, validateQuery } from 'scenes/insights/utils/queryUtils'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { dataNodeCollectionLogic, DataNodeCollectionProps } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import { DataNodeCollectionProps, dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { performQuery } from '~/queries/query'
 import {
@@ -42,6 +44,7 @@ import {
     GroupsQuery,
     GroupsQueryResponse,
     HogQLQueryModifiers,
+    HogQLQueryResponse,
     HogQLVariable,
     InsightVizNode,
     MarketingAnalyticsTableQuery,
@@ -69,7 +72,6 @@ import {
 import { TeamType } from '~/types'
 
 import type { dataNodeLogicType } from './dataNodeLogicType'
-import { sceneLogic } from 'scenes/sceneLogic'
 
 export interface DataNodeLogicProps {
     key: string
@@ -98,6 +100,8 @@ export interface DataNodeLogicProps {
 
     /** Whether to automatically load data when the query changes. Used for manual override in SQL editor */
     autoLoad?: boolean
+    /** Override the maximum pagination limit. */
+    maxPaginationLimit?: number
 }
 
 export const AUTOLOAD_INTERVAL = 30000
@@ -130,7 +134,7 @@ function addTags<T extends Record<string, any>>(query: DataNode<T>): DataNode<T>
     // find the currently mounted scene logic to get the active scene, but don't use the kea connect()
     // method to do this as we don't want to mount the sceneLogic if it isn't already mounted
     const mountedSceneLogic = sceneLogic.findMounted()
-    const activeScene = mountedSceneLogic?.values.activeScene
+    const activeScene = mountedSceneLogic?.values.activeSceneId
 
     const tags = query.tags ? { ...query.tags } : {}
     if (!tags.scene && activeScene) {
@@ -231,6 +235,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         setPollResponse: (status: QueryStatus | null) => ({ status }),
         setLoadingTime: (seconds: number) => ({ seconds }),
         resetLoadingTimer: true,
+        setQueryLogQueryId: (queryId: string) => ({ queryId }),
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
@@ -297,6 +302,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         signal: cache.abortController.signal,
                     }
                     try {
+                        // For shared contexts, create a minimal team object if needed
                         const response = await getConcurrencyController(query, values.currentTeam as TeamType).run({
                             debugTag: query.kind,
                             abortController,
@@ -385,8 +391,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         isEventsQuery(props.query) ||
                         isActorsQuery(props.query) ||
                         isGroupsQuery(props.query) ||
-                        isErrorTrackingQuery(props.query) ||
                         isTracesQuery(props.query) ||
+                        isErrorTrackingQuery(props.query) ||
                         isMarketingAnalyticsTableQuery(props.query)
                     ) {
                         const newResponse =
@@ -403,9 +409,16 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             | ErrorTrackingQueryResponse
                             | TracesQueryResponse
                             | MarketingAnalyticsTableQueryResponse
+
+                        let results = [...(queryResponse?.results ?? []), ...(newResponse?.results ?? [])]
+
+                        if (isErrorTrackingQuery(props.query)) {
+                            results = dedupeResults(results, 'id')
+                        }
+
                         return {
                             ...queryResponse,
-                            results: [...(queryResponse?.results ?? []), ...(newResponse?.results ?? [])],
+                            results: results,
                             hasMore: newResponse?.hasMore,
                         }
                     } else if (isPersonsNode(props.query)) {
@@ -432,6 +445,32 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         }
                     }
                     return values.response
+                },
+            },
+        ],
+        queryLog: [
+            null as HogQLQueryResponse | null,
+            {
+                loadQueryLog: async (queryId, breakpoint) => {
+                    if (!queryId) {
+                        throw new Error('No query ID provided')
+                    }
+                    if (!values.featureFlags[FEATURE_FLAGS.QUERY_EXECUTION_DETAILS]) {
+                        return null
+                    }
+
+                    try {
+                        const result = await api.queryLog.get(queryId)
+                        if (result?.results && result.results.length > 0) {
+                            actions.setQueryLogQueryId(queryId)
+                        }
+                        return result
+                    } catch (e: any) {
+                        console.warn('Failed to get query execution details', e)
+                        e.queryId = queryId
+                        breakpoint()
+                        throw e
+                    }
                 },
             },
         ],
@@ -584,6 +623,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 cancelQuery: () => 0,
             },
         ],
+        queryLogQueryId: [
+            null as string | null,
+            {
+                setQueryLogQueryId: (_, { queryId }) => queryId,
+                loadData: () => null,
+            },
+        ],
     })),
     selectors(({ cache }) => ({
         variableOverridesAreSet: [
@@ -635,12 +681,27 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (newQuery, isShowingCachedResults) => (isShowingCachedResults ? false : !!newQuery),
         ],
         nextQuery: [
-            (s, p) => [p.query, s.response, s.responseError, s.dataLoading, s.isShowingCachedResults],
-            (query, response, responseError, dataLoading, isShowingCachedResults): DataNode | null => {
+            (s, p) => [
+                p.query,
+                s.response,
+                s.responseError,
+                s.dataLoading,
+                s.isShowingCachedResults,
+                (_, props) => props.maxPaginationLimit,
+            ],
+            (
+                query,
+                response,
+                responseError,
+                dataLoading,
+                isShowingCachedResults,
+                maxPaginationLimit
+            ): DataNode | null => {
                 if (isShowingCachedResults) {
                     return null
                 }
 
+                const effectivePaginationLimit = maxPaginationLimit ?? LOAD_MORE_ROWS_LIMIT
                 if (
                     (isEventsQuery(query) ||
                         isActorsQuery(query) ||
@@ -676,7 +737,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                         before: lastTimestamp,
                                         limit: Math.max(
                                             100,
-                                            Math.min(2 * (typedResults?.length || 100), LOAD_MORE_ROWS_LIMIT)
+                                            Math.min(2 * (typedResults?.length || 100), effectivePaginationLimit)
                                         ),
                                     }
                                     return newQuery
@@ -695,7 +756,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             return {
                                 ...query,
                                 offset: typedResults?.length || 0,
-                                limit: Math.max(100, Math.min(2 * (typedResults?.length || 100), LOAD_MORE_ROWS_LIMIT)),
+                                limit: Math.max(
+                                    100,
+                                    Math.min(2 * (typedResults?.length || 100), effectivePaginationLimit)
+                                ),
                             } as
                                 | EventsQuery
                                 | ActorsQuery
@@ -856,42 +920,39 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             props.onData?.(response as Record<string, unknown> | null | undefined)
         },
         resetLoadingTimer: () => {
-            if (cache.loadingTimer) {
-                window.clearInterval(cache.loadingTimer)
-                cache.loadingTimer = null
-            }
-
             if (values.dataLoading) {
                 const startTime = Date.now()
-                cache.loadingTimer = window.setInterval(() => {
-                    const seconds = Math.floor((Date.now() - startTime) / 1000)
-                    actions.setLoadingTime(seconds)
-                }, 1000)
+                cache.disposables.add(() => {
+                    const timerId = window.setInterval(() => {
+                        const seconds = Math.floor((Date.now() - startTime) / 1000)
+                        actions.setLoadingTime(seconds)
+                    }, 1000)
+                    return () => window.clearInterval(timerId)
+                }, 'loadingTimer')
             }
         },
     })),
-    subscriptions(({ props, actions, cache, values }) => ({
+    subscriptions(({ props, actions, values, cache }) => ({
         responseError: (error: string | null) => {
             props.onError?.(error)
         },
         autoLoadRunning: (autoLoadRunning) => {
-            if (cache.autoLoadInterval) {
-                window.clearInterval(cache.autoLoadInterval)
-                cache.autoLoadInterval = null
-            }
             if (autoLoadRunning) {
                 actions.loadNewData()
-                cache.autoLoadInterval = window.setInterval(() => {
-                    if (!values.responseLoading) {
-                        actions.loadNewData()
-                    }
-                }, AUTOLOAD_INTERVAL)
+                cache.disposables.add(() => {
+                    const timerId = window.setInterval(() => {
+                        if (!values.responseLoading) {
+                            actions.loadNewData()
+                        }
+                    }, AUTOLOAD_INTERVAL)
+                    return () => window.clearInterval(timerId)
+                }, 'autoLoadInterval')
             }
         },
         dataLoading: (dataLoading) => {
-            if (cache.loadingTimer && !dataLoading) {
-                window.clearInterval(cache.loadingTimer)
-                cache.loadingTimer = null
+            if (!dataLoading) {
+                // Clear loading timer when data loading finishes
+                cache.disposables.dispose('loadingTimer')
             }
         },
     })),
@@ -914,7 +975,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             cancelQuery: actions.cancelQuery,
         })
     }),
-    beforeUnmount(({ actions, props, values, cache }) => {
+    beforeUnmount(({ actions, props, values }) => {
         if (values.autoLoadRunning) {
             actions.stopAutoLoad()
         }
@@ -923,9 +984,15 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         }
 
         actions.unmountDataNode(props.key)
-        if (cache.loadingTimer) {
-            window.clearInterval(cache.loadingTimer)
-            cache.loadingTimer = null
-        }
+        // Disposables plugin handles timer cleanup automatically
     }),
 ])
+
+const dedupeResults = (arr: any[], key: string): any[] => {
+    return Object.values(
+        arr.reduce((acc, item) => {
+            acc[item[key]] = item
+            return acc
+        }, {})
+    )
+}

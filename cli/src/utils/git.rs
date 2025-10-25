@@ -6,6 +6,9 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GitInfo {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub repo_name: Option<String>,
     pub branch: String,
     pub commit_id: String,
@@ -17,11 +20,13 @@ pub fn get_git_info(dir: Option<PathBuf>) -> Result<Option<GitInfo>> {
         None => return Ok(None),
     };
 
+    let remote_url = get_remote_url(&git_dir);
     let repo_name = get_repo_name(&git_dir);
     let branch = get_current_branch(&git_dir).context("Failed to determine current branch")?;
     let commit = get_head_commit(&git_dir, &branch).context("Failed to determine commit ID")?;
 
     Ok(Some(GitInfo {
+        remote_url,
         repo_name,
         branch,
         commit_id: commit,
@@ -43,7 +48,33 @@ fn find_git_dir(dir: Option<PathBuf>) -> Option<PathBuf> {
     }
 }
 
-fn get_repo_name(git_dir: &Path) -> Option<String> {
+pub fn get_remote_url(git_dir: &Path) -> Option<String> {
+    // Try grab it from the git config
+    let config_path = git_dir.join("config");
+    if config_path.exists() {
+        let config_content = match fs::read_to_string(&config_path) {
+            Ok(content) => content,
+            Err(_) => return None,
+        };
+
+        for line in config_content.lines() {
+            let line = line.trim();
+            if line.starts_with("url = ") {
+                let url = line.trim_start_matches("url = ").trim();
+                let normalized = if url.ends_with(".git") {
+                    url.to_string()
+                } else {
+                    format!("{url}.git")
+                };
+                return Some(normalized);
+            }
+        }
+    }
+
+    None
+}
+
+pub fn get_repo_name(git_dir: &Path) -> Option<String> {
     // Try grab it from the configured remote, otherwise just use the directory name
     let config_path = git_dir.join("config");
     if config_path.exists() {
@@ -54,9 +85,9 @@ fn get_repo_name(git_dir: &Path) -> Option<String> {
 
         for line in config_content.lines() {
             let line = line.trim();
-            if line.starts_with("url = ") && line.ends_with(".git") {
+            if line.starts_with("url = ") {
                 let url = line.trim_start_matches("url = ");
-                if let Some(repo_name) = url.split('/').last() {
+                if let Some(repo_name) = url.split('/').next_back() {
                     let clean_name = repo_name.trim_end_matches(".git");
                     return Some(clean_name.to_string());
                 }
@@ -78,7 +109,7 @@ fn get_current_branch(git_dir: &Path) -> Result<String> {
     let head_path = git_dir.join("HEAD");
     let mut head_content = String::new();
     fs::File::open(&head_path)
-        .with_context(|| format!("Failed to open HEAD file at {:?}", head_path))?
+        .with_context(|| format!("Failed to open HEAD file at {head_path:?}"))?
         .read_to_string(&mut head_content)
         .context("Failed to read HEAD file")?;
 
@@ -101,7 +132,7 @@ fn get_head_commit(git_dir: &Path, branch: &str) -> Result<String> {
         let head_path = git_dir.join("HEAD");
         let mut head_content = String::new();
         fs::File::open(&head_path)
-            .with_context(|| format!("Failed to open HEAD file at {:?}", head_path))?
+            .with_context(|| format!("Failed to open HEAD file at {head_path:?}"))?
             .read_to_string(&mut head_content)
             .context("Failed to read HEAD file")?;
 
@@ -113,7 +144,7 @@ fn get_head_commit(git_dir: &Path, branch: &str) -> Result<String> {
     if ref_path.exists() {
         let mut commit_id = String::new();
         fs::File::open(&ref_path)
-            .with_context(|| format!("Failed to open branch reference at {:?}", ref_path))?
+            .with_context(|| format!("Failed to open branch reference at {ref_path:?}"))?
             .read_to_string(&mut commit_id)
             .context("Failed to read branch reference file")?;
 

@@ -1,10 +1,120 @@
 use crate::{
     api::errors::FlagError,
+    database::get_connection_with_metrics,
     team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
 };
 use common_database::PostgresReader;
 use common_redis::Client as RedisClient;
-use std::sync::Arc;
+use std::{future::Future, sync::Arc};
+use tracing::{debug, warn};
+
+/// Fetches a team from Redis cache with PostgreSQL fallback
+///
+/// This helper consolidates the common pattern of:
+/// 1. Try Redis cache first
+/// 2. On cache miss, fetch from PostgreSQL using the provided lookup function
+/// 3. Update Redis cache on successful database fetch
+/// 4. Return the team
+///
+/// # Arguments
+/// * `redis_reader` - Redis client for cache reads
+/// * `redis_writer` - Redis client for cache writes
+/// * `token` - Token to use for cache key lookup
+/// * `db_lookup` - Async function to fetch team from PostgreSQL on cache miss
+pub async fn fetch_team_from_redis_with_fallback<F, Fut>(
+    redis_reader: Arc<dyn RedisClient + Send + Sync>,
+    redis_writer: Arc<dyn RedisClient + Send + Sync>,
+    token: &str,
+    db_lookup: F,
+) -> Result<Team, FlagError>
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = Result<Team, FlagError>>,
+{
+    // Try to get team from cache first
+    match Team::from_redis(redis_reader.clone(), token).await {
+        Ok(team) if team.organization_id.is_some() => {
+            debug!(team_id = team.id, "Found complete team in Redis cache");
+            Ok(team)
+        }
+        Ok(team) => {
+            debug!(
+                team_id = team.id,
+                "Team in cache missing organization_id, treating as cache miss"
+            );
+            // Treat as cache miss - fetch complete team from database
+            match db_lookup().await {
+                Ok(team) => {
+                    debug!(team_id = team.id, "Found team in PostgreSQL");
+                    // Update Redis cache with complete team
+                    if let Err(e) = Team::update_redis_cache(redis_writer, &team).await {
+                        warn!(team_id = team.id, error = %e, "Failed to update Redis cache");
+                    }
+                    Ok(team)
+                }
+                Err(e) => {
+                    warn!(error = %e, "Team not found in PostgreSQL");
+                    Err(e)
+                }
+            }
+        }
+        Err(e) => {
+            debug!(error = %e, "Team not found in Redis cache");
+            // Fallback to database using provided lookup function
+            match db_lookup().await {
+                Ok(team) => {
+                    debug!(team_id = team.id, "Found team in PostgreSQL");
+                    // Update Redis cache for next time
+                    if let Err(e) = Team::update_redis_cache(redis_writer, &team).await {
+                        warn!(team_id = team.id, error = %e, "Failed to update Redis cache");
+                    }
+                    Ok(team)
+                }
+                Err(e) => {
+                    warn!(error = %e, "Team not found in PostgreSQL");
+                    Err(e)
+                }
+            }
+        }
+    }
+}
+
+/// SQL fragment for selecting all Team columns
+const TEAM_COLUMNS: &str = "
+    id,
+    uuid,
+    name,
+    api_token,
+    project_id,
+    organization_id,
+    cookieless_server_hash_mode,
+    timezone,
+    autocapture_opt_out,
+    autocapture_exceptions_opt_in,
+    autocapture_web_vitals_opt_in,
+    capture_performance_opt_in,
+    capture_console_log_opt_in,
+    session_recording_opt_in,
+    inject_web_apps,
+    surveys_opt_in,
+    heatmaps_opt_in,
+    capture_dead_clicks,
+    flags_persistence_default,
+    session_recording_sample_rate,
+    session_recording_minimum_duration_milliseconds,
+    autocapture_web_vitals_allowed_metrics,
+    autocapture_exceptions_errors_to_ignore,
+    session_recording_linked_flag,
+    session_recording_network_payload_capture_config,
+    session_recording_masking_config,
+    session_replay_config,
+    survey_config,
+    session_recording_url_trigger_config,
+    session_recording_url_blocklist_config,
+    session_recording_event_trigger_config,
+    session_recording_trigger_match_type_config,
+    recording_domains
+";
 
 impl Team {
     /// Validates a token, and returns a team if it exists.
@@ -13,19 +123,17 @@ impl Team {
         token: &str,
     ) -> Result<Team, FlagError> {
         tracing::debug!(
-            "Attempting to read team from Redis at key '{}{}'",
-            TEAM_TOKEN_CACHE_PREFIX,
-            token
+            "Attempting to read team from Redis at key '{TEAM_TOKEN_CACHE_PREFIX}{token}'"
         );
 
         // NB: if this lookup fails, we fall back to the database before returning an error
         let serialized_team = client
-            .get(format!("{TEAM_TOKEN_CACHE_PREFIX}{}", token))
+            .get(format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"))
             .await?;
 
         // TODO: Consider an LRU cache for teams as well, with small TTL to skip redis/pg lookups
         let mut team: Team = serde_json::from_str(&serialized_team).map_err(|e| {
-            tracing::error!("failed to parse data to team for token {}: {}", token, e);
+            tracing::error!("failed to parse data to team for token {token}: {e}");
             FlagError::RedisDataParsingError
         })?;
         if team.project_id == 0 {
@@ -84,44 +192,30 @@ impl Team {
     }
 
     pub async fn from_pg(client: PostgresReader, token: &str) -> Result<Team, FlagError> {
-        let mut conn = client.get_connection().await?;
+        let mut conn =
+            get_connection_with_metrics(&client, "non_persons_reader", "fetch_team").await?;
 
-        let query = "SELECT 
-            id, 
-            uuid,
-            name, 
-            api_token, 
-            project_id, 
-            cookieless_server_hash_mode, 
-            timezone,
-            autocapture_opt_out,
-            autocapture_exceptions_opt_in,
-            autocapture_web_vitals_opt_in,
-            capture_performance_opt_in,
-            capture_console_log_opt_in,
-            session_recording_opt_in,
-            inject_web_apps,
-            surveys_opt_in,
-            heatmaps_opt_in,
-            capture_dead_clicks,
-            flags_persistence_default,
-            session_recording_sample_rate,
-            session_recording_minimum_duration_milliseconds,
-            autocapture_web_vitals_allowed_metrics,
-            autocapture_exceptions_errors_to_ignore,
-            session_recording_linked_flag,
-            session_recording_network_payload_capture_config,
-            session_recording_masking_config,
-            session_replay_config,
-            survey_config,
-            session_recording_url_trigger_config,
-            session_recording_url_blocklist_config,
-            session_recording_event_trigger_config,
-            session_recording_trigger_match_type_config,
-            recording_domains
-        FROM posthog_team 
-        WHERE api_token = $1";
-        let row = sqlx::query_as::<_, Team>(query)
+        let query = format!("SELECT {TEAM_COLUMNS} FROM posthog_team WHERE api_token = $1");
+        let row = sqlx::query_as::<_, Team>(&query)
+            .bind(token)
+            .fetch_one(&mut *conn)
+            .await?;
+
+        Ok(row)
+    }
+
+    pub async fn from_pg_by_secret_token(
+        client: PostgresReader,
+        token: &str,
+    ) -> Result<Team, FlagError> {
+        let mut conn =
+            get_connection_with_metrics(&client, "non_persons_reader", "fetch_team_by_secret")
+                .await?;
+
+        let query = format!(
+            "SELECT {TEAM_COLUMNS} FROM posthog_team WHERE secret_api_token = $1 OR secret_api_token_backup = $1"
+        );
+        let row = sqlx::query_as::<_, Team>(&query)
             .bind(token)
             .fetch_one(&mut *conn)
             .await?;
@@ -138,8 +232,7 @@ mod tests {
 
     use super::*;
     use crate::utils::test_utils::{
-        insert_new_team_in_pg, insert_new_team_in_redis, random_string, setup_pg_reader_client,
-        setup_redis_client,
+        insert_new_team_in_redis, random_string, setup_redis_client, TestContext,
     };
 
     #[tokio::test]
@@ -211,7 +304,7 @@ mod tests {
 
         match Team::from_redis(client.clone(), team.api_token.as_str()).await {
             Err(FlagError::RedisDataParsingError) => (),
-            Err(other) => panic!("Expected DataParsingError, got {:?}", other),
+            Err(other) => panic!("Expected DataParsingError, got {other:?}"),
             Ok(_) => panic!("Expected DataParsingError"),
         };
     }
@@ -234,10 +327,10 @@ mod tests {
         };
 
         let serialized_team = serde_json::to_string(&test_team).expect("Failed to serialize team");
-        tracing::info!("Inserting test team payload: {}", serialized_team);
+        tracing::info!("Inserting test team payload: {serialized_team}");
         client
             .set(
-                format!("{}{}", TEAM_TOKEN_CACHE_PREFIX, target_token),
+                format!("{TEAM_TOKEN_CACHE_PREFIX}{target_token}"),
                 serialized_team,
             )
             .await
@@ -255,15 +348,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_team_from_pg() {
-        let client = setup_pg_reader_client(None).await;
-
-        let team = insert_new_team_in_pg(client.clone(), None)
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
             .await
             .expect("Failed to insert team in pg");
 
         let target_token = team.api_token;
 
-        let team_from_pg = Team::from_pg(client.clone(), target_token.as_str())
+        let team_from_pg = Team::from_pg(context.non_persons_reader.clone(), target_token.as_str())
             .await
             .expect("Failed to fetch team from pg");
 
@@ -277,10 +370,10 @@ mod tests {
         // TODO: Figure out a way such that `run_database_migrations` is called only once, and already called
         // before running these tests.
 
-        let client = setup_pg_reader_client(None).await;
+        let context = TestContext::new(None).await;
         let target_token = "xxxx".to_string();
 
-        match Team::from_pg(client.clone(), target_token.as_str()).await {
+        match Team::from_pg(context.non_persons_reader.clone(), target_token.as_str()).await {
             Err(FlagError::RowNotFound) => (),
             _ => panic!("Expected RowNotFound"),
         };
@@ -288,18 +381,22 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_team_with_null_array_elements_from_pg() {
-        let client = setup_pg_reader_client(None).await;
+        let context = TestContext::new(None).await;
 
         // Insert a team with NULL elements in the array
-        let team = insert_new_team_in_pg(client.clone(), None)
+        let team = context
+            .insert_new_team(None)
             .await
             .expect("Failed to insert team in pg");
 
         // Manually update the team to have NULL elements in session_recording_event_trigger_config
-        let mut conn = client
-            .get_connection()
-            .await
-            .expect("Failed to get connection");
+        let mut conn = get_connection_with_metrics(
+            &context.non_persons_reader,
+            "non_persons_reader",
+            "test_update_team",
+        )
+        .await
+        .expect("Failed to get connection");
 
         // Update with an array containing NULL elements: {NULL, 'valid_event', NULL, 'another_event'}
         sqlx::query(
@@ -317,7 +414,7 @@ mod tests {
         .expect("Failed to update team with NULL array elements");
 
         // Now fetch the team and verify it deserializes correctly
-        let team_from_pg = Team::from_pg(client.clone(), &team.api_token)
+        let team_from_pg = Team::from_pg(context.non_persons_reader.clone(), &team.api_token)
             .await
             .expect("Failed to fetch team with NULL array elements from pg");
 

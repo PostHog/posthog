@@ -1,34 +1,42 @@
 import './DataTable.scss'
 
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
+import { useCallback, useState } from 'react'
+
+import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { useCallback, useState } from 'react'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
+import { ViewLinkButton } from 'scenes/data-warehouse/ViewLinkModal'
+import { groupViewLogic } from 'scenes/groups/groupViewLogic'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
+import { createMarketingAnalyticsOrderBy } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
-import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadNext } from '~/queries/nodes/DataNode/LoadNext'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
 import { TestAccountFilters } from '~/queries/nodes/DataNode/TestAccountFilters'
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { BackToSource } from '~/queries/nodes/DataTable/BackToSource'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
-import { dataTableLogic, DataTableLogicProps, DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
+import { DataTableSavedFilters } from '~/queries/nodes/DataTable/DataTableSavedFilters'
+import { DataTableSavedFiltersButton } from '~/queries/nodes/DataTable/DataTableSavedFiltersButton'
 import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
 import { InsightActorsQueryOptions } from '~/queries/nodes/DataTable/InsightActorsQueryOptions'
+import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
+import { DataTableLogicProps, DataTableRow, dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { getContextColumn, renderColumn } from '~/queries/nodes/DataTable/renderColumn'
 import { renderColumnMeta } from '~/queries/nodes/DataTable/renderColumnMeta'
-import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
 import {
     extractExpressionComment,
     getDataNodeDefaultColumns,
@@ -75,8 +83,6 @@ import { EventType, InsightLogicProps } from '~/types'
 import { GroupPropertyFilters } from '../GroupsQuery/GroupPropertyFilters'
 import { GroupsSearch } from '../GroupsQuery/GroupsSearch'
 import { DataTableOpenEditor } from './DataTableOpenEditor'
-import { createMarketingAnalyticsOrderBy } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
-import { groupViewLogic } from 'scenes/groups/groupViewLogic'
 
 export enum ColumnFeature {
     canSort = 'canSort',
@@ -102,6 +108,8 @@ interface DataTableProps {
      Set a data-attr on the LemonTable component
     */
     dataAttr?: string
+    /** Attach ourselves to another logic, such as the scene logic */
+    attachTo?: BuiltLogic | LogicWrapper
 }
 
 const eventGroupTypes = [
@@ -122,6 +130,7 @@ export function DataTable({
     cachedResults,
     readOnly,
     dataAttr,
+    attachTo,
 }: DataTableProps): JSX.Element {
     const [uniqueNodeKey] = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
@@ -144,9 +153,8 @@ export function DataTable({
         cachedResults: cachedResults,
         dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
         refresh: context?.refresh,
+        maxPaginationLimit: context?.dataTableMaxPaginationLimit,
     }
-    const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)
-
     const {
         response,
         responseLoading,
@@ -156,7 +164,7 @@ export function DataTable({
         newDataLoading,
         highlightedRows,
         backToSourceQuery,
-    } = useValues(builtDataNodeLogic)
+    } = useValues(dataNodeLogic(dataNodeLogicProps))
     const { setSaveGroupViewModalOpen } = useActions(groupViewLogic)
 
     const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
@@ -179,6 +187,9 @@ export function DataTable({
         dataTableLogic(dataTableLogicProps)
     )
 
+    useAttachedLogic(dataNodeLogic(dataNodeLogicProps), attachTo)
+    useAttachedLogic(dataTableLogic(dataTableLogicProps), attachTo)
+
     const {
         showActions,
         showDateRange,
@@ -193,6 +204,7 @@ export function DataTable({
         showColumnConfigurator,
         showPersistentColumnConfigurator,
         showSavedQueries,
+        showSavedFilters,
         expandable,
         embedded,
         showOpenEditorButton,
@@ -625,6 +637,14 @@ export function DataTable({
                 taxonomicGroupTypes={Array.isArray(showPropertyFilter) ? showPropertyFilter : undefined}
             />
         ) : null,
+        showSavedFilters && uniqueKey ? (
+            <DataTableSavedFiltersButton
+                key="saved-filters-button"
+                uniqueKey={String(uniqueKey)}
+                query={query}
+                setQuery={setQuery}
+            />
+        ) : null,
         showPropertyFilter && sourceFeatures.has(QueryFeature.personPropertyFilters) ? (
             <PersonPropertyFilters
                 key="person-property"
@@ -668,6 +688,9 @@ export function DataTable({
     ].filter((x) => !!x)
 
     const secondRowRight = [
+        sourceFeatures.has(QueryFeature.linkDataButton) && hasCrmIterationOneEnabled ? (
+            <ViewLinkButton tableName="groups" />
+        ) : null,
         (showColumnConfigurator || showPersistentColumnConfigurator) &&
         sourceFeatures.has(QueryFeature.columnConfigurator) ? (
             <ColumnConfigurator key="column-configurator" query={query} setQuery={setQuery} />
@@ -718,6 +741,9 @@ export function DataTable({
                             {firstRowRight}
                         </div>
                     )}
+                    {showSavedFilters && uniqueKey && (
+                        <DataTableSavedFilters uniqueKey={String(uniqueKey)} query={query} setQuery={setQuery} />
+                    )}
                     {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}
                     {showSecondRow && (
                         <div className="flex gap-4 justify-between flex-wrap DataTable__second-row">
@@ -729,94 +755,97 @@ export function DataTable({
                         <div className="absolute right-0 z-10 p-1">{editorButton}</div>
                     ) : null}
                     {showResultsTable && (
-                        <LemonTable
-                            data-attr={dataAttr}
-                            className={clsx('DataTable', {
-                                'border border-dotted border-success': usedWebAnalyticsPreAggregatedTables,
-                            })}
-                            loading={responseLoading && !nextDataLoading && !newDataLoading}
-                            columns={lemonColumns}
-                            embedded={embedded}
-                            key={
-                                [...(columnsInResponse ?? []), ...columnsInQuery].join(
-                                    '::'
-                                ) /* Bust the LemonTable cache when columns change */
-                            }
-                            dataSource={dataTableRows ?? []}
-                            rowKey={(_, rowIndex) => {
-                                return rowIndex
-                            }}
-                            sorting={null}
-                            useURLForSorting={false}
-                            emptyState={
-                                responseError ? (
-                                    sourceFeatures.has(QueryFeature.displayResponseError) ? (
-                                        <InsightErrorState
-                                            query={query}
-                                            excludeDetail
-                                            title={
-                                                queryCancelled
-                                                    ? 'The query was cancelled'
-                                                    : response && 'error' in response
-                                                      ? response.error
-                                                      : responseError
-                                            }
-                                        />
+                        <div className="relative">
+                            {usedWebAnalyticsPreAggregatedTables && <PreAggregatedBadge />}
+                            <LemonTable
+                                data-attr={dataAttr}
+                                className="DataTable"
+                                loading={responseLoading && !nextDataLoading && !newDataLoading}
+                                columns={lemonColumns}
+                                embedded={embedded}
+                                key={
+                                    [...(columnsInResponse ?? []), ...columnsInQuery].join(
+                                        '::'
+                                    ) /* Bust the LemonTable cache when columns change */
+                                }
+                                dataSource={dataTableRows ?? []}
+                                rowKey={(_, rowIndex) => {
+                                    return rowIndex
+                                }}
+                                sorting={null}
+                                useURLForSorting={false}
+                                emptyState={
+                                    responseError ? (
+                                        sourceFeatures.has(QueryFeature.displayResponseError) ? (
+                                            <InsightErrorState
+                                                query={query}
+                                                excludeDetail
+                                                title={
+                                                    queryCancelled
+                                                        ? 'The query was cancelled'
+                                                        : response && 'error' in response
+                                                          ? response.error
+                                                          : responseError
+                                                }
+                                            />
+                                        ) : (
+                                            <InsightErrorState query={query} />
+                                        )
                                     ) : (
-                                        <InsightErrorState query={query} />
+                                        <InsightEmptyState
+                                            heading={context?.emptyStateHeading}
+                                            detail={context?.emptyStateDetail}
+                                        />
                                     )
-                                ) : (
-                                    <InsightEmptyState
-                                        heading={context?.emptyStateHeading}
-                                        detail={context?.emptyStateDetail}
-                                    />
-                                )
-                            }
-                            expandable={
-                                expandable && columnsInResponse?.includes('*')
-                                    ? {
-                                          expandedRowRender: function renderExpand({ result }) {
-                                              if (
-                                                  (isEventsQuery(query.source) ||
-                                                      isRevenueExampleEventsQuery(query.source)) &&
-                                                  Array.isArray(result)
-                                              ) {
-                                                  return (
-                                                      <EventDetails
-                                                          event={result[columnsInResponse.indexOf('*')] ?? {}}
-                                                      />
-                                                  )
-                                              }
-                                              if (result && !Array.isArray(result)) {
-                                                  return <EventDetails event={result as EventType} />
-                                              }
-                                          },
-                                          rowExpandable: ({ result }) => !!result,
-                                          noIndent: true,
-                                      }
-                                    : undefined
-                            }
-                            rowClassName={({ result, label }) =>
-                                clsx('DataTable__row', {
-                                    'DataTable__row--highlight_once': result && highlightedRows.has(result),
-                                    'DataTable__row--category_row': !!label,
-                                    'border border-x-danger-dark bg-danger-highlight':
-                                        sourceFeatures.has(QueryFeature.highlightExceptionEventRows) &&
-                                        result &&
-                                        result[0] &&
-                                        result[0]['event'] === '$exception',
-                                    DataTable__has_pinned_columns: (query.pinnedColumns ?? []).length > 0,
-                                })
-                            }
-                            footer={
-                                (dataTableRows ?? []).length > 0 &&
-                                !sourceFeatures.has(QueryFeature.hideLoadNextButton) ? (
-                                    <LoadNext query={query.source} />
-                                ) : null
-                            }
-                            onRow={onRow}
-                            pinnedColumns={query.pinnedColumns}
-                        />
+                                }
+                                expandable={
+                                    context?.expandable
+                                        ? context.expandable
+                                        : expandable && columnsInResponse?.includes('*')
+                                          ? {
+                                                expandedRowRender: function renderExpand({ result }) {
+                                                    if (
+                                                        (isEventsQuery(query.source) ||
+                                                            isRevenueExampleEventsQuery(query.source)) &&
+                                                        Array.isArray(result)
+                                                    ) {
+                                                        return (
+                                                            <EventDetails
+                                                                event={result[columnsInResponse.indexOf('*')] ?? {}}
+                                                            />
+                                                        )
+                                                    }
+                                                    if (result && !Array.isArray(result)) {
+                                                        return <EventDetails event={result as EventType} />
+                                                    }
+                                                },
+                                                rowExpandable: ({ result }) => !!result,
+                                                noIndent: true,
+                                            }
+                                          : undefined
+                                }
+                                rowClassName={({ result, label }) =>
+                                    clsx('DataTable__row', {
+                                        'DataTable__row--highlight_once': result && highlightedRows.has(result),
+                                        'DataTable__row--category_row': !!label,
+                                        'border border-x-danger-dark bg-danger-highlight':
+                                            sourceFeatures.has(QueryFeature.highlightExceptionEventRows) &&
+                                            result &&
+                                            result[0] &&
+                                            result[0]['event'] === '$exception',
+                                        DataTable__has_pinned_columns: (query.pinnedColumns ?? []).length > 0,
+                                    })
+                                }
+                                footer={
+                                    (dataTableRows ?? []).length > 0 &&
+                                    !sourceFeatures.has(QueryFeature.hideLoadNextButton) ? (
+                                        <LoadNext query={query.source} />
+                                    ) : null
+                                }
+                                onRow={onRow}
+                                pinnedColumns={query.pinnedColumns}
+                            />
+                        </div>
                     )}
                     {/* TODO: this doesn't seem like the right solution... */}
                     <PersonDeleteModal />

@@ -1,4 +1,4 @@
-import { Counter, exponentialBuckets, Histogram, Summary } from 'prom-client' // but fail to commit offsets, which can cause duplicate events
+import { Counter, Histogram, Summary, exponentialBuckets } from 'prom-client'
 
 // The following two counters can be used to see how often we start,
 // but fail to commit offsets, which can cause duplicate events

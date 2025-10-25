@@ -1,6 +1,8 @@
+import React from 'react'
+
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils'
-import React from 'react'
+import { getConstrainedWeekRange } from 'lib/utils/dateTimeUtils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -8,7 +10,6 @@ import { BreakdownFilter, DateRange } from '~/queries/schema/schema-general'
 import { ActionFilter, CompareLabelType, FilterType, IntervalType } from '~/types'
 
 import { formatBreakdownLabel } from '../utils'
-import { getConstrainedWeekRange } from 'lib/utils/dateTimeUtils'
 
 export interface SeriesDatum {
     id: number // determines order that series will be displayed in
@@ -130,6 +131,12 @@ export function getFormattedDate(input?: string | number, options?: FormattedDat
     // Number of intervals (i.e. days, weeks)
     if (Number.isInteger(input)) {
         return pluralize(input as number, interval ?? 'day')
+    }
+
+    // Handle retention graph labels like "Day 0", "Week 12", etc.
+    // retention tooltips don't show the date/header, so we don't need to format it
+    if (typeof input === 'string' && /^(Day|Week|Month|Hour) \d+$/.test(input)) {
+        return input
     }
 
     const day = dayjs.tz(input, timezone)

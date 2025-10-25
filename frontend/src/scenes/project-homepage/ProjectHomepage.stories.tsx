@@ -1,9 +1,10 @@
 import { Meta, StoryObj } from '@storybook/react'
+
 import { App } from 'scenes/App'
+import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
-import { urls } from 'scenes/urls'
 
 const dashboardRaw = require('../dashboard/__mocks__/dashboard1.json')
 // Mark all tiles as cached to prevent refresh attempts in storybook
@@ -84,6 +85,9 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-02-01',
         pageUrl: urls.projectHomepage(),
+        testOptions: {
+            waitForLoadersToDisappear: true,
+        },
     },
 }
 export default meta

@@ -1,17 +1,10 @@
 from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+
+from posthog.schema import DateRange, WebPageURLSearchQuery
 
 from posthog.hogql_queries.web_analytics.page_url_search_query_runner import PageUrlSearchQueryRunner
 from posthog.models.utils import uuid7
-from posthog.schema import (
-    DateRange,
-    WebPageURLSearchQuery,
-)
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-)
 
 
 class TestPageUrlSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):

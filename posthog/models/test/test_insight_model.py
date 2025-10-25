@@ -1,8 +1,9 @@
+from posthog.test.base import BaseTest
+
 from django.db.utils import IntegrityError
 
 from posthog.models import Dashboard, Insight, Team
 from posthog.models.insight import generate_insight_filters_hash
-from posthog.test.base import BaseTest
 
 
 class TestInsightModel(BaseTest):

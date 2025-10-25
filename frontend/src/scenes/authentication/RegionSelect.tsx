@@ -1,10 +1,12 @@
-import { IconCheckCircle } from '@posthog/icons'
-import { LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import { useState } from 'react'
+
+import { IconCheckCircle } from '@posthog/icons'
+import { LemonModal, LemonSelect } from '@posthog/lemon-ui'
+
 import { CLOUD_HOSTNAMES } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { useState } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { Region } from '~/types'

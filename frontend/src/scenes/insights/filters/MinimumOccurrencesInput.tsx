@@ -1,8 +1,11 @@
-import { LemonInput, Tooltip } from '@posthog/lemon-ui'
-import { toast } from 'react-toastify'
-import { insightLogic } from '../insightLogic'
 import { useActions, useValues } from 'kea'
+import { toast } from 'react-toastify'
+
+import { LemonInput, Tooltip } from '@posthog/lemon-ui'
+
 import { retentionLogic } from 'scenes/retention/retentionLogic'
+
+import { insightLogic } from '../insightLogic'
 
 export function MinimumOccurrencesInput(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)

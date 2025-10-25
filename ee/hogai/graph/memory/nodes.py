@@ -1,11 +1,11 @@
-import re
+from collections.abc import Sequence
 from typing import Literal, Optional, Union, cast
 from uuid import uuid4
 
 from django.utils import timezone
+
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
-    AIMessageChunk,
     BaseMessage,
     HumanMessage as LangchainHumanMessage,
     ToolMessage as LangchainToolMessage,
@@ -13,48 +13,54 @@ from langchain_core.messages import (
 from langchain_core.output_parsers import PydanticToolsParser, StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langchain_perplexity import ChatPerplexity
 from langgraph.errors import NodeInterrupt
 from pydantic import BaseModel, Field, ValidationError
 
-from ee.hogai.graph.mixins import AssistantContextMixin
-from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT, SLASH_COMMAND_REMEMBER
-from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.utils.helpers import filter_and_merge_messages, find_last_message_of_type
-from ee.hogai.utils.markdown import remove_markdown
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.models.assistant import CoreMemory
-from posthog.event_usage import report_user_action
-from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
-from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.schema import (
     AssistantForm,
     AssistantFormOption,
     AssistantMessage,
     AssistantMessageMetadata,
     CachedEventTaxonomyQueryResponse,
+    ContextMessage,
+    EventTaxonomyItem,
     EventTaxonomyQuery,
     HumanMessage,
     VisualizationMessage,
 )
 
-from ..base import AssistantNode
+from posthog.event_usage import report_user_action
+from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.utils import human_list
+
+from ee.hogai.graph.base import AssistantNode
+from ee.hogai.graph.mixins import AssistantContextMixin
+from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT, SLASH_COMMAND_REMEMBER
+from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.utils.helpers import filter_and_merge_messages, find_last_message_of_type
+from ee.hogai.utils.markdown import remove_markdown
+from ee.hogai.utils.prompt import format_prompt_string
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import AssistantNodeName
+from ee.hogai.utils.types.composed import MaxNodeName
+from ee.models.assistant import CoreMemory
+
 from .parsers import MemoryCollectionCompleted, compressed_memory_parser, raise_memory_updated
 from .prompts import (
     ENQUIRY_INITIAL_MESSAGE,
-    INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_PROMPT,
+    INITIALIZE_CORE_MEMORY_SYSTEM_PROMPT,
     INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT,
-    INITIALIZE_CORE_MEMORY_WITH_URL_PROMPT,
-    INITIALIZE_CORE_MEMORY_WITH_URL_USER_PROMPT,
+    INITIALIZE_CORE_MEMORY_WITH_DOMAINS_USER_PROMPT,
     MEMORY_COLLECTOR_PROMPT,
     MEMORY_COLLECTOR_WITH_VISUALIZATION_PROMPT,
+    MEMORY_INITIALIZED_CONTEXT_PROMPT,
     MEMORY_ONBOARDING_ENQUIRY_PROMPT,
     ONBOARDING_COMPRESSION_PROMPT,
     SCRAPING_CONFIRMATION_MESSAGE,
     SCRAPING_INITIAL_MESSAGE,
-    SCRAPING_MEMORY_SAVED_MESSAGE,
     SCRAPING_REJECTION_MESSAGE,
-    SCRAPING_SUCCESS_MESSAGE,
+    SCRAPING_SUCCESS_KEY_PHRASE,
     SCRAPING_TERMINATION_MESSAGE,
     SCRAPING_VERIFICATION_MESSAGE,
     TOOL_CALL_ERROR_PROMPT,
@@ -62,7 +68,10 @@ from .prompts import (
 
 
 class MemoryInitializerContextMixin(AssistantContextMixin):
-    def _retrieve_context(self):
+    def _retrieve_context(self, *, config: RunnableConfig | None = None) -> EventTaxonomyItem | None:
+        if config and "_mock_memory_onboarding_context" in config.get("configurable", {}):
+            # Only for evals/tests (as patch() doesn't work because of evals running concurrently async)
+            return config["configurable"]["_mock_memory_onboarding_context"]
         # Retrieve the origin domain.
         runner = EventTaxonomyQueryRunner(
             team=self._team, query=EventTaxonomyQuery(event="$pageview", properties=["$host"])
@@ -78,7 +87,20 @@ class MemoryInitializerContextMixin(AssistantContextMixin):
             response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
             raise ValueError("Failed to query the event taxonomy.")
-        return response.results
+        if not response.results:
+            return None
+        item = response.results[0]
+        # Exclude localhost from sample values. We could maybe do it at the query level.
+        # Note: This means if there are $host values but only localhost, we will miss out on any potential $app_namespace values
+        # This is probably okay - it's just simpler code-wise here
+        item.sample_values = [
+            v
+            for v in item.sample_values
+            if v != "localhost" and not v.startswith("localhost:") and not v.startswith("127.0.0.1")
+        ]
+        if not item.sample_values:
+            return None
+        return item
 
 
 class MemoryOnboardingShouldRunMixin(AssistantNode):
@@ -90,7 +112,7 @@ class MemoryOnboardingShouldRunMixin(AssistantNode):
         """
         core_memory = self.core_memory
 
-        if core_memory and (core_memory.is_scraping_pending or core_memory.is_scraping_finished):
+        if core_memory and core_memory.is_scraping_pending:
             # a user has already started the onboarding, we don't allow other users to start it concurrently until timeout is reached
             return "continue"
 
@@ -108,6 +130,10 @@ class MemoryOnboardingShouldRunMixin(AssistantNode):
 
 
 class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShouldRunMixin):
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.MEMORY_ONBOARDING
+
     def run(self, state: AssistantState, config: RunnableConfig) -> Optional[PartialAssistantState]:
         core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
         core_memory.change_status_to_pending()
@@ -125,10 +151,10 @@ class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShould
                 ]
             )
 
-        retrieved_properties = self._retrieve_context()
+        retrieved_prop = self._retrieve_context(config=config)
 
         # No host or app bundle ID found
-        if not retrieved_properties or retrieved_properties[0].sample_count == 0:
+        if not retrieved_prop:
             return PartialAssistantState(
                 messages=[
                     AssistantMessage(
@@ -141,89 +167,85 @@ class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShould
         return PartialAssistantState(
             messages=[
                 AssistantMessage(
-                    content=SCRAPING_INITIAL_MESSAGE,
+                    content=SCRAPING_INITIAL_MESSAGE.format(
+                        domains_or_bundle_ids_formatted=human_list([f"`{x}`" for x in retrieved_prop.sample_values])
+                    ),
                     id=str(uuid4()),
                 )
             ]
         )
 
-    def router(self, state: AssistantState) -> Literal["initialize_memory", "onboarding_enquiry"]:
-        core_memory = self.core_memory
-        if core_memory is None or core_memory.initial_text == "":
-            return "initialize_memory"
-        return "onboarding_enquiry"
-
 
 class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
     """
-    Scrapes the product description from the given origin or app bundle IDs with Perplexity.
+    Scrapes the product description from the given origin or app bundle IDs.
     """
+
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.MEMORY_INITIALIZER
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
-        retrieved_properties = self._retrieve_context()
+        if core_memory.initial_text:
+            # Reset the initial text if it's not the first time /init is ran
+            core_memory.initial_text = ""
+            core_memory.save()
+        retrieved_prop = self._retrieve_context(config=config)
         # No host or app bundle ID found, continue.
-        if not retrieved_properties or retrieved_properties[0].sample_count == 0:
+        if not retrieved_prop:
             return None
 
-        retrieved_prop = retrieved_properties[0]
+        prompt = ChatPromptTemplate.from_messages(
+            [("system", INITIALIZE_CORE_MEMORY_SYSTEM_PROMPT)], template_format="mustache"
+        )
         if retrieved_prop.property == "$host":
-            prompt = ChatPromptTemplate.from_messages(
-                [
-                    ("system", INITIALIZE_CORE_MEMORY_WITH_URL_PROMPT),
-                    ("human", INITIALIZE_CORE_MEMORY_WITH_URL_USER_PROMPT),
-                ],
-                template_format="mustache",
-            ).partial(url=retrieved_prop.sample_values[0])
+            prompt += ChatPromptTemplate.from_messages(
+                [("human", INITIALIZE_CORE_MEMORY_WITH_DOMAINS_USER_PROMPT)], template_format="mustache"
+            ).partial(domains=",".join(retrieved_prop.sample_values))
         else:
-            prompt = ChatPromptTemplate.from_messages(
-                [
-                    ("system", INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_PROMPT),
-                    ("human", INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT),
-                ],
-                template_format="mustache",
-            ).partial(bundle_ids=retrieved_prop.sample_values)
+            prompt += ChatPromptTemplate.from_messages(
+                [("human", INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT)], template_format="mustache"
+            ).partial(bundle_ids=", ".join(retrieved_prop.sample_values))
 
         chain = prompt | self._model() | StrOutputParser()
         answer = chain.invoke({}, config=config)
-        # Perplexity has failed to scrape the data, continue.
-        if "no data available." in answer.lower():
-            return PartialAssistantState(
-                messages=[AssistantMessage(content=SCRAPING_TERMINATION_MESSAGE, id=str(uuid4()))]
-            )
-
+        # The model has failed to scrape the data, continue.
+        if answer == SCRAPING_TERMINATION_MESSAGE:
+            return PartialAssistantState(messages=[AssistantMessage(content=answer, id=str(uuid4()))])
         # Otherwise, proceed to confirmation that the memory is correct.
         core_memory.append_question_to_initial_text("What does the company do?")
         core_memory.append_answer_to_initial_text(answer)
-        return PartialAssistantState(messages=[AssistantMessage(content=self.format_message(answer), id=str(uuid4()))])
+        return PartialAssistantState(messages=[AssistantMessage(content=answer, id=str(uuid4()))])
 
     def router(self, state: AssistantState) -> Literal["interrupt", "continue"]:
         last_message = state.messages[-1]
-        if (
-            isinstance(last_message, AssistantMessage)
-            and SCRAPING_SUCCESS_MESSAGE.lower() in last_message.content.lower()
-        ):
+        if isinstance(last_message, AssistantMessage) and SCRAPING_SUCCESS_KEY_PHRASE in last_message.content:
             return "interrupt"
         return "continue"
 
-    @classmethod
-    def should_process_message_chunk(cls, message: AIMessageChunk) -> bool:
-        placeholder = "no data available"
-        content = cast(str, message.content)
-        return placeholder not in content.lower() and len(content) > len(placeholder)
-
-    @classmethod
-    def format_message(cls, message: str) -> str:
-        return SCRAPING_SUCCESS_MESSAGE + re.sub(r"\[\d+\]", "", message)
-
     def _model(self):
-        return ChatPerplexity(model="sonar-pro", temperature=0.3, streaming=True, timeout=60)
+        return MaxChatOpenAI(
+            model="gpt-5-mini",
+            streaming=True,
+            use_responses_api=True,
+            store=False,  # We can't store, because we want zero data retention
+            reasoning={
+                "summary": "auto",  # Without this, there's no reasoning summaries! Only works with reasoning models
+            },
+            user=self._user,
+            team=self._team,
+        ).bind_tools([{"type": "web_search"}])
 
 
 class MemoryInitializerInterruptNode(AssistantNode):
     """
-    Prompts the user to confirm or reject the scraped memory. Since Perplexity doesn't guarantee the quality of the scraped data, we need to verify it with the user.
+    Prompts the user to confirm or reject the scraped memory.
     """
+
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         raise NodeInterrupt(
@@ -246,6 +268,10 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
     """
     Prompts the user to give more information about the product, feature, business, etc.
     """
+
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         human_message = find_last_message_of_type(state.messages, HumanMessage)
@@ -278,7 +304,7 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
                 question = self._format_question(response)
                 core_memory.append_question_to_initial_text(question)
                 return PartialAssistantState(onboarding_question=question)
-        return PartialAssistantState(onboarding_question=None)
+        return PartialAssistantState(onboarding_question=None, answers_left=None)
 
     @property
     def _model(self):
@@ -292,18 +318,10 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
         )
 
     def router(self, state: AssistantState) -> Literal["continue", "interrupt"]:
-        core_memory = self.core_memory
-        if core_memory is None:
-            raise ValueError("No core memory found.")
+        core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
         if state.onboarding_question and core_memory.answers_left > 0:
             return "interrupt"
         return "continue"
-
-    def _format_memory(self, memory: str) -> str:
-        """
-        Remove markdown and source reference tags like [1], [2], etc.
-        """
-        return remove_markdown(memory)
 
     def _format_question(self, question: str) -> str:
         if "===" in question:
@@ -312,7 +330,11 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
 
 
 class MemoryOnboardingEnquiryInterruptNode(AssistantNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY_INTERRUPT
+
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_assistant_message = find_last_message_of_type(state.messages, AssistantMessage)
         if not state.onboarding_question:
             raise ValueError("No onboarding question found.")
@@ -322,10 +344,12 @@ class MemoryOnboardingEnquiryInterruptNode(AssistantNode):
 
 
 class MemoryOnboardingFinalizeNode(AssistantNode):
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.MEMORY_ONBOARDING_FINALIZE
+
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        core_memory = self.core_memory
-        if core_memory is None:
-            raise ValueError("No core memory found.")
+        core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
         # Compress the question/answer memory before saving it
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -337,28 +361,27 @@ class MemoryOnboardingFinalizeNode(AssistantNode):
         compressed_memory = cast(str, chain.invoke({"memory_content": core_memory.initial_text}, config=config))
         compressed_memory = compressed_memory.replace("\n", " ").strip()
         core_memory.set_core_memory(compressed_memory)
+
+        context_message = ContextMessage(
+            content=format_prompt_string(MEMORY_INITIALIZED_CONTEXT_PROMPT, core_memory=core_memory.initial_text),
+            id=str(uuid4()),
+        )
         return PartialAssistantState(
-            messages=[AssistantMessage(content=SCRAPING_MEMORY_SAVED_MESSAGE, id=str(uuid4()))]
+            messages=[context_message],
+            start_id=context_message.id,
+            root_conversation_start_id=context_message.id,
         )
 
     @property
     def _model(self):
         return MaxChatOpenAI(
-            model="gpt-4.1",
+            model="gpt-4.1-mini",
             temperature=0.3,
             disable_streaming=True,
             stop_sequences=["[Done]"],
             user=self._user,
             team=self._team,
         )
-
-    def router(self, state: AssistantState) -> Literal["continue", "insights"]:
-        core_memory = self.core_memory
-        if core_memory is None:
-            raise ValueError("No core memory found.")
-        if state.root_tool_insight_plan:
-            return "insights"
-        return "continue"
 
 
 # Lower casing matters here. Do not change it.
@@ -388,16 +411,23 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
     The Memory Collector manages the core memory of the agent. Core memory is a text containing facts about a user's company and product. It helps the agent save and remember facts that could be useful for insight generation or other agentic functions requiring deeper context about the product.
     """
 
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.MEMORY_COLLECTOR
+
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         if self.should_run_onboarding_at_start(state) != "continue":
+            return None
+
+        # Check if an interrupt had an unhandled tool, so it should go to tools first.
+        node_messages = state.memory_collection_messages or []
+        if not self._check_tool_messages_are_valid(node_messages):
             return None
 
         # Check if the last message is a /remember command
         remember_command_result = self._handle_remember_command(state)
         if remember_command_result:
             return PartialAssistantState(memory_collection_messages=[remember_command_result])
-
-        node_messages = state.memory_collection_messages or []
 
         prompt = ChatPromptTemplate.from_messages(
             [("system", MEMORY_COLLECTOR_PROMPT)], template_format="mustache"
@@ -477,8 +507,21 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
         else:
             return LangchainAIMessage(content="There's nothing to remember!", id=str(uuid4()))
 
+    def _check_tool_messages_are_valid(self, messages: Sequence[BaseMessage]) -> bool:
+        """Validates that all AIMessages have associated ToolCall messages."""
+        mapping = {message.tool_call_id: message for message in messages if isinstance(message, LangchainToolMessage)}
+        tool_ids: set[str] = set()
+        for message in messages:
+            if isinstance(message, LangchainAIMessage):
+                tool_ids.update(tool["id"] for tool in message.tool_calls if tool["id"] is not None)
+        return set(mapping.keys()) == tool_ids
+
 
 class MemoryCollectorToolsNode(AssistantNode):
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.MEMORY_COLLECTOR_TOOLS
+
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         node_messages = state.memory_collection_messages
         if not node_messages:

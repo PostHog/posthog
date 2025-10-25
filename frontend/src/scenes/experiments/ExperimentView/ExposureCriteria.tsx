@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { LemonButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { LemonModal } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
@@ -10,11 +12,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { FilterType } from '~/types'
 
-import { experimentLogic } from '../experimentLogic'
 import { commonActionFilterProps } from '../Metrics/Selectors'
-import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
-import { modalsLogic } from '../modalsLogic'
 import { SelectableCard } from '../components/SelectableCard'
+import { experimentLogic } from '../experimentLogic'
+import { modalsLogic } from '../modalsLogic'
+import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
 
 export function ExposureCriteriaModal(): JSX.Element {
     const { experiment } = useValues(experimentLogic)
@@ -96,8 +98,8 @@ export function ExposureCriteriaModal(): JSX.Element {
                     <ActionFilter
                         bordered
                         filters={exposureConfigToFilter(experiment.exposure_criteria.exposure_config)}
-                        setFilters={({ events }: Partial<FilterType>): void => {
-                            const entity = events?.[0]
+                        setFilters={({ events, actions }: Partial<FilterType>): void => {
+                            const entity = events?.[0] || actions?.[0]
                             if (entity) {
                                 setExposureCriteria({
                                     exposure_config: filterToExposureConfig(entity),
@@ -111,7 +113,7 @@ export function ExposureCriteriaModal(): JSX.Element {
                         entitiesLimit={1}
                         mathAvailability={MathAvailability.None}
                         showNumericalPropsOnly={true}
-                        actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                        actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
                         propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
                     />
                 </div>

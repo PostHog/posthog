@@ -2,10 +2,11 @@ from dataclasses import asdict
 from datetime import UTC, datetime, time, timedelta
 from typing import TYPE_CHECKING
 
+from django.conf import settings
+
 import s3fs
 import temporalio
 from asgiref.sync import async_to_sync
-from django.conf import settings
 from temporalio.client import (
     Client as TemporalClient,
     Schedule,
@@ -87,7 +88,7 @@ def to_temporal_schedule(
         retry_policy=RetryPolicy(
             initial_interval=timedelta(seconds=10),
             maximum_interval=timedelta(seconds=60),
-            maximum_attempts=3,
+            maximum_attempts=1,
             non_retryable_error_types=["NondeterminismError"],
         ),
     )

@@ -11,9 +11,6 @@ export const getDefaultEventsSceneQuery = (properties?: AnyPropertyFilter[]): Da
         orderBy: ['timestamp DESC'],
         after: '-1h',
         ...(properties ? { properties } : {}),
-        modifiers: {
-            usePresortedEventsTable: true,
-        },
     },
     propertiesViaUrl: true,
     showSavedQueries: true,

@@ -1,5 +1,7 @@
 import random
+
 from django.core.management.base import BaseCommand
+
 from posthog.models import Person, PersonDistinctId, Team
 
 

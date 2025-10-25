@@ -4,9 +4,10 @@ from dataclasses import dataclass
 import dagster
 import pydantic
 
-from dags.common import JobOwners
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
 from posthog.models.property_definition import PropertyDefinition
+
+from dags.common import JobOwners
 
 
 @dataclass(frozen=True)

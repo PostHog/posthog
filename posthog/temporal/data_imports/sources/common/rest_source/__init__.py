@@ -1,46 +1,39 @@
 """Generic API Source"""
 
-from typing import (
-    Any,
-    Optional,
-    cast,
-)
-from collections.abc import AsyncGenerator, Iterator
-from collections.abc import Callable
 import graphlib  # type: ignore[import,unused-ignore]
-from dateutil import parser
+from collections.abc import AsyncGenerator, Callable, Iterator
+from typing import Any, Optional, cast
 
 import dlt
-from dlt.common.validation import validate_dict
+from dateutil import parser
 from dlt.common import jsonpath
+from dlt.common.configuration.specs import BaseConfiguration
 from dlt.common.schema.schema import Schema
 from dlt.common.schema.typing import TSchemaContract
-from dlt.common.configuration.specs import BaseConfiguration
-
+from dlt.common.validation import validate_dict
 from dlt.extract.incremental import Incremental
 from dlt.extract.source import DltResource, DltSource
-
 from dlt.sources.helpers.rest_client.client import RESTClient
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 from dlt.sources.helpers.rest_client.typing import HTTPMethodBasic
 
+from .config_setup import (
+    IncrementalParam,
+    build_resource_dependency_graph,
+    create_auth,
+    create_paginator,
+    create_response_hooks,
+    process_parent_data_item,
+    setup_incremental_object,
+)
 from .typing import (
     ClientConfig,
-    ResolvedParam,
     Endpoint,
     EndpointResource,
+    ResolvedParam,
     RESTAPIConfig,
     TAnySchemaColumns,
     TTableHintTemplate,
-)
-from .config_setup import (
-    IncrementalParam,
-    create_auth,
-    create_paginator,
-    build_resource_dependency_graph,
-    process_parent_data_item,
-    setup_incremental_object,
-    create_response_hooks,
 )
 from .utils import exclude_keys  # noqa: F401
 

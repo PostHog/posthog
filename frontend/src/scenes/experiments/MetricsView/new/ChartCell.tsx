@@ -1,44 +1,51 @@
+import { ExperimentMetric } from '~/queries/schema/schema-general'
+
+import { generateViolinPath } from '../legacy/violinUtils'
 import { useChartColors } from '../shared/colors'
 import {
     type ExperimentVariantResult,
-    getVariantInterval,
-    getIntervalBounds,
     getDelta,
-    isBayesianResult,
+    getIntervalBounds,
     getNiceTickValues,
+    getValidationFailureType,
+    getVariantInterval,
+    isBayesianResult,
 } from '../shared/utils'
-import { generateViolinPath } from '../legacy/violinUtils'
+import { ChartGradients } from './ChartGradients'
+import { GridLines } from './GridLines'
 import {
+    CELL_HEIGHT,
+    CHART_BAR_OPACITY,
+    CHART_CELL_BAR_HEIGHT_PERCENT,
+    CHART_CELL_VIEW_BOX_HEIGHT,
+    GRID_LINES_OPACITY,
     SVG_EDGE_MARGIN,
     VIEW_BOX_WIDTH,
-    CHART_CELL_VIEW_BOX_HEIGHT,
-    CHART_CELL_BAR_HEIGHT_PERCENT,
-    CHART_BAR_OPACITY,
-    GRID_LINES_OPACITY,
-    CELL_HEIGHT,
 } from './constants'
-import { GridLines } from './GridLines'
 import { useAxisScale } from './useAxisScale'
-import { ChartGradients } from './ChartGradients'
 
 interface ChartCellProps {
     variantResult: ExperimentVariantResult
+    metric: ExperimentMetric
     axisRange: number
-    metricIndex: number
+    metricUuid?: string
     showGridLines?: boolean
     isAlternatingRow?: boolean
     isLastRow?: boolean
     isSecondary?: boolean
+    onTimeseriesClick?: () => void
 }
 
 export function ChartCell({
     variantResult,
+    metric,
     axisRange,
-    metricIndex,
+    metricUuid,
     showGridLines = true,
     isAlternatingRow = false,
     isLastRow = false,
     isSecondary = false,
+    onTimeseriesClick,
 }: ChartCellProps): JSX.Element {
     const colors = useChartColors()
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
@@ -47,6 +54,7 @@ export function ChartCell({
     const [lower, upper] = getIntervalBounds(variantResult)
     const delta = getDelta(variantResult)
     const hasEnoughData = !!interval
+    const validationFailureType = getValidationFailureType(variantResult)
 
     // Position calculations
     const viewBoxHeight = CHART_CELL_VIEW_BOX_HEIGHT
@@ -58,6 +66,7 @@ export function ChartCell({
 
     return (
         <td
+            data-table-cell="chart"
             className={`p-0 align-top text-center relative overflow-hidden ${
                 isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
             } ${isLastRow ? 'border-b' : ''}`}
@@ -92,7 +101,8 @@ export function ChartCell({
                             <ChartGradients
                                 lower={lower}
                                 upper={upper}
-                                gradientId={`gradient-${isSecondary ? 'secondary' : 'primary'}-${metricIndex}-${
+                                metric={metric}
+                                gradientId={`gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${
                                     variantResult.key
                                 }`}
                             />
@@ -101,10 +111,12 @@ export function ChartCell({
                             {isBayesianResult(variantResult) ? (
                                 <path
                                     d={generateViolinPath(x1, x2, y, barHeightPercent, deltaX)}
-                                    fill={`url(#gradient-${isSecondary ? 'secondary' : 'primary'}-${metricIndex}-${
+                                    fill={`url(#gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${
                                         variantResult.key
                                     })`}
                                     opacity={CHART_BAR_OPACITY}
+                                    style={{ cursor: onTimeseriesClick ? 'pointer' : 'default' }}
+                                    onClick={onTimeseriesClick}
                                 />
                             ) : (
                                 <rect
@@ -112,12 +124,14 @@ export function ChartCell({
                                     y={y}
                                     width={x2 - x1}
                                     height={barHeightPercent}
-                                    fill={`url(#gradient-${isSecondary ? 'secondary' : 'primary'}-${metricIndex}-${
+                                    fill={`url(#gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${
                                         variantResult.key
                                     })`}
                                     opacity={CHART_BAR_OPACITY}
                                     rx={3}
                                     ry={3}
+                                    style={{ cursor: onTimeseriesClick ? 'pointer' : 'default' }}
+                                    onClick={onTimeseriesClick}
                                 />
                             )}
 
@@ -135,11 +149,17 @@ export function ChartCell({
                     )}
                 </svg>
 
-                {/* "Not enough data" message as HTML overlay */}
-                {!hasEnoughData && (
+                {/* Validation failure message as HTML overlay */}
+                {(!hasEnoughData || validationFailureType) && (
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        <div className="bg-border-light px-3 py-1 rounded text-xs text-muted whitespace-nowrap">
-                            Not enough data yet
+                        <div
+                            className={`px-3 py-1 rounded text-xs whitespace-nowrap ${
+                                validationFailureType === 'error'
+                                    ? 'bg-danger-highlight text-danger'
+                                    : 'bg-border-light text-muted'
+                            }`}
+                        >
+                            {validationFailureType === 'error' ? 'Error' : 'Not enough data yet'}
                         </div>
                     </div>
                 )}

@@ -39,7 +39,7 @@ impl IntoResponse for HealthStatus {
     /// Computes the axum status code based on the overall health status,
     /// and prints each component status in the body for debugging.
     fn into_response(self) -> Response {
-        let body = format!("{:?}", self);
+        let body = format!("{self:?}");
         match self.healthy {
             true => (StatusCode::OK, body),
             false => (StatusCode::INTERNAL_SERVER_ERROR, body),

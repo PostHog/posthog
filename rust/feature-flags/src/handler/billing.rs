@@ -119,13 +119,14 @@ mod tests {
             ensure_experience_continuity: Some(false),
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         }
     }
 
     #[test]
     fn test_should_record_usage_only_survey_flags() {
-        let survey_flag1 = create_test_flag(&format!("{}survey1", SURVEY_TARGETING_FLAG_PREFIX));
-        let survey_flag2 = create_test_flag(&format!("{}survey2", SURVEY_TARGETING_FLAG_PREFIX));
+        let survey_flag1 = create_test_flag(&format!("{SURVEY_TARGETING_FLAG_PREFIX}survey1"));
+        let survey_flag2 = create_test_flag(&format!("{SURVEY_TARGETING_FLAG_PREFIX}survey2"));
 
         let flag_list = FeatureFlagList {
             flags: vec![survey_flag1, survey_flag2],
@@ -150,7 +151,7 @@ mod tests {
 
     #[test]
     fn test_should_record_usage_mixed_flags() {
-        let survey_flag = create_test_flag(&format!("{}survey1", SURVEY_TARGETING_FLAG_PREFIX));
+        let survey_flag = create_test_flag(&format!("{SURVEY_TARGETING_FLAG_PREFIX}survey1"));
         let regular_flag = create_test_flag("regular_flag");
 
         let flag_list = FeatureFlagList {
@@ -173,12 +174,10 @@ mod tests {
     fn test_should_record_usage_flag_key_edge_cases() {
         // Test flag that contains the prefix but doesn't start with it
         let flag_with_prefix_inside =
-            create_test_flag(&format!("prefix-{}middle", SURVEY_TARGETING_FLAG_PREFIX));
+            create_test_flag(&format!("prefix-{SURVEY_TARGETING_FLAG_PREFIX}middle"));
         // Test flag that starts with prefix but has extra content
-        let survey_flag_with_suffix = create_test_flag(&format!(
-            "{}survey-with-suffix",
-            SURVEY_TARGETING_FLAG_PREFIX
-        ));
+        let survey_flag_with_suffix =
+            create_test_flag(&format!("{SURVEY_TARGETING_FLAG_PREFIX}survey-with-suffix",));
 
         let flag_list = FeatureFlagList {
             flags: vec![flag_with_prefix_inside, survey_flag_with_suffix],

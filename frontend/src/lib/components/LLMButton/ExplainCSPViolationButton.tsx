@@ -1,9 +1,11 @@
+import { useState } from 'react'
+
 import { IconWarning } from '@posthog/icons'
 import { Popover, Spinner } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { useState } from 'react'
 
 export type ExplainCSPViolationButtonProps = LemonButtonProps & {
     properties: Record<string, any>

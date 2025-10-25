@@ -1,10 +1,11 @@
 import { Meta } from '@storybook/react'
 import { BindLogic } from 'kea'
 
-import { PlayerSidebarOverviewOtherWatchers } from './PlayerSidebarOverviewOtherWatchers'
-import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
-import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { mswDecorator } from '~/mocks/browser'
+
+import { sessionRecordingDataCoordinatorLogic } from '../sessionRecordingDataCoordinatorLogic'
+import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import { PlayerSidebarOverviewOtherWatchers } from './PlayerSidebarOverviewOtherWatchers'
 
 const meta: Meta<typeof PlayerSidebarOverviewOtherWatchers> = {
     title: 'Replay/Overview Tab/Other Watchers',
@@ -22,7 +23,7 @@ export default meta
 function MockedPlayerSidebarOverviewOtherWatchers({ startExpanded = false }: { startExpanded?: boolean }): JSX.Element {
     return (
         <BindLogic
-            logic={sessionRecordingDataLogic}
+            logic={sessionRecordingDataCoordinatorLogic}
             props={{
                 sessionRecordingId: 'test-session-id',
                 playerKey: 'story-template',

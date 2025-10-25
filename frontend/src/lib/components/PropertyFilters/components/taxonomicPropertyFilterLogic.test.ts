@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { taxonomicPropertyFilterLogic } from 'lib/components/PropertyFilters/components/taxonomicPropertyFilterLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 

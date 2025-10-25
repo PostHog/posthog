@@ -1,5 +1,10 @@
 import './EmptyStates.scss'
 
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useEffect, useState } from 'react'
+
 import {
     IconArchive,
     IconHourglass,
@@ -11,28 +16,26 @@ import {
     IconWarning,
 } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
-import { BuilderHog3 } from 'lib/components/hedgehogs'
+
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber, humanizeBytes, inStorybook, inStorybookTestRunner } from 'lib/utils'
-import { getAppContext } from 'lib/utils/getAppContext'
-import posthog from 'posthog-js'
-import { useEffect, useState } from 'react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -52,7 +55,6 @@ import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
@@ -64,11 +66,11 @@ export function InsightEmptyState({
     return (
         <div
             data-attr="insight-empty-state"
-            className="flex flex-col flex-1 rounded p-4 w-full items-center justify-center"
+            className="flex flex-col flex-1 rounded p-4 w-full items-center justify-center text-center text-balance"
         >
             <IconArchive className="text-5xl mb-2 text-tertiary" />
             <h2 className="text-xl leading-tight">{heading}</h2>
-            <p className="text-sm text-center text-balance text-tertiary">{detail}</p>
+            <p className="text-sm text-tertiary">{detail}</p>
         </div>
     )
 }
@@ -175,6 +177,7 @@ export const LOADING_MESSAGES = [
     'Polishing graphs with tiny hedgehog paws…',
     'Rolling through data like a spiky ball of insights…',
     'Gathering nuts and numbers from the data forest…',
+    // eslint-disable-next-line react/jsx-key
     <>
         Reticulating <s>splines</s> spines…
     </>,
@@ -455,9 +458,8 @@ export function InsightLoadingState({
     renderEmptyStateAsSkeleton?: boolean
 }): JSX.Element {
     const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
-    const { insightPollResponse, insightLoadingTimeSeconds, queryChanged, activeScene } = useValues(
-        insightDataLogic(insightProps)
-    )
+    const { insightPollResponse, insightLoadingTimeSeconds, queryChanged } = useValues(insightDataLogic(insightProps))
+    const { activeSceneId } = useValues(sceneLogic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -470,7 +472,7 @@ export function InsightLoadingState({
             pollResponse={insightPollResponse}
             delayLoadingAnimation={
                 featureFlags[FEATURE_FLAGS.DELAYED_LOADING_ANIMATION] === 'test' &&
-                activeScene == Scene.Insight &&
+                activeSceneId == Scene.Insight &&
                 queryChanged
             }
             loadingTimeSeconds={insightLoadingTimeSeconds}
@@ -499,7 +501,7 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
 
     return (
         <div data-attr="insight-empty-state" className="rounded p-4 h-full w-full">
-            <h2 className="text-xl leading-tight mb-6">
+            <h2 className="text-xl leading-tight mb-6 text-center text-balance">
                 <IconWarning className="text-xl shrink-0 mr-2" />
                 Your query took too long to complete
             </h2>
@@ -532,7 +534,7 @@ export function InsightValidationError({
     return (
         <div
             data-attr="insight-empty-state"
-            className="flex flex-col items-center justify-center gap-2 rounded p-4 h-full w-full"
+            className="flex flex-col items-center justify-center gap-2 rounded p-4 h-full w-full text-center text-balance"
         >
             <IconWarning className="text-4xl shrink-0 text-muted" />
 
@@ -548,7 +550,7 @@ export function InsightValidationError({
                 {/* but rather that it's something with the definition of the query itself */}
             </h2>
 
-            <p className="text-sm text-center text-balance text-muted max-w-120">{detail}</p>
+            <p className="text-sm text-muted max-w-120">{detail}</p>
             <QueryDebuggerButton query={query} />
 
             {detail.includes('Exclusion') && (
@@ -568,19 +570,21 @@ export function InsightValidationError({
 }
 
 export interface InsightErrorStateProps {
-    excludeDetail?: boolean
     title?: string | null
     query?: Record<string, any> | Node | null
     queryId?: string | null
+    excludeDetail?: boolean
+    excludeActions?: boolean
     fixWithAIComponent?: JSX.Element
     onRetry?: () => void
 }
 
 export function InsightErrorState({
-    excludeDetail,
     title,
     query,
     queryId,
+    excludeDetail = false,
+    excludeActions = false,
     fixWithAIComponent,
     onRetry,
 }: InsightErrorStateProps): JSX.Element {
@@ -598,16 +602,10 @@ export function InsightErrorState({
         >
             <IconErrorOutline className="text-5xl shrink-0" />
 
-            <h2
-                className="text-xl leading-tight mb-6"
-                // TODO: Use an actual `text-danger` color once @adamleithp changes are live
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{ color: 'var(--danger)' }}
-                data-attr="insight-loading-too-long"
-            >
-                {title || <span>There was a problem completing this query</span>}
-                {/* Note that this default phrasing above signals the issue is intermittent, */}
+            <h2 className="text-xl text-danger leading-tight mb-6" data-attr="insight-loading-too-long">
+                {/* Note that this default phrasing signals the issue is intermittent, */}
                 {/* and that perhaps the query will complete on retry */}
+                {title || <span>There was a problem completing this query</span>}
             </h2>
 
             {!excludeDetail && (
@@ -631,10 +629,12 @@ export function InsightErrorState({
                 </div>
             )}
 
-            <div className="flex gap-2 mt-4">
-                {onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />}
-                {fixWithAIComponent ?? null}
-            </div>
+            {!excludeActions && (
+                <div className="flex gap-2 mt-4">
+                    {onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />}
+                    {fixWithAIComponent ?? null}
+                </div>
+            )}
             <QueryIdDisplay queryId={queryId} />
         </div>
     )
@@ -657,12 +657,15 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
     const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
 
     return (
-        <div data-attr="insight-empty-state" className="flex flex-col flex-1 items-center justify-center">
+        <div
+            data-attr="insight-empty-state"
+            className="flex flex-col flex-1 items-center justify-center text-center text-balance"
+        >
             <div className="text-5xl text-muted mb-2">
                 <IconPlusSquare />
             </div>
             <h2 className="text-xl leading-tight font-medium">Add another step!</h2>
-            <p className="mb-0 text-sm text-center text-balance text-muted">
+            <p className="mb-0 text-sm text-muted">
                 <span>You're almost there! Funnels require at least two steps before calculating.</span>
                 {actionable && (
                     <>
@@ -714,16 +717,16 @@ const SAVED_INSIGHTS_COPY = {
     },
 }
 
-export function SavedInsightsEmptyState(): JSX.Element {
-    const {
-        filters: { tab },
-        insights,
-        usingFilters,
-    } = useValues(savedInsightsLogic)
-
+export function SavedInsightsEmptyState({
+    filters,
+    usingFilters,
+}: {
+    filters: SavedInsightFilters
+    usingFilters?: boolean
+}): JSX.Element {
     // show the search string that was used to make the results, not what it currently is
-    const searchString = insights.filters?.search || null
-    const { title, description } = SAVED_INSIGHTS_COPY[tab as keyof typeof SAVED_INSIGHTS_COPY] ?? {}
+    const searchString = filters?.search || null
+    const { title, description } = SAVED_INSIGHTS_COPY[filters.tab as keyof typeof SAVED_INSIGHTS_COPY] ?? {}
 
     return (
         <div
@@ -747,22 +750,22 @@ export function SavedInsightsEmptyState(): JSX.Element {
             ) : (
                 <p className="empty-state__description">{description}</p>
             )}
-            {tab !== SavedInsightsTabs.Favorites && (
+            {filters.tab !== SavedInsightsTabs.Favorites && (
                 <div className="flex justify-center">
                     <Link to={urls.insightNew()}>
-                        <AccessControlledLemonButton
-                            type="primary"
-                            data-attr="add-insight-button-empty-state"
-                            icon={<IconPlusSmall />}
-                            className="add-insight-button"
+                        <AccessControlAction
                             resourceType={AccessControlResourceType.Insight}
                             minAccessLevel={AccessControlLevel.Editor}
-                            userAccessLevel={
-                                getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight]
-                            }
                         >
-                            New insight
-                        </AccessControlledLemonButton>
+                            <LemonButton
+                                type="primary"
+                                data-attr="add-insight-button-empty-state"
+                                icon={<IconPlusSmall />}
+                                className="add-insight-button"
+                            >
+                                New insight
+                            </LemonButton>
+                        </AccessControlAction>
                     </Link>
                 </div>
             )}

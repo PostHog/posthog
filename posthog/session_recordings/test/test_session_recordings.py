@@ -1,26 +1,9 @@
 from datetime import UTC, datetime, timedelta
 from typing import cast
-from unittest.mock import ANY, MagicMock, call, patch
 from urllib.parse import urlencode
 
-from dateutil.relativedelta import relativedelta
-from django.utils.timezone import now
-from freezegun import freeze_time
-from parameterized import parameterized
 import pytest
-from rest_framework import status
-
-from posthog.clickhouse.client import sync_execute
-from posthog.models import Organization, Person, SessionRecording, User
-from posthog.models.team import Team
-from posthog.models.utils import uuid7
-from posthog.schema import RecordingsQuery, LogEntryPropertyFilter
-from posthog.session_recordings.models.session_recording_event import (
-    SessionRecordingViewed,
-)
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
+from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -31,8 +14,24 @@ from posthog.test.base import (
     snapshot_postgres_queries,
     snapshot_postgres_queries_context,
 )
+from unittest.mock import ANY, MagicMock, call, patch
+
+from django.utils.timezone import now
+
 from clickhouse_driver.errors import ServerException
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries, CHQueryErrorCannotScheduleTask
+from dateutil.relativedelta import relativedelta
+from parameterized import parameterized
+from rest_framework import status
+
+from posthog.schema import LogEntryPropertyFilter, RecordingsQuery
+
+from posthog.clickhouse.client import sync_execute
+from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
+from posthog.models import Organization, Person, SessionRecording, User
+from posthog.models.team import Team
+from posthog.models.utils import uuid7
+from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 
 class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
@@ -63,6 +62,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             first_timestamp=timestamp,
             last_timestamp=timestamp,
             ensure_analytics_event_in_session=False,
+            retention_period_days=90,
         )
 
     @parameterized.expand(
@@ -361,6 +361,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "console_warn_count": 0,
                 "distinct_id": "user",
                 "end_time": ANY,
+                "expiry_time": ANY,
                 "id": "current_team",
                 "inactive_seconds": ANY,
                 "keypress_count": 0,
@@ -381,6 +382,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "start_time": ANY,
                 "start_url": "https://not-provided-by-test.com",
                 "storage": "object_storage",
+                "retention_period_days": 90,
+                "recording_ttl": 89,
                 "viewed": False,
                 "viewers": [],
                 "ongoing": True,
@@ -580,6 +583,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             first_timestamp=base_time.isoformat(),
             last_timestamp=(base_time + relativedelta(seconds=30)).isoformat(),
             distinct_id="d1",
+            retention_period_days=30,
         )
 
         other_user = User.objects.create(email="paul@not-first-user.com")
@@ -599,6 +603,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "recording_duration": 30,
             "start_time": base_time.replace(tzinfo=UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "expiry_time": (base_time + relativedelta(days=30))
+            .replace(microsecond=0, second=0, minute=0, hour=0)
+            .strftime("%Y-%m-%dT%H:%M:%SZ"),
             "click_count": 0,
             "keypress_count": 0,
             "start_url": "https://not-provided-by-test.com",
@@ -617,6 +624,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "uuid": ANY,
             },
             "storage": "object_storage",
+            "retention_period_days": 30,
+            "recording_ttl": 29,
             "snapshot_source": "web",
             "ongoing": None,
             "activity_score": None,
@@ -808,8 +817,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     @patch(
-        "ee.session_recordings.session_recording_extensions.object_storage.copy_objects",
-        return_value=2,
+        "posthog.session_recordings.session_recording_v2_service.copy_to_lts",
+        return_value="some-lts-path",
     )
     def test_persist_session_recording(self, _mock_copy_objects: MagicMock) -> None:
         self.produce_replay_summary("user", "1", now() - relativedelta(days=1), team_id=self.team.pk)

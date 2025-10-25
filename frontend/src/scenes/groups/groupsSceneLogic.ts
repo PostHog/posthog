@@ -1,5 +1,6 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { urlToAction } from 'kea-router'
+
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
@@ -61,6 +62,7 @@ export const groupsSceneLogic = kea<groupsSceneLogicType>([
                         key: Scene.Groups,
                         name: showGroupsIntroductionPage ? 'Groups' : capitalizeFirstLetter(groupTypeNamePlural),
                         path: urls.groups(groupTypeIndex),
+                        iconType: 'group',
                     },
                 ]
             },

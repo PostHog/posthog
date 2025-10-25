@@ -1,8 +1,10 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import api, { PaginatedResponse } from 'lib/api'
 import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
+import api, { PaginatedResponse } from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -134,21 +136,15 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         createDataWarehouseSavedQuerySuccess: () => {
             actions.loadDatabase()
         },
-        loadDataWarehouseSavedQueriesSuccess: () => {
-            clearTimeout(cache.savedQueriesRefreshTimeout)
-
-            cache.savedQueriesRefreshTimeout = setTimeout(() => {
-                actions.loadDataWarehouseSavedQueries()
-            }, REFRESH_INTERVAL)
-        },
         loadDataModelingJobsSuccess: ({ payload }) => {
-            clearTimeout(cache.dataModelingJobsRefreshTimeout)
-
-            cache.dataModelingJobsRefreshTimeout = setTimeout(() => {
-                if (payload) {
-                    actions.loadDataModelingJobs(payload)
-                }
-            }, REFRESH_INTERVAL)
+            cache.disposables.add(() => {
+                const timeoutId = setTimeout(() => {
+                    if (payload) {
+                        actions.loadDataModelingJobs(payload)
+                    }
+                }, REFRESH_INTERVAL)
+                return () => clearTimeout(timeoutId)
+            }, 'dataModelingJobsRefreshTimeout')
         },
         updateDataWarehouseSavedQuerySuccess: ({ payload }) => {
             // in the case where we are scheduling a materialized view, send an event
@@ -249,12 +245,9 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         ],
         hasMoreJobsToLoad: [(s) => [s.dataModelingJobs], (dataModelingJobs) => !!dataModelingJobs?.next],
     }),
-    events(({ actions, cache }) => ({
+    events(({ actions }) => ({
         afterMount: () => {
             actions.loadDataWarehouseSavedQueries()
-        },
-        beforeUnmount: () => {
-            clearTimeout(cache.savedQueriesRefreshTimeout)
         },
     })),
 ])

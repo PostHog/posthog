@@ -1,18 +1,18 @@
 import re
 from typing import Any, cast
-import posthoganalytics
 
+import posthoganalytics
 from rest_framework import exceptions, request, response, serializers
-from posthog.api.utils import action
 from rest_framework.viewsets import ModelViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import action
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
+from posthog.event_usage import groups
 from posthog.models import OrganizationDomain
 from posthog.models.organization import Organization
-from posthog.permissions import OrganizationAdminWritePermissions
-from posthog.event_usage import groups
+from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 
 DOMAIN_REGEX = r"^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
 
@@ -102,7 +102,7 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
 class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     scope_object = "organization"
     serializer_class = OrganizationDomainSerializer
-    permission_classes = [OrganizationAdminWritePermissions]
+    permission_classes = [OrganizationAdminWritePermissions, TimeSensitiveActionPermission]
     queryset = OrganizationDomain.objects.order_by("domain").all()
 
     @action(methods=["POST"], detail=True)

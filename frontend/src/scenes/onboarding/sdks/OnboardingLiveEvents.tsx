@@ -1,8 +1,9 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
+
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 
@@ -40,7 +41,7 @@ const columns: LemonTableColumns<LiveEvent> = [
 ]
 
 export function OnboardingLiveEvents(): JSX.Element | null {
-    const { events } = useValues(liveEventsTableLogic)
+    const { events } = useValues(liveEventsTableLogic({ tabId: 'onboarding' }))
 
     if (events.length === 0) {
         return null

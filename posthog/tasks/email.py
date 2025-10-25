@@ -3,18 +3,21 @@ from datetime import datetime
 from enum import Enum
 from typing import Literal, Optional
 
-import posthoganalytics
-import structlog
-from celery import shared_task
 from django.conf import settings
-from django.utils import timezone
 from django.db.models import OuterRef, Subquery
+from django.utils import timezone
 
+import structlog
+import posthoganalytics
+from celery import shared_task
 
 from posthog.batch_exports.models import BatchExportRun
+from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.cloud_utils import is_cloud
-from posthog.constants import INVITE_DAYS_VALIDITY
+from posthog.constants import INVITE_DAYS_VALIDITY, SOCIAL_AUTH_PROVIDER_DISPLAY_NAMES
 from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, is_email_available
+from posthog.event_usage import groups
+from posthog.geoip import get_geoip_properties
 from posthog.models import (
     Organization,
     OrganizationInvite,
@@ -25,12 +28,14 @@ from posthog.models import (
     Team,
     User,
 )
-from posthog.models.error_tracking import ErrorTrackingIssueAssignment
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.comment import Comment
+from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.utils import UUIDT
+from posthog.ph_client import get_client
 from posthog.user_permissions import UserPermissions
 
+from products.error_tracking.backend.models import ErrorTrackingIssueAssignment
 
 logger = structlog.get_logger(__name__)
 
@@ -39,9 +44,12 @@ class NotificationSetting(Enum):
     WEEKLY_PROJECT_DIGEST = "weekly_project_digest"
     PLUGIN_DISABLED = "plugin_disabled"
     ERROR_TRACKING_ISSUE_ASSIGNED = "error_tracking_issue_assigned"
+    DISCUSSIONS_MENTIONED = "discussions_mentioned"
 
 
-NotificationSettingType = Literal["weekly_project_digest", "plugin_disabled", "error_tracking_issue_assigned"]
+NotificationSettingType = Literal[
+    "weekly_project_digest", "plugin_disabled", "error_tracking_issue_assigned", "discussions_mentioned"
+]
 
 
 def send_message_to_all_staff_users(message: EmailMessage) -> None:
@@ -108,6 +116,10 @@ def should_send_notification(
 
     # Default to True (enabled) if not set
     elif notification_type == NotificationSetting.ERROR_TRACKING_ISSUE_ASSIGNED.value:
+        return settings.get(notification_type, True)
+
+    # Default to True (enabled) if not set
+    elif notification_type == NotificationSetting.DISCUSSIONS_MENTIONED.value:
         return settings.get(notification_type, True)
 
     # The below typeerror is ignored because we're currently handling the notification
@@ -224,8 +236,36 @@ def send_email_verification(user_id: int, token: str, next_url: str | None = Non
     message.add_recipient(user.pending_email if user.pending_email is not None else user.email)
     message.send(send_async=False)
     posthoganalytics.capture(
-        distinct_id=user.distinct_id,
+        distinct_id=str(user.distinct_id),
         event="verification email sent",
+        groups={"organization": str(user.current_organization.id)},  # type: ignore
+    )
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_email_mfa_link(user_id: int, token: str) -> None:
+    """Send email MFA verification link"""
+    user: User = User.objects.get(pk=user_id)
+
+    verification_link = f"{settings.SITE_URL}/login/verify?email={user.email}&token={token}"
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"email_mfa_{user.uuid}-{timezone.now().timestamp()}",
+        subject="Verify your PostHog login",
+        template_name="email_mfa_link",
+        template_context={
+            "preheader": "Please follow the link inside to verify your login.",
+            "url": verification_link,
+            "expiration_minutes": 10,
+            "site_url": settings.SITE_URL,
+        },
+    )
+    message.add_recipient(user.email)
+    message.send(send_async=False)
+    posthoganalytics.capture(
+        distinct_id=str(user.distinct_id),
+        event="email mfa link sent",
         groups={"organization": str(user.current_organization.id)},  # type: ignore
     )
 
@@ -453,6 +493,78 @@ def send_two_factor_auth_backup_code_used_email(user_id: int) -> None:
     message.send()
 
 
+@shared_task(**EMAIL_TASK_KWARGS)
+def login_from_new_device_notification(
+    user_id: int, login_time: datetime, short_user_agent: str, ip_address: str, backend_name: str
+) -> None:
+    """Send login notification email if login is from a new device"""
+    if not is_email_available(with_absolute_urls=True):
+        return
+
+    user: User = User.objects.get(pk=user_id)
+
+    # Send email if feature flag is enabled or in tests
+    if settings.TEST:
+        enabled = True
+    elif user.current_organization is None:
+        enabled = False
+    else:
+        enabled = posthoganalytics.feature_enabled(
+            key="login-from-new-device-notification",
+            distinct_id=str(user.distinct_id),
+            groups={"organization": str(user.current_organization.id)},
+        )
+
+    if not enabled:
+        return
+
+    login_time_str = login_time.strftime("%B %-d, %Y at %H:%M UTC")
+    geoip_properties = get_geoip_properties(ip_address)
+    country = geoip_properties.get("$geoip_country_name", "Unknown")
+    city = geoip_properties.get("$geoip_city_name", "Unknown")
+
+    if backend_name == "email_password":
+        login_method = "Email/password"
+    else:
+        login_method = SOCIAL_AUTH_PROVIDER_DISPLAY_NAMES.get(backend_name, "SSO")
+
+    is_new_device = check_and_cache_login_device(user_id, country, short_user_agent)
+    if not is_new_device:
+        return
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"login_notification_{user.uuid}-{timezone.now().timestamp()}",
+        template_name="login_notification",
+        subject="A new device logged into your account",
+        template_context={
+            "login_time": login_time_str,
+            "ip_address": ip_address,
+            "location": country,
+            "browser": short_user_agent,
+            "login_method": login_method,
+        },
+    )
+    message.add_recipient(user.email)
+    message.send()
+
+    # Capture event using ph_client for reliability in Celery tasks
+    ph_client = get_client()
+    ph_client.capture(
+        distinct_id=str(user.distinct_id),
+        event="login notification sent",
+        properties={
+            "ip_address": ip_address,
+            "geoip_country": country,
+            "geoip_city": city,
+            "short_user_agent": short_user_agent,
+            "login_method": login_method,
+        },
+        groups=groups(user.current_organization, user.current_team),
+    )
+    ph_client.shutdown()
+
+
 def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_created_to: datetime) -> list[User]:
     # Get all users for organization that haven't ingested any events
     users = []
@@ -504,6 +616,44 @@ def send_error_tracking_issue_assigned(assignment: ErrorTrackingIssueAssignment,
             "site_url": settings.SITE_URL,
         },
     )
+    for membership in memberships_to_email:
+        message.add_recipient(email=membership.user.email, name=membership.user.first_name)
+    message.send()
+
+
+def send_discussions_mentioned(comment: Comment, mentioned_user_ids: list[int], slug: str) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        return
+
+    team = comment.team
+    commenter = comment.created_by
+    memberships_to_email = get_members_to_notify(team, NotificationSetting.DISCUSSIONS_MENTIONED.value)
+
+    if not memberships_to_email or not commenter:
+        return
+
+    # Filter the memberships list to only include users mentioned
+    memberships_to_email = [
+        membership
+        for membership in memberships_to_email
+        if (membership.user.id in mentioned_user_ids and membership.user != commenter)
+    ]
+
+    href = f"{settings.SITE_URL}{slug}"
+
+    campaign_key: str = f"discussions_user_mentioned_{comment.id}_updated_at_{comment.created_at.timestamp()}"
+    message = EmailMessage(
+        campaign_key=campaign_key,
+        subject=f"[Discussions]: {commenter.first_name} mentioned you in project '{team}'",
+        template_name="discussions_mentioned",
+        template_context={
+            "commenter": commenter,
+            "content": comment.content,
+            "team": team,
+            "href": href,
+        },
+    )
+
     for membership in memberships_to_email:
         message.add_recipient(email=membership.user.email, name=membership.user.first_name)
     message.send()

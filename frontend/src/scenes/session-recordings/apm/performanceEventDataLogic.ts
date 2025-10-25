@@ -1,4 +1,5 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
+
 import {
     getPerformanceEvents,
     initiatorToAssetTypeMapping,
@@ -6,9 +7,9 @@ import {
 } from 'scenes/session-recordings/apm/performance-event-utils'
 import { InspectorListItemBase } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import {
-    sessionRecordingDataLogic,
-    SessionRecordingDataLogicProps,
-} from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+    SessionRecordingDataCoordinatorLogicProps,
+    sessionRecordingDataCoordinatorLogic,
+} from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 
 import { PerformanceEvent, RecordingEventType } from '~/types'
 
@@ -19,7 +20,7 @@ export type InspectorListItemPerformance = InspectorListItemBase & {
     data: PerformanceEvent
 }
 
-export interface PerformanceEventDataLogicProps extends SessionRecordingDataLogicProps {
+export interface PerformanceEventDataLogicProps extends SessionRecordingDataCoordinatorLogicProps {
     key?: string
 }
 
@@ -104,7 +105,7 @@ export const performanceEventDataLogic = kea<performanceEventDataLogicType>([
     key((props: PerformanceEventDataLogicProps) => `${props.key}-${props.sessionRecordingId}`),
     connect((props: PerformanceEventDataLogicProps) => ({
         actions: [],
-        values: [sessionRecordingDataLogic(props), ['sessionPlayerData', 'webVitalsEvents']],
+        values: [sessionRecordingDataCoordinatorLogic(props), ['sessionPlayerData', 'webVitalsEvents']],
     })),
     selectors(() => ({
         allPerformanceEvents: [

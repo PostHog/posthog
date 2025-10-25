@@ -1,6 +1,8 @@
 import logging
+
 from django.apps import apps
 from django.core.management.base import BaseCommand, CommandError
+
 import structlog
 
 from posthog.tasks.tasks import background_delete_model_task

@@ -4,7 +4,7 @@ import {
     NON_TIME_SERIES_DISPLAY_TYPES,
     NON_VALUES_ON_SERIES_DISPLAY_TYPES,
     PERCENT_STACK_VIEW_DISPLAY_TYPE,
-    RETENTION_FIRST_TIME,
+    RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
     RETENTION_MEAN_NONE,
     ShownAsValue,
 } from 'lib/constants'
@@ -12,7 +12,6 @@ import { clamp } from 'lib/utils'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { isURLNormalizeable } from 'scenes/insights/filters/BreakdownFilter/taxonomicBreakdownFilterUtils'
 import {
-    isCalendarHeatmapFilter,
     isFunnelsFilter,
     isLifecycleFilter,
     isPathsFilter,
@@ -24,19 +23,18 @@ import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsDataLogic'
 
 import {
     AnyFilterType,
-    CalendarHeatmapFilterType,
     ChartDisplayType,
     Entity,
     EntityTypes,
     FilterType,
     FunnelExclusionLegacy,
-    FunnelsFilterType,
     FunnelVizType,
+    FunnelsFilterType,
     InsightType,
     IntervalType,
     LifecycleFilterType,
-    PathsFilterType,
     PathType,
+    PathsFilterType,
     RetentionFilterType,
     RetentionPeriod,
     StickinessFilterType,
@@ -305,7 +303,10 @@ export function cleanFilters(
             returning_entity: filters.returning_entity || { id: '$pageview', type: 'events', name: '$pageview' },
             date_to: filters.date_to,
             period: filters.period || RetentionPeriod.Day,
-            retention_type: filters.retention_type || (filters as any)['retentionType'] || RETENTION_FIRST_TIME,
+            retention_type:
+                filters.retention_type ||
+                (filters as any)['retentionType'] ||
+                RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
             breakdowns: filters.breakdowns,
             breakdown_type: filters.breakdown_type,
             retention_reference: filters.retention_reference,
@@ -528,13 +529,6 @@ export function cleanFilters(
     } else if ((filters as any).insight === 'SESSIONS') {
         // DEPRECATED: Used to show deprecation warning for dashboard items
         return cleanFilters({ insight: InsightType.TRENDS })
-    } else if (isCalendarHeatmapFilter(filters)) {
-        const calendarHeatmapFilter: Partial<CalendarHeatmapFilterType> = {
-            insight: InsightType.CALENDAR_HEATMAP,
-            ...filters,
-            ...commonFilters,
-        }
-        return calendarHeatmapFilter
     }
 
     throw new Error(`Unknown insight type "${(filters as any).insight}" given to cleanFilters`)

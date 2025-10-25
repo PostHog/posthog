@@ -1,5 +1,6 @@
-from posthog.models.filters import PathFilter
 from posthog.test.base import BaseTest
+
+from posthog.models.filters import PathFilter
 
 
 class TestPathFilter(BaseTest):

@@ -1,14 +1,16 @@
-import asyncio
-import datetime as dt
 import random
 import typing
+import asyncio
+import datetime as dt
 from collections.abc import Collection
 
-import pyarrow as pa
 import pytest
+
+import pyarrow as pa
 
 from posthog.batch_exports.service import BackfillDetails
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
+
 from products.batch_exports.backend.temporal.spmc import (
     Producer,
     RecordBatchQueue,
@@ -69,6 +71,19 @@ async def test_record_batch_queue_sets_schema():
 
     schema = await queue.get_schema()
     assert schema == record_batch.schema
+
+
+async def test_record_batch_queue_str_and_repr():
+    """Test `RecordBatchQueue` returns sensible output for str and repr"""
+    records = [{"test": 1}, {"test": 2}, {"test": 3}]
+    record_batch = pa.RecordBatch.from_pylist(records)
+
+    queue = RecordBatchQueue()
+
+    await queue.put(record_batch)
+
+    assert str(queue) == "<RecordBatchQueue record_batches=1 bytes=24 schema='test: int64'>"
+    assert "record_batches=1 bytes=24 schema='test: int64'" in repr(queue)
 
 
 async def get_record_batch_from_queue(queue, produce_task):

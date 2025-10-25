@@ -1,9 +1,11 @@
-import { LemonButton, LemonCollapse, LemonModal, LemonSelect, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonCollapse, LemonModal, LemonSelect, Spinner } from '@posthog/lemon-ui'
+
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { pluralize } from 'lib/utils'
 
-import { environmentRollbackModalLogic, type ProjectWithEnvironments } from './environmentRollbackModalLogic'
+import { type ProjectWithEnvironments, environmentRollbackModalLogic } from './environmentRollbackModalLogic'
 
 function ModalDescription(): JSX.Element {
     return (
@@ -15,9 +17,16 @@ function ModalDescription(): JSX.Element {
             </p>
             <p>
                 You're seeing this because you're using multiple environments per project. As we rollback the beta we're
-                moving environments back to a project-based approach, and we're offering a way to consolidate your
-                environments.
+                moving environments back to a project-based approach, and we're offering a way to migrate off of the
+                beta.
             </p>
+            <p>
+                Please choose a primary environment and we will preserve the event data from this environment in this
+                existing project. We will also move everything <em>except</em> data from the other environments into
+                this project. But don't worry! We will create new projects for each of the other environments and all
+                your event data will be preserved.
+            </p>
+
             <p className="font-bold">You will not lose any data.</p>
         </div>
     )
@@ -107,7 +116,7 @@ function ModalFooter(): JSX.Element {
                     onClick={submitEnvironmentRollback}
                     disabled={!isReadyToSubmit}
                 >
-                    Separate environments
+                    Separate environments into projects
                 </LemonButton>
             </div>
         </div>

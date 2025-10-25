@@ -1,8 +1,11 @@
 import Fuse from 'fuse.js'
 import { LogicWrapper } from 'kea'
+import { ReactNode } from 'react'
+
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
+import { ReplayTaxonomicFilterProperty } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
 
 import { AnyDataNode, DatabaseSchemaField, DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import {
@@ -19,7 +22,10 @@ export interface SimpleOption {
     propertyFilterType?: PropertyFilterType
 }
 
-export type ExcludedProperties = { [key in TaxonomicFilterGroupType]?: TaxonomicFilterValue[] }
+export type TaxonomicFilterGroupValueMap = { [key in TaxonomicFilterGroupType]?: (PropertyKey | null)[] }
+export type ExcludedProperties = TaxonomicFilterGroupValueMap
+export type SelectedProperties = TaxonomicFilterGroupValueMap
+export type AllowedProperties = TaxonomicFilterGroupValueMap
 
 export interface TaxonomicFilterProps {
     groupType?: TaxonomicFilterGroupType
@@ -42,7 +48,9 @@ export interface TaxonomicFilterProps {
     autoSelectItem?: boolean
     /** use to filter results in a group by name, currently only working for EventProperties */
     excludedProperties?: ExcludedProperties
-    propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] } // only return properties in this list, currently only working for EventProperties and PersonProperties
+    /** use to indicate if a result in a group is selected */
+    selectedProperties?: SelectedProperties
+    propertyAllowList?: AllowedProperties // only return properties in this list, currently only working for EventProperties and PersonProperties
     metadataSource?: AnyDataNode
     hideBehavioralCohorts?: boolean
     showNumericalPropsOnly?: boolean
@@ -75,23 +83,33 @@ export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
 }
 
 export type TaxonomicFilterValue = string | number | null
-
-export type TaxonomicFilterRender = (props: {
+export type TaxonomicFilterRenderProps = {
     value?: TaxonomicFilterValue
     onChange: (value: TaxonomicFilterValue, item: any) => void
-}) => JSX.Element | null
+    /** allows the component to access the infinite list logic e.g. to react to search results */
+    infiniteListLogicProps: InfiniteListLogicProps
+}
+export type TaxonomicFilterRender = (props: TaxonomicFilterRenderProps) => JSX.Element | null
 
 export interface TaxonomicFilterGroup {
     name: string
     /** Null means this group is not searchable (like HogQL expressions). */
     searchPlaceholder: string | null
+    /**
+     * Overrides the label in the category pill list
+     * */
+    categoryLabel?: (count: number) => ReactNode
     type: TaxonomicFilterGroupType
     /** Component to show instead of the usual taxonomic list. */
     render?: TaxonomicFilterRender
+    /** if you want to override the default local items search behaviour e.g. for the replay group type */
+    localItemsSearch?: (items: TaxonomicDefinitionTypes[], q: string) => TaxonomicDefinitionTypes[]
     endpoint?: string
     /** If present, will be used instead of "endpoint" until the user presses "expand results". */
     scopedEndpoint?: string
-    expandLabel?: (props: { count: number; expandedCount: number }) => React.ReactNode
+    expandLabel?: (props: { count: number; expandedCount: number }) => ReactNode
+    /** Static message shown at the bottom of the list */
+    footerMessage?: ReactNode
     options?: Record<string, any>[]
     logic?: LogicWrapper
     value?: string
@@ -121,6 +139,8 @@ export enum TaxonomicFilterGroupType {
     DataWarehousePersonProperties = 'data_warehouse_person_properties',
     Elements = 'elements',
     Events = 'events',
+    InternalEvents = 'internal_events',
+    InternalEventProperties = 'internal_event_properties',
     EventProperties = 'event_properties',
     EventFeatureFlags = 'event_feature_flags',
     EventMetadata = 'event_metadata',
@@ -189,3 +209,4 @@ export type TaxonomicDefinitionTypes =
     | PersonProperty
     | DataWarehouseTableForInsight
     | MaxContextTaxonomicFilterOption
+    | ReplayTaxonomicFilterProperty

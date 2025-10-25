@@ -1,5 +1,6 @@
 import equal from 'fast-deep-equal'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
+
 import { isEmptyProperty } from 'lib/components/PropertyFilters/utils'
 import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { areObjectValuesEmpty, calculateDays, isNumeric } from 'lib/utils'
@@ -134,6 +135,12 @@ export function createCohortFormData(cohort: CohortType): FormData {
     const cohortFormData = new FormData()
     for (const [itemKey, value] of Object.entries(rawCohort)) {
         cohortFormData.append(itemKey, value as string | Blob)
+    }
+
+    if (cohort._create_static_person_ids != null) {
+        cohort._create_static_person_ids.forEach((personId) => {
+            cohortFormData.append('_create_static_person_ids', personId)
+        })
     }
     return cohortFormData
 }

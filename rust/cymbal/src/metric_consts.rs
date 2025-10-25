@@ -68,3 +68,7 @@ pub const STACK_PROCESSING_TIME: &str = "cymbal_stack_processing_time";
 pub const ISSUE_PROCESSING_TIME: &str = "cymbal_issue_processing_time";
 pub const FRAME_BATCH_TIME: &str = "cymbal_frame_batch_time";
 pub const FINGERPRINT_BATCH_TIME: &str = "cymbal_fingerprint_batch_time";
+pub const GROUP_TYPE_MAPPING_TIME: &str = "cymbal_group_type_mapping_time";
+pub const POSTHOG_SDK_EXCEPTION_RESOLVED: &str = "cymbal_posthog_sdk_exception_resolved";
+pub const SUSPICIOUS_FRAMES_DETECTED: &str = "cymbal_suspicious_frames_detected";
+pub const LEGACY_JS_FRAME_RESOLVED: &str = "cymbal_legacy_js_frame_resolved";

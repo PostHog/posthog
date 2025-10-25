@@ -1,17 +1,22 @@
-import { IconPlus } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { PageHeader } from 'lib/components/PageHeader'
+
+import { IconPlus } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
+
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LinkType, ProductKey } from '~/types'
 
 import { LinkMetricSparkline } from './LinkMetricSparkline'
@@ -89,13 +94,19 @@ export function LinksScene(): JSX.Element {
     ]
 
     return (
-        <>
-            <PageHeader
-                buttons={
+        <SceneContent>
+            <SceneTitleSection
+                name={sceneConfigurations[Scene.Links].name}
+                description={sceneConfigurations[Scene.Links].description}
+                resourceType={{
+                    type: sceneConfigurations[Scene.Links].iconType || 'default_icon_type',
+                }}
+                actions={
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}
                         onClick={() => router.actions.push(urls.link('new'))}
+                        size="small"
                         sideAction={{
                             dropdown: {
                                 overlay: (
@@ -119,6 +130,7 @@ export function LinksScene(): JSX.Element {
                     </LemonButton>
                 }
             />
+            <SceneDivider />
 
             <LemonBanner type="error" className="mb-2">
                 <h2>Links are extremely WIP</h2>
@@ -141,6 +153,6 @@ export function LinksScene(): JSX.Element {
             />
 
             {!shouldShowEmptyState && <LemonTable loading={linksLoading} columns={columns} dataSource={links} />}
-        </>
+        </SceneContent>
     )
 }

@@ -1,6 +1,8 @@
-import { IconCheck, IconWarning, IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { IconCheck, IconWarning } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import ScopeAccessSelector from 'scenes/settings/user/scopes/ScopeAccessSelector'
@@ -28,6 +30,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         oauthAuthorization,
         isOauthAuthorizationSubmitting,
         redirectDomain,
+        requiredAccessLevel,
     } = useValues(oauthAuthorizeLogic)
     const { cancel, submitOauthAuthorization } = useActions(oauthAuthorizeLogic)
 
@@ -64,6 +67,8 @@ export const OAuthAuthorize = (): JSX.Element => {
                             accessType={oauthAuthorization.access_type}
                             organizations={allOrganizations}
                             teams={allTeams ?? undefined}
+                            requiredAccessLevel={requiredAccessLevel}
+                            autoSelectFirst={true}
                         />
                         <div>
                             <div className="text-sm font-semibold uppercase text-muted mb-2">Requested Permissions</div>
@@ -74,10 +79,6 @@ export const OAuthAuthorize = (): JSX.Element => {
                                         <span className="font-medium">{scopeDescription}</span>
                                     </li>
                                 ))}
-                                <li className="flex items-center space-x-2 text-large">
-                                    <IconX color="var(--danger)" />
-                                    <span className="font-medium">Replace your dashboards with hedgehog memes</span>
-                                </li>
                             </ul>
                         </div>
 

@@ -1,37 +1,33 @@
-from datetime import datetime
-import functools
+import re
 import uuid
+import functools
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
 from typing import Any, Optional, cast
-from unittest import mock
 from zoneinfo import ZoneInfo
 
-import aioboto3
-import deltalake
-import posthoganalytics
-import psycopg
 import pytest
-import pytest_asyncio
-import s3fs
-from asgiref.sync import sync_to_async
-from deltalake import DeltaTable
+from freezegun import freeze_time
+from unittest import mock
+
 from django.conf import settings
 from django.test import override_settings
+
+import s3fs
+import psycopg
+import aioboto3
+import deltalake
+import pytest_asyncio
+import posthoganalytics
+from asgiref.sync import sync_to_async
+from deltalake import DeltaTable
 from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 from dlt.sources.helpers.rest_client.client import RESTClient
 from stripe import ListObject
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.insights.funnels.funnel import Funnel
-from posthog.hogql_queries.insights.funnels.funnel_query_context import (
-    FunnelQueryContext,
-)
-from posthog.models import DataWarehouseTable
-from posthog.models.team.team import Team
+
 from posthog.schema import (
     BreakdownFilter,
     BreakdownType,
@@ -40,26 +36,27 @@ from posthog.schema import (
     HogQLQueryModifiers,
     PersonsOnEventsMode,
 )
+
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
+from posthog.hogql_queries.insights.funnels.funnel import Funnel
+from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.models import DataWarehouseTable
+from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
+from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
+from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.data_imports.row_tracking import get_rows
 from posthog.temporal.data_imports.settings import ACTIVITIES
-from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
-from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
-from posthog.temporal.utils import ExternalDataWorkflowInputs
-from posthog.warehouse.models import (
-    ExternalDataJob,
-    ExternalDataSchema,
-    ExternalDataSource,
-)
-from posthog.warehouse.models.external_data_job import get_latest_run_if_exists
-from posthog.warehouse.models.external_table_definitions import external_tables
-from posthog.warehouse.models.join import DataWarehouseJoin
 from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME as STRIPE_CREDIT_NOTE_RESOURCE_NAME,
+    CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+    CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME as STRIPE_CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
     DISPUTE_RESOURCE_NAME as STRIPE_DISPUTE_RESOURCE_NAME,
     INVOICE_ITEM_RESOURCE_NAME as STRIPE_INVOICE_ITEM_RESOURCE_NAME,
@@ -70,6 +67,12 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     REFUND_RESOURCE_NAME as STRIPE_REFUND_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
+from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
+from posthog.temporal.utils import ExternalDataWorkflowInputs
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from posthog.warehouse.models.external_data_job import get_latest_run_if_exists
+from posthog.warehouse.models.external_table_definitions import external_tables
+from posthog.warehouse.models.join import DataWarehouseJoin
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()
@@ -117,6 +120,8 @@ def mock_stripe_client(
     stripe_refund,
     stripe_subscription,
     stripe_credit_note,
+    stripe_customer_balance_transaction,
+    stripe_customer_payment_method,
 ):
     with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient") as MockStripeClient:
         mock_balance_transaction_list = mock.MagicMock()
@@ -131,6 +136,8 @@ def mock_stripe_client(
         mock_refunds_list = mock.MagicMock()
         mock_subscription_list = mock.MagicMock()
         mock_credit_notes_list = mock.MagicMock()
+        mock_customer_balance_transactions_list = mock.MagicMock()
+        mock_customer_payment_methods_list = mock.MagicMock()
 
         mock_balance_transaction_list.auto_paging_iter.return_value = stripe_balance_transaction["data"]
         mock_charges_list.auto_paging_iter.return_value = stripe_charge["data"]
@@ -144,6 +151,10 @@ def mock_stripe_client(
         mock_refunds_list.auto_paging_iter.return_value = stripe_refund["data"]
         mock_subscription_list.auto_paging_iter.return_value = stripe_subscription["data"]
         mock_credit_notes_list.auto_paging_iter.return_value = stripe_credit_note["data"]
+        mock_customer_balance_transactions_list.auto_paging_iter.return_value = stripe_customer_balance_transaction[
+            "data"
+        ]
+        mock_customer_payment_methods_list.auto_paging_iter.return_value = stripe_customer_payment_method["data"]
 
         instance = MockStripeClient.return_value
         instance.balance_transactions.list.return_value = mock_balance_transaction_list
@@ -158,6 +169,8 @@ def mock_stripe_client(
         instance.refunds.list.return_value = mock_refunds_list
         instance.subscriptions.list.return_value = mock_subscription_list
         instance.credit_notes.list.return_value = mock_credit_notes_list
+        instance.customers.balance_transactions.list.return_value = mock_customer_balance_transactions_list
+        instance.customers.payment_methods.list.return_value = mock_customer_payment_methods_list
 
         yield instance
 
@@ -201,7 +214,6 @@ async def _run(
         team=team,
         status="running",
         source_type=source_type,
-        revenue_analytics_enabled=source_type == ExternalDataSource.Type.STRIPE,
         job_inputs=job_inputs,
     )
 
@@ -237,6 +249,8 @@ async def _run(
         assert run is not None
         assert run.status == ExternalDataJob.Status.COMPLETED
         assert run.finished_at is not None
+        assert run.storage_delta_mib is not None
+        assert run.storage_delta_mib != 0
 
         mock_trigger_compaction_job.assert_called()
         mock_get_data_import_finished_metric.assert_called_with(
@@ -261,6 +275,10 @@ async def _run(
         table: DataWarehouseTable | None = await sync_to_async(lambda: schema.table)()
         assert table is not None
         assert table.size_in_s3_mib is not None
+        assert table.queryable_folder is not None
+
+        query_folder_pattern = re.compile(r"^.+?\_\_query\_\d+$")
+        assert query_folder_pattern.match(table.queryable_folder)
 
     return workflow_id, inputs
 
@@ -497,6 +515,32 @@ async def test_stripe_credit_note(team, stripe_credit_note, mock_stripe_client):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
+async def test_stripe_customer_balance_transaction(team, stripe_customer_balance_transaction, mock_stripe_client):
+    await _run(
+        team=team,
+        schema_name=STRIPE_CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+        table_name="stripe_customerbalancetransaction",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_customer_balance_transaction["data"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_stripe_customer_payment_method(team, stripe_customer_payment_method, mock_stripe_client):
+    await _run(
+        team=team,
+        schema_name=STRIPE_CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
+        table_name="stripe_customerpaymentmethod",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_customer_payment_method["data"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
 async def test_zendesk_brands(team, zendesk_brands):
     await _run(
         team=team,
@@ -718,33 +762,35 @@ async def test_postgres_binary_columns(team, postgres_config, postgres_connectio
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_delta_wrapper_files(team, stripe_balance_transaction, mock_stripe_client, minio_client):
-    workflow_id, inputs = await _run(
-        team=team,
-        schema_name="BalanceTransaction",
-        table_name="stripe_balancetransaction",
-        source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
-        mock_data_response=stripe_balance_transaction["data"],
-    )
+    datetime_now = datetime.now(tz=ZoneInfo("UTC"))
+    with freeze_time(datetime_now):
+        workflow_id, inputs = await _run(
+            team=team,
+            schema_name="BalanceTransaction",
+            table_name="stripe_balancetransaction",
+            source_type="Stripe",
+            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            mock_data_response=stripe_balance_transaction["data"],
+        )
 
-    @sync_to_async
-    def get_jobs():
-        jobs = ExternalDataJob.objects.filter(
-            team_id=team.pk,
-            pipeline_id=inputs.external_data_source_id,
-        ).order_by("-created_at")
+        @sync_to_async
+        def get_jobs():
+            jobs = ExternalDataJob.objects.filter(
+                team_id=team.pk,
+                pipeline_id=inputs.external_data_source_id,
+            ).order_by("-created_at")
 
-        return list(jobs)
+            return list(jobs)
 
-    jobs = await get_jobs()
-    latest_job = jobs[0]
-    folder_path = await sync_to_async(latest_job.folder_path)()
+        jobs = await get_jobs()
+        latest_job = jobs[0]
+        folder_path = await sync_to_async(latest_job.folder_path)()
 
-    s3_objects = await minio_client.list_objects_v2(
-        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query/"
-    )
+        s3_objects = await minio_client.list_objects_v2(
+            Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_now.timestamp())}/"
+        )
 
-    assert len(s3_objects["Contents"]) != 0
+        assert len(s3_objects["Contents"]) != 0
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1450,6 +1496,7 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
 
     with (
         mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
+        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.INCREASED_DEFAULT_CHUNK_SIZE", 1),
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
@@ -1539,6 +1586,7 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
 
     with (
         mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
+        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.INCREASED_DEFAULT_CHUNK_SIZE", 1),
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
@@ -1713,6 +1761,7 @@ async def test_partition_folders_with_uuid_id_and_created_at(team, postgres_conf
     assert schema.partitioning_enabled is True
     assert schema.partitioning_keys == ["created_at"]
     assert schema.partition_mode == "datetime"
+    assert schema.partition_format == "month"
     assert schema.partition_count is not None
 
 
@@ -2036,6 +2085,7 @@ async def test_partition_folders_delta_merge_called_with_partition_predicate(
 
     with (
         mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
+        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.INCREASED_DEFAULT_CHUNK_SIZE", 1),
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
@@ -2606,3 +2656,127 @@ async def test_postgres_deleting_schemas_with_pre_synced_data(team, postgres_con
     synced_schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
     assert synced_schema.should_sync is False
     assert synced_schema.status == ExternalDataSchema.Status.COMPLETED
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_timestamped_query_folder(team, stripe_balance_transaction, mock_stripe_client, minio_client):
+    datetime_1 = datetime.now()
+    with freeze_time(datetime_1):
+        workflow_id, inputs = await _run(
+            team=team,
+            schema_name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
+            table_name="stripe_balancetransaction",
+            source_type="Stripe",
+            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            mock_data_response=stripe_balance_transaction["data"],
+        )
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    folder_path = await sync_to_async(schema.folder_path)()
+
+    # Sync a second time 5 minutes later
+    datetime_2 = datetime_1 + timedelta(minutes=5)
+    with freeze_time(datetime_2):
+        await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
+
+    # Check the query folders now - both sync folders should exist
+    s3_objects_datetime_1 = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_1.timestamp())}/"
+    )
+
+    s3_objects_datetime_2 = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_2.timestamp())}/"
+    )
+
+    assert len(s3_objects_datetime_1["Contents"]) != 0
+    assert len(s3_objects_datetime_2["Contents"]) != 0
+
+    # Sync a third time 3 minutes later (still under 10 mins since the first sync)
+    datetime_3 = datetime_2 + timedelta(minutes=3)
+    with freeze_time(datetime_3):
+        await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
+
+    # Check the query folders now - all 3 sync folders should exist
+    s3_objects_datetime_1 = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_1.timestamp())}/"
+    )
+
+    s3_objects_datetime_2 = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_2.timestamp())}/"
+    )
+
+    s3_objects_datetime_3 = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_3.timestamp())}/"
+    )
+
+    assert len(s3_objects_datetime_1["Contents"]) != 0
+    assert len(s3_objects_datetime_2["Contents"]) != 0
+    assert len(s3_objects_datetime_3["Contents"]) != 0
+
+    # Sync a fourth time 5 minutes later (now over 10 mins since the first sync)
+    datetime_4 = datetime_3 + timedelta(minutes=5)
+    with freeze_time(datetime_4):
+        await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
+
+    # Check the query folders now - this should delete the first sync folder but keep three others
+    s3_objects_datetime_1 = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_1.timestamp())}/"
+    )
+
+    s3_objects_datetime_2 = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_2.timestamp())}/"
+    )
+
+    s3_objects_datetime_3 = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_3.timestamp())}/"
+    )
+
+    s3_objects_datetime_4 = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_4.timestamp())}/"
+    )
+
+    assert len(s3_objects_datetime_1.get("Contents", [])) == 0  # first folder should be deleted
+    assert len(s3_objects_datetime_2["Contents"]) != 0
+    assert len(s3_objects_datetime_3["Contents"]) != 0
+    assert len(s3_objects_datetime_4["Contents"]) != 0
+
+    # Sync a fifth time 1 min later but with a reduced query file delete buffer
+    datetime_5 = datetime_4 + timedelta(minutes=1)
+    with freeze_time(datetime_5), mock.patch("posthog.temporal.data_imports.util.S3_DELETE_TIME_BUFFER", 1):
+        await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
+
+    # Check the query folders now - this should delete all folders except the latest two
+    s3_objects_datetime_1 = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_1.timestamp())}/"
+    )
+
+    s3_objects_datetime_2 = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_2.timestamp())}/"
+    )
+
+    s3_objects_datetime_3 = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_3.timestamp())}/"
+    )
+
+    s3_objects_datetime_4 = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_4.timestamp())}/"
+    )
+
+    s3_objects_datetime_5 = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query_{int(datetime_5.timestamp())}/"
+    )
+
+    assert len(s3_objects_datetime_1.get("Contents", [])) == 0
+    assert len(s3_objects_datetime_2.get("Contents", [])) == 0
+    assert len(s3_objects_datetime_3.get("Contents", [])) == 0
+    assert (
+        len(s3_objects_datetime_4["Contents"]) != 0  # we keep the most recent two folders if they're older than 10 mins
+    )
+    assert len(s3_objects_datetime_5["Contents"]) != 0  # this is the latest live queryable folder
+
+    # Make sure the old format query folder doesn't exist
+    s3_objects_old_format = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query/"
+    )
+    assert len(s3_objects_old_format.get("Contents", [])) == 0

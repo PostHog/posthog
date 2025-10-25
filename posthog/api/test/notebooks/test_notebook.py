@@ -1,12 +1,14 @@
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
 
-from freezegun import freeze_time
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Team, Organization, Notebook
+from posthog.models import Organization, Team
 from posthog.models.user import User
-from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
+
+from products.notebooks.backend.models import Notebook
 
 
 class TestNotebooks(APIBaseTest, QueryMatchingTest):

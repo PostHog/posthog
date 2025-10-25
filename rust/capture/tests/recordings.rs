@@ -236,8 +236,7 @@ async fn it_validates_session_id_formats() -> Result<()> {
         assert_eq!(
             StatusCode::OK,
             res.status(),
-            "Expected session ID '{}' to be accepted, but got error status",
-            session_id
+            "Expected session ID '{session_id}' to be accepted, but got error status"
         );
     }
 
@@ -258,8 +257,7 @@ async fn it_validates_session_id_formats() -> Result<()> {
         assert_eq!(
             StatusCode::BAD_REQUEST,
             res.status(),
-            "Expected session ID '{}' to be rejected, but was accepted",
-            session_id
+            "Expected session ID '{session_id}' to be rejected, but was accepted"
         );
     }
 
@@ -422,7 +420,7 @@ async fn it_returns_200() -> Result<()> {
 
     let timestamp = Utc::now().timestamp_millis();
     let beacon_url = format!(
-        "http://{:?}/s/?ip=1&_={}&ver=1.240.6&compression=gzip-js",
+        "http://{:?}/s/?ip=1&_={}&ver=1.240.6",
         server.addr, timestamp
     );
 
@@ -470,7 +468,7 @@ async fn it_returns_204_when_beacon_is_1_for_recordings() -> Result<()> {
 
     let timestamp = Utc::now().timestamp_millis();
     let beacon_url = format!(
-        "http://{:?}/s/?ip=1&_={}&ver=1.240.6&compression=gzip-js&beacon=1",
+        "http://{:?}/s/?ip=1&_={}&ver=1.240.6&beacon=1",
         server.addr, timestamp
     );
 

@@ -10,21 +10,10 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from ..shared.enums import DifferenceType
-from ..shared.statistics import (
-    ProportionStatistic,
-    RatioStatistic,
-    SampleMeanStatistic,
-    StatisticError,
-)
+from ..shared.statistics import ProportionStatistic, RatioStatistic, SampleMeanStatistic, StatisticError
 from .enums import PriorType
 from .priors import GaussianPrior
-from .tests import (
-    BayesianGaussianTest,
-    BayesianMeanTest,
-    BayesianProportionTest,
-    BayesianResult,
-    BayesianTest,
-)
+from .tests import BayesianGaussianTest, BayesianMeanTest, BayesianProportionTest, BayesianResult, BayesianTest
 
 
 @dataclass

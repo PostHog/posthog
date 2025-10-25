@@ -1,5 +1,7 @@
 import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
+
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { passwordResetLogic } from 'scenes/authentication/passwordResetLogic'
 import { urls } from 'scenes/urls'
 
@@ -7,7 +9,6 @@ import { useStorybookMocks } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
 import { PasswordReset } from './PasswordReset'
-import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 // some metadata and optional parameters
 const meta: Meta = {
