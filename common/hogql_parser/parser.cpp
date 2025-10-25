@@ -2124,7 +2124,41 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     RETURN_NEW_AST_NODE("ArrayAccess", "{s:N,s:N,s:O}", "array", object, "property", property, "nullish", Py_True);
   }
 
-  VISIT_UNSUPPORTED(ColumnExprBetween)
+  VISIT(ColumnExprBetween) {
+    PyObject* expr = visitAsPyObject(ctx->columnExpr(0));
+    PyObject* low;
+    try {
+      low = visitAsPyObject(ctx->columnExpr(1));
+    } catch (...) {
+      Py_DECREF(expr);
+      throw;
+    }
+    PyObject* high;
+    try {
+      high = visitAsPyObject(ctx->columnExpr(2));
+    } catch (...) {
+      Py_DECREF(low);
+      Py_DECREF(expr);
+      throw;
+    }
+    PyObject* negated = ctx->NOT() ? Py_True : Py_False;
+    Py_INCREF(negated);
+    PyObject* node = build_ast_node(
+        "BetweenExpr",
+        "{s:N,s:N,s:N,s:O}",
+        "expr", expr,
+        "low", low,
+        "high", high,
+        "negated", negated);
+    if (!node) {
+      Py_DECREF(negated);
+      Py_DECREF(high);
+      Py_DECREF(low);
+      Py_DECREF(expr);
+      throw PyInternalError();
+    }
+    return node;
+  }
 
   VISIT(ColumnExprParens) { return visit(ctx->columnExpr()); }
 

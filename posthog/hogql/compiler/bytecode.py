@@ -198,6 +198,20 @@ class BytecodeCompiler(Visitor):
             )
         return [*self.visit(node.right), *self.visit(node.left), operation]
 
+    def visit_between_expr(self, node: ast.BetweenExpr):
+        # expr >= low
+        part1 = [*self.visit(node.low), *self.visit(node.expr), Operation.GT_EQ]
+        # expr <= high
+        part2 = [*self.visit(node.high), *self.visit(node.expr), Operation.LT_EQ]
+        if node.negated:
+            # expr < low
+            p1 = [*self.visit(node.low), *self.visit(node.expr), Operation.LT]
+            # expr > high
+            p2 = [*self.visit(node.high), *self.visit(node.expr), Operation.GT]
+            return [*p1, *p2, Operation.OR, 2]
+        else:
+            return [*part1, *part2, Operation.AND, 2]
+
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
         return [
             *self.visit(node.right),

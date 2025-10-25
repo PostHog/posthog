@@ -1038,6 +1038,15 @@ class _Printer(Visitor[str]):
         else:
             raise ImpossibleASTError("Impossible")
 
+    def visit_between_expr(self, node: ast.BetweenExpr):
+        expr = self.visit(node.expr)
+        low = self.visit(node.low)
+        high = self.visit(node.high)
+        not_kw = " NOT" if node.negated else ""
+        if self.dialect == "hogql":
+            return f"{expr}{not_kw} BETWEEN {low} AND {high}"
+        return f"ifNull({expr}{not_kw} BETWEEN {low} AND {high}, 0)"
+
     def visit_constant(self, node: ast.Constant):
         if self.dialect == "hogql":
             # Inline everything in HogQL

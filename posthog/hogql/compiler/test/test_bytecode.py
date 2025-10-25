@@ -143,6 +143,44 @@ class TestBytecode(BaseTest):
             to_bytecode("match('test', 'x.*')"),
             [_H, HOGQL_BYTECODE_VERSION, op.STRING, "test", op.STRING, "x.*", op.CALL_GLOBAL, "match", 2],
         )
+        self.assertEqual(
+            to_bytecode("1 between 1 and 10"),
+            [
+                _H,
+                HOGQL_BYTECODE_VERSION,
+                op.INTEGER,
+                1,
+                op.INTEGER,
+                1,
+                op.GT_EQ,
+                op.INTEGER,
+                10,
+                op.INTEGER,
+                1,
+                op.LT_EQ,
+                op.AND,
+                2,
+            ],
+        )
+        self.assertEqual(
+            to_bytecode("1 not between 1 and 10"),
+            [
+                _H,
+                HOGQL_BYTECODE_VERSION,
+                op.INTEGER,
+                1,
+                op.INTEGER,
+                1,
+                op.LT,
+                op.INTEGER,
+                10,
+                op.INTEGER,
+                1,
+                op.GT,
+                op.OR,
+                2,
+            ],
+        )
         self.assertEqual(to_bytecode("not('test')"), [_H, HOGQL_BYTECODE_VERSION, op.STRING, "test", op.NOT])
         self.assertEqual(to_bytecode("not 'test'"), [_H, HOGQL_BYTECODE_VERSION, op.STRING, "test", op.NOT])
         self.assertEqual(
