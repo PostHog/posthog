@@ -156,7 +156,7 @@ class LLMTraceSummarizerGenerator:
             log_diff = True
         if summary == original_summary or not log_diff:
             return summary
-        # Log differences, if any, whhen asked explicitly
+        # Log differences, if any, when asked explicitly
         self._log_diff(trace_id=trace_id, original_summary=original_summary, summary=summary)
         return summary
 
