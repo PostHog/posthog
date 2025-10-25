@@ -116,13 +116,17 @@ describe('prepareEventStep()', () => {
     })
 
     it('scrubs IPs when team.anonymize_ips=true', async () => {
-        jest.mocked(runner.hub.teamManager.getTeam).mockReturnValue({
+        const teamWithAnonymization = {
             ...teamTwo,
-            // @ts-expect-error TODO: Check if prop is necessary
             anonymize_ips: true,
-        })
+        }
 
-        const response = await prepareEventStep(runner as EventPipelineRunner, pluginEvent, false, teamTwo)
+        const response = await prepareEventStep(
+            runner as EventPipelineRunner,
+            pluginEvent,
+            false,
+            teamWithAnonymization
+        )
 
         expect(response).toEqual({
             distinctId: 'my_id',
