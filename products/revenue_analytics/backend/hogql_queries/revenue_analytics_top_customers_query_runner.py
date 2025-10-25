@@ -1,5 +1,6 @@
 from posthog.schema import (
     CachedRevenueAnalyticsTopCustomersQueryResponse,
+    DatabaseSchemaManagedViewTableKind,
     ResolvedDateRangeResponse,
     RevenueAnalyticsTopCustomersQuery,
     RevenueAnalyticsTopCustomersQueryResponse,
@@ -13,6 +14,7 @@ from products.revenue_analytics.backend.views import (
     RevenueAnalyticsCustomerView,
     RevenueAnalyticsRevenueItemView,
 )
+from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 
@@ -22,7 +24,9 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner[Revenu
     cached_response: CachedRevenueAnalyticsTopCustomersQueryResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        subqueries = list(self.revenue_subqueries(RevenueAnalyticsRevenueItemView))
+        subqueries = list(
+            self.revenue_subqueries(VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM])
+        )
         if not subqueries:
             return ast.SelectQuery.empty(columns=["customer_id", "name", "amount", "month"])
 
@@ -66,7 +70,9 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner[Revenu
             limit_by=ast.LimitByExpr(n=ast.Constant(value=20), exprs=[ast.Field(chain=["month"])]),
         )
 
-        customer_views = self.revenue_subqueries(RevenueAnalyticsCustomerView)
+        customer_views = self.revenue_subqueries(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER]
+        )
         customer_view = next(
             (customer_view for customer_view in customer_views if customer_view.prefix == view.prefix), None
         )
