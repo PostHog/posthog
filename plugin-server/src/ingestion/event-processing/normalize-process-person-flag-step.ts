@@ -1,17 +1,26 @@
+import { EventHeaders, PipelineEvent } from '../../types'
 import { normalizeProcessPerson } from '../../utils/event'
-import { PerDistinctIdPipelineInput } from '../ingestion-consumer'
 import { PipelineWarning } from '../pipelines/pipeline.interface'
 import { PipelineResult, drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
-import { EventPipelineRunnerInput } from './event-pipeline-runner-v1-step'
 
-export function createNormalizeProcessPersonFlagStep(): ProcessingStep<
-    PerDistinctIdPipelineInput,
-    EventPipelineRunnerInput
+export interface NormalizeProcessPersonFlagStepInput {
+    event: PipelineEvent
+    headers: EventHeaders
+}
+
+export type NormalizeProcessPersonFlagStepOutput<T> = T & {
+    processPerson: boolean
+    forceDisablePersonProcessing: boolean
+}
+
+export function createNormalizeProcessPersonFlagStep<T extends NormalizeProcessPersonFlagStepInput>(): ProcessingStep<
+    T,
+    NormalizeProcessPersonFlagStepOutput<T>
 > {
     return function normalizeProcessPersonFlagStep(
-        input: PerDistinctIdPipelineInput
-    ): Promise<PipelineResult<EventPipelineRunnerInput>> {
+        input: T
+    ): Promise<PipelineResult<NormalizeProcessPersonFlagStepOutput<T>>> {
         const event = input.event
         const warnings: PipelineWarning[] = []
         const forceDisablePersonProcessing = input.headers.force_disable_person_processing === true

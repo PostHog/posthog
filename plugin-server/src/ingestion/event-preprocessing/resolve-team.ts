@@ -10,6 +10,11 @@ type ResolveTeamError = { error: true; cause: 'no_token' | 'invalid_token' }
 type ResolveTeamSuccess = { error: false; eventWithTeam: IncomingEventWithTeam }
 type ResolveTeamResult = ResolveTeamSuccess | ResolveTeamError
 
+export type ResolveTeamStepOutput = {
+    eventWithTeam: IncomingEventWithTeam
+    team: IncomingEventWithTeam['team']
+}
+
 async function resolveTeam(
     hub: Pick<Hub, 'teamManager'>,
     message: Message,
@@ -58,7 +63,7 @@ async function resolveTeam(
 
 export function createResolveTeamStep<T extends { message: Message; headers: EventHeaders; event: IncomingEvent }>(
     hub: Hub
-): ProcessingStep<T, T & { eventWithTeam: IncomingEventWithTeam }> {
+): ProcessingStep<T, T & ResolveTeamStepOutput> {
     return async function resolveTeamStep(input) {
         const { message, headers, event } = input
 
@@ -68,6 +73,6 @@ export function createResolveTeamStep<T extends { message: Message; headers: Eve
             return drop(result.cause)
         }
 
-        return ok({ ...input, eventWithTeam: result.eventWithTeam })
+        return ok({ ...input, eventWithTeam: result.eventWithTeam, team: result.eventWithTeam.team })
     }
 }

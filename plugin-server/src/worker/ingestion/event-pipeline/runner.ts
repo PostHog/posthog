@@ -55,41 +55,176 @@ class StepErrorNoRetry extends Error {
         this.args = args
     }
 }
-export class EventPipelineRunner {
+
+/**
+ * Base class for event pipeline runners with shared functionality.
+ */
+abstract class BaseEventPipelineRunner {
     hub: Hub
     originalEvent: PipelineEvent
     eventsProcessor: EventsProcessor
     hogTransformer: HogTransformerService | null
-    personsStoreForBatch: PersonsStoreForBatch
-    groupStoreForBatch: GroupStoreForBatch
-    mergeMode: MergeMode
     headers?: EventHeaders
 
     constructor(
         hub: Hub,
         event: PipelineEvent,
         hogTransformer: HogTransformerService | null = null,
-        personsStoreForBatch: PersonsStoreForBatch,
-        groupStoreForBatch: GroupStoreForBatch,
         headers?: EventHeaders
     ) {
         this.hub = hub
         this.originalEvent = event
         this.eventsProcessor = new EventsProcessor(hub)
         this.hogTransformer = hogTransformer
-        this.personsStoreForBatch = personsStoreForBatch
-        this.groupStoreForBatch = groupStoreForBatch
-        this.mergeMode = determineMergeMode(hub)
         this.headers = headers
     }
 
-    /**
-     * Heatmap ingestion will eventually be its own plugin server deployment
-     * in the meantime we run this set of steps instead of wrapping each step in a conditional
-     * in the main pipeline steps runner
-     * or having a conditional inside each step
-     * // TODO move this out into its own pipeline runner when splitting the deployment
-     */
+    registerLastStep<T extends object>(stepName: string, result: T): RunnerResult<T> {
+        pipelineLastStepCounter.labels(stepName).inc()
+        return {
+            ...result,
+            lastStep: stepName,
+        }
+    }
+
+    private reportStalled(stepName: string) {
+        pipelineStepStalledCounter.labels(stepName).inc()
+    }
+
+    protected async runStep<T, Step extends (...args: any[]) => Promise<T>>(
+        step: Step,
+        args: Parameters<Step>,
+        teamId: number,
+        sentToDql = true,
+        kafkaAcks: Promise<unknown>[] = [],
+        warnings: PipelineWarning[] = []
+    ): Promise<PipelineResult<T>> {
+        const timer = new Date()
+        const sendException = false
+        const timeout = timeoutGuard(
+            `Event pipeline step stalled. Timeout warning after ${this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT} sec! step=${step.name} team_id=${teamId} distinct_id=${this.originalEvent.distinct_id}`,
+            () => ({
+                step: step.name,
+                teamId: teamId,
+                event_name: this.originalEvent.event,
+                distinctId: this.originalEvent.distinct_id,
+            }),
+            this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT * 1000,
+            sendException,
+            this.reportStalled.bind(this, step.name)
+        )
+        try {
+            const result = await step(...args)
+            pipelineStepMsSummary.labels(step.name).observe(Date.now() - timer.getTime())
+            return ok(result, [], warnings)
+        } catch (err) {
+            return this.mapError<T>(err, step.name, args, teamId, sentToDql, kafkaAcks, warnings)
+        } finally {
+            clearTimeout(timeout)
+        }
+    }
+
+    protected async runPipelineStep<T, Step extends (...args: any[]) => Promise<PipelineResult<T>>>(
+        step: Step,
+        args: Parameters<Step>,
+        teamId: number,
+        sentToDql = true,
+        kafkaAcks: Promise<unknown>[] = [],
+        warnings: PipelineWarning[] = []
+    ): Promise<PipelineResult<T>> {
+        const timer = new Date()
+        const sendException = false
+        const timeout = timeoutGuard(
+            `Event pipeline step stalled. Timeout warning after ${this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT} sec! step=${step.name} team_id=${teamId} distinct_id=${this.originalEvent.distinct_id}`,
+            () => ({
+                step: step.name,
+                teamId: teamId,
+                event_name: this.originalEvent.event,
+                distinctId: this.originalEvent.distinct_id,
+            }),
+            this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT * 1000,
+            sendException,
+            this.reportStalled.bind(this, step.name)
+        )
+        try {
+            const result = await step(...args)
+            pipelineStepMsSummary.labels(step.name).observe(Date.now() - timer.getTime())
+            // Merge incoming warnings with warnings from the step result
+            if (warnings.length > 0) {
+                return {
+                    ...result,
+                    warnings: [...warnings, ...result.warnings],
+                }
+            }
+            return result
+        } catch (err) {
+            return this.mapError<T>(err, step.name, args, teamId, sentToDql, kafkaAcks, warnings)
+        } finally {
+            clearTimeout(timeout)
+        }
+    }
+
+    private shouldRetry(err: any): boolean {
+        if (err instanceof DependencyUnavailableError) {
+            // If this is an error with a dependency that we control, we want to
+            // ensure that the caller knows that the event was not processed,
+            // for a reason that we control and that is transient.
+            return true
+        }
+        // Drop events for known non-retryable person merge limit condition
+        if (err instanceof PersonMergeLimitExceededError) {
+            return false
+        }
+        // TODO: Disallow via env of errors we're going to put into DLQ instead of taking Kafka lag
+        return false
+    }
+
+    private mapError<T>(
+        err: any,
+        currentStepName: string,
+        currentArgs: any,
+        teamId: number,
+        sendToDlq: boolean,
+        kafkaAcks: Promise<unknown>[] = [],
+        warnings: PipelineWarning[] = []
+    ): PipelineResult<T> {
+        logger.error('🔔', 'step_failed', { currentStepName, err })
+        captureException(err, {
+            tags: { team_id: teamId, pipeline_step: currentStepName },
+            extra: { currentArgs, originalEvent: this.originalEvent },
+        })
+
+        pipelineStepErrorCounter.labels(currentStepName).inc()
+
+        // Should we throw or should we drop and send the event to DLQ.
+        if (this.shouldRetry(err)) {
+            pipelineStepThrowCounter.labels(currentStepName).inc()
+            throw err
+        }
+
+        if (sendToDlq) {
+            return dlq<T>(`Step error - ${currentStepName}`, err, kafkaAcks, warnings)
+        }
+
+        // These errors are dropped rather than retried - throw StepErrorNoRetry which will be caught at the pipeline level
+        throw new StepErrorNoRetry(currentStepName, currentArgs, err.message)
+    }
+}
+
+/**
+ * Heatmap event pipeline runner that processes $$heatmap events.
+ * Does not require person or group stores since heatmap events don't update persons.
+ */
+export class EventPipelineHeatmapRunner extends BaseEventPipelineRunner {
+    constructor(
+        hub: Hub,
+        event: PipelineEvent,
+        hogTransformer: HogTransformerService | null = null,
+        headers?: EventHeaders
+    ) {
+        super(hub, event, hogTransformer, headers)
+    }
+
     async runHeatmapPipelineSteps(
         normalizedEvent: PluginEvent,
         timestamp: DateTime,
@@ -108,7 +243,6 @@ export class EventPipelineRunner {
             warnings
         )
         if (!isOkResult(prepareResult)) {
-            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
             return prepareResult
         }
         const preparedEvent = prepareResult.value
@@ -145,6 +279,30 @@ export class EventPipelineRunner {
                 throw error
             }
         }
+    }
+}
+
+/**
+ * Analytics event pipeline runner that processes regular events.
+ * Requires person and group stores for person processing.
+ */
+export class EventPipelineRunner extends BaseEventPipelineRunner {
+    personsStoreForBatch: PersonsStoreForBatch
+    groupStoreForBatch: GroupStoreForBatch
+    mergeMode: MergeMode
+
+    constructor(
+        hub: Hub,
+        event: PipelineEvent,
+        hogTransformer: HogTransformerService | null = null,
+        personsStoreForBatch: PersonsStoreForBatch,
+        groupStoreForBatch: GroupStoreForBatch,
+        headers?: EventHeaders
+    ) {
+        super(hub, event, hogTransformer, headers)
+        this.personsStoreForBatch = personsStoreForBatch
+        this.groupStoreForBatch = groupStoreForBatch
+        this.mergeMode = determineMergeMode(hub)
     }
 
     async runEventPipeline(
@@ -286,136 +444,5 @@ export class EventPipelineRunner {
         })
 
         return ok(result, kafkaAcks, warnings)
-    }
-
-    registerLastStep<T extends object>(stepName: string, result: T): RunnerResult<T> {
-        pipelineLastStepCounter.labels(stepName).inc()
-        return {
-            ...result,
-            lastStep: stepName,
-        }
-    }
-
-    private reportStalled(stepName: string) {
-        pipelineStepStalledCounter.labels(stepName).inc()
-    }
-
-    protected async runStep<T, Step extends (...args: any[]) => Promise<T>>(
-        step: Step,
-        args: Parameters<Step>,
-        teamId: number,
-        sentToDql = true,
-        kafkaAcks: Promise<unknown>[] = [],
-        warnings: PipelineWarning[] = []
-    ): Promise<PipelineResult<T>> {
-        const timer = new Date()
-        const sendException = false
-        const timeout = timeoutGuard(
-            `Event pipeline step stalled. Timeout warning after ${this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT} sec! step=${step.name} team_id=${teamId} distinct_id=${this.originalEvent.distinct_id}`,
-            () => ({
-                step: step.name,
-                teamId: teamId,
-                event_name: this.originalEvent.event,
-                distinctId: this.originalEvent.distinct_id,
-            }),
-            this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT * 1000,
-            sendException,
-            this.reportStalled.bind(this, step.name)
-        )
-        try {
-            const result = await step(...args)
-            pipelineStepMsSummary.labels(step.name).observe(Date.now() - timer.getTime())
-            return ok(result, [], warnings)
-        } catch (err) {
-            return this.mapError<T>(err, step.name, args, teamId, sentToDql, kafkaAcks, warnings)
-        } finally {
-            clearTimeout(timeout)
-        }
-    }
-
-    protected async runPipelineStep<T, Step extends (...args: any[]) => Promise<PipelineResult<T>>>(
-        step: Step,
-        args: Parameters<Step>,
-        teamId: number,
-        sentToDql = true,
-        kafkaAcks: Promise<unknown>[] = [],
-        warnings: PipelineWarning[] = []
-    ): Promise<PipelineResult<T>> {
-        const timer = new Date()
-        const sendException = false
-        const timeout = timeoutGuard(
-            `Event pipeline step stalled. Timeout warning after ${this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT} sec! step=${step.name} team_id=${teamId} distinct_id=${this.originalEvent.distinct_id}`,
-            () => ({
-                step: step.name,
-                teamId: teamId,
-                event_name: this.originalEvent.event,
-                distinctId: this.originalEvent.distinct_id,
-            }),
-            this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT * 1000,
-            sendException,
-            this.reportStalled.bind(this, step.name)
-        )
-        try {
-            const result = await step(...args)
-            pipelineStepMsSummary.labels(step.name).observe(Date.now() - timer.getTime())
-            // Merge incoming warnings with warnings from the step result
-            if (warnings.length > 0) {
-                return {
-                    ...result,
-                    warnings: [...warnings, ...result.warnings],
-                }
-            }
-            return result
-        } catch (err) {
-            return this.mapError<T>(err, step.name, args, teamId, sentToDql, kafkaAcks, warnings)
-        } finally {
-            clearTimeout(timeout)
-        }
-    }
-
-    private shouldRetry(err: any): boolean {
-        if (err instanceof DependencyUnavailableError) {
-            // If this is an error with a dependency that we control, we want to
-            // ensure that the caller knows that the event was not processed,
-            // for a reason that we control and that is transient.
-            return true
-        }
-        // Drop events for known non-retryable person merge limit condition
-        if (err instanceof PersonMergeLimitExceededError) {
-            return false
-        }
-        // TODO: Disallow via env of errors we're going to put into DLQ instead of taking Kafka lag
-        return false
-    }
-
-    private mapError<T>(
-        err: any,
-        currentStepName: string,
-        currentArgs: any,
-        teamId: number,
-        sendToDlq: boolean,
-        kafkaAcks: Promise<unknown>[] = [],
-        warnings: PipelineWarning[] = []
-    ): PipelineResult<T> {
-        logger.error('🔔', 'step_failed', { currentStepName, err })
-        captureException(err, {
-            tags: { team_id: teamId, pipeline_step: currentStepName },
-            extra: { currentArgs, originalEvent: this.originalEvent },
-        })
-
-        pipelineStepErrorCounter.labels(currentStepName).inc()
-
-        // Should we throw or should we drop and send the event to DLQ.
-        if (this.shouldRetry(err)) {
-            pipelineStepThrowCounter.labels(currentStepName).inc()
-            throw err
-        }
-
-        if (sendToDlq) {
-            return dlq<T>(`Step error - ${currentStepName}`, err, kafkaAcks, warnings)
-        }
-
-        // These errors are dropped rather than retried - throw StepErrorNoRetry which will be caught at the pipeline level
-        throw new StepErrorNoRetry(currentStepName, currentArgs, err.message)
     }
 }
