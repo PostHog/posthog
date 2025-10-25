@@ -1085,7 +1085,7 @@ async def build_dag_from_selectors(selector_paths: SelectorPaths, team_id: int) 
     ever does happen, some solution involving another level of indirection by storing
     indexes to a list of nodes could be implemented. Good luck!
     """
-    posthog_tables = await get_posthog_tables(team_id)
+    posthog_table_names = await get_posthog_table_names(team_id)
     dag = {}
 
     for selector, paths in selector_paths.items():
@@ -1119,7 +1119,7 @@ async def build_dag_from_selectors(selector_paths: SelectorPaths, team_id: int) 
 
                 if (
                     (index == label_index or end >= index >= start)
-                    and label not in posthog_tables
+                    and label not in posthog_table_names
                     and node.selected is False
                 ):
                     node = dag[label] = node.as_selected(True)
@@ -1135,11 +1135,11 @@ async def build_dag_from_selectors(selector_paths: SelectorPaths, team_id: int) 
     return dag
 
 
-async def get_posthog_tables(team_id: int) -> list[str]:
+async def get_posthog_table_names(team_id: int) -> list[str]:
     team = await database_sync_to_async(Team.objects.get)(id=team_id)
     hogql_db = await database_sync_to_async(create_hogql_database)(team=team)
-    posthog_tables = hogql_db.get_posthog_tables()
-    return posthog_tables
+    posthog_table_names = hogql_db.get_posthog_table_names()
+    return posthog_table_names
 
 
 @dataclasses.dataclass

@@ -106,8 +106,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
 
-        tables = database.get_posthog_tables()
-        for table_name in tables:
+        posthog_table_names = database.get_posthog_table_names()
+        for table_name in posthog_table_names:
             assert serialized_database.get(table_name) is not None
 
     def test_serialize_database_deleted_saved_query(self):
@@ -452,7 +452,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
         db = create_hogql_database(team=self.team)
 
-        assert db.events.fields["test"] == FieldTraverser(chain=["group_0"])
+        assert db.get_table("events").fields["test"] == FieldTraverser(chain=["group_0"])
 
     def test_database_group_type_mappings_overwrite(self):
         create_group_type_mapping_without_created_at(
@@ -460,12 +460,14 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
         db = create_hogql_database(team=self.team)
 
-        assert db.events.fields["event"] == StringDatabaseField(name="event", nullable=False)
+        assert db.get_table("events").fields["event"] == StringDatabaseField(name="event", nullable=False)
 
     def test_database_expression_fields(self):
         db = create_hogql_database(team=self.team)
-        db.numbers.fields["expression"] = ExpressionField(name="expression", expr=parse_expr("1 + 1"))
-        db.numbers.fields["double"] = ExpressionField(name="double", expr=parse_expr("number * 2"))
+
+        numbers_table = db.get_table("numbers")
+        numbers_table.fields["expression"] = ExpressionField(name="expression", expr=parse_expr("1 + 1"))
+        numbers_table.fields["double"] = ExpressionField(name="double", expr=parse_expr("number * 2"))
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
@@ -591,7 +593,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             database=db,
         )
 
-        pdi = cast(LazyJoin, db.events.fields["pdi"])
+        pdi = cast(LazyJoin, db.get_table("events").fields["pdi"])
         pdi_persons_join = cast(LazyJoin, pdi.resolve_table(context).fields["person"])
         pdi_table = pdi_persons_join.resolve_table(context)
 
@@ -617,7 +619,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             database=db,
         )
 
-        poe = cast(Table, db.events.fields["poe"])
+        poe = cast(Table, db.get_table("events").fields["poe"])
 
         assert poe.fields["some_field"] is not None
 
@@ -642,7 +644,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             database=db,
         )
 
-        poe = cast(Table, db.events.fields["poe"])
+        poe = cast(Table, db.get_table("events").fields["poe"])
 
         assert poe.fields["some_field"] is not None
 
@@ -671,7 +673,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             database=db,
         )
 
-        poe = cast(Table, db.events.fields["poe"])
+        poe = cast(Table, db.get_table("events").fields["poe"])
 
         assert poe.fields["some_field"] is not None
 
@@ -823,7 +825,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             database=db,
         )
 
-        person_on_event_table = cast(LazyJoin, db.events.fields["person"])
+        person_on_event_table = cast(LazyJoin, db.get_table("events").fields["person"])
         assert "some_field" in person_on_event_table.join_table.fields.keys()  # type: ignore
 
         prepare_and_print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")
@@ -1106,8 +1108,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     def test_team_id_on_all_tables(self):
         db = create_hogql_database(team=self.team)
 
-        tables = db.get_all_tables()
-        for table_name in tables:
+        table_names = db.get_all_table_names()
+        for table_name in table_names:
             table = db.get_table(table_name)
             assert table is not None
             assert isinstance(table, Table)

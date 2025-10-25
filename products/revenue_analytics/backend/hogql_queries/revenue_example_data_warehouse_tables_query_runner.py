@@ -30,7 +30,7 @@ class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunnerWithHogQLContext):
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         queries: list[ast.SelectQuery] = []
-        for view_name in self.database.get_views():
+        for view_name in self.database.get_view_names():
             view = self.database.get_table(view_name)
             if isinstance(view, RevenueAnalyticsRevenueItemView) and not view.is_event_view() and not view.union_all:
                 view = cast(RevenueAnalyticsRevenueItemView, view)

@@ -1151,7 +1151,7 @@ class TestPrinter(BaseTest):
             self._select("select 1 from events"),
             f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
-        self._assert_select_error("select 1 from other", 'Unknown table "other".')
+        self._assert_select_error("select 1 from other", "Unknown table `other`.")
 
     def test_select_from_placeholder(self):
         self.assertEqual(
@@ -1480,7 +1480,7 @@ class TestPrinter(BaseTest):
             enable_select_queries=True,
             database=Database(None, WeekStartDay.SUNDAY),
         )
-        context.database.events.fields["test_date"] = DateDatabaseField(name="test_date")  # type: ignore
+        context.database.get_table("events").fields["test_date"] = DateDatabaseField(name="test_date")  # type: ignore
 
         self.assertEqual(
             self._select(
@@ -1903,7 +1903,9 @@ class TestPrinter(BaseTest):
 
     def test_field_nullable_like(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
-        context.database.events.fields["nullable_field"] = StringDatabaseField(name="nullable_field", nullable=True)  # type: ignore
+        context.database.get_table("events").fields["nullable_field"] = StringDatabaseField(  # type: ignore
+            name="nullable_field", nullable=True
+        )
         generated_sql_statements1 = self._select(
             "SELECT "
             "nullable_field like 'a' as a, "
@@ -1917,7 +1919,9 @@ class TestPrinter(BaseTest):
         )
 
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
-        context.database.events.fields["nullable_field"] = StringDatabaseField(name="nullable_field", nullable=True)  # type: ignore
+        context.database.get_table("events").fields["nullable_field"] = StringDatabaseField(  # type: ignore
+            name="nullable_field", nullable=True
+        )
         generated_sql_statements2 = self._select(
             "SELECT "
             "like(nullable_field, 'a') as a, "
@@ -1949,7 +1953,9 @@ class TestPrinter(BaseTest):
 
     def test_field_nullable_not_like(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
-        context.database.events.fields["nullable_field"] = StringDatabaseField(name="nullable_field", nullable=True)  # type: ignore
+        context.database.get_table("events").fields["nullable_field"] = StringDatabaseField(  # type: ignore
+            name="nullable_field", nullable=True
+        )
         generated_sql_statements1 = self._select(
             "SELECT "
             "nullable_field not like 'a' as a, "
@@ -1963,7 +1969,9 @@ class TestPrinter(BaseTest):
         )
 
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
-        context.database.events.fields["nullable_field"] = StringDatabaseField(name="nullable_field", nullable=True)  # type: ignore
+        context.database.get_table("events").fields["nullable_field"] = StringDatabaseField(  # type: ignore
+            name="nullable_field", nullable=True
+        )
         generated_sql_statements2 = self._select(
             "SELECT "
             "notLike(nullable_field, 'a') as a, "
@@ -2366,7 +2374,7 @@ class TestPrinter(BaseTest):
             enable_select_queries=True,
             database=Database(None, WeekStartDay.SUNDAY),
         )
-        context.database.events.fields["test_date"] = DateDatabaseField(name="test_date")  # type: ignore
+        context.database.get_table("events").fields["test_date"] = DateDatabaseField(name="test_date")  # type: ignore
 
         self.assertEqual(
             self._select(
