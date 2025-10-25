@@ -35,9 +35,10 @@ depends_on = [
     "products.llm_analytics",
     "products.marketing_analytics",
     "products.endpoints",
-
     "products.error_tracking",
-    "products.notebooks",]
+    "products.notebooks",
+    "products.live_debugger",
+]
 
 [[modules]]
 path = "products.early_access_features"
@@ -69,4 +70,8 @@ depends_on = ["posthog"]
 
 [[modules]]
 path = "products.notebooks"
+depends_on = ["posthog"]
+
+[[modules]]
+path = "products.live_debugger"
 depends_on = ["posthog"]

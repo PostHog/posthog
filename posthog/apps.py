@@ -18,6 +18,7 @@ logger = structlog.get_logger(__name__)
 class PostHogConfig(AppConfig):
     name = "posthog"
     verbose_name = "PostHog"
+    _libdebugger_manager = None
 
     def ready(self):
         self._setup_lazy_admin()
@@ -46,6 +47,7 @@ class PostHogConfig(AppConfig):
             )
             if settings.SERVER_GATEWAY_INTERFACE == "WSGI":
                 async_to_sync(initialize_self_capture_api_token)()
+
             # log development server launch to posthog
             if os.getenv("RUN_MAIN") == "true":
                 # Sync all organization.available_product_features once on launch, in case plans changed
@@ -59,6 +61,17 @@ class PostHogConfig(AppConfig):
                     event="development server launched",
                     properties={"git_rev": get_git_commit_short(), "git_branch": get_git_branch()},
                 )
+
+        from libdebugger import LiveDebuggerManager
+
+        self._libdebugger_manager = LiveDebuggerManager(
+            Client(
+                posthoganalytics.api_key, personal_api_key=posthoganalytics.personal_api_key, host=posthoganalytics.host
+            )
+        )
+        self._libdebugger_manager.start()
+        logger.info("Setup LibDebugger")
+
         # load feature flag definitions if not already loaded
         if not posthoganalytics.disabled and posthoganalytics.feature_flag_definitions() is None:
             posthoganalytics.load_feature_flags()
