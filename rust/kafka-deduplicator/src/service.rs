@@ -105,7 +105,9 @@ impl KafkaDeduplicatorService {
             max_concurrent_checkpoints: config.max_concurrent_checkpoints,
             checkpoint_gate_interval: config.checkpoint_gate_interval(),
             checkpoint_worker_shutdown_timeout: config.checkpoint_worker_shutdown_timeout(),
-            s3_timeout: config.s3_timeout(),
+            checkpoint_import_window_hours: config.checkpoint_import_window_hours,
+            s3_operation_timeout: config.s3_operation_timeout(),
+            s3_attempt_timeout: config.s3_attempt_timeout(),
         };
 
         // Reset local checkpoint directory on startup (it's temporary storage)
