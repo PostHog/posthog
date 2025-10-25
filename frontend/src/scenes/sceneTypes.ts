@@ -9,6 +9,8 @@ import { SettingSectionId } from './settings/types'
 // If so, we can preload the scene's required chunks in parallel with the scene itself.
 
 export enum Scene {
+    ExampleApp = 'ExampleApp',
+    ExampleAppDetail = 'ExampleAppDetail',
     Action = 'Action',
     Actions = 'Actions',
     AdvancedActivityLogs = 'AdvancedActivityLogs',
