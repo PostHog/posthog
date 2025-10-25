@@ -62,6 +62,7 @@ describe('cohortEditLogic', () => {
                 '/api/projects/:team/cohorts/:id': mockCohort,
             },
             post: {
+                '/api/projects/:team/cohorts': mockCohort,
                 '/api/projects/:team/cohorts/:id': mockCohort,
             },
             patch: {
@@ -873,7 +874,7 @@ describe('cohortEditLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setCohort(staticCohort)
-                logic.actions.duplicateCohort({ asStatic: true })
+                logic.actions.duplicateCohort(true)
             }).toFinishAllListeners()
 
             expect(api.cohorts.duplicate).toHaveBeenCalledWith(1)
@@ -900,7 +901,7 @@ describe('cohortEditLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setCohort(dynamicCohort)
-                logic.actions.duplicateCohort({ asStatic: true })
+                logic.actions.duplicateCohort(true)
             }).toFinishAllListeners()
 
             expect(api.cohorts.duplicate).toHaveBeenCalledWith(1)
@@ -933,7 +934,7 @@ describe('cohortEditLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setCohort(dynamicCohort)
-                logic.actions.duplicateCohort({ asStatic: false })
+                logic.actions.duplicateCohort(false)
             })
                 .toFinishAllListeners()
                 .toMatchValues({
