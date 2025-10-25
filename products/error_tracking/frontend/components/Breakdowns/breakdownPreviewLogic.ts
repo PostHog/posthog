@@ -11,7 +11,6 @@ export interface BreakdownSinglePropertyStat {
 
 export interface BreakdownPreviewLogicProps {
     dataNodeLogicProps: DataNodeLogicProps
-    limitItems: number
 }
 
 export const breakdownPreviewLogic = kea<breakdownPreviewLogicType>([
@@ -21,7 +20,7 @@ export const breakdownPreviewLogic = kea<breakdownPreviewLogicType>([
     connect((props: BreakdownPreviewLogicProps) => ({
         values: [dataNodeLogic(props.dataNodeLogicProps), ['response', 'responseLoading']],
     })),
-    selectors(({ props }) => ({
+    selectors(() => ({
         properties: [
             (s) => [s.response],
             (response): BreakdownSinglePropertyStat[] => {
@@ -38,7 +37,7 @@ export const breakdownPreviewLogic = kea<breakdownPreviewLogicType>([
                     })
                 }
 
-                return breakdownData.slice(0, props.limitItems)
+                return breakdownData
             },
         ],
         totalCount: [

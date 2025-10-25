@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -12,16 +11,14 @@ import { dateMapping } from 'lib/utils'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
 import { breakdownFiltersLogic } from './breakdownFiltersLogic'
+import { TAXONOMIC_GROUP_TYPES } from './consts'
 import { errorTrackingBreakdownsLogic } from './errorTrackingBreakdownsLogic'
 
-export function BreakdownSearchBar(): JSX.Element {
-    const { dateRange, filterTestAccounts } = useValues(breakdownFiltersLogic)
-    const { setDateRange, setFilterTestAccounts } = useActions(breakdownFiltersLogic)
+export function BreakdownsSearchBar(): JSX.Element {
+    const { dateRange, filterTestAccounts, filterOpen } = useValues(breakdownFiltersLogic)
+    const { setDateRange, setFilterTestAccounts, setFilterOpen } = useActions(breakdownFiltersLogic)
     const { breakdownProperty } = useValues(errorTrackingBreakdownsLogic)
     const { setBreakdownProperty } = useActions(errorTrackingBreakdownsLogic)
-    const [filterOpen, setFilterOpen] = useState(false)
-
-    const taxonomicGroupTypes = [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties]
 
     return (
         <div className="border rounded bg-surface-primary p-3 flex gap-2 items-center">
@@ -46,7 +43,7 @@ export function BreakdownSearchBar(): JSX.Element {
                             }
                             setFilterOpen(false)
                         }}
-                        taxonomicGroupTypes={taxonomicGroupTypes}
+                        taxonomicGroupTypes={TAXONOMIC_GROUP_TYPES}
                     />
                 }
                 visible={filterOpen}

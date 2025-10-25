@@ -4,13 +4,13 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { BreakdownSinglePropertyStat } from './breakdownPreviewLogic'
 
-interface BreakdownStackedBarProps {
+interface BreakdownsStackedBarProps {
     properties: BreakdownSinglePropertyStat[]
     totalCount: number
     propertyName: string
 }
 
-export function BreakdownStackedBar({ properties, totalCount, propertyName }: BreakdownStackedBarProps): JSX.Element {
+export function BreakdownsStackedBar({ properties, totalCount, propertyName }: BreakdownsStackedBarProps): JSX.Element {
     return (
         <div className="flex w-full h-4 rounded overflow-hidden bg-fill-secondary">
             {properties.map((item, index) => {

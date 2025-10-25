@@ -20,6 +20,7 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
+import { LIMIT_ITEMS } from './components/Breakdowns/consts'
 import {
     ERROR_TRACKING_DETAILS_RESOLUTION,
     ERROR_TRACKING_LISTING_RESOLUTION,
@@ -244,7 +245,7 @@ export const errorTrackingIssueBreakdownQuery = ({
             breakdownFilter: {
                 breakdown_type: 'event',
                 breakdown: breakdownProperty,
-                breakdown_limit: 10,
+                breakdown_limit: LIMIT_ITEMS,
             },
             series: [
                 {

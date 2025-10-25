@@ -5,25 +5,12 @@ import { FilterLogicalOperator } from '~/types'
 
 import { errorTrackingIssueBreakdownQuery } from '../../queries'
 import { breakdownFiltersLogic } from './breakdownFiltersLogic'
+import { BREAKDOWN_PRESETS } from './consts'
 import type { errorTrackingBreakdownsLogicType } from './errorTrackingBreakdownsLogicType'
-
-export interface BreakdownPreset {
-    property: string
-    title: string
-}
 
 export interface ErrorTrackingBreakdownsLogicProps {
     id: string
 }
-
-export const BREAKDOWN_PRESETS: BreakdownPreset[] = [
-    { property: '$browser', title: 'Browser' },
-    { property: '$device_type', title: 'Device Type' },
-    { property: '$os', title: 'Operating System' },
-    { property: '$pathname', title: 'Path' },
-    { property: '$user_id', title: 'User ID' },
-    { property: '$ip', title: 'IP Address' },
-]
 
 export const errorTrackingBreakdownsLogic = kea<errorTrackingBreakdownsLogicType>([
     path(['products', 'error_tracking', 'components', 'Breakdowns', 'errorTrackingBreakdownsLogic']),

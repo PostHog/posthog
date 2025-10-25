@@ -27,8 +27,8 @@ import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogi
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { SidePanelTab } from '~/types'
 
-import { BreakdownChart } from '../../components/Breakdowns/BreakdownChart'
-import { BreakdownSearchBar } from '../../components/Breakdowns/BreakdownSearchBar'
+import { BreakdownsChart } from '../../components/Breakdowns/BreakdownsChart'
+import { BreakdownsSearchBar } from '../../components/Breakdowns/BreakdownsSearchBar'
 import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { ErrorFilters } from '../../components/IssueFilters'
@@ -122,8 +122,8 @@ const CategoryContent = (): JSX.Element => {
 
     return category === 'breakdowns' ? (
         <div className="flex flex-col gap-2">
-            <BreakdownSearchBar />
-            <BreakdownChart />
+            <BreakdownsSearchBar />
+            <BreakdownsChart />
         </div>
     ) : exceptionsCategory === 'exception' ? (
         <ExceptionCard

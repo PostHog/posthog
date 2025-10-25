@@ -8,9 +8,7 @@ import { DateRange } from '~/queries/schema/schema-general'
 
 import { syncSearchParams, updateSearchParams } from '../../utils'
 import type { breakdownFiltersLogicType } from './breakdownFiltersLogicType'
-
-const DEFAULT_DATE_RANGE = { date_from: '-7d', date_to: null }
-const DEFAULT_TEST_ACCOUNT = false
+import { DEFAULT_DATE_RANGE, DEFAULT_TEST_ACCOUNT } from './consts'
 
 export const breakdownFiltersLogic = kea<breakdownFiltersLogicType>([
     path(['products', 'error_tracking', 'components', 'Breakdowns', 'breakdownFiltersLogic']),
@@ -18,6 +16,7 @@ export const breakdownFiltersLogic = kea<breakdownFiltersLogicType>([
     actions({
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
         setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
+        setFilterOpen: (filterOpen: boolean) => ({ filterOpen }),
     }),
     reducers({
         dateRange: [
@@ -32,6 +31,12 @@ export const breakdownFiltersLogic = kea<breakdownFiltersLogicType>([
             { persist: true },
             {
                 setFilterTestAccounts: (_, { filterTestAccounts }) => filterTestAccounts,
+            },
+        ],
+        filterOpen: [
+            false as boolean,
+            {
+                setFilterOpen: (_, { filterOpen }) => filterOpen,
             },
         ],
     }),

@@ -10,19 +10,21 @@ import { FilterLogicalOperator } from '~/types'
 
 import { errorTrackingIssueBreakdownQuery } from '../../queries'
 import { errorTrackingIssueSceneLogic } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
-import { BreakdownStackedBar } from './BreakdownStackedBar'
+import { BreakdownsStackedBar } from './BreakdownsStackedBar'
 import { breakdownFiltersLogic } from './breakdownFiltersLogic'
 import { breakdownPreviewLogic } from './breakdownPreviewLogic'
-import { POSTHOG_BREAKDOWN_NULL_VALUE } from './consts'
-import { BreakdownPreset, errorTrackingBreakdownsLogic } from './errorTrackingBreakdownsLogic'
+import {
+    BreakdownPreset,
+    ERROR_TRACKING_BREAKDOWNS_DATA_COLLECTION_NODE_ID,
+    POSTHOG_BREAKDOWN_NULL_VALUE,
+} from './consts'
+import { errorTrackingBreakdownsLogic } from './errorTrackingBreakdownsLogic'
 
-interface BreakdownTileButtonProps {
+interface BreakdownsTileButtonProps {
     item: BreakdownPreset
 }
 
-export const ERROR_TRACKING_BREAKDOWNS_DATA_COLLECTION_NODE_ID = 'error-tracking-breakdowns'
-
-export function BreakdownTileButton({ item }: BreakdownTileButtonProps): JSX.Element {
+export function BreakdownsTileButton({ item }: BreakdownsTileButtonProps): JSX.Element {
     const { dateRange, filterTestAccounts } = useValues(breakdownFiltersLogic)
     const { breakdownProperty, issueId } = useValues(errorTrackingBreakdownsLogic)
     const { setBreakdownProperty } = useActions(errorTrackingBreakdownsLogic)
@@ -55,8 +57,6 @@ export function BreakdownTileButton({ item }: BreakdownTileButtonProps): JSX.Ele
     )
 }
 
-const LIMIT_ITEMS = 3
-
 function BreakdownPreview({
     query,
     title,
@@ -72,7 +72,7 @@ function BreakdownPreview({
         key: key,
         dataNodeCollectionId: ERROR_TRACKING_BREAKDOWNS_DATA_COLLECTION_NODE_ID,
     }
-    const logic = breakdownPreviewLogic({ dataNodeLogicProps, limitItems: LIMIT_ITEMS })
+    const logic = breakdownPreviewLogic({ dataNodeLogicProps })
     const { properties, totalCount, responseLoading } = useValues(logic)
 
     const hasOnlyNullBreakdown = properties.length === 1 && properties[0].label === POSTHOG_BREAKDOWN_NULL_VALUE
@@ -88,7 +88,7 @@ function BreakdownPreview({
                 ) : properties.length === 0 || hasOnlyNullBreakdown ? (
                     <div className="text-muted text-xs h-4 flex items-center justify-center">No data</div>
                 ) : (
-                    <BreakdownStackedBar properties={properties} totalCount={totalCount} propertyName={property} />
+                    <BreakdownsStackedBar properties={properties} totalCount={totalCount} propertyName={property} />
                 )}
             </div>
         </div>

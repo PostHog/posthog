@@ -4,7 +4,7 @@ import { Query } from '~/queries/Query/Query'
 
 import { errorTrackingBreakdownsLogic } from './errorTrackingBreakdownsLogic'
 
-export function BreakdownChart(): JSX.Element {
+export function BreakdownsChart(): JSX.Element {
     const { breakdownQuery } = useValues(errorTrackingBreakdownsLogic)
 
     return (
