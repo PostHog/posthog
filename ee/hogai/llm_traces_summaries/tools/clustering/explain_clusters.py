@@ -1,7 +1,6 @@
 import os
 import json
-from dataclasses import asdict, dataclass
-from pathlib import Path
+from dataclasses import dataclass
 from typing import Any
 
 import structlog
@@ -34,7 +33,7 @@ class ClusterizedSuggestion:
 @dataclass(frozen=True)
 class ClusterizedSuggestionsGroup:
     suggestions: list[ClusterizedSuggestion]
-    avg_distance: float
+    avg_similarity: float
     cluster_label: str
 
 
@@ -52,15 +51,10 @@ class ClusterExplainer:
 
     def explain_clusters(self) -> dict[str, ExplainedClusterizedSuggestionsGroup]:
         enriched_clusters: dict[str, ClusterizedSuggestionsGroup] = {}
-        # limit = 5
-        # processed_count = 0
         for cluster_label, cluster_raw in self._groups_raw.items():
             enriched_clusters[cluster_label] = self._enrich_cluster_with_trace_ids(
                 cluster_raw=cluster_raw, cluster_label=cluster_label
             )
-            # processed_count += 1
-            # if processed_count >= limit:
-            #     break
         named_clusters = self._name_clusters(enriched_clusters)
         # Sort clusters to show the best ones first
         sorted_named_clusters = self.sort_named_clusters(named_clusters)
@@ -85,7 +79,7 @@ class ClusterExplainer:
             current_cluster = enriched_clusters[label]
             named_clusters[label] = ExplainedClusterizedSuggestionsGroup(
                 suggestions=current_cluster.suggestions,
-                avg_distance=current_cluster.avg_distance,
+                avg_similarity=current_cluster.avg_similarity,
                 cluster_label=current_cluster.cluster_label,
                 name=result,
             )
@@ -108,14 +102,14 @@ class ClusterExplainer:
         self, cluster_raw: dict[str, Any], cluster_label: str
     ) -> ClusterizedSuggestionsGroup:
         try:
-            avg_distance: float = cluster_raw["avg_distance"]
+            avg_similarity: float = cluster_raw["avg_similarity"]
             suggestions: list[str] = cluster_raw["suggestions"]
             suggestions_with_trace_ids: list[ClusterizedSuggestion] = []
             for suggestion in suggestions:
                 trace_id = self._summaries_to_trace_ids_mapping[suggestion]
                 suggestions_with_trace_ids.append(ClusterizedSuggestion(summary=suggestion, trace_id=trace_id))
             return ClusterizedSuggestionsGroup(
-                suggestions=suggestions_with_trace_ids, avg_distance=avg_distance, cluster_label=cluster_label
+                suggestions=suggestions_with_trace_ids, avg_similarity=avg_similarity, cluster_label=cluster_label
             )
         except Exception as err:
             raise ValueError(f"Error enriching cluster {cluster_label} with trace IDs: {err}") from err
@@ -124,30 +118,11 @@ class ClusterExplainer:
     def sort_named_clusters(
         named_clusters: dict[str, ExplainedClusterizedSuggestionsGroup],
     ) -> dict[str, ExplainedClusterizedSuggestionsGroup]:
-        # Sort named clusters by the average distance
+        # Sort named clusters by the average similarity
         return dict(
             sorted(  # type: ignore
                 named_clusters.items(),
-                key=lambda item: item[1].avg_distance,  # type: ignore
+                key=lambda item: item[1].avg_similarity,  # type: ignore
                 reverse=True,
             )
         )
-
-
-if __name__ == "__main__":
-    input_groups_dir_path = Path("/Users/woutut/Documents/Code/posthog/playground/traces-summarization/groups")
-    with open(input_groups_dir_path / "groups_25_all.json") as f:
-        input_groups_raw: dict[str, Any] = json.load(f)
-    with open(input_groups_dir_path / "summaries_to_trace_ids_mapping_25.json") as f:
-        input_summaries_to_trace_ids_mapping: dict[str, str] = json.load(f)
-    cluster_explainer = ClusterExplainer(
-        # Using Flash Lite model as an experiment, but it seems to work pretty good
-        model_id="gemini-2.5-flash-lite-preview-09-2025",
-        groups_raw=input_groups_raw,
-        summaries_to_trace_ids_mapping=input_summaries_to_trace_ids_mapping,
-    )
-    output_clusters = cluster_explainer.explain_clusters()
-    output_clusters_path = input_groups_dir_path / "explained_clusters_25.json"
-    with open(output_clusters_path, "w") as f:
-        json.dump({key: asdict(value) for key, value in output_clusters.items()}, f)
-    logger.info(f"Explained {len(output_clusters)} clusters")
