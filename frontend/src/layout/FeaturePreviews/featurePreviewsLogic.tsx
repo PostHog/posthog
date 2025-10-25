@@ -4,6 +4,7 @@ import { EarlyAccessFeature, posthog } from 'posthog-js'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FeatureFlagKey } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
@@ -79,7 +80,11 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
     }),
     listeners(() => ({
         updateEarlyAccessFeatureEnrollment: ({ flagKey, enabled, stage }) => {
-            posthog.updateEarlyAccessFeatureEnrollment(flagKey, enabled, stage)
+            if (window.IMPERSONATED_SESSION) {
+                lemonToast.error('Cannot update early access feature enrollment while impersonating a user')
+            } else {
+                posthog.updateEarlyAccessFeatureEnrollment(flagKey, enabled, stage)
+            }
         },
         copyExternalFeaturePreviewLink: ({ flagKey }) => {
             void copyToClipboard(urls.absolute(`/settings/user-feature-previews#${flagKey}`))
