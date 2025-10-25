@@ -61,7 +61,7 @@ def select_from_groups_revenue_analytics_table(context: HogQLContext) -> ast.Sel
     for view_name in context.database.get_view_names():
         view = context.database.get_table(view_name)
 
-        if isinstance(view, RevenueAnalyticsBaseView) and not view.union_all:
+        if isinstance(view, RevenueAnalyticsBaseView):
             if isinstance(view, RevenueAnalyticsCustomerView):
                 all_views[view.prefix][RevenueAnalyticsCustomerView] = view
             elif isinstance(view, RevenueAnalyticsRevenueItemView):

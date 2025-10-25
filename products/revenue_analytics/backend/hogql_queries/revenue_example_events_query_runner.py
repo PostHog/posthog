@@ -33,11 +33,7 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
     def to_query(self) -> ast.SelectQuery:
         view_names = self.database.get_view_names()
         all_views = [self.database.get_table(view_name) for view_name in view_names]
-        views = [
-            view
-            for view in all_views
-            if isinstance(view, RevenueAnalyticsChargeView) and view.is_event_view() and not view.union_all
-        ]
+        views = [view for view in all_views if isinstance(view, RevenueAnalyticsChargeView) and view.is_event_view()]
 
         queries: list[ast.SelectQuery] = []
         for view in views:
