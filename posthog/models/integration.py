@@ -77,6 +77,7 @@ class Integration(models.Model):
         EMAIL = "email"
         LINEAR = "linear"
         GITHUB = "github"
+        GITLAB = "gitlab"
         META_ADS = "meta-ads"
         TWILIO = "twilio"
         CLICKUP = "clickup"
@@ -119,6 +120,8 @@ class Integration(models.Model):
         if self.kind == "github":
             return dot_get(self.config, "account.name", self.integration_id)
         if self.kind == "databricks":
+            return self.integration_id or "unknown ID"
+        if self.kind == "gitlab":
             return self.integration_id or "unknown ID"
         if self.kind == "email":
             return self.config.get("email", self.integration_id)
@@ -1743,6 +1746,82 @@ class GitHubIntegration:
                 "error": f"Failed to list pull requests: {response.text}",
                 "status_code": response.status_code,
             }
+
+
+class GitLabIntegration:
+    integration: Integration
+
+    @staticmethod
+    def get(hostname: str, endpoint: str, project_access_token: str) -> dict:
+        response = requests.get(
+            f"{hostname}/api/v4/{endpoint}",
+            headers={"PRIVATE-TOKEN": project_access_token},
+        )
+
+        return response.json()
+
+    @staticmethod
+    def post(hostname: str, endpoint: str, project_access_token: str, json: dict) -> dict:
+        response = requests.post(
+            f"{hostname}/api/v4/{endpoint}",
+            json=json,
+            headers={"PRIVATE-TOKEN": project_access_token},
+        )
+
+        return response.json()
+
+    @classmethod
+    def create_integration(self, hostname, project_id, project_access_token, team_id, user) -> Integration:
+        project = self.get(hostname, f"projects/{project_id}", project_access_token)
+
+        integration = Integration.objects.create(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.GITLAB,
+            integration_id=project.get("name_with_namespace"),
+            config={
+                "hostname": hostname,
+                "path_with_namespace": project.get("path_with_namespace"),
+                "project_id": project.get("id"),
+            },
+            sensitive_config={"access_token": project_access_token},
+            created_by=user,
+        )
+
+        return integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "gitlab":
+            raise Exception("GitLabIntegration init called with Integration with wrong 'kind'")
+        self.integration = integration
+
+    @property
+    def project_path(self) -> str:
+        return dot_get(self.integration.config, "path_with_namespace")
+
+    @property
+    def hostname(self) -> str:
+        return dot_get(self.integration.config, "hostname")
+
+    def create_issue(self, config: dict[str, str]):
+        title: str = config.pop("title")
+        description: str = config.pop("body")
+
+        hostname = self.integration.config.get("hostname")
+        project_id = self.integration.config.get("project_id")
+        access_token = self.integration.sensitive_config.get("access_token")
+
+        issue = GitLabIntegration.post(
+            hostname,
+            f"projects/{project_id}/issues",
+            access_token,
+            {
+                "title": title,
+                "description": description,
+                "labels": "posthog",
+            },
+        )
+
+        return {"issue_id": issue["iid"]}
 
 
 class MetaAdsIntegration:
