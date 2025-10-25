@@ -60,7 +60,7 @@ class SummarizeLLMTracesWorkflow(PostHogWorkflow):
         return None
 
 
-async def execute_summarize_llm_straces(
+async def execute_summarize_llm_traces(
     date_range: DateRange,
     team: Team,
 ) -> None:
