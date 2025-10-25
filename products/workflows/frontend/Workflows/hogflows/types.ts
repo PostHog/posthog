@@ -45,6 +45,15 @@ export const HogFlowSchema = z.object({
     actions: z.array(HogFlowActionSchema),
     abort_action: z.string().optional(),
     edges: z.array(HogFlowEdgeSchema),
+    variables: z
+        .array(
+            z.object({
+                key: z.string(),
+                default_value: z.string().optional().nullable(),
+            })
+        )
+        .optional()
+        .nullable(),
     updated_at: z.string(),
     created_at: z.string(),
 })

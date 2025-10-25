@@ -10,6 +10,13 @@ const _commonActionFields = {
     created_at: z.number(),
     updated_at: z.number(),
     filters: z.any(), // TODO: Correct to the right type
+    output_variable: z // The Hogflow-level variable to store the output of this action into
+        .object({
+            key: z.string(),
+            result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'response.user.id'
+        })
+        .optional()
+        .nullable(),
 }
 
 const HogFlowTriggerSchema = z.discriminatedUnion('type', [
@@ -188,6 +195,15 @@ export const HogFlowSchema = z.object({
     actions: z.array(HogFlowActionSchema),
     abort_action: z.string().optional(),
     edges: z.array(HogFlowEdgeSchema),
+    variables: z
+        .array(
+            z.object({
+                key: z.string(),
+                default_value: z.string().optional().nullable(),
+            })
+        )
+        .optional()
+        .nullable(),
 })
 
 // NOTE: these are purposefully exported as interfaces to support kea typegen

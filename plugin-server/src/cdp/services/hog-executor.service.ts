@@ -301,7 +301,8 @@ export class HogExecutorService {
                     throw new Error(`Unknown queue type: ${queueParamsType}`)
                 }
             } else {
-                result = await this.execute(nextInvocation, options)
+                // Finish execution, carrying forward previous execResult
+                result = await this.execute(nextInvocation, options, result || {})
             }
 
             logs.push(...result.logs)
@@ -322,7 +323,11 @@ export class HogExecutorService {
     @instrumented('hog-executor.execute')
     async execute(
         invocation: CyclotronJobInvocationHogFunction,
-        options: HogExecutorExecuteOptions = {}
+        options: HogExecutorExecuteOptions = {},
+        previousResult: Pick<
+            Partial<CyclotronJobInvocationResult>,
+            'finished' | 'capturedPostHogEvents' | 'logs' | 'metrics' | 'error' | 'execResult'
+        > = {}
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const loggingContext = {
             invocationId: invocation.id,
@@ -333,7 +338,7 @@ export class HogExecutorService {
 
         logger.debug('🦔', `[HogExecutor] Executing function`, loggingContext)
 
-        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
+        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {}, previousResult)
         const addLog = createAddLogFunction(result.logs)
 
         try {
@@ -470,7 +475,7 @@ export class HogExecutorService {
                 execRes = execHogOutcome.execResult
 
                 // Store the result if execution finished
-                if (execRes.finished && execRes.result !== undefined) {
+                if (execRes.finished && Boolean(execRes.result)) {
                     result.execResult = convertHogToJS(execRes.result)
                 }
             } catch (e) {
@@ -701,6 +706,7 @@ export class HogExecutorService {
 
         // Finally we create the response object as the VM expects
         result.invocation.state.vmState!.stack.push(hogVmResponse)
+        result.execResult = hogVmResponse
 
         result.metrics.push({
             team_id: invocation.teamId,
