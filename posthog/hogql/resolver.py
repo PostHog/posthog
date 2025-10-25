@@ -69,7 +69,7 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
 
 
 def resolve_types_from_table(
-    expr: ast.Expr, table_chain: list[str], context: HogQLContext, dialect: Literal["hogql", "clickhouse"]
+    expr: ast.Expr, table_chain: list[str], context: HogQLContext, dialect: Literal["hogql", "clickhouse", "duckdb"]
 ) -> ast.Expr:
     if context.database is None:
         raise QueryError("Database needs to be defined")
@@ -90,7 +90,7 @@ def resolve_types_from_table(
 def resolve_types(
     node: _T_AST,
     context: HogQLContext,
-    dialect: Literal["hogql", "clickhouse"],
+    dialect: Literal["hogql", "clickhouse", "duckdb"],
     scopes: Optional[list[ast.SelectQueryType]] = None,
 ) -> _T_AST:
     return Resolver(scopes=scopes, context=context, dialect=dialect).visit(node)
@@ -112,7 +112,7 @@ class Resolver(CloningVisitor):
     def __init__(
         self,
         context: HogQLContext,
-        dialect: Literal["hogql", "clickhouse"] = "clickhouse",
+        dialect: Literal["hogql", "clickhouse", "duckdb"] = "clickhouse",
         scopes: Optional[list[ast.SelectQueryType]] = None,
     ):
         super().__init__()
