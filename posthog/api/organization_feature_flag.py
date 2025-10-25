@@ -177,22 +177,26 @@ class OrganizationFeatureFlagView(
                 "deleted": False,
                 "evaluation_runtime": flag_to_copy.evaluation_runtime,
             }
+            existing_flag = FeatureFlag.objects.filter(
+                key=feature_flag_key, team__project_id=target_project_id, deleted=False
+            ).first()
+
             context = {
                 "request": request,
                 "team_id": target_project_id,
                 "project_id": target_project_id,
             }
 
-            existing_flag = FeatureFlag.objects.filter(
-                key=feature_flag_key, team__project_id=target_project_id, deleted=False
-            ).first()
-            # Update existing flag
+            # Set method to PATCH for updates, POST for new creations
+            # This ensures proper validation scoping for feature flag creation
             if existing_flag:
+                request.method = "PATCH"
                 feature_flag_serializer = FeatureFlagSerializer(
                     existing_flag, data=flag_data, partial=True, context=context
                 )
             # Create new flag
             else:
+                request.method = "POST"
                 feature_flag_serializer = FeatureFlagSerializer(data=flag_data, context=context)
 
             try:
