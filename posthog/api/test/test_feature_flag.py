@@ -4784,6 +4784,26 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    def test_validation_empty_groups_allowed_on_update(self):
+        """Test that updating an existing flag with empty groups is allowed (for scheduled changes)"""
+        # First create a valid flag
+        flag = FeatureFlag.objects.create(
+            name="Test flag",
+            key="test-flag-update",
+            team=self.team,
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Now try to update it with empty groups (this should be allowed)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"filters": {"groups": []}},
+            format="json",
+        )
+        # Should succeed since it's an update, not creation
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     def _create_flag_with_properties(
         self,
         name: str,
