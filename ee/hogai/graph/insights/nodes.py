@@ -24,6 +24,7 @@ from posthog.models import Insight
 from ee.hogai.context import SUPPORTED_QUERY_MODEL_BY_KIND
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
+from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 from ee.hogai.utils.helpers import build_insight_url
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantNodeName
@@ -31,7 +32,6 @@ from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
     EMPTY_DATABASE_ERROR_MESSAGE,
-    HYPERLINK_USAGE_INSTRUCTIONS,
     ITERATIVE_SEARCH_SYSTEM_PROMPT,
     ITERATIVE_SEARCH_USER_PROMPT,
     NO_INSIGHTS_FOUND_MESSAGE,

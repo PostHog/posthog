@@ -21,6 +21,7 @@ from ee.hogai.graph.parallel_task_execution.mixins import (
     WithInsightSearchTaskExecution,
 )
 from ee.hogai.graph.parallel_task_execution.nodes import BaseTaskExecutorNode, TaskExecutionInputTuple
+from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 from ee.hogai.utils.helpers import build_dashboard_url, build_insight_url, cast_assistant_query
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import BaseStateWithTasks, InsightArtifact, InsightQuery, TaskResult
@@ -32,7 +33,6 @@ from .prompts import (
     DASHBOARD_EDIT_SUCCESS_MESSAGE_TEMPLATE,
     DASHBOARD_NO_INSIGHTS_MESSAGE,
     DASHBOARD_SUCCESS_MESSAGE_TEMPLATE,
-    HYPERLINK_USAGE_INSTRUCTIONS,
     QUERIES_WITHOUT_INSIGHTS_MESSAGE_TEMPLATE,
 )
 
