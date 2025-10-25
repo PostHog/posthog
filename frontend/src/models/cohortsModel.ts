@@ -19,6 +19,7 @@ import {
     BehavioralEventType,
     CohortCriteriaGroupFilter,
     CohortType,
+    FilterLogicalOperator,
 } from '~/types'
 
 import type { cohortsModelType } from './cohortsModelType'
