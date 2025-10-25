@@ -210,15 +210,36 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             (s) => [s.featureFlags],
             (featureFlags): ToolRegistration[] =>
                 STATIC_TOOLS.filter((tool) => {
-                    // Only register the static tools that either aren't flagged or have their flag enabled
+                    // Only show tools that aren't flagged or have their flag enabled, and aren't hidden
                     const toolDefinition = TOOL_DEFINITIONS[tool.identifier]
+                    if (!toolDefinition) {
+                        return true
+                    }
+
+                    // Skip hidden tools for user-facing lists
+                    if (toolDefinition.hidden) {
+                        return false
+                    }
+
+                    return !toolDefinition.flag || featureFlags[toolDefinition.flag]
+                }),
+        ],
+        allStaticTools: [
+            (s) => [s.featureFlags],
+            (featureFlags: Record<string, boolean>): ToolRegistration[] =>
+                STATIC_TOOLS.filter((tool) => {
+                    // Include all tools (including hidden ones) for callback registration
+                    const toolDefinition = TOOL_DEFINITIONS[tool.identifier]
+                    if (!toolDefinition) {
+                        return true
+                    }
                     return !toolDefinition.flag || featureFlags[toolDefinition.flag]
                 }),
         ],
         toolMap: [
-            (s) => [s.registeredToolMap, s.availableStaticTools],
-            (registeredToolMap, availableStaticTools) => ({
-                ...Object.fromEntries(availableStaticTools.map((tool) => [tool.identifier, tool])),
+            (s) => [s.registeredToolMap, s.allStaticTools],
+            (registeredToolMap, allStaticTools) => ({
+                ...Object.fromEntries(allStaticTools.map((tool) => [tool.identifier, tool])),
                 ...registeredToolMap,
             }),
         ],

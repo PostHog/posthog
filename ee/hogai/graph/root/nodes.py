@@ -60,6 +60,7 @@ from .prompts import (
     ROOT_TOOL_DOES_NOT_EXIST,
 )
 from .tools import (
+    CreateSupportTicketTool,
     ReadDataTool,
     ReadTaxonomyTool,
     SearchTool,
@@ -207,6 +208,18 @@ class RootNode(AssistantNode):
             send_feature_flag_events=False,
         )
 
+    def _has_support_escalation_feature_flag(self) -> bool:
+        """
+        Check if the user has the support escalation feature flag enabled.
+        """
+        return posthoganalytics.feature_enabled(
+            "escalate-ai-to-support-ticket",
+            str(self._user.distinct_id),
+            groups={"organization": str(self._team.organization_id)},
+            group_properties={"organization": {"id": str(self._team.organization_id)}},
+            send_feature_flag_events=True,
+        )
+
     async def _get_billing_prompt(self, config: RunnableConfig) -> str:
         """Get billing information including whether to include the billing tool and the prompt.
         Returns:
@@ -251,14 +264,19 @@ class RootNode(AssistantNode):
         available_tools: list[RootTool] = []
 
         # Initialize the static toolkit
+        tool_classes = [
+            ReadTaxonomyTool,
+            ReadDataTool,
+            SearchTool,
+            TodoWriteTool,
+        ]
+
+        if self._has_support_escalation_feature_flag():
+            tool_classes.append(CreateSupportTicketTool)
+
         dynamic_tools = (
             tool_class.create_tool_class(team=self._team, user=self._user, state=state, config=config)
-            for tool_class in (
-                ReadTaxonomyTool,
-                ReadDataTool,
-                SearchTool,
-                TodoWriteTool,
-            )
+            for tool_class in tool_classes
         )
         available_tools.extend(await asyncio.gather(*dynamic_tools))
 
@@ -544,6 +562,8 @@ class RootNodeTools(AssistantNode):
         last_message = state.messages[-1]
 
         if isinstance(last_message, AssistantToolCallMessage):
+            if last_message.ui_payload and "create_support_ticket" in last_message.ui_payload:
+                return "end"
             return "root"  # Let the root either proceed or finish, since it now can see the tool call result
         if isinstance(last_message, AssistantMessage) and state.root_tool_call_id:
             tool_calls = getattr(last_message, "tool_calls", None)
