@@ -12,8 +12,11 @@ from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantToolCallMessage, DateRange, EmbeddingDistance, NotebookUpdateMessage
 
+from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
+from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.util import (
     TipTapNode,
     create_heading_with_text,
@@ -28,10 +31,7 @@ from ee.hogai.graph.llm_traces_summaries.prompts import (
 )
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.llm_traces_summaries.summarize_traces import LLMTracesSummarizer
-from ee.hogai.session_summaries.session_group.summary_notebooks import (
-    create_empty_notebook_for_summary,
-    update_notebook_from_summary_content,
-)
+from ee.hogai.session_summaries.session_group.summary_notebooks import update_notebook_from_summary_content
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantNodeName
 from ee.hogai.utils.types.composed import MaxNodeName
@@ -190,6 +190,18 @@ class LLMTracesSummarizationNode(AssistantNode):
     @property
     def _base_error_instructions(self) -> str:
         return "INSTRUCTIONS: Tell the user that you encountered an issue while summarizing the LLM traces and suggest they try again with a different question."
+
+
+async def create_empty_notebook_for_summary(user: User, team: Team, summary_title: str | None) -> Notebook:
+    """Create an empty notebook for a summary."""
+    notebook = await Notebook.objects.acreate(
+        team=team,
+        title=summary_title,
+        content="",
+        created_by=user,
+        last_modified_by=user,
+    )
+    return notebook
 
 
 def _create_notebook_title(query: str, top: int) -> str:
