@@ -6,13 +6,14 @@ from uuid import uuid4
 from django.utils import timezone
 
 import structlog
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 
-from ee.hogai.llm_traces_summaries.find_similar_traces import LLMTracesSummarizerFinder
-from ee.models.llm_traces_summaries import LLMTraceSummary
 from posthog.schema import AssistantToolCallMessage, DateRange, EmbeddingDistance, NotebookUpdateMessage
 
 from posthog.sync import database_sync_to_async
+
 from products.notebooks.backend.util import (
     TipTapNode,
     create_heading_with_text,
@@ -21,6 +22,9 @@ from products.notebooks.backend.util import (
 )
 
 from ee.hogai.graph.base import AssistantNode
+from ee.hogai.graph.llm_traces_summaries.prompts import EXTRACT_TOPICS_FROM_QUERY_PROMPT
+from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.llm_traces_summaries.find_similar_traces import LLMTracesSummarizerFinder
 from ee.hogai.session_summaries.session_group.summary_notebooks import (
     create_empty_notebook_for_summary,
     update_notebook_from_summary_content,
@@ -28,6 +32,7 @@ from ee.hogai.session_summaries.session_group.summary_notebooks import (
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantNodeName
 from ee.hogai.utils.types.composed import MaxNodeName
+from ee.models.llm_traces_summaries import LLMTraceSummary
 
 # TODO: Move to a Temporal job
 # trace_summarizer = LLMTracesSummarizer(team=self._team)
@@ -78,13 +83,16 @@ class LLMTracesSummarizationNode(AssistantNode):
         )
         state.notebook_short_id = notebook.short_id
         try:
+            # Extract topics to search for in LLM traces
+            extracted_topics_str = await self._extract_topics_from_query(
+                plain_text_query=llm_traces_summarization_query, config=config
+            )
+            # Search for LLM traces with similar topics
             traces_finder = LLMTracesSummarizerFinder(team=self._team)
             similar_traces = await database_sync_to_async(traces_finder.find_top_similar_traces_for_query)(
-                # TODO: Revert after testing
-                # query=llm_traces_summarization_query,
-                query="MP4",
+                query=extracted_topics_str,
                 request_id=str(conversation_id),
-                top=10,
+                top=10,  # TODO: Define as a constant
                 date_range=DateRange(date_from="-30d"),  # Including now to search recent embeddings
                 summary_type=LLMTraceSummary.LLMTraceSummaryType.ISSUES_SEARCH,
             )
@@ -118,6 +126,22 @@ class LLMTracesSummarizationNode(AssistantNode):
         except Exception as err:
             self._log_failure("LLM traces summarization failed", conversation_id, start_time, err)
             return self._create_error_response(self._base_error_instructions, state)
+
+    async def _extract_topics_from_query(self, plain_text_query: str, config: RunnableConfig) -> str:
+        """Extract topics from the user's LLM traces summarization query"""
+        messages = [
+            ("human", EXTRACT_TOPICS_FROM_QUERY_PROMPT.format(input_query=plain_text_query)),
+        ]
+        prompt = ChatPromptTemplate.from_messages(messages)
+        model = MaxChatOpenAI(model="gpt-4.1", temperature=0, disable_streaming=True, user=self._user, team=self._team)
+        chain = prompt | model | StrOutputParser()
+        extracted_topics = chain.invoke({}, config=config)
+        # Validate the generated filter query is not empty or just whitespace
+        if not extracted_topics or not extracted_topics.strip():
+            raise ValueError(
+                f"Topics extracted from LLM traces summarization query are empty or just whitespace (initial query: {plain_text_query})"
+            )
+        return extracted_topics
 
     def _format_similar_traces_into_documents(
         self, similar_traces: dict[str, tuple[EmbeddingDistance, LLMTraceSummary]]

@@ -1,13 +1,5 @@
 import structlog
-from ee.hogai.llm_traces_summaries.embed_summaries import (
-    LLM_TRACES_SUMMARIES_DOCUMENT_TYPE,
-    LLM_TRACES_SUMMARIES_SEARCH_QUERY_DOCUMENT_TYPE,
-    LLM_TRACES_SUMMARIES_PRODUCT,
-    LLMTracesSummarizerEmbedder,
-)
-from ee.models.llm_traces_summaries import LLMTraceSummary
-from posthog.hogql_queries.document_embeddings_query_runner import DocumentEmbeddingsQueryRunner
-from posthog.models.team.team import Team
+
 from posthog.schema import (
     CachedDocumentSimilarityQueryResponse,
     DateRange,
@@ -16,10 +8,20 @@ from posthog.schema import (
     EmbeddedDocument,
     EmbeddingDistance,
     EmbeddingModelName,
-    EmbeddingRecord,
     OrderBy,
     OrderDirection,
 )
+
+from posthog.hogql_queries.document_embeddings_query_runner import DocumentEmbeddingsQueryRunner
+from posthog.models.team.team import Team
+
+from ee.hogai.llm_traces_summaries.embed_summaries import (
+    LLM_TRACES_SUMMARIES_DOCUMENT_TYPE,
+    LLM_TRACES_SUMMARIES_PRODUCT,
+    LLM_TRACES_SUMMARIES_SEARCH_QUERY_DOCUMENT_TYPE,
+    LLMTracesSummarizerEmbedder,
+)
+from ee.models.llm_traces_summaries import LLMTraceSummary
 
 logger = structlog.get_logger(__name__)
 
@@ -52,9 +54,7 @@ class LLMTracesSummarizerFinder:
             products=[LLM_TRACES_SUMMARIES_PRODUCT],
             # Searching for summaries with the explicit type of summary (like issues search)
             renderings=[summary_type.value],
-            # TODO: Rever after testing
-            # limit=top,
-            limit=100,
+            limit=top,
             model=self._embedding_model_name.value,
             order_by=OrderBy.DISTANCE,
             order_direction=OrderDirection.ASC,  # Best matches first
