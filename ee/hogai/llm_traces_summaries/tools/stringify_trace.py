@@ -43,8 +43,6 @@ class LLMTracesSummarizerStringifier:
             return None
         # If human didn't respond to any AI messages (no interaction), skip the trace
         # no_interaction_found = True
-        # TODO: Change back to "True" after testing
-        no_interaction_found = False
         for i, message in enumerate(stringified_messages):
             if message.startswith("human") and i > 0 and stringified_messages[i - 1].startswith("ai"):
                 no_interaction_found = False
