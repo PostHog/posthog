@@ -24,7 +24,8 @@ from products.notebooks.backend.util import (
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.llm_traces_summaries.prompts import EXTRACT_TOPICS_FROM_QUERY_PROMPT
 from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.llm_traces_summaries.find_similar_traces import LLMTracesSummarizerFinder
+from ee.hogai.llm_traces_summaries.constants import LLM_TRACES_SUMMARIES_TOP_SIMILAR_TRACES_COUNT
+from ee.hogai.llm_traces_summaries.summarize_traces import LLMTracesSummarizer
 from ee.hogai.session_summaries.session_group.summary_notebooks import (
     create_empty_notebook_for_summary,
     update_notebook_from_summary_content,
@@ -88,29 +89,26 @@ class LLMTracesSummarizationNode(AssistantNode):
                 plain_text_query=llm_traces_summarization_query, config=config
             )
             # Search for LLM traces with similar topics
-            traces_finder = LLMTracesSummarizerFinder(team=self._team)
-            similar_traces = await database_sync_to_async(traces_finder.find_top_similar_traces_for_query)(
+            traces_summarizer = LLMTracesSummarizer(team=self._team)
+            similar_traces = await database_sync_to_async(traces_summarizer.find_top_similar_traces_for_query)(
                 query=extracted_topics_str,
                 request_id=str(conversation_id),
-                top=10,  # TODO: Define as a constant
+                top=LLM_TRACES_SUMMARIES_TOP_SIMILAR_TRACES_COUNT,
                 date_range=DateRange(date_from="-30d"),  # Including now to search recent embeddings
                 summary_type=LLMTraceSummary.LLMTraceSummaryType.ISSUES_SEARCH,
             )
             # Format found traces into readable/printable documents, while remove excessive context
-            similar_documents: list[dict[str, str]] = self._format_similar_traces_into_documents(
-                similar_traces=similar_traces
-            )
+            similar_documents = self._format_similar_traces_into_documents(similar_traces=similar_traces)
             if not similar_documents:
                 return self._create_error_response("No similar traces found", state)
             notebook_content = _prepare_basic_llm_summary_notebook_content(
-                summaries=similar_documents, query=llm_traces_summarization_query
+                summaries=similar_documents, query=llm_traces_summarization_query, team_id=self._team.id
             )
             await self._stream_notebook_content(content=notebook_content, state=state)
             await update_notebook_from_summary_content(
                 notebook=notebook, summary_content=notebook_content, session_ids=[]
             )
             # Return traces for Max to process
-            # TODO: Return more structured data
             return PartialAssistantState(
                 messages=[
                     AssistantToolCallMessage(
@@ -145,17 +143,17 @@ class LLMTracesSummarizationNode(AssistantNode):
 
     def _format_similar_traces_into_documents(
         self, similar_traces: dict[str, tuple[EmbeddingDistance, LLMTraceSummary]]
-    ) -> list[dict[str, str]]:
+    ) -> list[dict[str, str | float]]:
         documents = []
         for trace_id, (distance, summary) in similar_traces.items():
-            documents.append(
-                {
-                    "trace_id": trace_id,
-                    "trace_summary": summary.summary,
-                    # Providing cosine similarity score info to the LLM, so it can better assess the relevance of the trace
-                    "cosine_similarity": 1 - distance.distance,
-                }
-            )
+            # Types to keep mypy happy
+            document: dict[str, str | float] = {
+                "trace_id": str(trace_id),
+                "trace_summary": str(summary.summary),
+                # Providing cosine similarity score info to the LLM, so it can better assess the relevance of the trace
+                "cosine_similarity": float(1 - distance.distance),
+            }
+            documents.append(document)
         return documents
 
     def _create_error_response(self, message: str, state: AssistantState) -> PartialAssistantState:
@@ -195,7 +193,9 @@ def _create_notebook_title(query: str) -> str:
     return title
 
 
-def _prepare_basic_llm_summary_notebook_content(summaries: list[dict[str, str]], query: str) -> TipTapNode:
+def _prepare_basic_llm_summary_notebook_content(
+    summaries: list[dict[str, str | float]], query: str, team_id: int
+) -> TipTapNode:
     content = []
     # Title
     content.append(create_heading_with_text(_create_notebook_title(query=query), 1))
@@ -206,8 +206,10 @@ def _prepare_basic_llm_summary_notebook_content(summaries: list[dict[str, str]],
             create_paragraph_with_content(
                 [
                     create_text_content("Trace ID: ", is_bold=True),
-                    create_text_content(f"https://us.posthog.com/project/2/llm-analytics/traces/{summary["trace_id"]}"),
-                    # create_text_content(summary["trace_id"]),
+                    # TODO: Use local/prod linkts
+                    create_text_content(
+                        f"https://us.posthog.com/project/{team_id}/llm-analytics/traces/{summary["trace_id"]}"
+                    ),
                 ]
             )
         )
@@ -215,7 +217,7 @@ def _prepare_basic_llm_summary_notebook_content(summaries: list[dict[str, str]],
             create_paragraph_with_content(
                 [
                     create_text_content("Trace summary: ", is_bold=True),
-                    create_text_content(summary["trace_summary"]),
+                    create_text_content(str(summary["trace_summary"])),
                 ]
             )
         )

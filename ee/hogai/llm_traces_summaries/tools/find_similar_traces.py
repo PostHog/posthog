@@ -15,12 +15,12 @@ from posthog.schema import (
 from posthog.hogql_queries.document_embeddings_query_runner import DocumentEmbeddingsQueryRunner
 from posthog.models.team.team import Team
 
-from ee.hogai.llm_traces_summaries.embed_summaries import (
+from ee.hogai.llm_traces_summaries.constants import (
     LLM_TRACES_SUMMARIES_DOCUMENT_TYPE,
     LLM_TRACES_SUMMARIES_PRODUCT,
     LLM_TRACES_SUMMARIES_SEARCH_QUERY_DOCUMENT_TYPE,
-    LLMTracesSummarizerEmbedder,
 )
+from ee.hogai.llm_traces_summaries.tools.embed_summaries import LLMTracesSummarizerEmbedder
 from ee.models.llm_traces_summaries import LLMTraceSummary
 
 logger = structlog.get_logger(__name__)
@@ -47,7 +47,7 @@ class LLMTracesSummarizerFinder:
         embedding_timestamp = embedder.embed_summaries_search_query_with_timestamp(
             query=query, request_id=request_id, summary_type=summary_type
         )
-        query = DocumentSimilarityQuery(
+        similarity_query = DocumentSimilarityQuery(
             dateRange=date_range,
             distance_func=DistanceFunc.COSINE_DISTANCE,
             document_types=[LLM_TRACES_SUMMARIES_DOCUMENT_TYPE],  # Searching for summaries
@@ -65,7 +65,7 @@ class LLMTracesSummarizerFinder:
                 timestamp=embedding_timestamp,
             ),
         )
-        runner = DocumentEmbeddingsQueryRunner(query=query, team=self._team)
+        runner = DocumentEmbeddingsQueryRunner(query=similarity_query, team=self._team)
         response = runner.run()
         if not isinstance(response, CachedDocumentSimilarityQueryResponse):
             raise ValueError(

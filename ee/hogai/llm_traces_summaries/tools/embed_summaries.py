@@ -1,20 +1,23 @@
-from datetime import datetime
 import time
+from datetime import datetime
+
 from django.utils import timezone
 
-from ee.models.llm_traces_summaries import LLMTraceSummary
-from posthog.hogql_queries.document_embeddings_query_runner import DocumentEmbeddingsQueryRunner
 from posthog.schema import EmbeddingModelName
 
+from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.client import KafkaProducer
 from posthog.models.team.team import Team
-from posthog.clickhouse.client import sync_execute
-from django.utils import timezone
 
-DOCUMENT_EMBEDDINGS_TOPIC = "document_embeddings_input"
-LLM_TRACES_SUMMARIES_PRODUCT = "llm-analytics"
-LLM_TRACES_SUMMARIES_DOCUMENT_TYPE = "llm-trace-summary"
-LLM_TRACES_SUMMARIES_SEARCH_QUERY_DOCUMENT_TYPE = "trace-summary-search-query"
+from ee.hogai.llm_traces_summaries.constants import (
+    DOCUMENT_EMBEDDINGS_TOPIC,
+    LLM_TRACES_SUMMARIES_DOCUMENT_TYPE,
+    LLM_TRACES_SUMMARIES_PRODUCT,
+    LLM_TRACES_SUMMARIES_SEARCH_QUERY_DOCUMENT_TYPE,
+    LLM_TRACES_SUMMARIES_SEARCH_QUERY_MAX_ATTEMPTS,
+    LLM_TRACES_SUMMARIES_SEARCH_QUERY_POLL_INTERVAL_SECONDS,
+)
+from ee.models.llm_traces_summaries import LLMTraceSummary
 
 
 class LLMTracesSummarizerEmbedder:
@@ -57,29 +60,27 @@ class LLMTracesSummarizerEmbedder:
         # Check if the embeddings are ready
         # TODO: Understand a better, more predictable way to check if the embeddings are ready
         embeddings_ready = False
-        poll_interval_s = 3
-        max_attempts = 10
         attempts = 0
-        while attempts < max_attempts:
+        while attempts < LLM_TRACES_SUMMARIES_SEARCH_QUERY_MAX_ATTEMPTS:
             embeddings_ready = self._check_embedding_exists(
                 document_id=request_id, document_type=LLM_TRACES_SUMMARIES_SEARCH_QUERY_DOCUMENT_TYPE
             )
             if embeddings_ready:
                 break
             attempts += 1
-            time.sleep(poll_interval_s)
+            time.sleep(LLM_TRACES_SUMMARIES_SEARCH_QUERY_POLL_INTERVAL_SECONDS)
         if not embeddings_ready:
             raise ValueError(
-                f"Embeddings not ready after {max_attempts} attempts when embedding search query for traces summaries"
+                f"Embeddings not ready after {LLM_TRACES_SUMMARIES_SEARCH_QUERY_MAX_ATTEMPTS} attempts when embedding search query for traces summaries"
             )
         return timestamp
 
     def _check_embedding_exists(self, document_id: str, document_type: str) -> bool:
         """Check if embedding exists in ClickHouse for given document_id"""
         query = """
-          SELECT count() 
-          FROM posthog_document_embeddings 
-          WHERE team_id = %(team_id)s 
+          SELECT count()
+          FROM posthog_document_embeddings
+          WHERE team_id = %(team_id)s
             AND product = %(product)s
             AND document_type = %(document_type)s
             AND document_id = %(document_id)s

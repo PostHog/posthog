@@ -13,11 +13,10 @@ from posthog.sync import database_sync_to_async
 
 from products.llm_analytics.backend.providers.gemini import GeminiProvider
 
+from ee.hogai.llm_traces_summaries.constants import LLM_TRACES_SUMMARIES_MODEL_TO_SUMMARIZE_STRINGIFIED_TRACES
 from ee.models.llm_traces_summaries import LLMTraceSummary
 
 logger = structlog.get_logger(__name__)
-
-LLM_MODEL_TO_SUMMARIZE_STRINGIFIED_TRACES = "gemini-2.5-flash-lite-preview-09-2025"
 
 GENERATE_STRINGIFIED_TRACE_SUMMARY_PROMPT = """
 - Analyze this conversation between the user and the PostHog AI assistant
@@ -38,7 +37,7 @@ class LLMTraceSummarizerGenerator:
     def __init__(
         self,
         team: Team,
-        model_id: str = LLM_MODEL_TO_SUMMARIZE_STRINGIFIED_TRACES,
+        model_id: str = LLM_TRACES_SUMMARIES_MODEL_TO_SUMMARIZE_STRINGIFIED_TRACES,
         summary_type: LLMTraceSummary.LLMTraceSummaryType = LLMTraceSummary.LLMTraceSummaryType.ISSUES_SEARCH,
     ):
         self._team = team
