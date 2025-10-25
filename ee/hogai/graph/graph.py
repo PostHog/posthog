@@ -3,7 +3,6 @@ from typing import Any, Generic, Literal, Optional, Protocol, cast, runtime_chec
 
 from langgraph.graph.state import CompiledStateGraph, StateGraph
 
-from ee.hogai.graph.llm_traces_summaries.nodes import LLMTracesSummarizationNode
 from posthog.schema import ReasoningMessage
 
 from posthog.models.team.team import Team
@@ -11,6 +10,7 @@ from posthog.models.user import User
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.billing.nodes import BillingNode
+from ee.hogai.graph.llm_traces_summaries.nodes import LLMTracesSummarizationNode
 from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
 from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
@@ -412,7 +412,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         self.add_node(AssistantNodeName.SESSION_SUMMARIZATION, session_summarization_node)
         self._graph.add_edge(AssistantNodeName.SESSION_SUMMARIZATION, AssistantNodeName.ROOT)
         return self
-    
+
     def add_llm_traces_summarization(self, end_node: AssistantNodeName = AssistantNodeName.END):
         llm_traces_summarization_node = LLMTracesSummarizationNode(self._team, self._user)
         self.add_node(AssistantNodeName.LLM_TRACES_SUMMARIZATION, llm_traces_summarization_node)
