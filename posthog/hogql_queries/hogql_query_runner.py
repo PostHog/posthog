@@ -45,6 +45,11 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
         if last_refresh is None:
             return None
+
+        override = self._get_cache_age_override(last_refresh)
+        if override is not None:
+            return override
+
         return last_refresh + staleness_threshold_map[ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT]["day"]
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:

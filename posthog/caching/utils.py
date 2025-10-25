@@ -164,6 +164,7 @@ def is_stale(
     interval: Optional[str],
     last_refresh: Optional[datetime],
     mode: ThresholdMode = ThresholdMode.DEFAULT,
+    target_age: Optional[datetime] = None,
 ) -> bool:
     """
     Indicates whether a cache item is obviously outdated based on the last_refresh date, the last
@@ -175,6 +176,9 @@ def is_stale(
 
     if last_refresh is None:
         raise ValueError("Cached results require a last_refresh")
+
+    if target_age is not None:
+        return datetime.now(UTC) > target_age
 
     # If the date_to is in the past of the last refresh, the data cannot be stale
     # Use a buffer in case last_refresh from cache.set happened slightly after the actual query

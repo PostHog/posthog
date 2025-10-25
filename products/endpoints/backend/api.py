@@ -325,7 +325,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 query_id=client_query_id,
                 user=cast(User, request.user),
                 is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
-                # cache_age_seconds=endpoint.cache_age_seconds,
+                cache_age_seconds=endpoint.cache_age_seconds,
             )
 
             if isinstance(result, BaseModel):
