@@ -513,7 +513,7 @@ jobs:
         steps:
             - name: Post comment about updated snapshots
               if: needs.changes.outputs.frontend == 'true' && github.event.pull_request.head.repo.full_name == github.repository
-              uses: actions/github-script@v6
+              uses: actions/github-script@v8
               with:
                   github-token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
                   script: |
