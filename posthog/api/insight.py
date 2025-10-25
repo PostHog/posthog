@@ -36,7 +36,6 @@ from posthog import schema
 from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight_variable import map_stale_to_latest
-from posthog.api.mixins import FileSystemViewSetMixin
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -851,7 +850,6 @@ Background calculation can be tracked using the `query_status` response field.""
     ),
 )
 class InsightViewSet(
-    FileSystemViewSetMixin,
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
     TaggedItemViewSetMixin,

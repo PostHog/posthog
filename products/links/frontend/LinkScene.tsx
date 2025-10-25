@@ -18,6 +18,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -74,6 +75,15 @@ const DOMAIN_OPTIONS: LemonSelectOptions<AvailableDomain> = AVAILABLE_DOMAINS.ma
 export function LinkScene({ id }: LinkLogicProps): JSX.Element {
     const { link, linkLoading, isLinkSubmitting, isEditingLink, linkMissing } = useValues(linkLogic)
     const { submitLinkRequest, loadLink, editLink, deleteLink } = useActions(linkLogic)
+
+    const linkId = link?.id && link?.id !== 'new' ? link.id : null
+
+    useFileSystemLogView({
+        type: 'link',
+        ref: linkId,
+        enabled: Boolean(linkId && !linkLoading),
+        deps: [linkId, linkLoading],
+    })
 
     if (linkMissing) {
         return <NotFound object="link" />

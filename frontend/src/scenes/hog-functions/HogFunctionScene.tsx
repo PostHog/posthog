@@ -5,6 +5,7 @@ import { LemonDivider, Link } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
+import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -299,6 +300,13 @@ export function HogFunctionScene(): JSX.Element {
     const { setCurrentTab } = useActions(hogFunctionSceneLogic)
 
     const { id, templateId } = logicProps
+
+    useFileSystemLogView({
+        type: `hog_function/${type ?? ''}`,
+        ref: id ?? null,
+        enabled: Boolean(id && type && loaded),
+        deps: [id, type, loaded],
+    })
 
     if (loading && !loaded) {
         return (
