@@ -261,19 +261,19 @@ export function CodeEditor({
 
         // Monitor for suggestion widget creation and apply styling
         const observer = new MutationObserver(() => {
-            const suggestWidget = editor.getDomNode()?.querySelector('.suggest-widget')
+            const suggestWidget = monacoRoot.querySelector('.suggest-widget')
             if (suggestWidget) {
                 overrideSuggestionWidgetStyling()
             }
         })
 
         // Observe only the editor's DOM node, not entire document.body
-        const editorDomNode = editor.getDomNode()
-        if (editorDomNode) {
-            observer.observe(editorDomNode, { childList: true, subtree: true })
+        // Observe the monacoRoot where overflow widgets (like suggestions) are rendered
+        if (monacoRoot) {
+            observer.observe(monacoRoot, { childList: true, subtree: true })
         }
 
-        // Clean up observer
+        // Clean up observers
         monacoDisposables.current.push({
             dispose: () => observer.disconnect(),
         })
