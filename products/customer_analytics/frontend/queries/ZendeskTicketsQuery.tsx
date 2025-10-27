@@ -4,10 +4,10 @@ import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn } from '~/queries/types'
 import { hogql } from '~/queries/utils'
 
-const DEFAULT_COLUMN_CONFIG = {
+const DEFAULT_COLUMN_CONFIG: QueryContextColumn = {
     width: '60px',
     align: 'center',
-} as QueryContextColumn
+}
 
 const ZENDESK_TICKETS_QUERY_COLUMNS = ['id', 'url', 'subject', 'status', 'priority', 'created_at', 'updated_at']
 

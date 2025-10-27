@@ -6,22 +6,22 @@ import { capitalizeFirstLetter } from 'lib/utils'
 
 import { zendeskTicketsFiltersLogic } from './zendeskTicketsFiltersLogic'
 
+const label = (key: string) => {
+    switch (key) {
+        case 'updated_at':
+            return 'Updated'
+        case 'created_at':
+            return 'Created'
+        default:
+            return capitalizeFirstLetter(key)
+    }
+}
+
 export const OrderBy = (): JSX.Element => {
     const { orderBy, orderDirection } = useValues(zendeskTicketsFiltersLogic)
     const { setOrderBy, setOrderDirection } = useActions(zendeskTicketsFiltersLogic)
 
     const options = ['updated_at', 'created_at']
-
-    const label = (key: string) => {
-        switch (key) {
-            case 'updated_at':
-                return 'Updated'
-            case 'created_at':
-                return 'Created'
-            default:
-                return capitalizeFirstLetter(key)
-        }
-    }
 
     return (
         <div className="flex flex-row gap-1 items-center">
