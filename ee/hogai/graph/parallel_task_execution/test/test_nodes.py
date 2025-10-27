@@ -12,18 +12,18 @@ from posthog.schema import AssistantToolCall, TaskExecutionStatus
 
 from ee.hogai.graph.deep_research.types import DeepResearchNodeName
 from ee.hogai.graph.parallel_task_execution.nodes import BaseTaskExecutorNode, TaskExecutionInputTuple
-from ee.hogai.utils.types.base import BaseStateWithTasks, TaskArtifact, TaskResult
+from ee.hogai.utils.types.base import BaseStateWithTaskResults, TaskArtifact, TaskResult
 from ee.hogai.utils.types.composed import MaxNodeName
 
 
-class MockTestState(BaseStateWithTasks):
+class MockTestState(BaseStateWithTaskResults):
     """Mock state for testing the base class."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
     test_input_tuples: list[TaskExecutionInputTuple] = []
 
 
-class MockPartialTestState(BaseStateWithTasks):
+class MockPartialTestState(BaseStateWithTaskResults):
     """Mock partial test state for testing the base class."""
 
     pass
