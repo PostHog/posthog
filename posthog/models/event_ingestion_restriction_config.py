@@ -51,13 +51,30 @@ def update_redis_cache_with_config(sender, instance, created=False, **kwargs):
     existing_config = redis_client.get(redis_key)
     data = json.loads(existing_config) if existing_config else []
 
-    data = [entry for entry in data if not (entry == instance.token or entry.startswith(f"{instance.token}:"))]
+    # Remove existing entries for this token (both simple and distinct_id based)
+    data = [
+        entry
+        for entry in data
+        if not (
+            (isinstance(entry, str) and (entry == instance.token or entry.startswith(f"{instance.token}:")))
+            or (isinstance(entry, dict) and entry.get("token") == instance.token)
+        )
+    ]
+
+    # Add new entries with pipeline information
+    entry_base = {
+        "token": instance.token,
+        "analytics": instance.analytics,
+        "session_recordings": instance.session_recordings,
+    }
 
     if instance.distinct_ids:
         for distinct_id in instance.distinct_ids:
-            data.append(f"{instance.token}:{distinct_id}")
+            entry = entry_base.copy()
+            entry["distinct_id"] = distinct_id
+            data.append(entry)
     else:
-        data.append(instance.token)
+        data.append(entry_base)
 
     redis_client.set(redis_key, json.dumps(data))
 
@@ -71,15 +88,15 @@ def delete_redis_cache_with_config(sender, instance, **kwargs):
     if existing_data:
         data = json.loads(existing_data)
 
-        if instance.distinct_ids:
-            for distinct_id in instance.distinct_ids:
-                entry = f"{instance.token}:{distinct_id}"
-                if entry in data:
-                    data.remove(entry)
-
-        else:
-            if instance.token in data:
-                data.remove(instance.token)
+        # Remove entries for this token (handle both old string format and new dict format)
+        data = [
+            entry
+            for entry in data
+            if not (
+                (isinstance(entry, str) and (entry == instance.token or entry.startswith(f"{instance.token}:")))
+                or (isinstance(entry, dict) and entry.get("token") == instance.token)
+            )
+        ]
 
         if data:
             redis_client.set(redis_key, json.dumps(data))
