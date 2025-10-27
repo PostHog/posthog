@@ -2,7 +2,7 @@ import pathlib
 
 import pytest
 
-from posthog.management.commands.create_warehouse_source import Command
+from posthog.management.commands.create_datastack_source import Command
 
 TEST_FILE_CONTENT = "a b c d e f"
 TEST_BLOCK = """\
