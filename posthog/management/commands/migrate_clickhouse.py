@@ -1,12 +1,10 @@
 # ruff: noqa: T201 allow print statements
 
-import re
 import datetime
-from collections import defaultdict
 from textwrap import indent
 
 from django.conf import settings
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand
 
 from infi.clickhouse_orm import Database
 from infi.clickhouse_orm.migrations import MigrationHistory
