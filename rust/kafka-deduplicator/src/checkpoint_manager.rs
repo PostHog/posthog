@@ -1,29 +1,26 @@
-use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::collections::HashSet;
+use std::path::Path;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use crate::checkpoint::{
-    CheckpointConfig, CheckpointExporter, CheckpointMetadata, CheckpointMode, CheckpointTarget,
-    CheckpointWorker, CHECKPOINT_PARTITION_PREFIX, CHECKPOINT_TOPIC_PREFIX,
+    CheckpointConfig, CheckpointExporter, CheckpointMetadata, CheckpointWorker,
 };
 use crate::kafka::types::Partition;
-use crate::metrics_const::{
-    CHECKPOINT_CLEANER_DELETE_ATTEMPTS, CHECKPOINT_CLEANER_DIRS_FOUND,
-    CHECKPOINT_STORE_NOT_FOUND_COUNTER,
-};
+use crate::metrics_const::CHECKPOINT_STORE_NOT_FOUND_COUNTER;
 use crate::store::DeduplicationStore;
 use crate::store_manager::StoreManager;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
+use chrono::Utc;
 use dashmap::DashMap;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 pub enum CheckpointStatus {
     // the partition requesting a checkpoint attempt has acquired
@@ -60,9 +57,6 @@ pub struct CheckpointManager {
 
     /// Handle to the checkpoint task loop
     checkpoint_task: Option<JoinHandle<()>>,
-
-    /// Handle to the local checkpoint directory cleanup task loop
-    cleanup_task: Option<JoinHandle<()>>,
 }
 
 impl CheckpointManager {
@@ -85,7 +79,6 @@ impl CheckpointManager {
             cancel_token: CancellationToken::new(),
             is_checkpointing: Arc::new(Mutex::new(HashSet::new())),
             checkpoint_task: None,
-            cleanup_task: None,
         }
     }
 
@@ -388,36 +381,21 @@ impl CheckpointManager {
             })
             .collect();
 
+        let worker_id = 1;
         for (partition, store) in snapshot {
             let worker = CheckpointWorker::new(
-                partition.partition_number() as u32,
-                CheckpointTarget::new(partition, Path::new(&self.config.local_checkpoint_dir))
-                    .unwrap(),
+                worker_id,
+                Path::new(&self.config.local_checkpoint_dir),
+                self.config.s3_key_prefix.clone(),
+                partition.clone(),
+                Utc::now(),
                 None,
             );
 
-            worker
-                .checkpoint_partition(CheckpointMode::Full, &store, None)
-                .await?;
+            worker.checkpoint_partition(&store, None).await?;
         }
 
         Ok(())
-    }
-
-    // use the checkpoint counter to determine if this checkpoint should be full or incremental.
-    // CheckpointConfig specifies the interval at which full checkpoints should be performed
-    fn get_checkpoint_mode(counter: u32, full_checkpoint_interval: u32) -> CheckpointMode {
-        // if config.full_upload_interval is 0, then we should always do full uploads
-        if full_checkpoint_interval == 0 {
-            return CheckpointMode::Full;
-        }
-
-        // when counter is a multiple of the interval, perform a full checkpoint
-        if counter.is_multiple_of(full_checkpoint_interval) {
-            CheckpointMode::Full
-        } else {
-            CheckpointMode::Incremental
-        }
     }
 
     async fn get_checkpoint_status(
@@ -438,179 +416,6 @@ impl CheckpointManager {
 
         CheckpointStatus::Wait
     }
-
-    async fn cleanup_local_checkpoints(config: &CheckpointConfig) -> Result<()> {
-        info!(
-            checkpoint_base_dir = config.local_checkpoint_dir,
-            "Checkpoint cleaner: starting local checkpoint cleanup scan..."
-        );
-
-        let checkpoint_base_dir = PathBuf::from(config.local_checkpoint_dir.clone());
-        if !checkpoint_base_dir.exists() {
-            warn!(
-                checkpoint_base_dir = config.local_checkpoint_dir,
-                "Checkpoint cleaner: local checkpoint directory does not exist, skipping cleanup"
-            );
-            return Ok(());
-        }
-
-        // find all eligible checkpoint directories of form /base_dir/topic/partition/timestamp
-        let candidate_dirs = Self::find_checkpoint_dirs(&checkpoint_base_dir)
-            .await
-            .context("Checkpoint cleaner: failed loading local checkpoint directories")?;
-
-        // first eliminate all dirs that are older than max retention period
-        let remaining_dirs = Self::remove_stale_checkpoint_dirs(config, candidate_dirs).await?;
-
-        // next, group remaining checkpoints dirs by parent /topic/partition
-        // and eliminate the oldest N past the configured retention count
-        Self::remove_checkpoint_dirs_past_partition_retention(config, remaining_dirs).await
-    }
-
-    async fn find_checkpoint_dirs(current_dir: &Path) -> Result<Vec<PathBuf>> {
-        let mut checkpoint_dirs = Vec::new();
-        let mut stack = vec![current_dir.to_path_buf()];
-
-        while let Some(current_path) = stack.pop() {
-            let mut entries = tokio::fs::read_dir(&current_path).await?;
-            while let Some(entry) = entries.next_entry().await? {
-                let path = entry.path();
-                if path.is_dir() {
-                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                        // these will be parent directories of the checkpoints; drill down and process each
-                        if name.starts_with(CHECKPOINT_TOPIC_PREFIX)
-                            || name.starts_with(CHECKPOINT_PARTITION_PREFIX)
-                        {
-                            stack.push(path);
-                        } else if name.chars().filter(|c| c.is_ascii_digit()).count() == name.len()
-                        {
-                            // if the name matches a 0-padded UNIX epoch timestamp in microseconds, then
-                            // this is the full path to a directory containing the checkpoint files
-                            checkpoint_dirs.push(path);
-                        }
-                    }
-                }
-            }
-        }
-
-        metrics::counter!(CHECKPOINT_CLEANER_DIRS_FOUND).increment(checkpoint_dirs.len() as u64);
-
-        Ok(checkpoint_dirs)
-    }
-
-    async fn remove_checkpoint_dirs_past_partition_retention(
-        config: &CheckpointConfig,
-        remaining_dirs: Vec<PathBuf>,
-    ) -> Result<()> {
-        // group /topic/partition/timestamp dirs by parent /topic/partition
-        let mut paths_by_parent: HashMap<String, Vec<PathBuf>> =
-            remaining_dirs
-                .into_iter()
-                .fold(HashMap::new(), |mut acc, path| {
-                    // due to known structure of the input paths, this shouldn't ever fail
-                    let parent = path.parent().unwrap().to_string_lossy().to_string();
-                    acc.entry(parent).or_default().push(path);
-                    acc
-                });
-
-        // iterate on each group, sort by timestamp dir, and eliminate the oldest N
-        for checkpoint_dirs in paths_by_parent.values_mut() {
-            if checkpoint_dirs.len() > config.checkpoints_per_partition {
-                // sort by timestamp dir
-                checkpoint_dirs.sort_by(|a, b| a.file_name().unwrap().cmp(b.file_name().unwrap()));
-
-                // eliminate the oldest N snapshots from each /topic/partition group
-                let checkpoints_to_remove =
-                    checkpoint_dirs.len() - config.checkpoints_per_partition;
-                for checkpoint_dir in checkpoint_dirs.iter().take(checkpoints_to_remove) {
-                    let checkpoint_path = checkpoint_dir.to_string_lossy().to_string();
-
-                    if let Err(e) = tokio::fs::remove_dir_all(checkpoint_dir).await {
-                        let tags = [("result", "error"), ("scan_type", "partition_limit")];
-                        metrics::counter!(CHECKPOINT_CLEANER_DELETE_ATTEMPTS, &tags).increment(1);
-                        warn!(
-                            checkpoint_path = checkpoint_path,
-                            "Checkpoint cleaner: failed to remove checkpoint past partition retention limit: {}", e
-                        );
-                    } else {
-                        let tags = [("result", "success"), ("scan_type", "partition_limit")];
-                        metrics::counter!(CHECKPOINT_CLEANER_DELETE_ATTEMPTS, &tags).increment(1);
-                        info!(
-                            checkpoint_path = checkpoint_path,
-                            "Checkpoint cleaner: removed checkpoint past partition retention limit"
-                        );
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn remove_stale_checkpoint_dirs(
-        config: &CheckpointConfig,
-        candidate_dirs: Vec<PathBuf>,
-    ) -> Result<Vec<PathBuf>> {
-        let threshold_time = SystemTime::now()
-            - Duration::from_secs(config.max_checkpoint_retention_hours as u64 * 3600);
-        let mut remaining_dirs = Vec::new();
-
-        for candidate_dir in candidate_dirs.into_iter() {
-            let checkpoint_path = candidate_dir.to_string_lossy().to_string();
-            let checkpoint_child_dir = candidate_dir
-                .file_name()
-                .context("Checkpoint cleaner: failed to get checkpoint dir name")?
-                .to_string_lossy()
-                .to_string();
-
-            // the directory name should be a 0-padded UNIX epoch timestamp
-            // in microseconds indicating when the checkpoint was attempted
-            match Self::parse_checkpoint_timestamp(&checkpoint_child_dir) {
-                Ok(checkpoint_dir_created_at) => {
-                    if checkpoint_dir_created_at > threshold_time {
-                        remaining_dirs.push(candidate_dir);
-                    } else if let Err(e) = tokio::fs::remove_dir_all(&candidate_dir).await {
-                        let tags = [("result", "error"), ("scan_type", "retention_time")];
-                        metrics::counter!(CHECKPOINT_CLEANER_DELETE_ATTEMPTS, &tags).increment(1);
-                        warn!(
-                            checkpoint_path = checkpoint_path,
-                            "Checkpoint cleaner: failed to remove stale checkpoint: {}", e
-                        );
-                        remaining_dirs.push(candidate_dir);
-                    } else {
-                        let tags = [("result", "success"), ("scan_type", "retention_time")];
-                        metrics::counter!(CHECKPOINT_CLEANER_DELETE_ATTEMPTS, &tags).increment(1);
-                        info!(
-                            checkpoint_path = checkpoint_path,
-                            "Checkpoint cleaner: removed stale checkpoint"
-                        );
-                    }
-                }
-
-                Err(e) => {
-                    let tags = [("result", "error"), ("scan_type", "invalid_timestamp")];
-                    metrics::counter!(CHECKPOINT_CLEANER_DELETE_ATTEMPTS, &tags).increment(1);
-                    warn!(
-                        checkpoint_path = checkpoint_path,
-                        "Checkpoint cleaner: failed to parse checkpoint dir name as timestamp: {}",
-                        e
-                    );
-                    remaining_dirs.push(candidate_dir);
-                }
-            }
-        }
-
-        Ok(remaining_dirs)
-    }
-
-    fn parse_checkpoint_timestamp(dir_name: &str) -> Result<SystemTime> {
-        let microseconds = dir_name
-            .parse::<u128>()
-            .context("failed to parse directory name as microsecond timestamp")?;
-
-        let duration = Duration::from_micros(microseconds as u64);
-        Ok(UNIX_EPOCH + duration)
-    }
 }
 
 impl Drop for CheckpointManager {
@@ -626,12 +431,6 @@ impl Drop for CheckpointManager {
             }
         }
 
-        // Stop local checkpoint directory cleanup loop
-        if let Some(task) = self.cleanup_task.take() {
-            debug!("Checkpoint manager dropped: cleanup task will terminate");
-            task.abort();
-        }
-
         // in-flight workers will be interrupted immediately here if they aren't completed
     }
 }
@@ -639,7 +438,6 @@ impl Drop for CheckpointManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::checkpoint::worker::CheckpointTarget;
     use crate::checkpoint::{CheckpointPlan, CheckpointUploader};
     use crate::store::{
         DeduplicationStore, DeduplicationStoreConfig, TimestampKey, TimestampMetadata,
@@ -659,75 +457,34 @@ mod tests {
         fn new(export_base_dir: PathBuf) -> Self {
             Self { export_base_dir }
         }
-
-        async fn copy_dir_recursive(&self, src: &Path, dest: &Path) -> Result<Vec<String>> {
-            let mut files_to_copy = Vec::new();
-            let mut stack = vec![(src.to_path_buf(), dest.to_path_buf())];
-
-            while let Some((current_src, current_dest)) = stack.pop() {
-                let entries = std::fs::read_dir(&current_src)?;
-                for entry in entries {
-                    let entry = entry?;
-                    let path = entry.path();
-                    let file_name = entry.file_name();
-                    let dest_path = current_dest.join(&file_name);
-
-                    if path.is_dir() {
-                        stack.push((path, dest_path));
-                    } else {
-                        files_to_copy.push((path, dest_path));
-                    }
-                }
-            }
-
-            let mut uploaded_files = Vec::new();
-            for (src_file, dest_file) in files_to_copy {
-                if let Some(parent) = dest_file.parent() {
-                    tokio::fs::create_dir_all(parent).await?;
-                }
-                tokio::fs::copy(&src_file, &dest_file).await?;
-                uploaded_files.push(dest_file.to_string_lossy().to_string());
-            }
-
-            Ok(uploaded_files)
-        }
     }
 
     #[async_trait]
     impl CheckpointUploader for FilesystemUploader {
-        async fn upload_checkpoint_dir(
-            &self,
-            local_path: &Path,
-            remote_key_prefix: &str,
-        ) -> Result<Vec<String>> {
-            let dest = self.export_base_dir.join(remote_key_prefix);
-            self.copy_dir_recursive(local_path, &dest).await
-        }
-
-        async fn upload_checkpoint_with_plan(
-            &self,
-            plan: &CheckpointPlan,
-            remote_key_prefix: &str,
-        ) -> Result<Vec<String>> {
-            let dest_dir = self.export_base_dir.join(remote_key_prefix);
+        async fn upload_checkpoint_with_plan(&self, plan: &CheckpointPlan) -> Result<Vec<String>> {
+            // simulate remote upload path with local temp dir
+            let dest_dir = self
+                .export_base_dir
+                .join(plan.info.get_remote_attempt_path());
             tokio::fs::create_dir_all(&dest_dir).await?;
 
+            // Upload only new files from local file path to local "upload" dir
+            // with remote file path appended, including remote namespace
             let mut uploaded_files = Vec::new();
-
-            // Upload only new files
-            for (filename, local_path) in &plan.files_to_upload {
-                let dest_path = dest_dir.join(filename);
-                if let Some(parent) = dest_path.parent() {
-                    tokio::fs::create_dir_all(parent).await?;
-                }
-                tokio::fs::copy(local_path, &dest_path).await?;
-                uploaded_files.push(dest_path.to_string_lossy().to_string());
+            for local_file in &plan.files_to_upload {
+                let src_filepath = &local_file.local_path;
+                let dest_filepath = self
+                    .export_base_dir
+                    .join(plan.info.get_file_key(&local_file.filename));
+                tokio::fs::copy(src_filepath, &dest_filepath).await?;
+                uploaded_files.push(dest_filepath.to_string_lossy().to_string());
             }
 
-            // Write metadata.json
-            let metadata_path = dest_dir.join("metadata.json");
-            let metadata_json = serde_json::to_string_pretty(&plan.metadata)?;
-            tokio::fs::write(&metadata_path, metadata_json).await?;
+            // Write metadata.json to local "upload" dir w/remote metadata
+            // file path appended, including remote namespace
+            let metadata_path = self.export_base_dir.join(plan.info.get_metadata_key());
+            let metadata_json = plan.info.metadata.to_json()?;
+            tokio::fs::write(&metadata_path, metadata_json.into_bytes()).await?;
             uploaded_files.push(metadata_path.to_string_lossy().to_string());
 
             Ok(uploaded_files)
@@ -794,7 +551,6 @@ mod tests {
         let tmp_checkpoint_dir = TempDir::new().unwrap();
         let config = CheckpointConfig {
             checkpoint_interval: Duration::from_secs(30),
-            cleanup_interval: Duration::from_secs(10),
             local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
             ..Default::default()
         };
@@ -802,9 +558,6 @@ mod tests {
 
         assert!(manager.checkpoint_task.is_none());
         assert_eq!(manager.config.checkpoint_interval, Duration::from_secs(30));
-
-        assert!(manager.cleanup_task.is_none());
-        assert_eq!(manager.config.cleanup_interval, Duration::from_secs(10));
 
         assert!(manager.exporter.is_none());
     }
@@ -816,7 +569,6 @@ mod tests {
         let tmp_checkpoint_dir = TempDir::new().unwrap();
         let config = CheckpointConfig {
             checkpoint_interval: Duration::from_secs(30),
-            cleanup_interval: Duration::from_secs(10),
             local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
             ..Default::default()
         };
@@ -825,12 +577,10 @@ mod tests {
         // Start the manager
         manager.start();
         assert!(manager.checkpoint_task.is_some());
-        assert!(manager.cleanup_task.is_some());
 
         // Stop the manager
         manager.stop().await;
         assert!(manager.checkpoint_task.is_none());
-        assert!(manager.cleanup_task.is_none());
     }
 
     #[tokio::test]
@@ -878,7 +628,6 @@ mod tests {
         let tmp_checkpoint_dir = TempDir::new().unwrap();
         let config = CheckpointConfig {
             checkpoint_interval: Duration::from_secs(30),
-            cleanup_interval: Duration::from_secs(10),
             local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
             ..Default::default()
         };
@@ -895,7 +644,6 @@ mod tests {
         let tmp_checkpoint_dir = TempDir::new().unwrap();
         let config = CheckpointConfig {
             checkpoint_interval: Duration::from_millis(50),
-            cleanup_interval: Duration::from_secs(10),
             local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
             ..Default::default()
         };
@@ -941,12 +689,11 @@ mod tests {
         let uploader = Box::new(FilesystemUploader::new(tmp_export_dir.path().to_path_buf()));
         let config = CheckpointConfig {
             checkpoint_interval: Duration::from_millis(100),
-            cleanup_interval: Duration::from_secs(10),
             local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
             s3_key_prefix: "test".to_string(),
             ..Default::default()
         };
-        let exporter = Arc::new(CheckpointExporter::new(config.clone(), uploader));
+        let exporter = Arc::new(CheckpointExporter::new(uploader));
 
         let partition = Partition::new("test_periodic_flush_task".to_string(), 0);
         let stores = store_manager.stores();
@@ -1045,150 +792,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_cleaner_task_retention_time() {
-        // Add some test stores
-        let store_manager = create_test_store_manager();
-        let store1 = create_test_store("cleaner_task_retention_time", 0);
-        let store2 = create_test_store("cleaner_task_retention_time", 1);
-
-        // Add events to the stores
-        let event = create_test_event();
-        // Add test data directly to stores
-        let key = TimestampKey::from(&event);
-        let metadata = TimestampMetadata::new(&event);
-        store1.put_timestamp_record(&key, &metadata).unwrap();
-        store2.put_timestamp_record(&key, &metadata).unwrap();
-
-        // add dedup stores to manager
-        let stores = store_manager.stores();
-        stores.insert(
-            Partition::new("cleaner_task_retention_time".to_string(), 0),
-            store1,
-        );
-        stores.insert(
-            Partition::new("cleaner_task_retention_time".to_string(), 1),
-            store2,
-        );
-
-        let tmp_checkpoint_dir = TempDir::new().unwrap();
-        let tmp_export_dir = TempDir::new().unwrap();
-
-        // configure frequent checkpoints and long retention, cleanup interval with filesystem exporter
-        let uploader = Box::new(FilesystemUploader::new(tmp_export_dir.path().to_path_buf()));
-        let config = CheckpointConfig {
-            checkpoint_interval: Duration::from_millis(50),
-            cleanup_interval: Duration::from_secs(120),
-            local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
-            s3_key_prefix: "test".to_string(),
-            ..Default::default()
-        };
-        let exporter = Arc::new(CheckpointExporter::new(config.clone(), uploader));
-
-        // start the manager and produce some exported checkpoint files
-        let mut manager =
-            CheckpointManager::new(config.clone(), store_manager.clone(), Some(exporter));
-        manager.start();
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        manager.stop().await;
-
-        let found_files = find_local_checkpoint_files(tmp_export_dir.path()).unwrap();
-        assert!(!found_files.is_empty());
-
-        // reconfigure the manager to not run checkpoints, but to clean up immediately
-        // with a very recent retention time (now!)
-        let config = CheckpointConfig {
-            checkpoint_interval: Duration::from_secs(120),
-            cleanup_interval: Duration::from_millis(50),
-            max_checkpoint_retention_hours: 0,
-            checkpoints_per_partition: 100, // don't come near this limit for this test!
-            local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
-            ..Default::default()
-        };
-
-        let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
-        manager.start();
-        // wait for the cleanup task to run
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        manager.stop().await;
-
-        let found_files =
-            find_local_checkpoint_files(Path::new(&config.local_checkpoint_dir)).unwrap();
-        assert!(found_files.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_cleaner_task_partition_count() {
-        // Add some test stores
-        let store_manager = create_test_store_manager();
-        let store1 = create_test_store("cleaner_task_partition_count", 0);
-        let store2 = create_test_store("cleaner_task_partition_count", 1);
-
-        // Add events to the stores
-        let event = create_test_event();
-        // Add test data directly to stores
-        let key = TimestampKey::from(&event);
-        let metadata = TimestampMetadata::new(&event);
-        store1.put_timestamp_record(&key, &metadata).unwrap();
-        store2.put_timestamp_record(&key, &metadata).unwrap();
-
-        // add dedup stores to manager
-        let stores = store_manager.stores();
-        stores.insert(
-            Partition::new("cleaner_task_partition_count".to_string(), 0),
-            store1,
-        );
-        stores.insert(
-            Partition::new("cleaner_task_partition_count".to_string(), 1),
-            store2,
-        );
-
-        let tmp_checkpoint_dir = TempDir::new().unwrap();
-        let tmp_export_dir = TempDir::new().unwrap();
-
-        // configure frequent checkpoints and long retention, cleanup interval with filesystem exporter
-        let uploader = Box::new(FilesystemUploader::new(tmp_export_dir.path().to_path_buf()));
-        let config = CheckpointConfig {
-            checkpoint_interval: Duration::from_millis(50),
-            cleanup_interval: Duration::from_secs(120),
-            local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
-            s3_key_prefix: "test".to_string(),
-            ..Default::default()
-        };
-        let exporter = Arc::new(CheckpointExporter::new(config.clone(), uploader));
-
-        // start the manager and produce some exported checkpoint files
-        let mut manager =
-            CheckpointManager::new(config.clone(), store_manager.clone(), Some(exporter));
-        manager.start();
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        manager.stop().await;
-
-        let found_files = find_local_checkpoint_files(tmp_export_dir.path()).unwrap();
-        assert!(!found_files.is_empty());
-
-        // reconfigure the manager to not run checkpoints, but to clean up immediately
-        // with a very recent retention time (now!)
-        let config = CheckpointConfig {
-            checkpoint_interval: Duration::from_secs(120),
-            cleanup_interval: Duration::from_millis(50),
-            max_checkpoint_retention_hours: 24, // don't come near this limit for this test!
-            checkpoints_per_partition: 0,       // scorched earth
-            local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
-            ..Default::default()
-        };
-
-        let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
-        manager.start();
-        // wait for the cleanup task to run
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        manager.stop().await;
-
-        let found_files =
-            find_local_checkpoint_files(Path::new(&config.local_checkpoint_dir)).unwrap();
-        assert!(found_files.is_empty());
-    }
-
-    #[tokio::test]
     async fn test_max_inflight_checkpoints() {
         // Add some test stores
         let store_manager = create_test_store_manager();
@@ -1211,13 +814,12 @@ mod tests {
         let uploader = Box::new(FilesystemUploader::new(tmp_export_dir.path().to_path_buf()));
         let config = CheckpointConfig {
             checkpoint_interval: Duration::from_millis(50), // Submit frequent checkpoints during test run
-            cleanup_interval: Duration::from_secs(30),
             max_concurrent_checkpoints: 2,
             local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
             s3_key_prefix: "test".to_string(),
             ..Default::default()
         };
-        let exporter = Arc::new(CheckpointExporter::new(config.clone(), uploader));
+        let exporter = Arc::new(CheckpointExporter::new(uploader));
 
         // start the manager and produce some exported checkpoint files
         let mut manager =
@@ -1262,86 +864,5 @@ mod tests {
 
         let found_files = find_local_checkpoint_files(tmp_export_dir.path()).unwrap();
         assert!(!found_files.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_cleaner_timestamp_dir_handling() {
-        // Add some test stores
-        let store_manager = create_test_store_manager();
-        let store1 = create_test_store("cleaner_timestamp_dir_handling", 0);
-        let store2 = create_test_store("cleaner_timestamp_dir_handling", 1);
-        let store3 = create_test_store("cleaner_timestamp_dir_handling", 2);
-
-        // Add events to the stores
-        let event = create_test_event();
-        let key = crate::store::keys::TimestampKey::from(&event);
-        let metadata = crate::store::metadata::TimestampMetadata::new(&event);
-        store1.put_timestamp_record(&key, &metadata).unwrap();
-        store2.put_timestamp_record(&key, &metadata).unwrap();
-        store3.put_timestamp_record(&key, &metadata).unwrap();
-
-        // add dedup stores to manager
-        let stores = store_manager.stores();
-        stores.insert(
-            Partition::new("cleaner_timestamp_dir_handling".to_string(), 0),
-            store1,
-        );
-        stores.insert(
-            Partition::new("cleaner_timestamp_dir_handling".to_string(), 1),
-            store2,
-        );
-        stores.insert(
-            Partition::new("cleaner_timestamp_dir_handling".to_string(), 2),
-            store3,
-        );
-
-        let tmp_checkpoint_dir = TempDir::new().unwrap();
-
-        // configure frequent checkpoints to create a few quick timestamp dirs per partition
-        let config = CheckpointConfig {
-            checkpoint_interval: Duration::from_millis(100),
-            cleanup_interval: Duration::from_secs(120),
-            checkpoints_per_partition: 3,
-            local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
-            ..Default::default()
-        };
-
-        // start the manager and produce some local checkpoint files
-        let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
-        manager.start();
-        tokio::time::sleep(Duration::from_millis(300)).await;
-        manager.stop().await;
-
-        // now introspect on the checkpoint directory trees created
-        // to verify timestamp conversion process powering retention
-        // based cleanup is accurate
-        let scan_dirs =
-            CheckpointManager::find_checkpoint_dirs(Path::new(&config.local_checkpoint_dir))
-                .await
-                .unwrap();
-        let scan_dirs_set: HashSet<&Path> =
-            HashSet::from_iter(scan_dirs.iter().map(|p| p.as_path()));
-
-        // extract a set of only the timestamp directory names and
-        // perform conversion process into SystemTime timestamps
-        // as checkpoint manager does in retention scans
-        let expected_ts_dirs = scan_dirs_set
-            .iter()
-            .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
-            .collect::<HashSet<_>>();
-        let scan_ts_values = expected_ts_dirs
-            .iter()
-            .map(|p| CheckpointManager::parse_checkpoint_timestamp(p).unwrap())
-            .collect::<Vec<_>>();
-
-        // convert SystemTime timestamps back to directory names as CheckpointTarget does
-        let got_ts_dirs = scan_ts_values
-            .iter()
-            .map(|p| CheckpointTarget::format_checkpoint_timestamp(*p).unwrap())
-            .collect::<HashSet<_>>();
-
-        // verify the converted and regenerated directory names are
-        // exactly the same as those we started with
-        assert_eq!(expected_ts_dirs, got_ts_dirs);
     }
 }

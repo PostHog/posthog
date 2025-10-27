@@ -444,7 +444,8 @@ export function PageHeaderCustom(): JSX.Element {
                     AccessControlLevel.Editor,
                     experiment.user_access_level
                 )}
-                renameDebounceMs={1000}
+                renameDebounceMs={0}
+                saveOnBlur
                 actions={
                     <>
                         {experiment && !isExperimentRunning && (
@@ -581,7 +582,7 @@ export function PageHeaderCustom(): JSX.Element {
                                 menuItem
                                 onClick={openMax || undefined}
                                 disabledReasons={{
-                                    'Max AI not available': !openMax,
+                                    'PostHog AI not available': !openMax,
                                 }}
                             >
                                 <IconPlusSmall /> Create survey

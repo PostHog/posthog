@@ -4,13 +4,12 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { IconEllipsis, IconGear, IconInfo, IconLock, IconNotebook, IconSupport } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonMenuItems, LemonModal, ProfilePicture } from '@posthog/lemon-ui'
+import { IconEllipsis, IconGear, IconInfo, IconLock, IconLogomark, IconNotebook, IconSupport } from '@posthog/icons'
+import { LemonButton, LemonMenu, LemonMenuItems, LemonModal } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
-import { userLogic } from 'scenes/userLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import {
@@ -32,24 +31,15 @@ import { SidePanelActivation, SidePanelActivationIcon } from './panels/activatio
 import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
 import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion'
 import { sidePanelLogic } from './sidePanelLogic'
-import { WithinSidePanelContext, sidePanelStateLogic } from './sidePanelStateLogic'
+import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 export const SIDE_PANEL_TABS: Record<
     SidePanelTab,
     { label: string; Icon: any; Content: any; noModalSupport?: boolean }
 > = {
     [SidePanelTab.Max]: {
-        label: 'Max AI',
-        Icon: function IconMaxFromHedgehogConfig() {
-            const { user } = useValues(userLogic)
-            return (
-                <ProfilePicture
-                    user={{ hedgehog_config: { ...user?.hedgehog_config, use_as_profile: true } }}
-                    size="md"
-                    className="border bg-bg-light -scale-x-100" // Flip the hedegehog to face the scene
-                />
-            )
-        },
+        label: 'PostHog AI',
+        Icon: IconLogomark,
         Content: SidePanelMax,
     },
     [SidePanelTab.Notebooks]: {
@@ -246,11 +236,9 @@ export function SidePanel(): JSX.Element | null {
 
             {PanelContent ? (
                 <div className="SidePanel3000__content">
-                    <WithinSidePanelContext.Provider value={true}>
-                        <ErrorBoundary>
-                            <PanelContent />
-                        </ErrorBoundary>
-                    </WithinSidePanelContext.Provider>
+                    <ErrorBoundary>
+                        <PanelContent />
+                    </ErrorBoundary>
                 </div>
             ) : null}
         </div>

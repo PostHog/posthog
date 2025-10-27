@@ -13,6 +13,7 @@ from posthog.schema import AssistantHogQLQuery, AssistantToolCallMessage, TaskEx
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Dashboard, DashboardTile, Insight
 from posthog.sync import database_sync_to_async
+from posthog.utils import pluralize
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.parallel_task_execution.mixins import (
@@ -20,6 +21,7 @@ from ee.hogai.graph.parallel_task_execution.mixins import (
     WithInsightSearchTaskExecution,
 )
 from ee.hogai.graph.parallel_task_execution.nodes import BaseTaskExecutorNode, TaskExecutionInputTuple
+from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 from ee.hogai.utils.helpers import build_dashboard_url, build_insight_url, cast_assistant_query
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import BaseStateWithTasks, InsightArtifact, InsightQuery, TaskResult
@@ -27,9 +29,10 @@ from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
     DASHBOARD_CREATION_ERROR_MESSAGE,
+    DASHBOARD_EDIT_ERROR_MESSAGE,
+    DASHBOARD_EDIT_SUCCESS_MESSAGE_TEMPLATE,
     DASHBOARD_NO_INSIGHTS_MESSAGE,
     DASHBOARD_SUCCESS_MESSAGE_TEMPLATE,
-    HYPERLINK_USAGE_INSTRUCTIONS,
     QUERIES_WITHOUT_INSIGHTS_MESSAGE_TEMPLATE,
 )
 
@@ -105,31 +108,37 @@ class DashboardCreationNode(AssistantNode):
                 for i, query in enumerate(state.search_insights_queries)
             }
 
-            await self._write_reasoning(content=f"Searching for {len(state.search_insights_queries)} insights")
+            await self._write_reasoning(
+                content=f"Searching for {pluralize(len(state.search_insights_queries), 'insight')}"
+            )
 
             result = await self._search_insights(result, config)
 
-            await self._write_reasoning(content=f"Found {self._get_found_insight_count(result)} insights")
+            await self._write_reasoning(content=f"Found {pluralize(self._get_found_insight_count(result), 'insight')}")
 
             left_to_create = {
                 query_id: result[query_id].query for query_id in result.keys() if not result[query_id].found_insight_ids
             }
 
             if left_to_create:
-                await self._write_reasoning(content=f"Will create {len(left_to_create)} insights")
+                await self._write_reasoning(content=f"Will create {pluralize(len(left_to_create), 'insight')}")
 
                 result = await self._create_insights(left_to_create, result, config)
 
-            all_insight_ids = set()
+            all_insight_ids: set[int] = set()
             messages = []
             for query_metadata in result.values():
-                all_insight_ids.update(query_metadata.created_insight_ids | query_metadata.found_insight_ids)
+                all_insight_ids.update(
+                    int(id) for id in query_metadata.created_insight_ids | query_metadata.found_insight_ids
+                )
                 messages.extend(query_metadata.found_insight_messages + query_metadata.created_insight_messages)
 
             if not all_insight_ids:
                 return self._create_no_insights_response(state.root_tool_call_id or "unknown", "\n".join(messages))
 
-            dashboard, all_insights = await self._create_dashboard_with_insights(dashboard_name, all_insight_ids)
+            dashboard, all_insights = await self._create_dashboard_with_insights(
+                dashboard_name, all_insight_ids, state.dashboard_id
+            )
 
             queries_no_insights = [
                 query_metadata.query.name
@@ -138,7 +147,7 @@ class DashboardCreationNode(AssistantNode):
             ]
 
             return self._create_success_response(
-                dashboard, all_insights, state.root_tool_call_id or "unknown", queries_no_insights
+                dashboard, all_insights, state.root_tool_call_id or "unknown", queries_no_insights, state.dashboard_id
             )
         except Exception as e:
             logger.exception(
@@ -149,7 +158,10 @@ class DashboardCreationNode(AssistantNode):
                 },
                 exc_info=True,
             )
-            return self._create_error_response(DASHBOARD_CREATION_ERROR_MESSAGE, state.root_tool_call_id or "unknown")
+            return self._create_error_response(
+                DASHBOARD_CREATION_ERROR_MESSAGE if state.dashboard_id is None else DASHBOARD_EDIT_ERROR_MESSAGE,
+                state.root_tool_call_id or "unknown",
+            )
 
     async def _create_insights(
         self,
@@ -267,8 +279,20 @@ class DashboardCreationNode(AssistantNode):
 
         return query_metadata
 
+    def _get_or_create_dashboard(self, dashboard_id: int | None, dashboard_name: str) -> Dashboard:
+        if dashboard_id is None:
+            dashboard = Dashboard.objects.create(
+                name=dashboard_name,
+                team=self._team,
+                created_by=self._user,
+            )
+        else:
+            dashboard = Dashboard.objects.prefetch_related("insights").get(id=dashboard_id, team=self._team)
+
+        return dashboard
+
     async def _create_dashboard_with_insights(
-        self, dashboard_name: str, insights: set[int]
+        self, dashboard_name: str, insights: set[int], dashboard_id: int | None = None
     ) -> tuple[Dashboard, list[Insight]]:
         """Create a dashboard and add the insights to it."""
         await self._write_reasoning(content="Saving your dashboard")
@@ -277,16 +301,16 @@ class DashboardCreationNode(AssistantNode):
         @transaction.atomic
         def create_dashboard_sync():
             all_insights: list[Insight] = []
-            # Create the dashboard
-            dashboard = Dashboard.objects.create(
-                name=dashboard_name,
-                team=self._team,
-                created_by=self._user,
-            )
+
+            dashboard = self._get_or_create_dashboard(dashboard_id, dashboard_name)
 
             # Add insights to the dashboard via DashboardTile
             all_insights = list(Insight.objects.filter(id__in=insights, team=self._team))
 
+            if dashboard_id is not None:
+                current_insight_ids = list(dashboard.insights.values_list("id", flat=True))
+            else:
+                current_insight_ids = []
             tiles_to_create = [
                 DashboardTile(
                     dashboard=dashboard,
@@ -294,6 +318,7 @@ class DashboardCreationNode(AssistantNode):
                     layouts={},  # Default layout
                 )
                 for insight_id in insights
+                if insight_id not in current_insight_ids
             ]
             DashboardTile.objects.bulk_create(tiles_to_create)
 
@@ -307,6 +332,7 @@ class DashboardCreationNode(AssistantNode):
         insights: list[Insight],
         tool_call_id: str,
         queries_without_insights: list[str] | None = None,
+        dashboard_id: int | None = None,
     ) -> PartialAssistantState:
         """Create a success response with dashboard details."""
         insight_count = len(insights)
@@ -316,12 +342,22 @@ class DashboardCreationNode(AssistantNode):
             [f"[{insight.name}]({build_insight_url(self._team, insight.short_id)})" for insight in insights]
         )
 
-        success_message = DASHBOARD_SUCCESS_MESSAGE_TEMPLATE.format(
-            dashboard_name=dashboard.name,
-            insight_count=insight_count,
-            insight_plural=insight_plural,
-            insights_list=insights_list,
-            dashboard_url=build_dashboard_url(self._team, dashboard.id),
+        success_message = (
+            DASHBOARD_SUCCESS_MESSAGE_TEMPLATE.format(
+                dashboard_name=dashboard.name,
+                insight_count=insight_count,
+                insight_plural=insight_plural,
+                insights_list=insights_list,
+                dashboard_url=build_dashboard_url(self._team, dashboard.id),
+            )
+            if dashboard_id is None
+            else DASHBOARD_EDIT_SUCCESS_MESSAGE_TEMPLATE.format(
+                dashboard_name=dashboard.name,
+                insight_count=insight_count,
+                insight_plural=insight_plural,
+                insights_list=insights_list,
+                dashboard_url=build_dashboard_url(self._team, dashboard.id),
+            )
         )
 
         if queries_without_insights:
@@ -342,6 +378,7 @@ class DashboardCreationNode(AssistantNode):
             ],
             dashboard_name=None,
             search_insights_queries=None,
+            dashboard_id=None,
             root_tool_call_id=None,
             root_tool_insight_plan=None,
             selected_insight_ids=None,
@@ -358,6 +395,7 @@ class DashboardCreationNode(AssistantNode):
                 ),
             ],
             dashboard_name=None,
+            dashboard_id=None,
             root_tool_call_id=None,
             search_insights_queries=None,
             selected_insight_ids=None,
@@ -376,6 +414,7 @@ class DashboardCreationNode(AssistantNode):
                 ),
             ],
             dashboard_name=None,
+            dashboard_id=None,
             root_tool_call_id=None,
             search_insights_queries=None,
             selected_insight_ids=None,
