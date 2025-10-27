@@ -7,6 +7,7 @@ on:
         paths:
             - 'cli/**'
             - '.github/workflows/ci-cli.yml'
+            - 'docs/**'
 
 jobs:
     check-lockfile:
@@ -98,7 +99,7 @@ jobs:
 
                   PR_BRANCH="${{ github.event.pull_request.head.ref }}"
 
-                  echo "📢 Triggering Vercel deployment for posthog.com@source-git (gatsby-source-git)"
+                  echo "📢 Triggering Vercel deployment for posthog.com@master (gatsby-source-git)"
                   echo "   Monorepo branch: $PR_BRANCH (per-deployment env)"
 
                   PAYLOAD='{
@@ -107,7 +108,7 @@ jobs:
                     "gitSource": {
                       "type": "github",
                       "repoId": "260550412",
-                      "ref": "source-git"
+                      "ref": "master"
                     },
                     "build": {
                       "env": {
