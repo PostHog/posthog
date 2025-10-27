@@ -2,6 +2,7 @@ import { S3Client } from '@aws-sdk/client-s3'
 
 import { ValidRetentionPeriods } from '../constants'
 import { RetentionPeriodToDaysMap } from '../constants'
+import { DualWriteSessionBatchFileStorage } from '../sessions/dual-write-session-batch-writer'
 import { S3SessionBatchFileStorage } from '../sessions/s3-session-batch-writer'
 import {
     SessionBatchFileStorage,
@@ -71,17 +72,36 @@ export class RetentionAwareStorage implements SessionBatchFileStorage {
         private readonly s3: S3Client,
         private readonly bucket: string,
         private readonly prefix: string,
+        private readonly retentionService: RetentionService,
         private readonly timeout: number = 5000,
-        private readonly retentionService: RetentionService
+        private readonly secondaryS3?: S3Client,
+        private readonly secondaryBucket?: string
     ) {
         this.storageMap = ValidRetentionPeriods.reduce(
             (storage, retentionPeriod) => {
-                storage[retentionPeriod] = new S3SessionBatchFileStorage(
-                    this.s3,
-                    this.bucket,
-                    `${this.prefix}/${retentionPeriod}`,
-                    this.timeout
-                )
+                const retentionPrefix = `${this.prefix}/${retentionPeriod}`
+
+                // If secondary S3 is provided, create dual-write storage
+                if (this.secondaryS3 && this.secondaryBucket) {
+                    storage[retentionPeriod] = new DualWriteSessionBatchFileStorage(
+                        this.s3,
+                        this.bucket,
+                        retentionPrefix,
+                        this.timeout,
+                        this.secondaryS3,
+                        this.secondaryBucket,
+                        retentionPrefix, // Use same prefix structure in secondary
+                        this.timeout
+                    )
+                } else {
+                    // Normal single-storage mode
+                    storage[retentionPeriod] = new S3SessionBatchFileStorage(
+                        this.s3,
+                        this.bucket,
+                        retentionPrefix,
+                        this.timeout
+                    )
+                }
                 return storage
             },
             {} as { [key in RetentionPeriod]: SessionBatchFileStorage }

@@ -129,6 +129,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user',
         OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password',
         OBJECT_STORAGE_BUCKET: 'posthog',
+
+        // Dual-write configuration (LOCAL DEV ONLY - for migrating from MinIO to LocalStack)
+        OBJECT_STORAGE_DUAL_WRITE_ENABLED: true,
+        OBJECT_STORAGE_SECONDARY_ENDPOINT: 'http://localhost:4566',
+        OBJECT_STORAGE_SECONDARY_ACCESS_KEY_ID: 'test',
+        OBJECT_STORAGE_SECONDARY_SECRET_ACCESS_KEY: 'test',
         PLUGIN_SERVER_MODE: null,
         PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: null,
         PLUGIN_LOAD_SEQUENTIALLY: false,
