@@ -3,6 +3,7 @@ import { BindLogic, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import type { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -34,12 +35,12 @@ export function Experiment(): JSX.Element {
         deps: [currentTeamId, experimentId, experimentMissing],
     })
 
+    const logicProps: ExperimentLogicProps = { experimentId, formMode }
+    useAttachedLogic(experimentLogic(logicProps), experimentSceneLogic)
+
     if (experimentMissing) {
         return <NotFound object="experiment" />
     }
-
-    // Bind experimentLogic with props so all child components get the correct instance
-    const logicProps: ExperimentLogicProps = { experimentId, formMode }
 
     if (isCreateFormEnabled && formMode === FORM_MODES.create) {
         return (
