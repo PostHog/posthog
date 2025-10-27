@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { IconDownload, IconPencil, IconWarning } from '@posthog/icons'
+import { IconDownload, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonSelect, Spinner, lemonToast } from '@posthog/lemon-ui'
 
 import { downloadExportedAsset, exportedAssetBlob } from 'lib/components/ExportButton/exporter'
 import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
 import { dayjs } from 'lib/dayjs'
-import { IconRefresh, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconWithCount } from 'lib/lemon-ui/icons'
 
 import { ExportedAssetType, ExporterFormat } from '~/types'
 

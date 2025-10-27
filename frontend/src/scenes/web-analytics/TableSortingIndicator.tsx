@@ -1,10 +1,9 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { IconX } from '@posthog/icons'
+import { IconSort, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { IconSort } from 'lib/lemon-ui/icons'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { WebAnalyticsOrderByFields } from '~/queries/schema/schema-general'
