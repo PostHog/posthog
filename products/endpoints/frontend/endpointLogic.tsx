@@ -42,6 +42,7 @@ export const endpointLogic = kea<endpointLogicType>([
         setActiveCodeExampleTab: (tab: CodeExampleTab) => ({ tab }),
         setIsUpdateMode: (isUpdateMode: boolean) => ({ isUpdateMode }),
         setSelectedEndpointName: (selectedEndpointName: string | null) => ({ selectedEndpointName }),
+        setCacheAge: (cacheAge: number | null) => ({ cacheAge }),
         createEndpoint: (request: EndpointRequest) => ({ request }),
         createEndpointSuccess: (response: any) => ({ response }),
         createEndpointFailure: (error: any) => ({ error }),
@@ -74,8 +75,14 @@ export const endpointLogic = kea<endpointLogicType>([
                 setSelectedEndpointName: (_, { selectedEndpointName }) => selectedEndpointName,
             },
         ],
+        cacheAge: [
+            null as number | null,
+            {
+                setCacheAge: (_, { cacheAge }) => cacheAge,
+            },
+        ],
     }),
-    loaders(() => ({
+    loaders(({ actions }) => ({
         endpoint: [
             null as EndpointType | null,
             {
@@ -94,6 +101,9 @@ export const endpointLogic = kea<endpointLogicType>([
                     } catch (error) {
                         console.error('Failed to fetch last execution time:', error)
                     }
+
+                    // TODO: This does not belong here. Refactor to the endpointSceneLogic?
+                    actions.setCacheAge(endpoint.cache_age_seconds ?? null)
 
                     return endpoint
                 },
