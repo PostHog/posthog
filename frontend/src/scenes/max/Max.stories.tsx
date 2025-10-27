@@ -25,7 +25,7 @@ import {
     NotebookUpdateMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { FunnelsQuery, TrendsQuery } from '~/queries/schema/schema-general'
-import { ConversationStatus, ConversationType, InsightShortId } from '~/types'
+import { InsightShortId } from '~/types'
 
 import { MaxInstance, MaxInstanceProps } from './Max'
 import conversationList from './__mocks__/conversationList.json'
@@ -859,6 +859,7 @@ export const ReasoningComponent: StoryFn = () => {
         meta: {
             thinking: [
                 {
+                    type: 'thinking',
                     thinking: '*Analyzing user behavior patterns...*',
                 },
             ],
@@ -974,22 +975,22 @@ export const TaskExecutionComponent: StoryFn = () => {
 
     const updateMessages = [
         {
-            parent_tool_call_id: 'task_3',
+            tool_call_id: 'task_3',
             content: 'Fetching last 30 days of user activity',
             id: 'task-exec-msg-1-1',
         },
         {
-            parent_tool_call_id: 'task_3',
+            tool_call_id: 'task_3',
             content: 'Data loaded successfully',
             id: 'task-exec-msg-1-1',
         },
         {
-            parent_tool_call_id: 'task_4',
+            tool_call_id: 'task_4',
             content: 'Processing funnel metrics across key paths',
             id: 'task-exec-msg-1-1',
         },
         {
-            parent_tool_call_id: 'task_5',
+            tool_call_id: 'task_5',
             content: 'Exploring data...',
             id: 'task-exec-msg-1-1',
         },
@@ -1022,36 +1023,29 @@ export const TaskExecutionComponent: StoryFn = () => {
                         ])
                     )
                 ),
+        },
+        get: {
             '/api/environments/:team_id/conversations/in_progress/': (_req, _res, ctx) => [ctx.delay('infinite')],
         },
     })
 
-    const MOCK_IN_PROGRESS_CONVERSATION = {
-        id: 'in_progress',
-        status: ConversationStatus.InProgress,
-        title: 'Executing tasks',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        type: ConversationType.Assistant,
-        messages: [],
-    }
-    const { setConversationId } = useActions(maxLogic)
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
     const threadLogic: ReturnType<typeof maxThreadLogic> = maxThreadLogic({
         conversationId: 'in_progress',
-        conversation: MOCK_IN_PROGRESS_CONVERSATION,
+        conversation: null,
         tabId: 'storybook',
     })
-    const { askMax, setConversation } = useActions(threadLogic)
+    const { askMax } = useActions(threadLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
     useEffect(() => {
         if (dataProcessingAccepted) {
             setTimeout(() => {
-                setConversationId('in_progress')
                 askMax('Execute analysis tasks')
+                setConversationId('in_progress')
             }, 0)
         }
-    }, [dataProcessingAccepted, setConversationId, askMax, setConversation])
+    }, [dataProcessingAccepted, setConversationId, askMax])
 
     if (!dataProcessingAccepted) {
         return <></>
