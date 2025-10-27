@@ -5,6 +5,7 @@ from typing import Any, Optional
 from django.db import close_old_connections
 from django.db.models import Prefetch
 
+import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
@@ -59,11 +60,74 @@ def _trim_source_job_inputs(source: ExternalDataSource) -> None:
         source.save()
 
 
+def _report_heartbeat_timeout(inputs: ImportDataActivityInputs, logger: FilteringBoundLogger) -> None:
+    info = activity.info()
+    heartbeat_timeout = info.heartbeat_timeout
+    current_attempt_scheduled_time = info.current_attempt_scheduled_time
+
+    if not heartbeat_timeout:
+        logger.debug(f"No heartbeat timeout set for this activity: {heartbeat_timeout}")
+        return
+
+    if not current_attempt_scheduled_time:
+        logger.debug(f"No current attempt scheduled time set for this activity: {current_attempt_scheduled_time}")
+        return
+
+    if info.attempt > 1:
+        heartbeat_details = info.heartbeat_details
+        if not isinstance(heartbeat_details, tuple) or len(heartbeat_details) < 1:
+            return
+
+        last_heartbeat = heartbeat_details[-1]
+        logger.debug(f"Resuming activity after failure. Last heartbeat details: {last_heartbeat}")
+
+        if not isinstance(last_heartbeat, dict):
+            return
+
+        last_heartbeat_host = last_heartbeat.get("host", None)
+        last_heartbeat_timestamp = last_heartbeat.get("ts", None)
+
+        if not last_heartbeat_host or not last_heartbeat_timestamp:
+            logger.debug(f"Incomplete heartbeat details. No host or timestamp found.")
+            return
+
+        gap_between_beats = current_attempt_scheduled_time.timestamp() - float(last_heartbeat_timestamp)
+        if gap_between_beats > heartbeat_timeout.total_seconds():
+            logger.debug(
+                "Last heartbeat was longer ago than the heartbeat timeout allows. Likely due to a pod OOM or restart.",
+                last_heartbeat_host=last_heartbeat_host,
+                last_heartbeat_timestamp=last_heartbeat_timestamp,
+                gap_between_beats=gap_between_beats,
+                heartbeat_timeout_seconds=heartbeat_timeout.total_seconds(),
+            )
+
+            posthoganalytics.capture(
+                "dwh_pod_heartbeat_timeout",
+                distinct_id=None,
+                properties={
+                    "team_id": inputs.team_id,
+                    "schema_id": str(inputs.schema_id),
+                    "source_id": str(inputs.source_id),
+                    "run_id": inputs.run_id,
+                    "host": last_heartbeat_host,
+                    "gap_between_beats": gap_between_beats,
+                    "heartbeat_timeout_seconds": heartbeat_timeout.total_seconds(),
+                    "task_queue": info.task_queue,
+                    "workflow_id": info.workflow_id,
+                    "workflow_run_id": info.workflow_run_id,
+                    "workflow_type": info.workflow_type,
+                    "attempt": info.attempt,
+                },
+            )
+
+
 @activity.defn
 def import_data_activity_sync(inputs: ImportDataActivityInputs):
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
     tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.IMPORT_PIPELINE)
+
+    _report_heartbeat_timeout(inputs, logger)
 
     with HeartbeaterSync(factor=30, logger=logger), ShutdownMonitor() as shutdown_monitor:
         close_old_connections()
