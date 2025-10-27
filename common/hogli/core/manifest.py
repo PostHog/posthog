@@ -46,26 +46,38 @@ class Manifest:
         return self._data.get("metadata", {}).get("services", {})
 
     def get_category_for_command(self, command_name: str) -> str:
-        """Infer category title for a command from its prefix.
+        """Get category for a command based on which section it's placed in.
 
-        For example:
-        - "test:python" has prefix "test" → searches for commands with "test:" prefix
-        - Finds them in "testing" category → returns the category title from metadata
-        - Falls back to "commands" if prefix not found in any category
+        For manifest commands: Uses explicit placement in category sections.
+        For Click-only commands: Infers category from prefix matching.
+
+        Example:
+        - "test:python" in "tests:" section → "Run tests" category (explicit)
+        - "my:custom" Click command → looks for "my:" prefix → infers category (fallback)
+
+        Falls back to "commands" if not found in any category section.
         """
-        # Extract prefix from command name (e.g., "test:python" → "test")
-        prefix = command_name.split(":")[0]
-
-        # Search through manifest categories to find which one has commands with this prefix
+        # First, check if command is directly in a manifest section (explicit placement)
         for category_key, commands in self._data.items():
             if category_key == "metadata" or not isinstance(commands, dict):
                 continue
 
-            # Check if any command in this category starts with the prefix
+            if command_name in commands:
+                return self.get_category_title(category_key)
+
+        # For Click-only commands not in manifest, infer from prefix
+        # This allows Click commands to be categorized based on related manifest commands
+        prefix = command_name.split(":")[0] if ":" in command_name else command_name
+
+        for category_key, commands in self._data.items():
+            if category_key == "metadata" or not isinstance(commands, dict):
+                continue
+
+            # Check if any manifest command shares this prefix
             if any(cmd_name.startswith(f"{prefix}:") or cmd_name == prefix for cmd_name in commands.keys()):
                 return self.get_category_title(category_key)
 
-        # Fallback if prefix not found in any category
+        # Fallback if command not found and no prefix match
         return "commands"
 
     def get_services_for_command(self, command_name: str, command_config: dict) -> list[tuple[str, str]]:

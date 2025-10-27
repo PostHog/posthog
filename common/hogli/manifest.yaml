@@ -22,8 +22,6 @@ metadata:
           title: Developer tools and utilities
         - key: utilities
           title: Git worktrees and admin
-        - key: compositions
-          title: Multi-step workflows
         - key: environment
           title: Environment and shell
     services:
@@ -100,6 +98,16 @@ core:
         services:
             - postgresql
             - clickhouse
+    dev:reset:
+        steps:
+            - docker:services:down
+            - docker:services:up
+            - check:postgres
+            - check:clickhouse
+            - migrations:run
+            - dev:demo-data
+            - migrations:sync-flags
+        description: Full reset - stop services, migrate, load demo data, sync flags
 health_checks:
     check:clickhouse:
         bin_script: check_clickhouse_up
@@ -135,6 +143,12 @@ health_checks:
         bin_script: check_video_deps
         description: Install and verify Playwright browsers and FFmpeg dependencies
         hidden: true
+    services:ready:
+        steps:
+            - check:clickhouse
+            - check:postgres
+            - check:temporal
+        description: Verify all core infrastructure services are ready
 start:
     start:
         bin_script: start
@@ -219,6 +233,15 @@ build:
     build:taxonomy-json:
         bin_script: build-taxonomy-json.py
         description: Generate core filter definitions taxonomy JSON for frontend
+    build:schema:
+        steps:
+            - build:schema-json
+            - build:schema-python
+            - build:schema-latest-versions
+        description: Generate all schema definitions (frontend JSON, Python, latest versions)
+    build:grammar:
+        cmd: pnpm grammar:build
+        description: Generate HogQL grammar definitions (Python and C++)
 docker:
     docker:services:up:
         cmd: docker compose -f docker-compose.dev.yml up -d
@@ -421,37 +444,6 @@ utilities:
         bin_script: check_uv_python_compatibility.py
         description: CI validation for uv/Python version compatibility
         hidden: true
-compositions:
-    dev:reset:
-        steps:
-            - docker:services:down
-            - docker:services:up
-            - check:postgres
-            - check:clickhouse
-            - migrations:run
-            - dev:demo-data
-            - migrations:sync-flags
-        description: Full reset - stop services, migrate, load demo data, sync flags
-    services:ready:
-        steps:
-            - check:clickhouse
-            - check:postgres
-            - check:temporal
-        description: Verify all core infrastructure services are ready
-    precommit:
-        steps:
-            - lint
-            - format
-        description: Pre-commit checks (lint and format)
-    build:schema:
-        steps:
-            - build:schema-json
-            - build:schema-python
-            - build:schema-latest-versions
-        description: Generate all schema definitions (frontend JSON, Python, latest versions)
-    build:grammar:
-        cmd: pnpm grammar:build
-        description: Generate HogQL grammar definitions (Python and C++)
 environment:
     flox:activate:
         cmd: flox activate

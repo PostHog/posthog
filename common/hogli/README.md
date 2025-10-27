@@ -70,10 +70,8 @@ Every subcommand is self-documented. You can append `--help` to any command for 
 
 ### Design philosophy
 
-hogli follows these principles:
+Hogli follows these principles:
 
-- **Never bundle slow operations** - Tests run separately from lint/build because they take 15+ minutes. Developers should pick **one** test suite per run.
-- **Fast feedback loops** - `hogli lint` completes in ~5 minutes so you can verify code locally before CI.
 - **Thin wrapper layer** - hogli doesn't duplicate tool logic; it delegates to existing scripts (`bin/migrate`, `bin/start`, etc.). If you need advanced options, use the underlying tools directly.
 - **Explicit over implicit** - Commands require explicit choices (e.g., `hogli test:python` not `hogli test all`) to prevent accidental long-running operations.
 
@@ -91,10 +89,7 @@ hogli is built with [Click](https://click.palletsprojects.com/) and discovers al
 
 - `common/hogli/manifest.yaml` - Single source of truth: all command definitions, service metadata, and category grouping
 - `common/hogli/commands.py` - **Developer extension point** for adding custom Click commands
-- `common/hogli/core/cli.py` - Click CLI framework with dynamic command registration
-- `common/hogli/core/command_types.py` - Command class hierarchy (BinScriptCommand, DirectCommand, CompositeCommand)
-- `common/hogli/core/manifest.py` - Manifest loading with singleton pattern
-- `common/hogli/core/validate.py` - Auto-discovery and validation for missing commands
+- `common/hogli/core/cli.py` - CLI framework with dynamic command registration
 - `bin/` - Executable shell scripts that hogli wraps
 - `package.json` - High-level npm commands exposed through hogli
 
@@ -146,7 +141,6 @@ Need to add a new command?
 
 - **Developer workflow commands** → Add to `common/hogli/commands.py` (main extension point)
 - **Framework/meta commands** → Add to `common/hogli/core/cli.py` (rarely needed)
-- If it's 1-2 lines of Python, prefer `cmd:` in manifest instead
 
 **Auto-discovery:**
 hogli automatically discovers missing bin scripts on every invocation (except `meta:check`). Auto-discovered commands are marked as `hidden: true` by default until reviewed. Use `hogli meta:check` in CI to enforce manifest completeness.
