@@ -166,14 +166,18 @@ class TestDataWarehouseAPI(APIBaseTest):
             team=self.team,
             status=ExternalDataJob.Status.COMPLETED,
             rows_synced=100,
+            finished_at=timezone.now(),
         )
+
         ExternalDataJob.objects.create(
             pipeline_id=source.pk,
             schema=schema,
             team=self.team,
             status=ExternalDataJob.Status.FAILED,
             rows_synced=0,
+            finished_at=timezone.now(),
         )
+
         DataModelingJob.objects.create(team=self.team, status=DataModelingJob.Status.COMPLETED, rows_materialized=50)
 
         response = self.client.get(endpoint)
@@ -202,14 +206,14 @@ class TestDataWarehouseAPI(APIBaseTest):
         )
         schema = ExternalDataSchema.objects.create(name="customers", team=self.team, source=source)
 
-        job = ExternalDataJob.objects.create(
+        ExternalDataJob.objects.create(
             pipeline_id=source.pk,
             schema=schema,
             team=self.team,
             status=ExternalDataJob.Status.COMPLETED,
             rows_synced=100,
+            finished_at=timezone.now(),
         )
-        ExternalDataJob.objects.filter(pk=job.pk).update(created_at=timezone.now() - timedelta(hours=2))
 
         with self.assertNumQueries(14):
             response = self.client.get(f"{endpoint}?days=1")
@@ -229,23 +233,23 @@ class TestDataWarehouseAPI(APIBaseTest):
         )
         schema = ExternalDataSchema.objects.create(name="customers", team=self.team, source=source)
 
-        job1 = ExternalDataJob.objects.create(
+        ExternalDataJob.objects.create(
             pipeline_id=source.pk,
             schema=schema,
             team=self.team,
             status=ExternalDataJob.Status.COMPLETED,
             rows_synced=100,
+            finished_at=timezone.now() - timedelta(days=5),
         )
-        ExternalDataJob.objects.filter(pk=job1.pk).update(created_at=timezone.now() - timedelta(days=5))
 
-        job2 = ExternalDataJob.objects.create(
+        ExternalDataJob.objects.create(
             pipeline_id=source.pk,
             schema=schema,
             team=self.team,
             status=ExternalDataJob.Status.FAILED,
             rows_synced=0,
+            finished_at=timezone.now() - timedelta(days=10),
         )
-        ExternalDataJob.objects.filter(pk=job2.pk).update(created_at=timezone.now() - timedelta(days=10))
 
         with self.assertNumQueries(14):
             response = self.client.get(f"{endpoint}?days=30")
@@ -279,23 +283,23 @@ class TestDataWarehouseAPI(APIBaseTest):
         )
         schema = ExternalDataSchema.objects.create(name="customers", team=self.team, source=source)
 
-        recent_job = ExternalDataJob.objects.create(
+        ExternalDataJob.objects.create(
             pipeline_id=source.pk,
             schema=schema,
             team=self.team,
             status=ExternalDataJob.Status.COMPLETED,
             rows_synced=100,
+            finished_at=timezone.now() - timedelta(days=3),
         )
-        ExternalDataJob.objects.filter(pk=recent_job.pk).update(created_at=timezone.now() - timedelta(days=3))
 
-        old_job = ExternalDataJob.objects.create(
+        ExternalDataJob.objects.create(
             pipeline_id=source.pk,
             schema=schema,
             team=self.team,
             status=ExternalDataJob.Status.COMPLETED,
             rows_synced=200,
+            finished_at=timezone.now() - timedelta(days=10),
         )
-        ExternalDataJob.objects.filter(pk=old_job.pk).update(created_at=timezone.now() - timedelta(days=10))
 
         response = self.client.get(f"{endpoint}?days=7")
         data = response.json()
@@ -330,23 +334,23 @@ class TestDataWarehouseAPI(APIBaseTest):
 
         today_start = timezone.now().date()
 
-        job1 = ExternalDataJob.objects.create(
+        ExternalDataJob.objects.create(
             pipeline_id=source.pk,
             schema=schema,
             team=self.team,
             status=ExternalDataJob.Status.COMPLETED,
             rows_synced=100,
+            finished_at=today_start + timedelta(hours=2),
         )
-        ExternalDataJob.objects.filter(pk=job1.pk).update(created_at=today_start + timedelta(hours=2))
 
-        job2 = ExternalDataJob.objects.create(
+        ExternalDataJob.objects.create(
             pipeline_id=source.pk,
             schema=schema,
             team=self.team,
             status=ExternalDataJob.Status.FAILED,
             rows_synced=0,
+            finished_at=today_start + timedelta(hours=3),
         )
-        ExternalDataJob.objects.filter(pk=job2.pk).update(created_at=today_start + timedelta(hours=3))
 
         modeling_job = DataModelingJob.objects.create(
             team=self.team, status=DataModelingJob.Status.COMPLETED, rows_materialized=50
