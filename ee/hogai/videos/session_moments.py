@@ -2,11 +2,13 @@ import uuid
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from io import BytesIO
 from math import ceil
 
 from django.utils.timezone import now
 
 import structlog
+from pymediainfo import MediaInfo
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.constants import VIDEO_EXPORT_TASK_QUEUE
@@ -20,7 +22,11 @@ from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExpo
 
 from products.llm_analytics.backend.providers.gemini import GeminiProvider
 
-from ee.hogai.session_summaries.constants import DEFAULT_EXPORT_MIME_TYPE, DEFAULT_VIDEO_UNDERSTANDING_MODEL
+from ee.hogai.session_summaries.constants import (
+    DEFAULT_VIDEO_EXPORT_MIME_TYPE,
+    DEFAULT_VIDEO_UNDERSTANDING_MODEL,
+    VALIDATION_VIDEO_DURATION,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -134,7 +140,7 @@ class SessionMomentsLLMAnalyzer:
             expires_after = created_at + timedelta(days=expires_after_days)
             exported_asset = await ExportedAsset.objects.acreate(
                 team_id=self.team_id,
-                export_format=DEFAULT_EXPORT_MIME_TYPE,
+                export_format=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
                 export_context={
                     "session_recording_id": self.session_id,
                     "timestamp": moment.timestamp_s,
@@ -174,15 +180,37 @@ class SessionMomentsLLMAnalyzer:
             # Get content from either database or object storage
             if asset.content:
                 # Content stored directly in database
-                return bytes(asset.content)
+                content = bytes(asset.content)
+                # TODO: Remove after testing
+                with open(f"{asset_id}.webm", "wb") as f:
+                    f.write(content)
+                return content
             elif asset.content_location:
                 # Content stored in object storage
-                return await database_sync_to_async(object_storage.read_bytes, thread_sensitive=False)(
+                content = await database_sync_to_async(object_storage.read_bytes, thread_sensitive=False)(
                     asset.content_location
                 )
+                # TODO: Remove after testing
+                with open(f"{asset_id}.webm", "wb") as f:
+                    f.write(content)
+                return content
             else:
                 return None
         except ExportedAsset.DoesNotExist:
+            return None
+
+    @staticmethod
+    def _get_webm_duration(video_bytes: bytes) -> int | None:
+        """Extract duration in milliseconds from WEBM video bytes to understand when the export UI finished rendering"""
+        try:
+            media_info = MediaInfo.parse(BytesIO(video_bytes))
+            for track in media_info.tracks:
+                if track.track_type == "General":
+                    # Convert ms to seconds, ceil to avoid grey "not-rendered" frames at the start
+                    return ceil(track.duration / 1000.0)
+            return None
+        except Exception as e:
+            logger.exception(f"Error extracting video duration: {e}")
             return None
 
     async def _analyze_single_moment_video_with_llm(
@@ -200,9 +228,18 @@ class SessionMomentsLLMAnalyzer:
                     f"No video bytes found for asset {asset_id} for moment {moment_id} of session {self.session_id} of team {self.team_id}"
                 )
                 return None
+            # Calculate how many seconds to skip from the start, as Puppeteer needs time to render the export UI
+            total_video_duration = self._get_webm_duration(video_bytes=video_bytes)
+            start_offset_s = total_video_duration - VALIDATION_VIDEO_DURATION if total_video_duration else None
+            # Analyze the video with LLM
             provider = GeminiProvider(model_id=DEFAULT_VIDEO_UNDERSTANDING_MODEL)
-            content = provider.understand_video(
-                video_bytes=video_bytes, mime_type=DEFAULT_EXPORT_MIME_TYPE, prompt=prompt, trace_id=self.trace_id
+            content = await provider.understand_video(
+                video_bytes=video_bytes,
+                mime_type=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
+                prompt=prompt,
+                start_offset_s=start_offset_s,
+                # No end offset is required, as we expect the export rendering to stop right after the video was played
+                trace_id=self.trace_id,
             )
             if not content:
                 logger.warning(
