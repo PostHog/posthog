@@ -5760,6 +5760,484 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         # Counts: cohort size 1, returned in first bracket once, none in second
         self.assertEqual([v["count"] for v in day0_row["values"]], [1, 1, 0])
 
+    def test_custom_brackets_with_person_breakdown(self):
+        """Test custom brackets with person property breakdown"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"country": "USA"})
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"country": "USA"})
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"], properties={"country": "Canada"})
+
+        _create_events(
+            self.team,
+            [
+                # USA users
+                ("person1", _date(0)),
+                ("person1", _date(2)),  # Day 2 -> bracket 1
+                ("person1", _date(6)),  # Day 6 -> bracket 2
+                ("person2", _date(0)),
+                ("person2", _date(3)),  # Day 3 -> bracket 1
+                # Canada user
+                ("person3", _date(0)),
+                ("person3", _date(7)),  # Day 7 -> bracket 2
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 11,
+                    "retentionCustomBrackets": [4, 6],  # Day 1-4, Day 5-10
+                },
+                "breakdownFilter": {"breakdown": "country", "breakdown_type": "person"},
+            }
+        )
+
+        # Get USA results
+        usa_results = [r for r in result if r.get("breakdown_value") == "USA"]
+        usa_day0 = next(r for r in usa_results if r["label"] == "Day 0")
+
+        # Check labels
+        self.assertEqual(
+            [v["label"] for v in usa_day0["values"]],
+            ["Day 0", "Day 1-4", "Day 5-10"],
+        )
+
+        # USA: 2 users start, both return in bracket 1, 1 returns in bracket 2
+        self.assertEqual([v["count"] for v in usa_day0["values"]], [2, 2, 1])
+
+        # Get Canada results
+        canada_results = [r for r in result if r.get("breakdown_value") == "Canada"]
+        canada_day0 = next(r for r in canada_results if r["label"] == "Day 0")
+
+        # Canada: 1 user starts, doesn't return in bracket 1, returns in bracket 2
+        self.assertEqual([v["count"] for v in canada_day0["values"]], [1, 0, 1])
+
+    def test_custom_brackets_with_event_breakdown(self):
+        """Test custom brackets with event property breakdown"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0), {"browser": "Chrome"}),
+                ("person1", _date(2), {"browser": "Chrome"}),  # bracket 1
+                ("person1", _date(8), {"browser": "Chrome"}),  # bracket 2
+                ("person2", _date(0), {"browser": "Safari"}),
+                ("person2", _date(3), {"browser": "Safari"}),  # bracket 1
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 11,
+                    "retentionCustomBrackets": [5, 5],  # Day 1-5, Day 6-10
+                },
+                "breakdownFilter": {"breakdown": "browser", "breakdown_type": "event"},
+            }
+        )
+
+        # Chrome results
+        chrome_results = [r for r in result if r.get("breakdown_value") == "Chrome"]
+        chrome_day0 = next(r for r in chrome_results if r["label"] == "Day 0")
+        self.assertEqual([v["count"] for v in chrome_day0["values"]], [1, 1, 1])
+
+        # Safari results
+        safari_results = [r for r in result if r.get("breakdown_value") == "Safari"]
+        safari_day0 = next(r for r in safari_results if r["label"] == "Day 0")
+        self.assertEqual([v["count"] for v in safari_day0["values"]], [1, 1, 0])
+
+    def test_custom_brackets_with_cohort_breakdown(self):
+        """Test custom brackets with cohort breakdown"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"age": "25"})
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"age": "30"})
+
+        flush_persons_and_events()
+
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            name="Young users",
+            groups=[{"properties": [{"key": "age", "value": "25", "type": "person"}]}],
+        )
+        cohort1.calculate_people_ch(pending_version=0)
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person1", _date(2)),  # bracket 1
+                ("person1", _date(7)),  # bracket 2
+                ("person2", _date(0)),
+                ("person2", _date(3)),  # bracket 1
+            ],
+        )
+
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 11,
+                    "retentionCustomBrackets": [4, 5],  # Day 1-4, Day 5-9
+                },
+                "breakdownFilter": {"breakdown": [cohort1.pk], "breakdown_type": "cohort"},
+            }
+        )
+
+        cohort_results = [r for r in result if r.get("breakdown_value") == str(cohort1.pk)]
+        cohort_day0 = next(r for r in cohort_results if r["label"] == "Day 0")
+        self.assertEqual([v["count"] for v in cohort_day0["values"]], [1, 1, 1])
+
+    def test_custom_brackets_first_time_ever(self):
+        """Test custom brackets with first-ever occurrence retention"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        # person1: first event Day 0, signup Day 1
+        _create_events(self.team, [("person1", _date(0))], "$pageview")
+        _create_events(self.team, [("person1", _date(1))], "$user_signed_up")
+        _create_events(
+            self.team,
+            [("person1", _date(3)), ("person1", _date(8))],  # bracket 1, bracket 2
+            "$pageview",
+        )
+
+        # person2: first event signup Day 2
+        _create_events(self.team, [("person2", _date(2))], "$user_signed_up")
+        _create_events(self.team, [("person2", _date(4)), ("person2", _date(9))], "$pageview")  # bracket 1, bracket 2
+
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(10)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 11,
+                    "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
+                    "targetEntity": {"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "retentionCustomBrackets": [5, 5],  # Day 1-5, Day 6-10
+                },
+            }
+        )
+
+        # person1 cohorts on Day 1 (first signup), returns Day 3 (bracket 1), Day 8 (bracket 2)
+        day1_row = next(r for r in result if r["label"] == "Day 1")
+        self.assertEqual([v["label"] for v in day1_row["values"]], ["Day 0", "Day 1-5", "Day 6-10"])
+        self.assertEqual([v["count"] for v in day1_row["values"]], [1, 1, 1])
+
+        # person2 cohorts on Day 2, returns Day 4 (bracket 1), Day 9 (bracket 2)
+        day2_row = next(r for r in result if r["label"] == "Day 2")
+        self.assertEqual([v["count"] for v in day2_row["values"]], [1, 1, 1])
+
+    def test_custom_brackets_first_time_matching_filters(self):
+        """Test custom brackets with first-time matching filters retention"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+
+        # Events without property
+        _create_events(self.team, [("person1", _date(0))], "$pageview")
+
+        # First event with property on Day 2
+        _create_events(self.team, [("person1", _date(2), {"premium": "true"})], "$pageview")
+
+        # Return events
+        _create_events(
+            self.team,
+            [("person1", _date(4)), ("person1", _date(9))],  # bracket 1, bracket 2
+            "$pageview",
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 11,
+                    "retentionType": RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
+                    "targetEntity": {
+                        "id": "$pageview",
+                        "type": "events",
+                        "properties": [{"key": "premium", "value": "true", "type": "event"}],
+                    },
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "retentionCustomBrackets": [4, 5],  # Day 1-4, Day 5-9
+                },
+            }
+        )
+
+        # Cohorts on Day 2 (first event with premium property)
+        day2_row = next(r for r in result if r["label"] == "Day 2")
+        self.assertEqual([v["count"] for v in day2_row["values"]], [1, 1, 1])
+
+    def test_custom_brackets_with_minimum_occurrences(self):
+        """Test custom brackets with minimum occurrences (counted per day within bracket)"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        _create_events(
+            self.team,
+            [
+                # person1: returns with 2+ events on Day 2 (bracket 1), only 1 event on Day 7 (bracket 2)
+                ("person1", _date(0)),
+                ("person1", _date(2)),
+                ("person1", _date(2)),  # 2 events on same day in bracket 1 (Day 1-5)
+                ("person1", _date(7)),  # 1 event in bracket 2 (Day 6-10) - won't count
+                # person2: returns with 1 event on Day 3 (won't count), 2 events on Day 8 (bracket 2)
+                ("person2", _date(0)),
+                ("person2", _date(3)),  # 1 event in bracket 1 - won't count
+                ("person2", _date(8)),
+                ("person2", _date(8)),  # 2 events on same day in bracket 2
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 11,
+                    "retentionCustomBrackets": [5, 5],  # Day 1-5, Day 6-10
+                    "minimumOccurrences": 2,
+                },
+            }
+        )
+
+        day0_row = next(row for row in result if row["label"] == "Day 0")
+        # Both start, person1 qualifies for bracket 1 only (Day 2 has 2 events), person2 qualifies for bracket 2 only (Day 8 has 2 events)
+        self.assertEqual([v["count"] for v in day0_row["values"]], [2, 1, 1])
+
+    def test_custom_brackets_week_period(self):
+        """Test custom brackets with week period"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+
+        # Week 0: June 10, Week 3: July 1 (21 days = 3 weeks), Week 6: July 22 (42 days = 6 weeks)
+        _create_events(
+            self.team,
+            [
+                ("person1", datetime(2020, 6, 10, 5, 0).isoformat()),  # Week 0
+                ("person1", datetime(2020, 7, 1, 5, 0).isoformat()),  # Week 3 -> bracket 1 (Week 1-4)
+                ("person1", datetime(2020, 7, 22, 5, 0).isoformat()),  # Week 6 -> bracket 2 (Week 5-8)
+            ],
+        )
+
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": datetime(2020, 10, 1).isoformat()},
+                "retentionFilter": {
+                    "period": "Week",
+                    "totalIntervals": 17,
+                    "retentionCustomBrackets": [4, 4],  # Week 1-4, Week 5-8
+                },
+            }
+        )
+
+        week0_row = next(row for row in result if row["label"] == "Week 0")
+        self.assertEqual([v["label"] for v in week0_row["values"]], ["Week 0", "Week 1-4", "Week 5-8"])
+        self.assertEqual([v["count"] for v in week0_row["values"]], [1, 1, 1])
+
+    def test_custom_brackets_month_period(self):
+        """Test custom brackets with month period"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0, month=0)),  # June 2020
+                ("person1", _date(0, month=2)),  # August 2020 (Month 2) -> bracket 1
+                ("person1", _date(0, month=5)),  # November 2020 (Month 5) -> bracket 2
+            ],
+        )
+
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": datetime(2021, 2, 10).isoformat()},
+                "retentionFilter": {
+                    "period": "Month",
+                    "totalIntervals": 9,
+                    "retentionCustomBrackets": [3, 3],  # Month 1-3, Month 4-6
+                },
+            }
+        )
+
+        month0_row = next(row for row in result if row["label"] == "Month 0")
+        self.assertEqual([v["label"] for v in month0_row["values"]], ["Month 0", "Month 1-3", "Month 4-6"])
+        self.assertEqual([v["count"] for v in month0_row["values"]], [1, 1, 1])
+
+    def test_custom_brackets_cumulative(self):
+        """Test custom brackets with cumulative retention"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        _create_events(
+            self.team,
+            [
+                # person1: returns in bracket 2 (should count for both brackets in cumulative)
+                ("person1", _date(0)),
+                ("person1", _date(8)),  # bracket 2
+                # person2: returns in bracket 1 only
+                ("person2", _date(0)),
+                ("person2", _date(3)),  # bracket 1
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 11,
+                    "retentionCustomBrackets": [5, 5],  # Day 1-5, Day 6-10
+                    "cumulative": True,
+                },
+            }
+        )
+
+        day0_row = next(row for row in result if row["label"] == "Day 0")
+        # Both start, both count in bracket 1 (cumulative), only person1 in bracket 2
+        self.assertEqual([v["count"] for v in day0_row["values"]], [2, 2, 1])
+
+    def test_custom_brackets_with_properties_on_events(self):
+        """Test custom brackets with properties on start and return events"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0), {"source": "organic"}),
+                ("person1", _date(2), {"source": "organic"}),  # bracket 1
+                ("person1", _date(7), {"source": "organic"}),  # bracket 2
+                ("person1", _date(8), {"source": "paid"}),  # doesn't count
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 11,
+                    "retentionCustomBrackets": [4, 6],  # Day 1-4, Day 5-10
+                    "returningEntity": {
+                        "id": "$pageview",
+                        "properties": [{"key": "source", "value": "organic", "type": "event"}],
+                    },
+                },
+            }
+        )
+
+        day0_row = next(row for row in result if row["label"] == "Day 0")
+        # Returns in bracket 1 and 2 with matching property
+        self.assertEqual([v["count"] for v in day0_row["values"]], [1, 1, 1])
+
+    def test_custom_brackets_actors_query(self):
+        """Test actors query works with custom brackets"""
+        person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person1", _date(2)),  # bracket 1
+                ("person1", _date(7)),  # bracket 2
+                ("person2", _date(0)),
+                ("person2", _date(3)),  # bracket 1
+            ],
+        )
+
+        flush_persons_and_events()
+
+        result = self.run_actors_query(
+            interval=0,
+            query={
+                "dateRange": {"date_to": _date(10)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 11,
+                    "retentionCustomBrackets": [4, 6],  # Day 1-4, Day 5-10
+                },
+            },
+        )
+
+        self.assertEqual(len(result), 2)
+        person1_result = next(r for r in result if r[0]["id"] == person1.uuid)
+        # person1 appears in intervals 0 (cohort), 1 (bracket 1), 2 (bracket 2)
+        self.assertEqual(person1_result[1], [0, 1, 2])
+
+    def test_custom_brackets_empty_bracket_handling(self):
+        """Test that empty brackets in the middle are handled correctly"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person1", _date(12)),  # Only returns in bracket 3
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(15)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 16,
+                    "retentionCustomBrackets": [3, 5, 4],  # Day 1-3, Day 4-8, Day 9-12
+                },
+            }
+        )
+
+        day0_row = next(row for row in result if row["label"] == "Day 0")
+        # No returns in brackets 1 or 2, but returns in bracket 3
+        self.assertEqual([v["count"] for v in day0_row["values"]], [1, 0, 0, 1])
+
+    def test_custom_brackets_different_start_cohorts(self):
+        """Test custom brackets work correctly for different cohort start days"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        _create_events(
+            self.team,
+            [
+                # person1 starts Day 0
+                ("person1", _date(0)),
+                ("person1", _date(2)),  # bracket 1 relative to Day 0
+                # person2 starts Day 3
+                ("person2", _date(3)),
+                ("person2", _date(5)),  # bracket 1 relative to Day 3
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 11,
+                    "retentionCustomBrackets": [3, 4],  # Day 1-3, Day 4-7
+                },
+            }
+        )
+
+        day0_row = next(row for row in result if row["label"] == "Day 0")
+        # person1 returns in bracket 1 (Day 2)
+        self.assertEqual([v["count"] for v in day0_row["values"]], [1, 1, 0])
+
+        day3_row = next(row for row in result if row["label"] == "Day 3")
+        # person2 returns in bracket 1 (Day 5, which is 2 days after Day 3)
+        self.assertEqual([v["count"] for v in day3_row["values"]], [1, 1, 0])
+
     def test_retention_24h_window_weekly_cohorts(self):
         # Test 24-hour windows with weekly retention cohorts
         # Week period with 24h windows uses 7-day (168 hour) rolling windows

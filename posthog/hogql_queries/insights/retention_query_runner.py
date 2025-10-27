@@ -1143,7 +1143,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             assert isinstance(retention_query, ast.SelectQuery)
 
             # Add interval columns
-            for i in range(self.query_date_range.lookahead):
+            for i in range(self.lookahead_period_count):
                 retention_query.select.append(
                     ast.Alias(
                         alias=f"{self.query_date_range.interval_name}_{i}",
