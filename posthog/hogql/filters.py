@@ -10,7 +10,6 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.visitor import CloningVisitor
 
-from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.utils import relative_date_parse
 
