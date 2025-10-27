@@ -9,6 +9,8 @@ export enum RestrictionType {
     FORCE_OVERFLOW_FROM_INGESTION = 'force_overflow_from_ingestion',
 }
 
+export type IngestionPipeline = 'analytics' | 'session_recordings'
+
 export const REDIS_KEY_PREFIX = 'event_ingestion_restriction_dynamic_config'
 
 /*
@@ -24,6 +26,7 @@ export const REDIS_KEY_PREFIX = 'event_ingestion_restriction_dynamic_config'
  */
 export class EventIngestionRestrictionManager {
     private hub: Hub
+    private pipeline: IngestionPipeline
     private staticDropEventList: Set<string>
     private staticSkipPersonList: Set<string>
     private staticForceOverflowList: Set<string>
@@ -33,14 +36,21 @@ export class EventIngestionRestrictionManager {
     constructor(
         hub: Hub,
         options: {
+            pipeline?: IngestionPipeline
             staticDropEventTokens?: string[]
             staticSkipPersonTokens?: string[]
             staticForceOverflowTokens?: string[]
         } = {}
     ) {
-        const { staticDropEventTokens = [], staticSkipPersonTokens = [], staticForceOverflowTokens = [] } = options
+        const {
+            pipeline = 'analytics',
+            staticDropEventTokens = [],
+            staticSkipPersonTokens = [],
+            staticForceOverflowTokens = [],
+        } = options
 
         this.hub = hub
+        this.pipeline = pipeline
         this.staticDropEventList = new Set(staticDropEventTokens)
         this.staticSkipPersonList = new Set(staticSkipPersonTokens)
         this.staticForceOverflowList = new Set(staticForceOverflowTokens)
@@ -87,7 +97,32 @@ export class EventIngestionRestrictionManager {
                     try {
                         const parsedArray = parseJSON(redisResult[1] as string)
                         if (Array.isArray(parsedArray)) {
-                            result[restrictionType] = new Set(parsedArray)
+                            // Convert array items to strings
+                            // Old format: ["token1", "token2:distinct_id"]
+                            // New format: [{"token": "token1", "analytics": true, "session_recordings": false}, ...]
+                            const items = parsedArray.flatMap((item) => {
+                                if (typeof item === 'string') {
+                                    // Old format - assume analytics=true, everything else=false
+                                    if (this.pipeline === 'analytics') {
+                                        return [item]
+                                    }
+                                    return []
+                                } else if (typeof item === 'object' && item !== null && 'token' in item) {
+                                    // New format - check if the pipeline field is set to true
+                                    const appliesToPipeline = Boolean(item[this.pipeline])
+
+                                    if (appliesToPipeline) {
+                                        if ('distinct_id' in item && item.distinct_id) {
+                                            return [`${item.token}:${item.distinct_id}`]
+                                        } else {
+                                            return [item.token]
+                                        }
+                                    }
+                                    return []
+                                }
+                                return []
+                            })
+                            result[restrictionType] = new Set(items)
                         } else {
                             logger.warn(`Expected array for ${restrictionType} but got different JSON type`)
                             result[restrictionType] = new Set()

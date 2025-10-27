@@ -159,6 +159,170 @@ describe('EventIngestionRestrictionManager', () => {
             const result = await eventIngestionRestrictionManager.fetchDynamicEventIngestionRestrictionConfig()
             expect(result).toEqual({})
         })
+
+        it('handles new format with pipeline fields (analytics pipeline)', async () => {
+            pipelineMock.get.mockClear()
+            pipelineMock.exec.mockResolvedValue([
+                [
+                    null,
+                    JSON.stringify([
+                        { token: 'token1', analytics: true, session_recordings: false },
+                        { token: 'token2', distinct_id: 'user1', analytics: true, session_recordings: true },
+                        { token: 'token3', analytics: false, session_recordings: true },
+                    ]),
+                ],
+                [null, null],
+                [null, null],
+            ])
+
+            const result = await eventIngestionRestrictionManager.fetchDynamicEventIngestionRestrictionConfig()
+
+            // Should only include token1 and token2 (analytics=true), not token3 (analytics=false)
+            expect(result).toEqual({
+                [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set(['token1', 'token2:user1']),
+            })
+        })
+
+        it('handles new format with only session_recordings enabled (analytics pipeline)', async () => {
+            pipelineMock.get.mockClear()
+            pipelineMock.exec.mockResolvedValue([
+                [null, JSON.stringify([{ token: 'token1', analytics: false, session_recordings: true }])],
+                [null, null],
+                [null, null],
+            ])
+
+            const result = await eventIngestionRestrictionManager.fetchDynamicEventIngestionRestrictionConfig()
+
+            // Should be empty because analytics=false for analytics pipeline
+            expect(result).toEqual({
+                [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set([]),
+            })
+        })
+
+        it('excludes entries with both pipelines disabled', async () => {
+            pipelineMock.get.mockClear()
+            pipelineMock.exec.mockResolvedValue([
+                [
+                    null,
+                    JSON.stringify([
+                        { token: 'token1', analytics: false, session_recordings: false },
+                        { token: 'token2', analytics: true, session_recordings: false },
+                    ]),
+                ],
+                [null, null],
+                [null, null],
+            ])
+
+            const result = await eventIngestionRestrictionManager.fetchDynamicEventIngestionRestrictionConfig()
+
+            expect(result).toEqual({
+                [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set(['token2']),
+            })
+        })
+
+        it('handles mixed old and new formats (analytics pipeline)', async () => {
+            pipelineMock.get.mockClear()
+            pipelineMock.exec.mockResolvedValue([
+                [
+                    null,
+                    JSON.stringify([
+                        'old-token1',
+                        'old-token2:distinct1',
+                        { token: 'new-token1', analytics: true, session_recordings: false },
+                        { token: 'new-token2', distinct_id: 'user1', analytics: false, session_recordings: true },
+                    ]),
+                ],
+                [null, null],
+                [null, null],
+            ])
+
+            const result = await eventIngestionRestrictionManager.fetchDynamicEventIngestionRestrictionConfig()
+
+            // Should include old-token1, old-token2:distinct1 (old format defaults to analytics=true)
+            // and new-token1 (analytics=true), but NOT new-token2 (analytics=false)
+            expect(result).toEqual({
+                [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set([
+                    'old-token1',
+                    'old-token2:distinct1',
+                    'new-token1',
+                ]),
+            })
+        })
+
+        it('excludes entries when pipeline field is missing', async () => {
+            pipelineMock.get.mockClear()
+            pipelineMock.exec.mockResolvedValue([
+                [
+                    null,
+                    JSON.stringify([
+                        { token: 'token1' }, // Missing both fields - will be excluded
+                        { token: 'token2', analytics: true }, // Has analytics field
+                    ]),
+                ],
+                [null, null],
+                [null, null],
+            ])
+
+            const result = await eventIngestionRestrictionManager.fetchDynamicEventIngestionRestrictionConfig()
+
+            // Should only include token2 (has analytics=true), token1 is excluded (missing field)
+            expect(result).toEqual({
+                [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set(['token2']),
+            })
+        })
+
+        it('filters by session_recordings pipeline', async () => {
+            pipelineMock.get.mockClear()
+            pipelineMock.exec.mockResolvedValue([
+                [
+                    null,
+                    JSON.stringify([
+                        { token: 'token1', analytics: true, session_recordings: false },
+                        { token: 'token2', analytics: false, session_recordings: true },
+                        { token: 'token3', analytics: true, session_recordings: true },
+                    ]),
+                ],
+                [null, null],
+                [null, null],
+            ])
+
+            const manager = new EventIngestionRestrictionManager(hub as Hub, {
+                pipeline: 'session_recordings',
+            })
+
+            const result = await manager.fetchDynamicEventIngestionRestrictionConfig()
+
+            // Should only include token2 and token3 (session_recordings=true)
+            expect(result).toEqual({
+                [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set(['token2', 'token3']),
+            })
+        })
+
+        it('old format excluded from session_recordings pipeline', async () => {
+            pipelineMock.get.mockClear()
+            pipelineMock.exec.mockResolvedValue([
+                [
+                    null,
+                    JSON.stringify([
+                        'old-token1', // Old format, should be excluded from session_recordings
+                        { token: 'new-token1', analytics: false, session_recordings: true },
+                    ]),
+                ],
+                [null, null],
+                [null, null],
+            ])
+
+            const manager = new EventIngestionRestrictionManager(hub as Hub, {
+                pipeline: 'session_recordings',
+            })
+
+            const result = await manager.fetchDynamicEventIngestionRestrictionConfig()
+
+            // Should only include new-token1, not old-token1 (old format defaults to analytics only)
+            expect(result).toEqual({
+                [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set(['new-token1']),
+            })
+        })
     })
 
     describe('shouldDropEvent', () => {
