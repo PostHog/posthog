@@ -19,7 +19,6 @@ export const databricksSetupModalLogic = kea<databricksSetupModalLogicType>([
     path(['integrations', 'databricks', 'databricksSetupModalLogic']),
     props({} as DatabricksSetupModalLogicProps),
     connect(() => ({
-        values: [integrationsLogic, ['integrations', 'integrationsLoading']],
         actions: [integrationsLogic, ['loadIntegrations']],
     })),
     forms(({ props, actions, values }) => ({

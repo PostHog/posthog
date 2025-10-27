@@ -16,7 +16,6 @@ export const gitlabSetupModalLogic = kea<gitlabSetupModalLogicType>([
     path(['integrations', 'gitlab', 'gitlabSetupModalLogic']),
     props({} as GitLabSetupModalLogicProps),
     connect(() => ({
-        values: [integrationsLogic, ['integrations', 'integrationsLoading']],
         actions: [integrationsLogic, ['loadIntegrations']],
     })),
     forms(({ props, actions, values }) => ({
