@@ -1435,6 +1435,7 @@ class FileSystemIconType(StrEnum):
     EARLY_ACCESS_FEATURE = "early_access_feature"
     EXPERIMENT = "experiment"
     FEATURE_FLAG = "feature_flag"
+    FEATURE_FLAG_OFF = "feature_flag_off"
     DATA_PIPELINE = "data_pipeline"
     DATA_PIPELINE_METADATA = "data_pipeline_metadata"
     DATA_WAREHOUSE = "data_warehouse"
