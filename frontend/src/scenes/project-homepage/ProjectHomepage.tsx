@@ -121,7 +121,12 @@ export function ProjectHomepage(): JSX.Element {
     // if there is no numeric dashboard id, the dashboard logic will throw...
     // so we check it here first
     if (dashboardLogicProps?.id) {
-        return <HomePageContent />
+        // We add padding because the scene has layout: 'app-raw'
+        return (
+            <div className="p-4">
+                <HomePageContent />
+            </div>
+        )
     }
     return <NewTabScene source="homepage" />
 }

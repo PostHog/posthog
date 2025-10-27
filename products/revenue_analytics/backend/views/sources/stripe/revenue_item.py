@@ -115,7 +115,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
         return BuiltQuery(
             key=str(source.id),  # Using source rather than table because table hasn't been found yet
             prefix=prefix,
-            query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys())),
+            query=ast.SelectQuery.empty(columns=SCHEMA.fields),
             test_comments="no_schema",
         )
 
@@ -136,7 +136,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
         return BuiltQuery(
             key=str(source.id),  # Using source rather than table because table hasn't been found
             prefix=prefix,
-            query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys())),
+            query=ast.SelectQuery.empty(columns=SCHEMA.fields),
             test_comments="no_table",
         )
 
@@ -486,9 +486,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
         query for query in [invoice_item_query, invoiceless_charges_query] if query is not None
     ]
     if len(queries) == 0:
-        return BuiltQuery(
-            key=f"{prefix}.no_query", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
-        )
+        return BuiltQuery(key=f"{prefix}.no_query", prefix=prefix, query=ast.SelectQuery.empty(columns=SCHEMA.fields))
 
     # Very cumbersome, but mypy won't be happy otherwise
     if invoice_table is not None:

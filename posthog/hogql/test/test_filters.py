@@ -10,7 +10,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.visitor import clear_locations
 
 
@@ -24,11 +24,11 @@ class TestFilters(BaseTest):
         return clear_locations(parse_select(select, placeholders=placeholders))
 
     def _print_ast(self, node: ast.Expr):
-        return print_ast(
+        return prepare_and_print_ast(
             node,
             dialect="hogql",
             context=HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-        )
+        )[0]
 
     def test_replace_filters_empty(self):
         select = replace_filters(self._parse_select("SELECT event FROM events"), HogQLFilters(), self.team)
@@ -122,6 +122,23 @@ class TestFilters(BaseTest):
             self._print_ast(select),
             "SELECT event FROM events WHERE "
             "and(less(timestamp, toDateTime('2020-02-03 23:59:59.000000')), "
+            f"greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_replace_filters_date_range_with_timezone(self):
+        # now with different team timezone
+        self.team.timezone = "America/New_York"
+        self.team.save()
+
+        select = replace_filters(
+            self._parse_select("SELECT event FROM events where {filters}"),
+            HogQLFilters(dateRange=DateRange(date_from="2020-02-02", date_to="2020-02-03 23:59:59Z")),
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            "SELECT event FROM events WHERE "
+            "and(less(timestamp, toDateTime('2020-02-03 18:59:59.000000')), "
             f"greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 

@@ -366,6 +366,7 @@ export interface HogQLQueryModifiers {
     convertToProjectTimezone?: boolean
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level **/
     usePreaggregatedTableTransforms?: boolean
+    optimizeProjections?: boolean
 }
 
 export interface DataWarehouseEventsModifier {
@@ -530,6 +531,7 @@ export interface HogQLMetadataResponse {
     notices: HogQLNotice[]
     query_status?: never
     table_names?: string[]
+    ch_table_names?: string[]
 }
 
 export type AutocompleteCompletionItemKind =
@@ -1005,6 +1007,8 @@ interface DataTableNodeViewProps {
     embedded?: boolean
     /** Context for the table, used by components like ColumnConfigurator */
     context?: DataTableNodeViewPropsContext
+    /** Default columns to use when resetting column configuration */
+    defaultColumns?: string[]
 }
 
 // Saved insight node
@@ -1551,6 +1555,7 @@ export interface EndpointRequest {
     description?: string
     query?: HogQLQuery | InsightQueryNode
     is_active?: boolean
+    cache_age_seconds?: number
 }
 
 export interface EndpointRunRequest {
@@ -2478,6 +2483,8 @@ export interface FileSystemEntry {
     meta?: Record<string, any>
     /** Timestamp when file was added. Used to check persistence */
     created_at?: string
+    /** Timestamp when the file system entry was last viewed */
+    last_viewed_at?: string | null
     /** Whether this is a shortcut or the actual item */
     shortcut?: boolean
     /** Used to indicate pending actions, frontend only */
@@ -3454,6 +3461,7 @@ export interface LLMTracePerson {
 
 export interface LLMTrace {
     id: string
+    aiSessionId?: string
     createdAt: string
     person: LLMTracePerson
     totalLatency?: number
@@ -4018,6 +4026,7 @@ export interface MarketingAnalyticsConfig {
     conversion_goals?: ConversionGoalFilter[]
     attribution_window_days?: number
     attribution_mode?: AttributionMode
+    campaign_name_mappings?: Record<string, Record<string, string[]>>
 }
 
 export enum MarketingAnalyticsBaseColumns {

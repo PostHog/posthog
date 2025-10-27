@@ -45,7 +45,7 @@ from posthog.temporal.data_modeling.run_workflow import (
     run_dag_activity,
     start_run_activity,
 )
-from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
+from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse, truncate_table
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from posthog.warehouse.models.modeling import DataWarehouseModelPath
@@ -271,7 +271,12 @@ def mock_to_object_store_rs_credentials(class_self):
 
 
 @pytest_asyncio.fixture
-async def pageview_events(clickhouse_client, ateam):
+async def truncate_events_table(clickhouse_client):
+    await truncate_table(clickhouse_client, "sharded_events")
+
+
+@pytest_asyncio.fixture
+async def pageview_events(clickhouse_client, ateam, truncate_events_table):
     start_time, end_time = dt.datetime.now(dt.UTC) - dt.timedelta(days=1), dt.datetime.now(dt.UTC)
     events, _, events_from_other_team = await generate_test_events_in_clickhouse(
         clickhouse_client,
@@ -916,7 +921,7 @@ async def test_run_workflow_revert_materialization(
     workflow_id = str(uuid.uuid4())
     inputs = RunWorkflowInputs(team_id=ateam.pk)
 
-    async def mock_hogql_table(_query, _team, _logger):
+    def mock_hogql_table(_query, _team, _logger):
         raise Exception("Unknown table")
 
     with (
@@ -1295,7 +1300,7 @@ async def test_materialize_model_progress_tracking(ateam, bucket_name, minio_cli
         assert job.rows_expected == 6
 
 
-async def test_materialize_model_with_non_utc_timestamp(ateam, bucket_name, minio_client):
+async def test_materialize_model_with_non_utc_timestamp(ateam, bucket_name, minio_client, truncate_events_table):
     await sync_to_async(bulk_create_events)(
         [{"event": "user signed up", "distinct_id": "1", "team": ateam, "timestamp": "2022-01-01T12:00:00"}]
     )
@@ -1344,7 +1349,7 @@ async def test_materialize_model_with_non_utc_timestamp(ateam, bucket_name, mini
         assert job.status == DataModelingJob.Status.COMPLETED
 
 
-async def test_materialize_model_with_utc_timestamp(ateam, bucket_name, minio_client):
+async def test_materialize_model_with_utc_timestamp(ateam, bucket_name, minio_client, truncate_events_table):
     await sync_to_async(bulk_create_events)(
         [{"event": "user signed up", "distinct_id": "1", "team": ateam, "timestamp": "2022-01-01T00:00:00"}]
     )
@@ -1393,7 +1398,7 @@ async def test_materialize_model_with_utc_timestamp(ateam, bucket_name, minio_cl
         assert job.status == DataModelingJob.Status.COMPLETED
 
 
-async def test_materialize_model_with_date(ateam, bucket_name, minio_client):
+async def test_materialize_model_with_date(ateam, bucket_name, minio_client, truncate_events_table):
     await sync_to_async(bulk_create_events)(
         [{"event": "user signed up", "distinct_id": "1", "team": ateam, "timestamp": "2022-01-01T12:00:00"}]
     )
@@ -1442,7 +1447,7 @@ async def test_materialize_model_with_date(ateam, bucket_name, minio_client):
         assert job.status == DataModelingJob.Status.COMPLETED
 
 
-async def test_materialize_model_with_plain_datetime(ateam, bucket_name, minio_client):
+async def test_materialize_model_with_plain_datetime(ateam, bucket_name, minio_client, truncate_events_table):
     await sync_to_async(bulk_create_events)(
         [{"event": "user signed up", "distinct_id": "1", "team": ateam, "timestamp": "2022-01-01T12:00:00"}]
     )

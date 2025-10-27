@@ -133,7 +133,7 @@ export const preflightLogic = kea<preflightLogicType>([
                     },
                     {
                         id: 'frontend',
-                        name: 'Frontend build · Webpack',
+                        name: 'Frontend build · Vite',
                         status: 'validated', // Always validated if we're showing the preflight check
                     },
                     {
