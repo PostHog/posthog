@@ -116,7 +116,7 @@ fn create_ai_event_form(event_name: &str, distinct_id: &str, properties: Value) 
     use uuid::Uuid;
 
     let event_data = json!({
-        "uuid": Uuid::new_v4().to_string(),
+        "uuid": Uuid::now_v7().to_string(),
         "event": event_name,
         "distinct_id": distinct_id
     });
@@ -301,7 +301,7 @@ async fn test_multipart_parsing_with_multiple_blobs() {
     let test_client = TestClient::new(router);
 
     let event_data = json!({
-        "uuid": Uuid::new_v4().to_string(),
+        "uuid": Uuid::now_v7().to_string(),
         "event": "$ai_generation",
         "distinct_id": "test_user"
     });
@@ -377,7 +377,7 @@ async fn test_multipart_parsing_with_mixed_content_types() {
     let test_client = TestClient::new(router);
 
     let event_data = json!({
-        "uuid": Uuid::new_v4().to_string(),
+        "uuid": Uuid::now_v7().to_string(),
         "event": "$ai_generation",
         "distinct_id": "test_user"
     });
@@ -450,7 +450,7 @@ async fn test_multipart_parsing_with_large_blob() {
     let test_client = TestClient::new(router);
 
     let event_data = json!({
-        "uuid": Uuid::new_v4().to_string(),
+        "uuid": Uuid::now_v7().to_string(),
         "event": "$ai_generation",
         "distinct_id": "test_user"
     });
@@ -508,7 +508,7 @@ async fn test_multipart_parsing_with_empty_blob() {
     let test_client = TestClient::new(router);
 
     let event_data = json!({
-        "uuid": Uuid::new_v4().to_string(),
+        "uuid": Uuid::now_v7().to_string(),
         "event": "$ai_generation",
         "distinct_id": "test_user"
     });
@@ -967,7 +967,7 @@ async fn test_properties_in_event_part_only() {
     let test_client = TestClient::new(router);
 
     let event_data = json!({
-        "uuid": Uuid::new_v4().to_string(),
+        "uuid": Uuid::now_v7().to_string(),
         "event": "$ai_generation",
         "distinct_id": "test_user",
         "properties": {
@@ -1006,7 +1006,7 @@ async fn test_properties_in_separate_part_only() {
     let test_client = TestClient::new(router);
 
     let event_data = json!({
-        "uuid": Uuid::new_v4().to_string(),
+        "uuid": Uuid::now_v7().to_string(),
         "event": "$ai_generation",
         "distinct_id": "test_user"
     });
