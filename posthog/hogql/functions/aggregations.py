@@ -4,6 +4,7 @@ from posthog.hogql.base import UnknownType
 from .core import HogQLFunctionMeta
 
 # Permitted HogQL aggregations
+# Keep in sync with the posthog.com repository: contents/docs/sql/aggregations.mdx
 HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     # Standard aggregate functions
     "count": HogQLFunctionMeta("count", 0, 1, aggregate=True, case_sensitive=False),

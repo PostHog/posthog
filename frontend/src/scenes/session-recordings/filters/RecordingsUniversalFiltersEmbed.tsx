@@ -305,10 +305,10 @@ export const RecordingsUniversalFiltersEmbed = ({
                         <>
                             <div className="px-2 py-2 text-center mt-4">
                                 <h2 className="text-xl @md/max-welcome:text-2xl font-bold mb-2 text-balance">
-                                    Ask Max AI
+                                    Ask PostHog AI
                                 </h2>
                                 <p className="text-secondary text-sm">
-                                    Ask Max AI to help you find recordings that match your criteria.
+                                    Ask PostHog AI to help you find recordings that match your criteria.
                                 </p>
                             </div>
                             <div className="flex items-center gap-2 px-2 max-w-2xl mx-auto">

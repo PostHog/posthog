@@ -77,14 +77,13 @@ describe('CreateExperiment Integration', () => {
 
         it('validates and prevents submission with empty fields', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setExperiment({ ...NEW_EXPERIMENT, name: '', description: '' })
+                logic.actions.setExperiment({ ...NEW_EXPERIMENT, name: '' })
                 logic.actions.submitExperiment()
             })
                 .toDispatchActions(['submitExperiment', 'submitExperimentFailure'])
                 .toMatchValues({
                     experimentErrors: expect.objectContaining({
                         name: 'Name is required',
-                        description: 'Hypothesis is required',
                     }),
                 })
         })
