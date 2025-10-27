@@ -59,18 +59,21 @@ def get_uv_version_from_flox() -> str | None:
     return uv_config.get("version")
 
 
-def get_uv_versions_from_workflows() -> dict[str, str]:
-    """Extract uv versions from GitHub workflow files."""
+def get_uv_versions_from_workflows() -> dict[str, set[str]]:
+    """Extract uv versions from GitHub workflow files.
+
+    Returns a dict mapping workflow filename to set of uv versions found.
+    Workflows may have multiple setup-uv steps with different versions.
+    """
     workflows_dir = Path(__file__).parent.parent / ".github" / "workflows"
-    uv_versions = {}
+    uv_versions: dict[str, set[str]] = {}
 
     for workflow_file in workflows_dir.glob("*.yml"):
         content = workflow_file.read_text()
         # Look for uv version specifications like "version: 0.8.19"
         matches = re.findall(r"setup-uv@[a-f0-9]+.*?version:\s*([0-9.]+)", content, re.DOTALL)
         if matches:
-            for version in matches:
-                uv_versions[workflow_file.name] = version
+            uv_versions[workflow_file.name] = set(matches)
 
     return uv_versions
 
@@ -142,7 +145,8 @@ def main() -> int:
     try:
         workflow_versions = get_uv_versions_from_workflows()
         if workflow_versions:
-            print(f"Found uv in {len(workflow_versions)} workflow(s)")
+            total_versions = sum(len(versions) for versions in workflow_versions.values())
+            print(f"Found {total_versions} uv installation(s) in {len(workflow_versions)} workflow(s)")
     except Exception as e:
         print(f"⚠ Warning: Could not read workflows: {e}")
 
@@ -179,10 +183,17 @@ def main() -> int:
     print("Check 2: uv version consistency")
     print("-" * 60)
 
+    # Flatten workflow versions for consistency check
     all_versions = {}
     if flox_uv:
         all_versions["flox"] = flox_uv
-    all_versions.update(workflow_versions)
+    for workflow_name, versions in workflow_versions.items():
+        if len(versions) == 1:
+            all_versions[workflow_name] = next(iter(versions))
+        else:
+            # Multiple versions in one workflow
+            for i, version in enumerate(sorted(versions), 1):
+                all_versions[f"{workflow_name}#{i}"] = version
 
     if len(all_versions) < 2:
         print("⚠ Not enough sources to check consistency")
