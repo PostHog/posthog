@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Fragment, useEffect } from 'react'
 import { toast } from 'react-toastify'
 
-import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
+import { IconInfo, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -24,6 +24,21 @@ import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/Action
 
 const MAX_RANGE = 1000
 
+function getOrdinalSuffix(num: number): string {
+    const j = num % 10
+    const k = num % 100
+    if (j === 1 && k !== 11) {
+        return 'st'
+    }
+    if (j === 2 && k !== 12) {
+        return 'nd'
+    }
+    if (j === 3 && k !== 13) {
+        return 'rd'
+    }
+    return 'th'
+}
+
 function CustomBrackets({ insightProps }: { insightProps: EditorFilterProps['insightProps'] }): JSX.Element {
     const { retentionFilter, localCustomBrackets } = useValues(retentionLogic(insightProps))
     const {
@@ -36,12 +51,13 @@ function CustomBrackets({ insightProps }: { insightProps: EditorFilterProps['ins
     const { period, retentionCustomBrackets } = retentionFilter || {}
 
     useEffect(() => {
-        if (retentionFilter?.retentionCustomBrackets) {
-            setLocalCustomBrackets([...(retentionFilter.retentionCustomBrackets || []), ''])
-        } else {
-            setLocalCustomBrackets([''])
+        if (
+            retentionFilter?.retentionCustomBrackets !== undefined &&
+            retentionFilter.retentionCustomBrackets.length > 0
+        ) {
+            setLocalCustomBrackets([...retentionFilter.retentionCustomBrackets])
         }
-    }, [retentionFilter?.retentionCustomBrackets])
+    }, [retentionFilter?.retentionCustomBrackets, setLocalCustomBrackets])
 
     const getBracketLabel = (index: number): string => {
         const numericBrackets = localCustomBrackets.map((b) => {
@@ -94,7 +110,10 @@ function CustomBrackets({ insightProps }: { insightProps: EditorFilterProps['ins
                 }
                 return (
                     <div key={index} className="flex items-center gap-2">
-                        <div>{index + 1}st Bracket</div>
+                        <div className="w-24">
+                            {index + 1}
+                            {getOrdinalSuffix(index + 1)} Bracket
+                        </div>
                         <LemonInput
                             type="number"
                             className="w-20"
@@ -115,16 +134,18 @@ function CustomBrackets({ insightProps }: { insightProps: EditorFilterProps['ins
                     </div>
                 )
             })}
-            <LemonButton
-                icon={<IconPlus />}
-                size="small"
-                onClick={() => addCustomBracket()}
-                disabledReason={
-                    localCustomBrackets.length >= MAX_BRACKETS && 'You have reached the maximum number of brackets'
-                }
-            >
-                Add another bracket
-            </LemonButton>
+            <div className="flex items-center gap-2">
+                <LemonButton
+                    icon={<IconPlusSmall />}
+                    size="small"
+                    onClick={() => addCustomBracket()}
+                    disabledReason={
+                        localCustomBrackets.length >= MAX_BRACKETS && 'You have reached the maximum number of brackets'
+                    }
+                >
+                    Add another bracket
+                </LemonButton>
+            </div>
             {totalRange > MAX_RANGE && <div className="text-xs text-danger">Total range is too large.</div>}
         </div>
     )
@@ -263,7 +284,7 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
             </div>
             <LemonCheckbox
                 label="Use custom return ranges"
-                checked={!!retentionCustomBrackets}
+                checked={retentionCustomBrackets !== undefined}
                 onChange={(checked) => {
                     if (checked) {
                         updateInsightFilter({ retentionCustomBrackets: [1, 3, 5] })
@@ -272,7 +293,7 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
                     }
                 }}
             />
-            {retentionCustomBrackets ? <CustomBrackets insightProps={insightProps} /> : null}
+            {retentionCustomBrackets !== undefined ? <CustomBrackets insightProps={insightProps} /> : null}
         </div>
     )
 }

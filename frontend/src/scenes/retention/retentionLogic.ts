@@ -63,7 +63,7 @@ export const retentionLogic = kea<retentionLogicType>([
             actions.setSelectedBreakdownValue(null)
         },
         updateLocalCustomBracket: async (_, breakpoint) => {
-            await breakpoint(300)
+            await breakpoint(1000)
             const { localCustomBrackets, retentionFilter } = values
             const numericBrackets = localCustomBrackets
                 .map((b) => (typeof b === 'string' ? parseInt(b, 10) : b))
@@ -86,20 +86,24 @@ export const retentionLogic = kea<retentionLogicType>([
                 const incomingBrackets = retentionFilter.retentionCustomBrackets || []
 
                 if (JSON.stringify(numericLocal) !== JSON.stringify(incomingBrackets)) {
-                    actions.setLocalCustomBrackets([...incomingBrackets, ''])
+                    actions.setLocalCustomBrackets([...incomingBrackets])
                 }
             }
         },
         removeCustomBracket: async (_, breakpoint) => {
-            await breakpoint(300)
+            await breakpoint(1000)
             const { localCustomBrackets, retentionFilter } = values
             const numericBrackets = localCustomBrackets
                 .map((b) => (typeof b === 'string' ? parseInt(b, 10) : b))
                 .filter((b): b is number => !isNaN(Number(b)) && Number(b) > 0)
 
-            if (JSON.stringify(numericBrackets) !== JSON.stringify(retentionFilter?.retentionCustomBrackets || [])) {
+            // Only update if we still have at least one bracket (even if empty) to keep custom brackets enabled
+            if (
+                localCustomBrackets.length > 0 &&
+                JSON.stringify(numericBrackets) !== JSON.stringify(retentionFilter?.retentionCustomBrackets || [])
+            ) {
                 actions.updateInsightFilter({
-                    retentionCustomBrackets: numericBrackets.length > 0 ? numericBrackets : undefined,
+                    retentionCustomBrackets: numericBrackets.length > 0 ? numericBrackets : [],
                 })
             }
         },
@@ -114,7 +118,7 @@ export const retentionLogic = kea<retentionLogicType>([
         localCustomBrackets: [
             [] as (string | number)[],
             {
-                setLocalCustomBracks: (_, { brackets }) => brackets,
+                setLocalCustomBrackets: (_, { brackets }) => brackets,
                 updateLocalCustomBracket: (state, { index, value }) => {
                     const newBrackets = [...state]
                     newBrackets[index] = value ?? ''
