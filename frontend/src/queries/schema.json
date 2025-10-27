@@ -17177,11 +17177,27 @@
         "MatchedRecordingEvent": {
             "additionalProperties": false,
             "properties": {
+                "timestamp": {
+                    "type": "string"
+                },
                 "uuid": {
                     "type": "string"
                 }
             },
-            "required": ["uuid"],
+            "required": ["uuid", "timestamp"],
+            "type": "object"
+        },
+        "MatchingEventsResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MatchedRecordingEvent"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
             "type": "object"
         },
         "MathType": {
