@@ -491,6 +491,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportExperimentFeatureFlagModalOpened: () => ({}),
         reportExperimentFeatureFlagSelected: (featureFlagKey: string) => ({ featureFlagKey }),
+        reportExperimentTimeseriesViewed: (experimentId: ExperimentIdType, metric: ExperimentMetric) => ({
+            experimentId,
+            metric,
+        }),
+        reportExperimentTimeseriesRecalculated: (experimentId: ExperimentIdType, metric: ExperimentMetric) => ({
+            experimentId,
+            metric,
+        }),
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -1126,6 +1134,24 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportExperimentFeatureFlagSelected: ({ featureFlagKey }: { featureFlagKey: string }) => {
             posthog.capture('experiment feature flag selected', { feature_flag_key: featureFlagKey })
+        },
+        reportExperimentTimeseriesViewed: ({
+            experimentId,
+            metric,
+        }: {
+            experimentId: ExperimentIdType
+            metric: ExperimentMetric
+        }) => {
+            posthog.capture('experiment timeseries viewed', { experiment_id: experimentId, metric })
+        },
+        reportExperimentTimeseriesRecalculated: ({
+            experimentId,
+            metric,
+        }: {
+            experimentId: ExperimentIdType
+            metric: ExperimentMetric
+        }) => {
+            posthog.capture('experiment timeseries recalculated', { experiment_id: experimentId, metric })
         },
         reportPropertyGroupFilterAdded: () => {
             posthog.capture('property group filter added')

@@ -72,7 +72,8 @@ class Command(BaseCommand):
         )
 
         # Check for duplicate migration prefixes if strict mode is enabled
-        if options.get("strict"):
+        # Skip in DEBUG mode to allow development with duplicate prefixes
+        if options.get("strict") and not settings.DEBUG:
             self._check_duplicate_prefixes(database)
         if options["plan"] or options["check"]:
             print("List of clickhouse migrations to be applied:")

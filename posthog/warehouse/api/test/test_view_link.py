@@ -1,4 +1,14 @@
+import re
+from textwrap import dedent
+
 from posthog.test.base import APIBaseTest, FuzzyInt
+from unittest.mock import patch
+
+from rest_framework import status
+
+from posthog.schema import HogQLQueryResponse
+
+from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseTable
 from posthog.warehouse.models.credential import DataWarehouseCredential
@@ -277,3 +287,395 @@ class TestViewLinkQuery(APIBaseTest):
         join_ids = {join["id"] for join in view_links["results"]}
         expected_ids = {str(join1.id), str(join2.id), str(join3.id)}
         self.assertEqual(join_ids, expected_ids)
+
+
+def _mock_execute_hogql_side_effect(*args, **kwargs):
+    """Helper to minimize side effects of mocking, just avoiding the query execution itself."""
+    executor = HogQLQueryExecutor(*args, **kwargs)
+    executor.generate_clickhouse_sql()
+    return HogQLQueryResponse(
+        query=executor.query,
+        hogql=executor.hogql,
+        clickhouse=executor.clickhouse_sql,
+        error=executor.error,
+        timings=executor.timings.to_list(),
+        results=[("foo", "bar")],
+        columns=executor.print_columns,
+        types=executor.types,
+        modifiers=executor.query_modifiers,
+        explain=executor.explain,
+        metadata=executor.metadata,
+    )
+
+
+class TestViewLinkValidation(APIBaseTest):
+    PATH = "posthog.warehouse.api.view_link"
+
+    def assertHogQLEqual(self, result, expected):
+        formatted_result = dedent(re.sub(r"\s+", " ", result.strip())).strip()
+        self.assertEqual(formatted_result, expected)
+
+    def _create_external_source_table(self, prefix, table_name):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="postgres_source",
+            connection_id="postgres_connection",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            prefix=prefix,
+        )
+
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key",
+            access_secret="test_secret",
+            team=self.team,
+        )
+
+        warehouse_table = DataWarehouseTable.objects.create(
+            name=table_name,
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            credential=credentials,
+            url_pattern="s3://bucket/user/*",
+            columns={
+                "id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True},
+                "email": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True},
+            },
+        )
+
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            name=table_name,
+            source=source,
+            table=warehouse_table,
+            should_sync=True,
+            last_synced_at="2024-01-01",
+        )
+
+    @patch(f"{PATH}.execute_hogql_query", side_effect=_mock_execute_hogql_side_effect)
+    def test_basic_success(self, _):
+        payloads = [
+            (
+                "string joining key",
+                {
+                    "source_table_name": "events",
+                    "source_table_key": "uuid",
+                    "joining_table_name": "persons",
+                    "joining_table_key": "id",
+                },
+            ),
+            (
+                "integer joining key",
+                {
+                    "source_table_name": "groups",
+                    "source_table_key": "index",
+                    "joining_table_name": "system.feature_flags",
+                    "joining_table_key": "id",
+                },
+            ),
+        ]
+        for msg, payload in payloads:
+            with self.subTest(msg=msg):
+                response = self.client.post(f"/api/environments/{self.team.id}/warehouse_view_links/validate/", payload)
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+                data = response.json()
+                self.assertTrue(data["is_valid"])
+                self.assertIsNone(data["msg"])
+                self.assertHogQLEqual(
+                    data["hogql"],
+                    f"SELECT validation.{payload['joining_table_key']} FROM {payload['source_table_name']} LIMIT 10",
+                )
+
+    @patch(f"{PATH}.execute_hogql_query", side_effect=_mock_execute_hogql_side_effect)
+    def test_system_table_success(self, _):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_view_links/validate/",
+            {
+                "source_table_name": "groups",
+                "source_table_key": "index",
+                "joining_table_name": "system.group_type_mappings",
+                "joining_table_key": "id",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        data = response.json()
+        self.assertTrue(data["is_valid"])
+        self.assertIsNone(data["msg"])
+        self.assertHogQLEqual(
+            data["hogql"],
+            "SELECT validation.id FROM groups LIMIT 10",
+        )
+
+    @patch(f"{PATH}.execute_hogql_query", side_effect=_mock_execute_hogql_side_effect)
+    def test_dot_notation_table_name(self, _):
+        self._create_external_source_table(prefix="foo", table_name="bar")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_view_links/validate/",
+            {
+                "source_table_name": "postgres.foo.bar",
+                "source_table_key": "id",
+                "joining_table_name": "events",
+                "joining_table_key": "distinct_id",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        data = response.json()
+        self.assertTrue(data["is_valid"])
+        self.assertIsNone(data["msg"])
+        self.assertHogQLEqual(
+            data["hogql"],
+            "SELECT validation.distinct_id FROM `postgres.foo.bar` AS postgres__foo__bar LIMIT 10",
+        )
+
+    @patch(f"{PATH}.execute_hogql_query", side_effect=_mock_execute_hogql_side_effect)
+    def test_hogql_expression_keys(self, _):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_view_links/validate/",
+            {
+                "source_table_name": "events",
+                "source_table_key": "upper(distinct_id)",
+                "joining_table_name": "persons",
+                "joining_table_key": "upper(id)",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        data = response.json()
+        self.assertTrue(data["is_valid"])
+        self.assertIsNone(data["msg"])
+        self.assertHogQLEqual(
+            data["hogql"],
+            "SELECT validation.id FROM events LIMIT 10",
+        )
+
+    @patch(f"{PATH}.execute_hogql_query", side_effect=_mock_execute_hogql_side_effect)
+    def test_complex_expression(self, _):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_view_links/validate/",
+            {
+                "source_table_name": "events",
+                "source_table_key": "toString(distinct_id)",
+                "joining_table_name": "persons",
+                "joining_table_key": "id",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        data = response.json()
+        self.assertTrue(data["is_valid"])
+        self.assertIsNone(data["msg"])
+        self.assertHogQLEqual(
+            data["hogql"],
+            "SELECT validation.id FROM events LIMIT 10",
+        )
+
+    def test_nonexistent_field(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_view_links/validate/",
+            {
+                "source_table_name": "events",
+                "source_table_key": "nonexistent_field",
+                "joining_table_name": "persons",
+                "joining_table_key": "id",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        data = response.json()
+        self.assertEqual(data["attr"], None)
+        self.assertEqual(data["code"], "QueryError")
+        self.assertEqual(data["detail"], "Field not found: nonexistent_field")
+        self.assertEqual(data["type"], "query_error")
+        self.assertEqual(data["hogql"], "SELECT validation.id FROM events LIMIT 10")
+
+    def test_invalid_source_table(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_view_links/validate/",
+            {
+                "source_table_name": "nonexistent_table_xyz",
+                "source_table_key": "id",
+                "joining_table_name": "persons",
+                "joining_table_key": "id",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        data = response.json()
+        self.assertEqual(data["attr"], None)
+        self.assertEqual(data["code"], "invalid_input")
+        self.assertEqual(data["detail"], "Invalid table: nonexistent_table_xyz")
+        self.assertEqual(data["type"], "validation_error")
+
+    def test_invalid_joining_table(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_view_links/validate/",
+            {
+                "source_table_name": "events",
+                "source_table_key": "distinct_id",
+                "joining_table_name": "nonexistent_table_xyz",
+                "joining_table_key": "id",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        data = response.json()
+        self.assertEqual(data["attr"], None)
+        self.assertEqual(data["code"], "invalid_input")
+        self.assertEqual(data["detail"], "Invalid table: nonexistent_table_xyz")
+        self.assertEqual(data["type"], "validation_error")
+
+    def test_invalid_expression(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_view_links/validate/",
+            {
+                "source_table_name": "events",
+                "source_table_key": "invalid syntax here !!@#",
+                "joining_table_name": "persons",
+                "joining_table_key": "id",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        data = response.json()
+        self.assertEqual(data["attr"], None)
+        self.assertEqual(data["code"], "invalid_input")
+        self.assertEqual(data["detail"], "mismatched input 'syntax' expecting <EOF>")
+        self.assertEqual(data["type"], "validation_error")
+
+    def test_missing_source_table_name(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_view_links/validate/",
+            {
+                "source_table_key": "distinct_id",
+                "joining_table_name": "persons",
+                "joining_table_key": "id",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        data = response.json()
+        self.assertEqual(data["attr"], "source_table_name")
+        self.assertEqual(data["code"], "required")
+        self.assertEqual(data["detail"], "This field is required.")
+        self.assertEqual(data["type"], "validation_error")
+
+    def test_missing_source_table_key(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_view_links/validate/",
+            {
+                "source_table_name": "events",
+                "joining_table_name": "persons",
+                "joining_table_key": "id",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        data = response.json()
+        self.assertEqual(data["attr"], "source_table_key")
+        self.assertEqual(data["code"], "required")
+        self.assertEqual(data["detail"], "This field is required.")
+        self.assertEqual(data["type"], "validation_error")
+
+    def test_missing_joining_table_name(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_view_links/validate/",
+            {
+                "source_table_name": "events",
+                "source_table_key": "distinct_id",
+                "joining_table_key": "id",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        data = response.json()
+        self.assertEqual(data["attr"], "joining_table_name")
+        self.assertEqual(data["code"], "required")
+        self.assertEqual(data["detail"], "This field is required.")
+        self.assertEqual(data["type"], "validation_error")
+
+    def test_missing_joining_table_key(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_view_links/validate/",
+            {
+                "source_table_name": "events",
+                "source_table_key": "distinct_id",
+                "joining_table_name": "persons",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        data = response.json()
+        self.assertEqual(data["attr"], "joining_table_key")
+        self.assertEqual(data["code"], "required")
+        self.assertEqual(data["detail"], "This field is required.")
+        self.assertEqual(data["type"], "validation_error")
+
+    def test_with_type_mismatch_warning(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_view_links/validate/",
+            {
+                "source_table_name": "events",
+                "source_table_key": "timestamp",  # DateTime field
+                "joining_table_name": "persons",
+                "joining_table_key": "id",  # String field
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        data = response.json()
+        self.assertEqual(data["attr"], None)
+        self.assertEqual(data["code"], "CHQueryErrorIllegalTypeOfArgument")
+        self.assertTrue(data["detail"].startswith("Illegal types of arguments (DateTime64(6, 'UTC'), UUID)"))
+        self.assertEqual(data["type"], "query_error")
+        self.assertEqual(data["hogql"], "SELECT validation.id FROM events LIMIT 10")
+
+    @patch(f"{PATH}.execute_hogql_query", side_effect=_mock_execute_hogql_side_effect)
+    def test_ambiguous_keys(self, _):
+        self._create_external_source_table(prefix="test", table_name="foo")
+        self._create_external_source_table(prefix="test", table_name="bar")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_view_links/validate/",
+            {
+                "source_table_name": "postgres.test.foo",
+                "source_table_key": "email",
+                "joining_table_name": "postgres.test.bar",
+                "joining_table_key": "email",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        data = response.json()
+        self.assertTrue(data["is_valid"])
+        self.assertIsNone(data["msg"])
+        self.assertHogQLEqual(
+            data["hogql"],
+            "SELECT validation.email FROM `postgres.test.foo` AS postgres__test__foo LIMIT 10",
+        )
+
+    @patch(f"{PATH}.execute_hogql_query", side_effect=_mock_execute_hogql_side_effect)
+    def test_expression_with_dot_notation_table(self, _):
+        self._create_external_source_table(prefix="test", table_name="user")
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_view_links/validate/",
+            {
+                "source_table_name": "postgres.test.user",
+                "source_table_key": "lower(email)",
+                "joining_table_name": "events",
+                "joining_table_key": "lower(distinct_id)",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        data = response.json()
+        self.assertTrue(data["is_valid"])
+        self.assertIsNone(data["msg"])
+        self.assertHogQLEqual(
+            data["hogql"],
+            "SELECT validation.distinct_id FROM `postgres.test.user` AS postgres__test__user LIMIT 10",
+        )
