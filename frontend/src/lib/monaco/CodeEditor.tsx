@@ -267,11 +267,7 @@ export function CodeEditor({
             }
         })
 
-        // Observe only the editor's DOM node, not entire document.body
-        // Observe the monacoRoot where overflow widgets (like suggestions) are rendered
-        if (monacoRoot) {
-            observer.observe(document, { childList: true, subtree: true })
-        }
+        observer.observe(document, { childList: true, subtree: true })
 
         // Clean up observers
         monacoDisposables.current.push({
