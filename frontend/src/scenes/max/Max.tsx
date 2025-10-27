@@ -146,7 +146,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                                     </LemonBanner>
                                 </div>
                             )}
-                            <Thread className="p-3" />
+                            <Thread className="p-3 min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]" />
                             {!conversation?.has_unsupported_content && <SidebarQuestionInput isSticky />}
                         </ThreadAutoScroller>
                     )}
