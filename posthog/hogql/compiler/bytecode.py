@@ -199,18 +199,28 @@ class BytecodeCompiler(Visitor):
         return [*self.visit(node.right), *self.visit(node.left), operation]
 
     def visit_between_expr(self, node: ast.BetweenExpr):
-        # expr >= low
-        part1 = [*self.visit(node.low), *self.visit(node.expr), Operation.GT_EQ]
-        # expr <= high
-        part2 = [*self.visit(node.high), *self.visit(node.expr), Operation.LT_EQ]
+        self._start_scope()
+        expr_local = self._declare_local("__H_between_expr_H__")
+
+        response: list[Any] = []
+        response.extend(self.visit(node.expr))
+
         if node.negated:
             # expr < low
-            p1 = [*self.visit(node.low), *self.visit(node.expr), Operation.LT]
+            p1 = [*self.visit(node.low), Operation.GET_LOCAL, expr_local, Operation.LT]
             # expr > high
-            p2 = [*self.visit(node.high), *self.visit(node.expr), Operation.GT]
-            return [*p1, *p2, Operation.OR, 2]
+            p2 = [*self.visit(node.high), Operation.GET_LOCAL, expr_local, Operation.GT]
+            response.extend([*p1, *p2, Operation.OR, 2])
         else:
-            return [*part1, *part2, Operation.AND, 2]
+            # expr >= low
+            part1 = [*self.visit(node.low), Operation.GET_LOCAL, expr_local, Operation.GT_EQ]
+            # expr <= high
+            part2 = [*self.visit(node.high), Operation.GET_LOCAL, expr_local, Operation.LT_EQ]
+            response.extend([*part1, *part2, Operation.AND, 2])
+
+        response.extend([Operation.SET_LOCAL, expr_local, Operation.GET_LOCAL, expr_local])
+        response.extend(self._end_scope())
+        return response
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
         return [
