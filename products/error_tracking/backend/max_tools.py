@@ -18,7 +18,7 @@ from ee.hogai.graph.taxonomy.prompts import HUMAN_IN_THE_LOOP_PROMPT
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
-from ee.hogai.tool import MaxTool
+from ee.hogai.tool import MaxTool, MaxToolError, MaxToolErrorCode
 
 from .prompts import (
     ERROR_TRACKING_FILTER_INITIAL_PROMPT,
@@ -45,7 +45,10 @@ class ErrorTrackingIssueFilteringTool(MaxTool):
 
     def _run_impl(self, change: str) -> tuple[str, ErrorTrackingIssueFilteringToolOutput]:
         if "current_query" not in self.context:
-            raise ValueError("Context `current_query` is required for the `filter_error_tracking_issues` tool")
+            raise MaxToolError(
+                "This tool requires 'current_query' context. The user must be viewing the error tracking issues page.",
+                code=MaxToolErrorCode.INVALID_INPUT,
+            )
 
         current_query = self.context.get("current_query")
         system_content = (
@@ -65,7 +68,9 @@ class ErrorTrackingIssueFilteringTool(MaxTool):
         user_content = f"Update the error tracking issue list filters to: {change}"
         messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
 
-        final_error: Optional[Exception] = None
+        parsed_result = None
+        final_error: Optional[PydanticOutputParserException] = None
+
         for _ in range(3):
             try:
                 result = self._model.invoke(messages)
@@ -76,8 +81,12 @@ class ErrorTrackingIssueFilteringTool(MaxTool):
                 system_content += f"\n\nAvoid this error: {str(e)}"
                 messages[0] = SystemMessage(content=system_content)
                 final_error = e
-        else:
-            raise final_error
+
+        if parsed_result is None:
+            raise MaxToolError(
+                f"Failed to generate valid filters after 3 attempts. Last error: {final_error}",
+                code=MaxToolErrorCode.PARSING_FAILED,
+            )
 
         return "✅ Updated error tracking filters.", parsed_result
 

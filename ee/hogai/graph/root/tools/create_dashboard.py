@@ -4,7 +4,7 @@ from langchain_core.runnables import RunnableLambda
 from pydantic import BaseModel, Field
 
 from ee.hogai.graph.dashboards.nodes import DashboardCreationNode
-from ee.hogai.tool import MaxTool, MaxToolArgs, ToolMessagesArtifact
+from ee.hogai.tool import MaxTool, MaxToolArgs, MaxToolError, MaxToolErrorCode, ToolMessagesArtifact
 from ee.hogai.utils.types.base import AssistantState, InsightQuery, PartialAssistantState
 
 CREATE_DASHBOARD_TOOL_PROMPT = """
@@ -49,5 +49,8 @@ class CreateDashboardTool(MaxTool):
         )
         result = await chain.ainvoke(copied_state)
         if not result or not result.messages:
-            return "Dashboard creation failed", None
+            raise MaxToolError(
+                "Dashboard creation failed: No result returned from dashboard creation node.",
+                code=MaxToolErrorCode.INTERNAL_ERROR,
+            )
         return "", ToolMessagesArtifact(messages=result.messages)

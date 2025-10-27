@@ -6,7 +6,7 @@ from langchain_core.runnables import RunnableLambda
 from pydantic import BaseModel, Field
 
 from ee.hogai.graph.insights.nodes import InsightSearchNode, NoInsightsException
-from ee.hogai.tool import MaxSubtool, MaxTool, MaxToolArgs, ToolMessagesArtifact
+from ee.hogai.tool import MaxSubtool, MaxTool, MaxToolArgs, MaxToolError, MaxToolErrorCode, ToolMessagesArtifact
 from ee.hogai.utils.types.base import AssistantState, PartialAssistantState
 
 SEARCH_TOOL_PROMPT = """
@@ -77,14 +77,19 @@ class SearchTool(MaxTool):
         match kind:
             case "docs":
                 if not settings.INKEEP_API_KEY:
-                    return "This tool is not available in this environment.", None
+                    raise MaxToolError(
+                        "Documentation search requires INKEEP_API_KEY configuration. This feature is not available in this environment.",
+                        code=MaxToolErrorCode.CONFIGURATION_MISSING,
+                    )
                 docs_tool = InkeepDocsSearchTool(self._team, self._user, self._state, self._context_manager)
                 return await docs_tool.execute(query, tool_call_id)
             case "insights":
                 insights_tool = InsightSearchTool(self._team, self._user, self._state, self._context_manager)
                 return await insights_tool.execute(query, tool_call_id)
             case _:
-                raise ValueError(f"Unknown kind argument of the {self.get_name()} tool")
+                raise MaxToolError(
+                    f"Invalid search kind '{kind}'. Must be 'docs' or 'insights'.", code=MaxToolErrorCode.INVALID_INPUT
+                )
 
 
 class InkeepDocsSearchTool(MaxSubtool):
@@ -117,4 +122,7 @@ class InsightSearchTool(MaxSubtool):
             result = await chain.ainvoke(copied_state)
             return "", ToolMessagesArtifact(messages=result.messages) if result else None
         except NoInsightsException:
-            return EMPTY_DATABASE_ERROR_MESSAGE, None
+            raise MaxToolError(
+                "No insights have been created yet. The user needs to create insights before they can be searched.",
+                code=MaxToolErrorCode.RESOURCE_NOT_FOUND,
+            )

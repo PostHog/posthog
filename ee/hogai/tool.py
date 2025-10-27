@@ -1,9 +1,9 @@
 import json
-import inspect
 import pkgutil
 import importlib
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
+from enum import Enum
 from typing import Annotated, Any, Literal, Self
 from uuid import uuid4
 
@@ -86,31 +86,43 @@ class MaxToolRetryableError(MaxToolError):
         return True
 
 
+class MaxToolErrorCode(str, Enum):
+    """Error codes for MaxTool failures
+
+    Non-Retryable Codes --> MaxToolError
+    Retryable Codes     --> MaxToolRetryableError
+    """
+
+    # Non-retryable error codes
+    INVALID_INPUT = "invalid_input"
+    PERMISSION_DENIED = "permission_denied"
+    RESOURCE_NOT_FOUND = "resource_not_found"
+    VALIDATION_FAILED = "validation_failed"
+    CONFIGURATION_MISSING = "configuration_missing"
+    PARSING_FAILED = "parsing_failed"
+    INTERNAL_ERROR = "internal_error"
+
+    # Retryable error codes
+    SERVICE_TIMEOUT = "service_timeout"
+    RATE_LIMITED = "rate_limited"
+    SERVICE_UNAVAILABLE = "service_unavailable"
+    PARTIAL_FAILURE = "partial_failure"
+
+
 _logger = structlog.get_logger(__name__)
 
 
 def _summarize_exception(e: Exception) -> str:
+    """
+    Summarize an exception for display to the user,
+    truncation is used to avoid leaking information
+    """
     name = e.__class__.__name__
     msg = str(e).strip()
+    # Should be good enough for most cases, can tweak if needed
     if len(msg) > 500:
         msg = msg[:500] + "…"
     return f"{name}: {msg}"
-
-
-def _filter_kwargs_for(func: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
-    """Compatibility shim: support legacy tools that don't accept newly injected kwargs.
-
-    We now inject `tool_call_id` into all tool arg schemas so the runtime always has the id
-    for error-to-message conversion. Some existing tools still implement `_run_impl` (sync)
-    or `_arun_impl` (async) without a `tool_call_id` parameter. Filtering prevents TypeErrors
-    by only passing kwargs that the callee actually accepts.
-    """
-    try:
-        sig = inspect.signature(func)
-        return {k: v for k, v in kwargs.items() if k in sig.parameters}
-    except Exception:
-        # If inspection fails for any reason, be permissive.
-        return kwargs
 
 
 class MaxToolArgs(BaseModel):
@@ -207,16 +219,49 @@ class MaxTool(AssistantContextMixin, BaseTool):
 
     def _run(self, *args, config: RunnableConfig, **kwargs):
         try:
-            filtered_kwargs = _filter_kwargs_for(self._run_impl, kwargs)
-            return self._run_impl(*args, **filtered_kwargs)
+            return self._run_impl(*args, **kwargs)
         except NotImplementedError:
             pass
+        except MaxToolError as e:
+            tool_call_id = kwargs.get("tool_call_id") or ""
+            if not tool_call_id:
+                logger.warning("maxtool_error", tool=self.get_name(), error=str(e))
+            capture_exception(
+                e,
+                distinct_id=str(self._user.distinct_id),
+                properties={"tool": self.get_name(), "retryable": e.retryable, "code": getattr(e, "code", None)},
+            )
+            retry_hint = " You may retry with adjusted inputs." if e.retryable else ""
+            content = f"Tool failed: {_summarize_exception(e)}.{retry_hint}"
+            return "", ToolMessagesArtifact(
+                messages=[
+                    AssistantToolCallMessage(
+                        content=content,
+                        id=str(uuid4()),
+                        tool_call_id=tool_call_id,
+                        visible=False,
+                    )
+                ]
+            )
+        except Exception as e:
+            tool_call_id = kwargs.get("tool_call_id") or ""
+            capture_exception(e, distinct_id=str(self._user.distinct_id), properties={"tool": self.get_name()})
+            content = f"Tool crashed: {_summarize_exception(e)}."
+            return "", ToolMessagesArtifact(
+                messages=[
+                    AssistantToolCallMessage(
+                        content=content,
+                        id=str(uuid4()),
+                        tool_call_id=tool_call_id,
+                        visible=False,
+                    )
+                ]
+            )
         return async_to_sync(self._arun_impl)(*args, **kwargs)
 
     async def _arun(self, *args, config: RunnableConfig, **kwargs):
         try:
-            filtered_kwargs = _filter_kwargs_for(self._arun_impl, kwargs)
-            return await self._arun_impl(*args, **filtered_kwargs)
+            return await self._arun_impl(*args, **kwargs)
 
         except NotImplementedError:
             pass

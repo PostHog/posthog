@@ -7,12 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from posthog.schema import AssistantMessage
 
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.graph.root.tools.search import (
-    EMPTY_DATABASE_ERROR_MESSAGE,
-    InkeepDocsSearchTool,
-    InsightSearchTool,
-    SearchTool,
-)
+from ee.hogai.graph.root.tools.search import InkeepDocsSearchTool, InsightSearchTool, SearchTool
+from ee.hogai.tool import MaxToolError, MaxToolErrorCode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 
@@ -33,11 +29,11 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
     async def test_run_docs_search_without_api_key(self):
         with patch("ee.hogai.graph.root.tools.search.settings") as mock_settings:
             mock_settings.INKEEP_API_KEY = None
-            result, artifact = await self.tool._arun_impl(
-                kind="docs", query="How to use feature flags?", tool_call_id="test-id"
-            )
-            self.assertEqual(result, "This tool is not available in this environment.")
-            self.assertIsNone(artifact)
+            with self.assertRaises(MaxToolError) as context:
+                await self.tool._arun_impl(kind="docs", query="How to use feature flags?", tool_call_id="test-id")
+
+            self.assertEqual(context.exception.code, MaxToolErrorCode.CONFIGURATION_MISSING)
+            self.assertIn("INKEEP_API_KEY", str(context.exception))
 
     async def test_run_docs_search_with_api_key(self):
         mock_docs_tool = MagicMock()
@@ -68,10 +64,11 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
             self.assertIsNotNone(artifact)
 
     async def test_run_unknown_kind(self):
-        with self.assertRaises(ValueError) as context:
+        with self.assertRaises(MaxToolError) as context:
             await self.tool._arun_impl(kind="unknown", query="test", tool_call_id="test-id")  # type: ignore
 
-        self.assertIn("Unknown kind argument", str(context.exception))
+        self.assertEqual(context.exception.code, MaxToolErrorCode.INVALID_INPUT)
+        self.assertIn("Invalid search kind", str(context.exception))
 
 
 class TestInkeepDocsSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -176,10 +173,11 @@ class TestInsightSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         from ee.hogai.graph.insights.nodes import NoInsightsException
 
         with patch("ee.hogai.graph.insights.nodes.InsightSearchNode", side_effect=NoInsightsException()):
-            result, artifact = await self.tool.execute("user signups", "test-tool-call-id")
+            with self.assertRaises(MaxToolError) as context:
+                await self.tool.execute("user signups", "test-tool-call-id")
 
-            self.assertEqual(result, EMPTY_DATABASE_ERROR_MESSAGE)
-            self.assertIsNone(artifact)
+            self.assertEqual(context.exception.code, MaxToolErrorCode.RESOURCE_NOT_FOUND)
+            self.assertIn("No insights have been created yet", str(context.exception))
 
     async def test_execute_returns_none_artifact_when_result_is_none(self):
         async def mock_ainvoke(state):

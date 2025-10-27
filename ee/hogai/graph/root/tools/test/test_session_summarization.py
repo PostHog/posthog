@@ -8,6 +8,7 @@ from posthog.schema import AssistantMessage
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.root.tools.session_summarization import SessionSummarizationTool
+from ee.hogai.tool import MaxToolError, MaxToolErrorCode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 
@@ -95,7 +96,9 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
                     tool_call_id="test-id",
                 )
 
-    async def test_execute_returns_failure_message_when_result_is_none(self):
+    async def test_execute_raises_error_when_result_is_none(self):
+        """Test that session summarization raises MaxToolError when node returns None"""
+
         async def mock_ainvoke(state):
             return None
 
@@ -104,17 +107,19 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         with patch("ee.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
             with patch("ee.hogai.graph.root.tools.session_summarization.RunnableLambda", return_value=mock_chain):
-                result, artifact = await self.tool._arun_impl(
-                    session_summarization_query="test query",
-                    should_use_current_filters=False,
-                    summary_title="Test",
-                    tool_call_id="test-tool-call-id",
-                )
+                with self.assertRaises(MaxToolError) as context:
+                    await self.tool._arun_impl(
+                        session_summarization_query="test query",
+                        should_use_current_filters=False,
+                        summary_title="Test",
+                        tool_call_id="test-tool-call-id",
+                    )
 
-                self.assertEqual(result, "Session summarization failed")
-                self.assertIsNone(artifact)
+                self.assertEqual(context.exception.code, MaxToolErrorCode.INTERNAL_ERROR)
+                self.assertIn("Session summarization failed", str(context.exception))
 
-    async def test_execute_returns_failure_message_when_result_has_no_messages(self):
+    async def test_execute_raises_error_when_result_has_no_messages(self):
+        """Test that session summarization raises MaxToolError when node returns empty messages"""
         mock_result = PartialAssistantState(messages=[])
 
         async def mock_ainvoke(state):
@@ -125,15 +130,16 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         with patch("ee.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
             with patch("ee.hogai.graph.root.tools.session_summarization.RunnableLambda", return_value=mock_chain):
-                result, artifact = await self.tool._arun_impl(
-                    session_summarization_query="test query",
-                    should_use_current_filters=False,
-                    summary_title="Test",
-                    tool_call_id="test-tool-call-id",
-                )
+                with self.assertRaises(MaxToolError) as context:
+                    await self.tool._arun_impl(
+                        session_summarization_query="test query",
+                        should_use_current_filters=False,
+                        summary_title="Test",
+                        tool_call_id="test-tool-call-id",
+                    )
 
-                self.assertEqual(result, "Session summarization failed")
-                self.assertIsNone(artifact)
+                self.assertEqual(context.exception.code, MaxToolErrorCode.INTERNAL_ERROR)
+                self.assertIn("Session summarization failed", str(context.exception))
 
     async def test_execute_with_empty_summary_title(self):
         mock_result = PartialAssistantState(messages=[AssistantMessage(content="Summary completed")])
