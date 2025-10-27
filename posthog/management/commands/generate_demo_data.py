@@ -1,6 +1,7 @@
 # ruff: noqa: T201 allow print statements
 
 import os
+import sys
 import logging
 import secrets
 import datetime as dt
@@ -106,7 +107,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--say-on-complete",
             action="store_true",
-            default=False,
+            default=sys.platform == "darwin",
             help="Use text-to-speech to say when the process is complete",
         )
 
