@@ -5,7 +5,6 @@ import { FilterLogicalOperator } from '~/types'
 
 import { errorTrackingIssueBreakdownQuery } from '../../queries'
 import { breakdownFiltersLogic } from './breakdownFiltersLogic'
-import { BREAKDOWN_PRESETS } from './consts'
 import type { errorTrackingBreakdownsLogicType } from './errorTrackingBreakdownsLogicType'
 
 export interface ErrorTrackingBreakdownsLogicProps {
