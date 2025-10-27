@@ -93,7 +93,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 saved_query.columns = view.columns
                 saved_query.external_tables = saved_query.s3_tables
                 saved_query.is_materialized = True
-                saved_query.sync_frequency_interval = timedelta(hours=6)
+                saved_query.sync_frequency_interval = timedelta(hours=12)
                 saved_query.save()
 
                 # Make sure paths properly exist both on creation and update
