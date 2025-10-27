@@ -1555,6 +1555,7 @@ export interface EndpointRequest {
     description?: string
     query?: HogQLQuery | InsightQueryNode
     is_active?: boolean
+    cache_age_seconds?: number
 }
 
 export interface EndpointRunRequest {
