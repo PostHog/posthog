@@ -134,6 +134,7 @@ def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActionsRes
                         FROM person_distinct_id2
                         WHERE team_id = %(team_id)s
                         GROUP BY distinct_id
+                        HAVING argMax(is_deleted, version) = 0
                     ) AS pdi2 ON pdi2.distinct_id = pfe.distinct_id
                     GROUP BY
                         team_id,
