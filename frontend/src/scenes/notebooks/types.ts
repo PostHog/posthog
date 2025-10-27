@@ -53,6 +53,7 @@ export enum NotebookNodeType {
     Image = 'ph-image',
     PersonFeed = 'ph-person-feed',
     PersonProperties = 'ph-person-properties',
+    GroupProperties = 'ph-group-properties',
     Map = 'ph-map',
     Embed = 'ph-embed',
     Latex = 'ph-latex',

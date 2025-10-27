@@ -57,6 +57,7 @@ export const textContent = (node: RichContentNode): string => {
         [NotebookNodeType.Cohort]: customOrTitleSerializer,
         [NotebookNodeType.PersonFeed]: customOrTitleSerializer,
         [NotebookNodeType.PersonProperties]: customOrTitleSerializer,
+        [NotebookNodeType.GroupProperties]: customOrTitleSerializer,
         [NotebookNodeType.Map]: customOrTitleSerializer,
         [NotebookNodeType.Mention]: customOrTitleSerializer,
         [NotebookNodeType.Embed]: customOrTitleSerializer,

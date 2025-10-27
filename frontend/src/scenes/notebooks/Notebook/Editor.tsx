@@ -28,6 +28,7 @@ import { NotebookNodeExperiment } from '../Nodes/NotebookNodeExperiment'
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeFlagCodeExample } from '../Nodes/NotebookNodeFlagCodeExample'
 import { NotebookNodeGroup } from '../Nodes/NotebookNodeGroup'
+import { NotebookNodeGroupProperties } from '../Nodes/NotebookNodeGroupProperties'
 import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
 import { NotebookNodeIssues } from '../Nodes/NotebookNodeIssues'
 import { NotebookNodeLLMTrace } from '../Nodes/NotebookNodeLLMTrace'
@@ -130,6 +131,7 @@ export function Editor(): JSX.Element {
         NotebookNodeSurvey,
         NotebookNodeImage,
         NotebookNodePersonProperties,
+        NotebookNodeGroupProperties,
         RichContentNodeMention,
         NotebookNodeEmbed,
         SlashCommandsExtension,

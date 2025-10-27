@@ -20,7 +20,7 @@ export function Properties({ pinnedProperties, unpinnedProperties, ...props }: P
     return (
         <div className="py-2 px-4 text-xs">
             {Object.entries(pinnedProperties).map(([key, value], index) => {
-                const isLast = numUnpinnedProperties === numPinnedProperties && index === numPinnedProperties - 1
+                const isLast = index === numPinnedProperties + numUnpinnedProperties - 1
 
                 return <PropertyItem key={key} name={key} value={value} isLast={isLast} isPinned {...props} />
             })}

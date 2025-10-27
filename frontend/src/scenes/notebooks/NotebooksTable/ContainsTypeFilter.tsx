@@ -10,6 +10,7 @@ export const fromNodeTypeToLabel: Omit<
     | NotebookNodeType.Backlink
     | NotebookNodeType.PersonFeed
     | NotebookNodeType.PersonProperties
+    | NotebookNodeType.GroupProperties
     | NotebookNodeType.Map
     | NotebookNodeType.Mention
     | NotebookNodeType.Embed
