@@ -1,7 +1,6 @@
 use crate::api::errors::FlagError;
 use crate::config::Config;
 use common_database::{get_pool_with_config, PoolConfig};
-use rand::Rng;
 use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Duration;
@@ -31,16 +30,6 @@ impl DatabasePools {
             acquire_timeout: Duration::from_secs(config.acquire_timeout_secs),
             idle_timeout: if config.idle_timeout_secs > 0 {
                 Some(Duration::from_secs(config.idle_timeout_secs))
-            } else {
-                None
-            },
-            max_lifetime: if config.max_lifetime_secs > 0 {
-                let jitter = if config.max_lifetime_jitter_secs > 0 {
-                    rand::thread_rng().gen_range(0..config.max_lifetime_jitter_secs)
-                } else {
-                    0
-                };
-                Some(Duration::from_secs(config.max_lifetime_secs + jitter))
             } else {
                 None
             },
@@ -154,7 +143,6 @@ impl DatabasePools {
             max_connections = config.max_pg_connections,
             acquire_timeout_secs = config.acquire_timeout_secs,
             idle_timeout_secs = config.idle_timeout_secs,
-            max_lifetime_secs = config.max_lifetime_secs,
             test_before_acquire = config.test_before_acquire.0,
             non_persons_reader_statement_timeout_ms =
                 config.non_persons_reader_statement_timeout_ms,

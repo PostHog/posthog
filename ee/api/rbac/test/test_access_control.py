@@ -763,13 +763,13 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         with self.assertNumQueries(baseline + 4):
             self.client.get(f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true")
 
-        baseline = 10
+        baseline = 8
         # Getting my own notebook is the same as a dashboard - 3 extra queries
         with self.assertNumQueries(baseline + 5):
             self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
 
         # Except when accessing a different notebook where we _also_ need to check as we are not the creator and the pk is not the same (short_id)
-        with self.assertNumQueries(baseline + 7):
+        with self.assertNumQueries(baseline + 6):
             self.client.get(f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}")
 
         baseline = 8
@@ -806,14 +806,14 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         self._org_membership(OrganizationMembership.Level.MEMBER)
         # Baseline query (triggers any first time cache things)
         self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
-        baseline = 10
+        baseline = 8
 
         # Getting my own notebook is the same as a dashboard - 3 extra queries
         with self.assertNumQueries(baseline + 5):
             self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
 
         # Except when accessing a different notebook where we _also_ need to check as we are not the creator and the pk is not the same (short_id)
-        with self.assertNumQueries(baseline + 7):
+        with self.assertNumQueries(baseline + 6):
             self.client.get(f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}")
 
     def test_query_counts_stable_for_project_access(self):

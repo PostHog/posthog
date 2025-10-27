@@ -201,7 +201,19 @@ class RenameModelAnalyzer(OperationAnalyzer):
     operation_type = "RenameModel"
     default_score = 4
 
-    def analyze(self, op) -> OperationRisk:
+    def analyze(self, op, migration=None) -> OperationRisk:
+        # Check if model has explicit db_table set (makes rename safe)
+        has_db_table, db_table_name = self._check_db_table_set(op, migration)
+
+        if has_db_table:
+            return OperationRisk(
+                type=self.operation_type,
+                score=0,
+                reason="Model rename is safe (db_table explicitly set, no table rename)",
+                details={"old": op.old_name, "new": op.new_name, "db_table": db_table_name},
+                guidance=f"""✅ Safe rename: Model has explicit `db_table` in Meta, so the database table name doesn't change. Only Python code references change.""",
+            )
+
         return OperationRisk(
             type=self.operation_type,
             score=4,
@@ -211,6 +223,74 @@ class RenameModelAnalyzer(OperationAnalyzer):
 
 [See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#renaming-tables)""",
         )
+
+    def _check_db_table_set(self, op, migration) -> tuple[bool, str | None]:
+        """
+        Check if the model rename is safe (table name doesn't change).
+
+        Django's RenameModel compares old_model._meta.db_table vs new_model._meta.db_table.
+        If they're the same, alter_db_table is a no-op.
+
+        This checks:
+        1. Try to get both old and new model from registry
+        2. Compare their db_table values
+        3. Only return SAFE if both have same db_table
+
+        We try both old and new model names since either might exist in the app registry:
+        - Old name exists: before migration is applied
+        - New name exists: after migration is applied or in test environment
+
+        Returns:
+            tuple: (is_safe_rename, db_table_name)
+        """
+        if not migration:
+            return (False, None)
+
+        try:
+            from django.apps import apps
+
+            app_label = migration.app_label
+
+            # Try to get db_table from both old and new models
+            old_db_table = None
+            new_db_table = None
+
+            # Try old model name
+            try:
+                old_model = apps.get_model(app_label, op.old_name)
+                # Use model._meta.model_name which has proper formatting (e.g., "task_progress" not "taskprogress")
+                auto_generated_for_old = f"{app_label}_{old_model._meta.model_name}"
+                # Only consider it if db_table is explicitly set (differs from auto-generated)
+                if old_model._meta.db_table != auto_generated_for_old:
+                    old_db_table = old_model._meta.db_table
+            except LookupError:
+                pass
+
+            # Try new model name
+            try:
+                new_model = apps.get_model(app_label, op.new_name)
+                # Use model._meta.model_name which has proper formatting
+                auto_generated_for_new = f"{app_label}_{new_model._meta.model_name}"
+                # Only consider it if db_table is explicitly set (differs from auto-generated)
+                if new_model._meta.db_table != auto_generated_for_new:
+                    new_db_table = new_model._meta.db_table
+            except LookupError:
+                pass
+
+            # If we found both and they match, it's safe
+            if old_db_table and new_db_table and old_db_table == new_db_table:
+                return (True, old_db_table)
+
+            # If we only found one model with explicit db_table, assume it's the same
+            # (common case: before/after migration, only one model exists)
+            if old_db_table or new_db_table:
+                return (True, old_db_table or new_db_table)
+
+            # Neither model found or no explicit db_table
+            return (False, None)
+        except Exception:
+            # If anything goes wrong, assume not safe
+            return (False, None)
 
 
 class AlterModelTableAnalyzer(OperationAnalyzer):

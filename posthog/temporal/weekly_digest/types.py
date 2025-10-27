@@ -11,7 +11,7 @@ class CommonInput:
     redis_ttl: int = 3600 * 24 * 3  # 3 days
     redis_host: str | None = None
     redis_port: int | None = None
-    batch_size: int = 100
+    batch_size: int = 1000
 
 
 @dataclass
@@ -29,6 +29,13 @@ class WeeklyDigestInput:
 
 @dataclass
 class GenerateDigestDataInput:
+    digest: Digest
+    common: CommonInput
+
+
+@dataclass
+class GenerateDigestDataBatchInput:
+    batch: tuple[int, int]
     digest: Digest
     common: CommonInput
 
