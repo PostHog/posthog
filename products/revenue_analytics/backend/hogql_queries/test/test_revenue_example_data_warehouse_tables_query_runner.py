@@ -33,10 +33,10 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
     QUERY_TIMESTAMP = "2025-04-21"
 
     def _create_managed_viewsets(self):
-        viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
+        self.viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
             team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
         )
-        viewset.sync_views()
+        self.viewset.sync_views()
 
     def setUp(self):
         super().setUp()

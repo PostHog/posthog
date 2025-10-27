@@ -109,10 +109,10 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
     QUERY_TIMESTAMP = "2025-05-31"
 
     def _create_managed_viewsets(self):
-        viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
+        self.viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
             team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
         )
-        viewset.sync_views()
+        self.viewset.sync_views()
 
     def _create_purchase_events(self, data):
         person_result = []
@@ -1219,16 +1219,6 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_with_events_data_with_managed_viewsets_ff(self):
         with patch("posthoganalytics.feature_enabled", return_value=True):
-            self.team.revenue_analytics_config.events = [
-                REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT.model_copy(
-                    update={
-                        "subscriptionDropoffMode": "after_dropoff_period",  # More reasonable default for tests
-                    }
-                )
-            ]
-            self.team.revenue_analytics_config.save()
-            self._create_managed_viewsets()
-
             s1 = str(uuid7("2025-01-25"))
             s2 = str(uuid7("2025-02-03"))
             s3 = str(uuid7("2025-02-05"))
@@ -1252,6 +1242,16 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ),
                 ]
             )
+
+            self.team.revenue_analytics_config.events = [
+                REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT.model_copy(
+                    update={
+                        "subscriptionDropoffMode": "after_dropoff_period",  # More reasonable default for tests
+                    }
+                )
+            ]
+            self.team.revenue_analytics_config.save()
+            self._create_managed_viewsets()
 
             results = self._run_revenue_analytics_mrr_query(
                 properties=[

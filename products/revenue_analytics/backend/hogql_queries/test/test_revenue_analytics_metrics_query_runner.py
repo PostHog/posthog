@@ -108,10 +108,10 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     QUERY_TIMESTAMP = "2025-05-30"
 
     def _create_managed_viewsets(self):
-        viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
+        self.viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
             team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
         )
-        viewset.sync_views()
+        self.viewset.sync_views()
 
     def _create_purchase_events(self, data):
         person_result = []
@@ -1275,7 +1275,6 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ).results
 
         self.assertEqual(len(results), 8)
-
         self.assertEqual(
             [result["data"] for result in results],
             [
@@ -1469,6 +1468,7 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
             self.team.revenue_analytics_config.events = [event_item]
             self.team.revenue_analytics_config.save()
+            self.viewset.sync_views()
 
             results = self._run_revenue_analytics_metrics_query(
                 properties=[

@@ -55,10 +55,10 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     QUERY_TIMESTAMP = "2025-01-29"
 
     def _create_managed_viewsets(self):
-        viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
+        self.viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
             team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
         )
-        viewset.sync_views()
+        self.viewset.sync_views()
 
     def _create_events(self, data, event="$pageview"):
         person_result = []
@@ -148,10 +148,7 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_single_event_with_managed_viewsets_ff(self):
         with patch("posthoganalytics.feature_enabled", return_value=True):
-            self._create_managed_viewsets()
-
             s11 = str(uuid7("2023-12-02"))
-
             self._create_events(
                 [
                     ("p1", [("2023-12-02", s11, 42)]),
@@ -161,6 +158,7 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             self.team.revenue_analytics_config.events = [REVENUE_ANALYTICS_CONFIG_EVENT_PURCHASE.model_dump()]
             self.team.revenue_analytics_config.save()
+            self._create_managed_viewsets()
 
             results = self._run_revenue_example_events_query().results
 
@@ -223,8 +221,7 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert results[1][2] == 42
         assert results[1][3] == 42  # No conversion because assumed to not be in smallest unit
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_revenue_currency_property(self, feature_enabled_mock):
+    def test_revenue_currency_property(self):
         s1 = str(uuid7("2023-12-02"))
         self._create_events(
             [
@@ -283,8 +280,7 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert purchase_c[5] == Decimal("11.3165930643")  # 1800 JPY -> 11.31 EUR
         assert purchase_c[6] == CurrencyCode.EUR.value
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_revenue_currency_property_without_smallest_unit_divider(self, feature_enabled_mock):
+    def test_revenue_currency_property_without_smallest_unit_divider(self):
         s1 = str(uuid7("2023-12-02"))
         self._create_events(
             [
@@ -341,49 +337,3 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert purchase_c[4] == CurrencyCode.JPY.value
         assert purchase_c[5] == Decimal("11.4800549642")  # 1826 JPY -> 11.48 EUR
         assert purchase_c[6] == CurrencyCode.EUR.value
-
-    @patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_revenue_currency_property_without_feature_flag(self, feature_enabled_mock):
-        s1 = str(uuid7("2023-12-02"))
-        self._create_events(
-            [
-                ("p1", [("2023-12-02", s1, 4200, "USD")]),
-            ],
-            event="purchase_a",
-        )
-        s2 = str(uuid7("2023-12-03"))
-        self._create_events(
-            [
-                ("p2", [("2023-12-03", s2, 4300, "BRL")]),
-            ],
-            event="purchase_b",
-        )
-        s3 = str(uuid7("2023-12-04"))
-        self._create_events(
-            [
-                ("p3", [("2023-12-04", s3, 1800, "JPY")]),
-            ],
-            event="purchase_c",
-        )
-
-        self.team.base_currency = CurrencyCode.EUR.value
-        self.team.revenue_analytics_config.events = [
-            event.model_copy(update={"currencyAwareDecimal": True}).model_dump()
-            for event in REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT_REVENUE_CURRENCY_PROPERTY
-        ]
-        self.team.revenue_analytics_config.save()
-        self.team.save()
-
-        results = self._run_revenue_example_events_query().results
-
-        # Keep in the original revenue values
-        assert len(results) == 3
-
-        purchase_c, purchase_b, purchase_a = results
-
-        assert purchase_c[1] == "purchase_c"
-        assert purchase_c[3] == 1800  # JPY is not divided by 100 because lowest denomination is whole
-        assert purchase_b[1] == "purchase_b"
-        assert purchase_b[3] == 43
-        assert purchase_a[1] == "purchase_a"
-        assert purchase_a[3] == 42

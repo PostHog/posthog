@@ -8,8 +8,6 @@ from pydantic import BaseModel, ConfigDict
 from posthog.hogql.base import Expr
 from posthog.hogql.errors import NotImplementedError, ResolutionError
 
-from posthog.warehouse.types import DataWarehouseManagedViewSetKind
-
 if TYPE_CHECKING:
     from posthog.hogql.ast import LazyJoinType, SelectQuery
     from posthog.hogql.base import ConstantType
@@ -404,7 +402,7 @@ class SavedQuery(Table):
     id: str
     query: str
     name: str
-    managed_viewset_kind: Optional[DataWarehouseManagedViewSetKind] = None
+    metadata: dict[str, Any] = {}
 
     # Note: redundancy for safety. This validation is used in the data model already
     def to_printed_clickhouse(self, context):

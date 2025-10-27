@@ -13,6 +13,8 @@ from posthog.schema import (
     RevenueAnalyticsOverviewQuery,
     RevenueAnalyticsPropertyFilter,
     RevenueAnalyticsTopCustomersQuery,
+    RevenueExampleDataWarehouseTablesQuery,
+    RevenueExampleEventsQuery,
 )
 
 from posthog.hogql import ast
@@ -70,6 +72,8 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
         RevenueAnalyticsGrossRevenueQuery,
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsTopCustomersQuery,
+        RevenueExampleDataWarehouseTablesQuery,
+        RevenueExampleEventsQuery,
     ]
 
     def validate_query_runner_access(self, user: User) -> bool:
@@ -306,7 +310,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
 
         return initial_join
 
-    def revenue_subqueries(self, schema: RevenueAnalyticsSchema) -> Iterable[SavedQuery]:
+    def revenue_subqueries(self, schema: RevenueAnalyticsSchema) -> Iterable[RevenueAnalyticsBaseView]:
         for view_name in self.database.get_view_names():
             if view_name.endswith(schema.source_suffix) or view_name.endswith(schema.events_suffix):
                 # Handle both the old way (`RevenueAnalyticsBaseView`) and the feature-flagged way (`SavedQuery` via managed viewsets)
@@ -317,9 +321,60 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
                     yield table
                 elif (
                     isinstance(table, SavedQuery)
-                    and table.managed_viewset_kind == DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
+                    and table.metadata.get("managed_viewset_kind") == DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
                 ):
-                    yield table
+                    yield self.saved_query_to_revenue_analytics_base_view(table)
+
+    # This is pretty complex right now and it's doing a lot of string matching to determine the class
+    # This will become simpler once we don't need to support the old way anymore
+    def saved_query_to_revenue_analytics_base_view(self, saved_query: SavedQuery) -> RevenueAnalyticsBaseView:
+        Klass: type[RevenueAnalyticsBaseView] | None = None
+        if saved_query.name.endswith(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE].source_suffix
+        ) or saved_query.name.endswith(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE].events_suffix
+        ):
+            Klass = RevenueAnalyticsChargeView
+        elif saved_query.name.endswith(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER].source_suffix
+        ) or saved_query.name.endswith(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER].events_suffix
+        ):
+            Klass = RevenueAnalyticsCustomerView
+        elif saved_query.name.endswith(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_PRODUCT].source_suffix
+        ) or saved_query.name.endswith(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_PRODUCT].events_suffix
+        ):
+            Klass = RevenueAnalyticsProductView
+        elif saved_query.name.endswith(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM].source_suffix
+        ) or saved_query.name.endswith(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM].events_suffix
+        ):
+            Klass = RevenueAnalyticsRevenueItemView
+        elif saved_query.name.endswith(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_SUBSCRIPTION].source_suffix
+        ) or saved_query.name.endswith(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_SUBSCRIPTION].events_suffix
+        ):
+            Klass = RevenueAnalyticsSubscriptionView
+        else:
+            raise ValueError(f"Saved query {saved_query.name} is not a revenue analytics view")
+
+        is_event_view = "revenue_analytics.events" in saved_query.name
+        return Klass(
+            id=saved_query.id,
+            query=saved_query.query,
+            name=saved_query.name,
+            fields=saved_query.fields,
+            metadata=saved_query.metadata,
+            # :KLUTCH: None of these properties below are great but it's all we can do to figure this one out for now
+            # We'll be able to come up with a better solution we don't need to support the old managed views anymore
+            prefix=".".join(saved_query.name.split(".")[:-1]),
+            source_id=None,  # Not used so just ignore it
+            event_name=saved_query.name.split(".")[2] if is_event_view else None,
+        )
 
     @cached_property
     def query_date_range(self):

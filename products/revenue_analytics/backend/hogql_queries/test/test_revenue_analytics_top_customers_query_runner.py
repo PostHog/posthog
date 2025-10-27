@@ -56,10 +56,10 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
     QUERY_TIMESTAMP = "2025-04-21"
 
     def _create_managed_viewsets(self):
-        viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
+        self.viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
             team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
         )
-        viewset.sync_views()
+        self.viewset.sync_views()
 
     def _create_purchase_events(self, data):
         person_result = []
@@ -326,8 +326,6 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
 
     def test_with_events_data_with_managed_viewsets_ff(self):
         with patch("posthoganalytics.feature_enabled", return_value=True):
-            self._create_managed_viewsets()
-
             s1 = str(uuid7("2023-12-02"))
             s2 = str(uuid7("2024-01-03"))
             s3 = str(uuid7("2024-02-04"))
@@ -337,6 +335,8 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
                     ("p2", [("2024-01-01", s2, 43, "BRL"), ("2024-01-02", s3, 87, "BRL")]),  # 2 events, 1 customer
                 ]
             )
+
+            self._create_managed_viewsets()
 
             results = self._run_revenue_analytics_top_customers_query(
                 date_range=DateRange(date_from="2023-11-01", date_to="2024-01-31"),
