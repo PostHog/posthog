@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 use crate::{
     config::Config,
-    metric_consts::{LIMITS_UPDATED, LIMIT_BALANCE},
+    metrics_utils::{LIMITS_UPDATED, LIMIT_BALANCE},
     organization::Organization,
 };
 

@@ -46,6 +46,7 @@ import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages
 import type {
     CurrencyCode,
     DashboardFilter,
+    DataWarehouseManagedViewsetKind,
     DatabaseSchemaField,
     ExperimentExposureCriteria,
     ExperimentFunnelsQuery,
@@ -685,6 +686,7 @@ export interface TeamType extends TeamBasicType {
     default_evaluation_environments_enabled: boolean
     marketing_analytics_config: MarketingAnalyticsConfig
     base_currency: CurrencyCode
+    managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     experiment_recalculation_time?: string | null
 }
 
@@ -863,6 +865,7 @@ export enum PropertyFilterType {
     Meta = 'meta',
     /** Event properties */
     Event = 'event',
+    InternalEvent = 'internal_event',
     EventMetadata = 'event_metadata',
     /** Person properties */
     Person = 'person',
@@ -1068,6 +1071,7 @@ export interface RecordingSegment {
     durationMs: number
     windowId?: string
     isActive: boolean
+    isLoading?: boolean
 }
 
 export type EncodedRecordingSnapshot = {
@@ -1107,9 +1111,6 @@ export type SessionRecordingSnapshotParams = (
           source: 'blob_v2'
           start_blob_key?: string
           end_blob_key?: string
-      }
-    | {
-          source: 'realtime'
       }
 ) & {
     decompress?: boolean
@@ -1342,6 +1343,7 @@ export interface PersonListParams {
     cohort?: number
     distinct_id?: string
     include_total?: boolean // PostHog 3000-only
+    limit?: number
 }
 
 export type SearchableEntity =
@@ -1614,6 +1616,8 @@ export interface SessionRecordingPlaylistType {
      */
     recordings_counts?: PlaylistRecordingsCounts
     type: 'filters' | 'collection'
+    /** Whether this playlist is a synthetic (virtual) playlist that's computed on-demand */
+    is_synthetic?: boolean
     _create_in_folder?: string | null
 }
 
@@ -1626,6 +1630,7 @@ export interface SavedSessionRecordingPlaylistsFilters {
     page: number
     pinned: boolean
     type?: 'collection' | 'saved_filters'
+    collectionType: 'custom' | 'synthetic' | null
 }
 
 export interface SavedSessionRecordingPlaylistsResult extends PaginatedResponse<SessionRecordingPlaylistType> {
@@ -3459,6 +3464,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     _create_in_folder?: string | null
     evaluation_runtime: FeatureFlagEvaluationRuntime
     _should_create_usage_dashboard?: boolean
+    last_called_at?: string | null
 }
 
 export interface OrganizationFeatureFlag {
@@ -4330,6 +4336,7 @@ export type Duration = {
 
 export enum EventDefinitionType {
     Event = 'event',
+    EventInternal = 'event_internal',
     EventCustom = 'event_custom',
     EventPostHog = 'event_posthog',
 }
@@ -4686,6 +4693,7 @@ export enum ActivityScope {
     TAGGED_ITEM = 'TaggedItem',
     EXTERNAL_DATA_SOURCE = 'ExternalDataSource',
     EXTERNAL_DATA_SCHEMA = 'ExternalDataSchema',
+    ENDPOINT = 'Endpoint',
 }
 
 export type CommentType = {
@@ -4761,6 +4769,13 @@ export interface DataWarehouseViewLink {
     created_by?: UserBasicType | null
     created_at?: string | null
     configuration?: DataWarehouseViewLinkConfiguration
+}
+
+export interface DataWarehouseViewLinkValidation {
+    is_valid: boolean
+    msg: string | null
+    hogql: string | null
+    results: any[]
 }
 
 export interface QueryTabState {
@@ -4990,9 +5005,25 @@ export type BatchExportServiceRedshift = {
         schema: string
         table_name: string
         properties_data_type: boolean
+        mode: 'COPY' | 'INSERT'
+        authorization_mode: 'IAMRole' | 'Credentials'
+        copy_inputs: BatchExportServiceRedshiftCopyInputs | null
         exclude_events: string[]
         include_events: string[]
     }
+}
+
+export type BatchExportServiceRedshiftCopyInputs = {
+    s3_bucket: string
+    s3_key_prefix: string
+    region_name: string
+    bucket_credentials: AWSCredentials
+    authorization: string | AWSCredentials
+}
+
+export type AWSCredentials = {
+    aws_access_key_id: string
+    aws_secret_access_key: string
 }
 
 export type BatchExportServiceDatabricks = {
@@ -5004,7 +5035,6 @@ export type BatchExportServiceDatabricks = {
         schema: string
         table_name: string
         use_variant_type: boolean
-        table_partition_field: string | null
         exclude_events: string[]
         include_events: string[]
     }
@@ -5679,6 +5709,7 @@ export interface Conversation {
     created_at: string | null
     updated_at: string | null
     type: ConversationType
+    has_unsupported_content?: boolean
 }
 
 export interface ConversationDetail extends Conversation {
@@ -5876,6 +5907,14 @@ export interface DatasetItem {
     updated_at: string
     created_at: string
     deleted: boolean
+}
+
+// Managed viewset
+export interface DataWarehouseManagedViewsetSavedQuery {
+    id: string
+    created_at: string
+    created_by_id: string | null
+    name: string
 }
 
 // Session Summaries

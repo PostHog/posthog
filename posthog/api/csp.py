@@ -118,6 +118,10 @@ def parse_report_to(data: dict) -> dict:
     return properties
 
 
+def is_csp_violation(data: dict) -> bool:
+    return "type" in data and data["type"] == "csp-violation"
+
+
 def build_csp_event(props: dict, distinct_id: str, session_id: str, version: str, user_agent: Optional[str]) -> dict:
     props = {f"$csp_{k}": v for k, v in props.items()}
 
@@ -172,8 +176,13 @@ def process_csp_report(request):
         except (ValueError, TypeError):
             sample_rate = 1.0
 
-        if request.content_type == "application/csp-report" and "csp-report" in csp_data:
-            properties = parse_report_uri(csp_data)
+        if request.content_type == "application/csp-report":
+            if "csp-report" in csp_data:
+                properties = parse_report_uri(csp_data)
+            elif is_csp_violation(csp_data):
+                properties = parse_report_to(csp_data)
+            else:
+                raise ValueError("Invalid CSP report")
 
             if not sample_csp_report(properties, sample_rate, add_metadata=True):
                 logger.warning(
@@ -194,10 +203,13 @@ def process_csp_report(request):
                 None,
             )
 
-        if request.content_type == "application/reports+json" and isinstance(csp_data, list):
-            violations_props = [
-                parse_report_to(item) for item in csp_data if "type" in item and item["type"] == "csp-violation"
-            ]
+        if request.content_type == "application/reports+json":
+            if isinstance(csp_data, list):
+                violations_props = [parse_report_to(item) for item in csp_data if is_csp_violation(item)]
+            elif isinstance(csp_data, dict) and is_csp_violation(csp_data):
+                violations_props = [parse_report_to(csp_data)]
+            else:
+                raise ValueError("Invalid CSP report")
 
             sampled_violations = []
             for prop in violations_props:
