@@ -73,11 +73,6 @@ def reset_clickhouse_tables():
     from posthog.models.app_metrics.sql import TRUNCATE_APP_METRICS_TABLE_SQL
     from posthog.models.channel_type.sql import TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL
     from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
-    from posthog.models.error_tracking.embedding import TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL
-    from posthog.models.error_tracking.sql import (
-        TRUNCATE_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL,
-        TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
-    )
     from posthog.models.event.sql import TRUNCATE_EVENTS_RECENT_TABLE_SQL, TRUNCATE_EVENTS_TABLE_SQL
     from posthog.models.exchange_rate.sql import TRUNCATE_EXCHANGE_RATE_TABLE_SQL
     from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
@@ -89,9 +84,16 @@ def reset_clickhouse_tables():
         TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
         TRUNCATE_PERSON_TABLE_SQL,
     )
-    from posthog.models.raw_sessions.sql import TRUNCATE_RAW_SESSIONS_TABLE_SQL
+    from posthog.models.raw_sessions.sessions_v2 import TRUNCATE_RAW_SESSIONS_TABLE_SQL
+    from posthog.models.raw_sessions.sessions_v3 import TRUNCATE_RAW_SESSIONS_TABLE_SQL_V3
     from posthog.models.sessions.sql import TRUNCATE_SESSIONS_TABLE_SQL
     from posthog.session_recordings.sql.session_recording_event_sql import TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL
+
+    from products.error_tracking.backend.embedding import TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL
+    from products.error_tracking.backend.sql import (
+        TRUNCATE_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL,
+        TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
+    )
 
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
     TABLES_TO_CREATE_DROP: list[str] = [
@@ -115,6 +117,7 @@ def reset_clickhouse_tables():
         TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL,
         TRUNCATE_EXCHANGE_RATE_TABLE_SQL(),
         TRUNCATE_SESSIONS_TABLE_SQL(),
+        TRUNCATE_RAW_SESSIONS_TABLE_SQL_V3(),
         TRUNCATE_RAW_SESSIONS_TABLE_SQL(),
         TRUNCATE_HEATMAPS_TABLE_SQL(),
         TRUNCATE_PG_EMBEDDINGS_TABLE_SQL(),
@@ -217,6 +220,20 @@ def mock_two_factor_sso_enforcement_check(request, mocker):
 
     mocker.patch("posthog.helpers.two_factor_session.is_domain_sso_enforced", return_value=False)
     mocker.patch("posthog.helpers.two_factor_session.is_sso_authentication_backend", return_value=False)
+
+
+@pytest.fixture(autouse=True)
+def mock_email_mfa_verifier(request, mocker):
+    """
+    Mock the EmailMFAVerifier.should_send_email_mfa_verification method to return False for all tests.
+    Can be disabled by using @pytest.mark.disable_mock_email_mfa_verifier decorator.
+    """
+    if "disable_mock_email_mfa_verifier" in request.keywords:
+        return
+
+    mocker.patch(
+        "posthog.helpers.two_factor_session.EmailMFAVerifier.should_send_email_mfa_verification", return_value=False
+    )
 
 
 def pytest_sessionstart():

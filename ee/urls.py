@@ -102,12 +102,19 @@ if settings.ADMIN_PORTAL_ENABLED:
         except NotRegistered:
             pass
 
+    from posthog.admin.admins.realtime_cohort_calculation_admin import analyze_realtime_cohort_calculation_view
+
     admin_urlpatterns = [
         re_path(r"^admin/oauth2/callback$", admin_oauth2_callback, name="admin_oauth2_callback"),
         re_path(r"^admin/oauth2/success$", admin_oauth_success, name="admin_oauth_success"),
         re_path(r"^admin/auth_check$", admin_auth_check, name="admin_auth_check"),
         re_path(r"^admin/redisvalues$", redis_values_view, name="redis_values"),
         re_path(r"^admin/apikeysearch$", api_key_search_view, name="api_key_search"),
+        path(
+            "admin/realtime-cohorts-calculation/",
+            admin.site.admin_view(analyze_realtime_cohort_calculation_view),
+            name="realtime-cohorts-calculation",
+        ),
         path("admin/", include("loginas.urls")),
         path("admin/", admin.site.urls),
     ]

@@ -138,6 +138,7 @@ class TestQueryRunner(BaseTest):
                     "attribution_mode": "last_touch",
                     "attribution_window_days": 90,
                     "base_currency": "USD",
+                    "campaign_name_mappings": {},
                     "sources_map": {
                         "01977f7b-7f29-0000-a028-7275d1a767a4": {
                             "cost": "cost",
@@ -200,7 +201,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_335c3a8a6a92c0551e6b428e5bef5aee"
+        assert cache_key == "cache_db05113c9937a0e206afcc48c43e0a87"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -214,7 +215,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_a1ce3db3977f9e2c80431c2ce9679d26"
+        assert cache_key == "cache_6369d6d904d6ce9dea56120059bdceba"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -225,7 +226,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_236279f500076c3545cc9cadf63f2838"
+        assert cache_key == "cache_ee3b91f6f3800eba3e0420c65bbe082c"
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
@@ -357,3 +358,25 @@ class TestQueryRunner(BaseTest):
         response = runner.calculate()
         assert response.clickhouse is not None
         assert "events.`mat_$browser" not in response.clickhouse
+
+    @mock.patch("posthog.hogql_queries.query_runner.get_query_cache_manager")
+    def test_schema_change_triggers_recalculation(self, mock_get_cache_manager):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        mock_cache_manager = mock.MagicMock()
+        mock_cache_manager.cache_key = "test_cache_key"
+        mock_cache_manager.get_cache_data.return_value = {
+            "is_cached": True,
+            "invalid_field": "this will cause validation to fail",
+            # Missing all the actual required fields like results, last_refresh, etc.
+        }
+        mock_get_cache_manager.return_value = mock_cache_manager
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
+            response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+
+            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
+            self.assertEqual(response.is_cached, False, "Should get a fresh response, not a cached one")
+            self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:37:42+00:00")
+            mock_cache_manager.get_cache_data.assert_called_once()
+            mock_cache_manager.set_cache_data.assert_called_once()

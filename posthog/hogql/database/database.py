@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, TypeAlias, Union, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db.models import Prefetch, Q
@@ -51,6 +51,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
+from posthog.hogql.database.schema.document_embeddings import DocumentEmbeddingsTable, RawDocumentEmbeddingsTable
 from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
     ErrorTrackingIssueFingerprintOverridesTable,
     RawErrorTrackingIssueFingerprintOverridesTable,
@@ -107,6 +108,7 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebStatsDailyTable,
     WebStatsHourlyTable,
 )
+from posthog.hogql.database.utils import get_join_field_chain
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
@@ -149,6 +151,7 @@ class Database(BaseModel):
     sessions: Union[SessionsTableV1, SessionsTableV2, SessionsTableV3] = SessionsTableV1()
     heatmaps: HeatmapsTable = HeatmapsTable()
     exchange_rate: ExchangeRateTable = ExchangeRateTable()
+    document_embeddings: DocumentEmbeddingsTable = DocumentEmbeddingsTable()
 
     # Web analytics pre-aggregated tables (internal use only)
     web_stats_daily: WebStatsDailyTable = WebStatsDailyTable()
@@ -178,6 +181,7 @@ class Database(BaseModel):
     raw_sessions: Union[RawSessionsTableV1, RawSessionsTableV2, RawSessionsTableV3] = RawSessionsTableV1()
     raw_sessions_v3: Union[RawSessionsTableV1, RawSessionsTableV2, RawSessionsTableV3] = RawSessionsTableV3()
     raw_query_log: RawQueryLogArchiveTable = RawQueryLogArchiveTable()
+    raw_document_embeddings: RawDocumentEmbeddingsTable = RawDocumentEmbeddingsTable()
     pg_embeddings: PgEmbeddingsTable = PgEmbeddingsTable()
     # logs table for logs product
     logs: LogsTable = LogsTable()
@@ -592,6 +596,7 @@ def create_hogql_database(
         with timings.measure("select"):
             saved_queries = list(
                 DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
+                .filter(managed_viewset__isnull=True)  # Ignore managed views for now
                 .exclude(deleted=True)
                 .select_related("table", "table__credential")
             )
@@ -814,42 +819,12 @@ def create_hogql_database(
                 source_table = database.get_table(join.source_table_name)
                 joining_table = database.get_table(join.joining_table_name)
 
-                field = parse_expr(join.source_table_key)
-                if isinstance(field, ast.Field):
-                    from_field = field.chain
-                elif (
-                    isinstance(field, ast.Alias)
-                    and isinstance(field.expr, ast.Call)
-                    and isinstance(field.expr.args[0], ast.Field)
-                ):
-                    from_field = field.expr.args[0].chain
-                elif isinstance(field, ast.Call) and isinstance(field.args[0], ast.Field):
-                    from_field = field.args[0].chain
-                else:
-                    capture_exception(
-                        Exception(
-                            f"Data Warehouse Join HogQL expression should be a Field or Call node: {join.source_table_key}"
-                        )
-                    )
+                from_field = get_join_field_chain(join.source_table_key)
+                if from_field is None:
                     continue
 
-                field = parse_expr(join.joining_table_key)
-                if isinstance(field, ast.Field):
-                    to_field = field.chain
-                elif (
-                    isinstance(field, ast.Alias)
-                    and isinstance(field.expr, ast.Call)
-                    and isinstance(field.expr.args[0], ast.Field)
-                ):
-                    to_field = field.expr.args[0].chain
-                elif isinstance(field, ast.Call) and isinstance(field.args[0], ast.Field):
-                    to_field = field.args[0].chain
-                else:
-                    capture_exception(
-                        Exception(
-                            f"Data Warehouse Join HogQL expression should be a Field or Call node: {join.joining_table_key}"
-                        )
-                    )
+                to_field = get_join_field_chain(join.joining_table_key)
+                if to_field is None:
                     continue
 
                 source_table.fields[join.field_name] = LazyJoin(
@@ -966,7 +941,7 @@ class SerializedField:
     chain: Optional[list[str | int]] = None
 
 
-DatabaseSchemaTable: TypeAlias = (
+type DatabaseSchemaTable = (
     DatabaseSchemaPostHogTable
     | DatabaseSchemaSystemTable
     | DatabaseSchemaDataWarehouseTable

@@ -2,32 +2,25 @@ import { useActions, useValues } from 'kea'
 
 import { LemonModal } from '@posthog/lemon-ui'
 
-import { modalsLogic } from '../modalsLogic'
-import { METRIC_CONTEXTS, experimentMetricModalLogic } from './experimentMetricModalLogic'
+import { experimentMetricModalLogic } from './experimentMetricModalLogic'
+import { metricSourceModalLogic } from './metricSourceModalLogic'
+import { sharedMetricModalLogic } from './sharedMetricModalLogic'
 
-export function MetricSourceModal({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
-    const {
-        closePrimaryMetricSourceModal,
-        closeSecondaryMetricSourceModal,
-        openPrimarySharedMetricModal,
-        openSecondarySharedMetricModal,
-    } = useActions(modalsLogic)
-    const { isPrimaryMetricSourceModalOpen, isSecondaryMetricSourceModalOpen } = useValues(modalsLogic)
-
-    const isOpen = isSecondary ? isSecondaryMetricSourceModalOpen : isPrimaryMetricSourceModalOpen
-    const closeCurrentModal = isSecondary ? closeSecondaryMetricSourceModal : closePrimaryMetricSourceModal
-    const openSharedMetricModal = isSecondary ? openSecondarySharedMetricModal : openPrimarySharedMetricModal
+export const MetricSourceModal = (): JSX.Element | null => {
+    const { isModalOpen, context } = useValues(metricSourceModalLogic)
+    const { closeMetricSourceModal } = useActions(metricSourceModalLogic)
 
     const { openExperimentMetricModal } = useActions(experimentMetricModalLogic)
+    const { openSharedMetricModal } = useActions(sharedMetricModalLogic)
 
     return (
-        <LemonModal isOpen={isOpen} onClose={closeCurrentModal} width={1000} title="Choose metric source">
+        <LemonModal isOpen={isModalOpen} onClose={closeMetricSourceModal} width={1000} title="Choose metric source">
             <div className="flex gap-4 mb-4">
                 <div
                     className="flex-1 cursor-pointer p-4 rounded border hover:border-accent"
                     onClick={() => {
-                        closeCurrentModal()
-                        openExperimentMetricModal(METRIC_CONTEXTS[isSecondary ? 'secondary' : 'primary'])
+                        closeMetricSourceModal()
+                        openExperimentMetricModal(context)
                     }}
                 >
                     <div className="font-semibold">
@@ -40,8 +33,8 @@ export function MetricSourceModal({ isSecondary }: { isSecondary?: boolean }): J
                 <div
                     className="flex-1 cursor-pointer p-4 rounded border hover:border-accent"
                     onClick={() => {
-                        closeCurrentModal()
-                        openSharedMetricModal(null)
+                        closeMetricSourceModal()
+                        openSharedMetricModal(context)
                     }}
                 >
                     <div className="font-semibold">
