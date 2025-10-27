@@ -1042,7 +1042,6 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                                     ...featureFlag,
                                                                     active: newValue,
                                                                 }
-                                                                setFeatureFlag(updatedFlag)
                                                                 saveFeatureFlag(updatedFlag)
                                                             },
                                                             size: 'small',
