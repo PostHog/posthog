@@ -28,6 +28,7 @@ import { NotebookNodeExperiment } from '../Nodes/NotebookNodeExperiment'
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeFlagCodeExample } from '../Nodes/NotebookNodeFlagCodeExample'
 import { NotebookNodeGroup } from '../Nodes/NotebookNodeGroup'
+import { NotebookNodeGroupProperties } from '../Nodes/NotebookNodeGroupProperties'
 import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
 import { NotebookNodeIssues } from '../Nodes/NotebookNodeIssues'
 import { NotebookNodeLLMTrace } from '../Nodes/NotebookNodeLLMTrace'
@@ -35,8 +36,8 @@ import { NotebookNodeLatex } from '../Nodes/NotebookNodeLatex'
 import { NotebookNodeMap } from '../Nodes/NotebookNodeMap'
 import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
 import { NotebookNodePersonFeed } from '../Nodes/NotebookNodePersonFeed/NotebookNodePersonFeed'
+import { NotebookNodePersonProperties } from '../Nodes/NotebookNodePersonProperties'
 import { NotebookNodePlaylist } from '../Nodes/NotebookNodePlaylist'
-import { NotebookNodeProperties } from '../Nodes/NotebookNodeProperties'
 import { NotebookNodeQuery } from '../Nodes/NotebookNodeQuery'
 import { NotebookNodeRecording } from '../Nodes/NotebookNodeRecording'
 import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
@@ -129,7 +130,8 @@ export function Editor(): JSX.Element {
         NotebookNodeEarlyAccessFeature,
         NotebookNodeSurvey,
         NotebookNodeImage,
-        NotebookNodeProperties,
+        NotebookNodePersonProperties,
+        NotebookNodeGroupProperties,
         RichContentNodeMention,
         NotebookNodeEmbed,
         SlashCommandsExtension,
