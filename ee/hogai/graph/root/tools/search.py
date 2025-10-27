@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from ee.hogai.graph.insights.nodes import InsightSearchNode, NoInsightsException
 from ee.hogai.graph.root.tools.full_text_search.tool import EntitySearchTool, FTSKind
-from ee.hogai.tool import MaxSubtool, MaxTool, MaxToolArgs, ToolMessagesArtifact
+from ee.hogai.tool import MaxSubtool, MaxTool, MaxToolArgs, MaxToolError, MaxToolErrorCode, ToolMessagesArtifact
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantState, PartialAssistantState
 
@@ -108,7 +108,10 @@ class SearchTool(MaxTool):
     async def _arun_impl(self, kind: str, query: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
         if kind == "docs":
             if not settings.INKEEP_API_KEY:
-                return "This tool is not available in this environment.", None
+                raise MaxToolError(
+                    "Documentation search requires INKEEP_API_KEY configuration. This feature is not available in this environment.",
+                    code=MaxToolErrorCode.CONFIGURATION_MISSING,
+                )
             docs_tool = InkeepDocsSearchTool(self._team, self._user, self._state, self._context_manager)
             return await docs_tool.execute(query, tool_call_id)
 
@@ -117,7 +120,9 @@ class SearchTool(MaxTool):
             return await insights_tool.execute(query, tool_call_id)
 
         if kind not in self._fts_entities:
-            return format_prompt_string(INVALID_ENTITY_KIND_PROMPT, kind=kind), None
+            raise MaxToolError(
+                format_prompt_string(INVALID_ENTITY_KIND_PROMPT, kind=kind), code=MaxToolErrorCode.INVALID_INPUT
+            )
 
         entity_search_toolkit = EntitySearchTool(self._team, self._user, self._state, self._context_manager)
         response = await entity_search_toolkit.execute(query, FTSKind(kind))
@@ -245,4 +250,7 @@ class InsightSearchTool(MaxSubtool):
             result = await chain.ainvoke(copied_state)
             return "", ToolMessagesArtifact(messages=result.messages) if result else None
         except NoInsightsException:
-            return EMPTY_DATABASE_ERROR_MESSAGE, None
+            raise MaxToolError(
+                "No insights have been created yet. The user needs to create insights before they can be searched.",
+                code=MaxToolErrorCode.RESOURCE_NOT_FOUND,
+            )

@@ -4,7 +4,7 @@ from langchain_core.runnables import RunnableLambda
 from pydantic import BaseModel, Field
 
 from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
-from ee.hogai.tool import MaxTool, MaxToolArgs, ToolMessagesArtifact
+from ee.hogai.tool import MaxTool, MaxToolArgs, MaxToolError, MaxToolErrorCode, ToolMessagesArtifact
 from ee.hogai.utils.types.base import AssistantState, PartialAssistantState
 
 SESSION_SUMMARIZATION_TOOL_PROMPT = """
@@ -118,5 +118,8 @@ class SessionSummarizationTool(MaxTool):
         )
         result = await chain.ainvoke(copied_state)
         if not result or not result.messages:
-            return "Session summarization failed", None
+            raise MaxToolError(
+                "Session summarization failed: No result returned from session summarization node.",
+                code=MaxToolErrorCode.INTERNAL_ERROR,
+            )
         return "", ToolMessagesArtifact(messages=result.messages)

@@ -1000,7 +1000,7 @@ class TestRootNodeTools(BaseTest):
             self.assertIn("does not exist", result.messages[0].content)
 
     @patch("ee.hogai.graph.root.tools.create_and_query_insight.CreateAndQueryInsightTool._arun_impl")
-    async def test_tool_retryable_error_becomes_hidden_tool_message(self, create_and_query_insight_mock):
+    async def test_tool_retryable_error_becomes_tool_message(self, create_and_query_insight_mock):
         create_and_query_insight_mock.side_effect = MaxToolRetryableError("Temporary issue")
 
         node = RootNodeTools(self.team, self.user)
@@ -1017,10 +1017,12 @@ class TestRootNodeTools(BaseTest):
                         )
                     ],
                 )
-            ]
+            ],
+            root_tool_call_id="xyz",
         )
         result = await node.arun(state, {})
         self.assertIsInstance(result, PartialAssistantState)
+        assert result is not None
         self.assertEqual(len(result.messages), 1)
         tool_msg = result.messages[0]
         self.assertIsInstance(tool_msg, AssistantToolCallMessage)
@@ -1031,7 +1033,7 @@ class TestRootNodeTools(BaseTest):
         self.assertIn("You may retry", tool_msg.content)
 
     @patch("ee.hogai.graph.root.tools.create_and_query_insight.CreateAndQueryInsightTool._arun_impl")
-    async def test_tool_non_retryable_error_becomes_hidden_tool_message(self, create_and_query_insight_mock):
+    async def test_tool_non_retryable_error_becomes_tool_message(self, create_and_query_insight_mock):
         create_and_query_insight_mock.side_effect = MaxToolError("Bad input")
 
         node = RootNodeTools(self.team, self.user)
@@ -1048,10 +1050,12 @@ class TestRootNodeTools(BaseTest):
                         )
                     ],
                 )
-            ]
+            ],
+            root_tool_call_id="xyz",
         )
         result = await node.arun(state, {})
         self.assertIsInstance(result, PartialAssistantState)
+        assert result is not None
         self.assertEqual(len(result.messages), 1)
         tool_msg = result.messages[0]
         self.assertIsInstance(tool_msg, AssistantToolCallMessage)
