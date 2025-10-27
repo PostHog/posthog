@@ -124,6 +124,7 @@ def CUSTOM_METRICS_TABLE_SIZES_VIEW():
         'gauge' AS type
     FROM system.tables
     WHERE database NOT IN ('INFORMATION_SCHEMA', 'information_schema')
+        AND total_bytes IS NOT NULL
     """
 
 

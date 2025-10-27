@@ -210,7 +210,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             disabled={threadLoading}
                             onChange={(checked) => setDeepResearchMode(checked)}
                             size="xxsmall"
-                            tooltip="This will make Max think harder about your question"
+                            tooltip="This will make PostHog AI think harder about your question"
                         />
                     </div>
                 )}
