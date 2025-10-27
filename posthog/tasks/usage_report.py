@@ -928,7 +928,7 @@ def get_teams_with_ai_event_count_in_period(
 
 
 dwh_pricing_free_period_start = datetime(2025, 10, 29, 0, 0, 0, tzinfo=UTC)
-dwh_pricing_free_period_end = datetime(2025, 11, 6, 8, 0, 0, tzinfo=UTC)
+dwh_pricing_free_period_end = datetime(2025, 11, 6, 0, 0, 0, tzinfo=UTC)
 
 
 @timed_log()
@@ -937,6 +937,20 @@ def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list
     if begin >= dwh_pricing_free_period_start and begin < dwh_pricing_free_period_end:
         # during the free period, everyone gets free rows synced
         return []
+
+    if begin >= dwh_pricing_free_period_end:
+        # after the free period, don't include rows reported in the free historical period
+        return list(
+            ExternalDataJob.objects.filter(
+                ~Q(pipeline__created_at__gte=end - timedelta(days=7)),
+                finished_at__gte=begin,
+                finished_at__lte=end,
+                billable=True,
+                status=ExternalDataJob.Status.COMPLETED,
+            )
+            .values("team_id")
+            .annotate(total=Sum("rows_synced"))
+        )
 
     return list(
         ExternalDataJob.objects.filter(
