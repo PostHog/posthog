@@ -79,27 +79,39 @@ def check_uv_python_compatibility(uv_version: str, python_version: str) -> tuple
     """
     Check if a given uv version can download the specified Python version.
 
-    Uses `uv python list --only-downloads` to check if the Python version is available.
-    Falls back to passing if uv is not available.
+    Uses `uvx --from uv@{version} uv python list --only-downloads` to test
+    the specific uv version's ability to download the Python version.
 
     Returns:
         tuple: (is_compatible, message)
     """
     try:
-        # Check if the Python version is available for download
+        # Use uvx to run the specific uv version
         result = subprocess.run(
-            ["uv", "python", "list", python_version, "--only-downloads"], capture_output=True, text=True, timeout=10
+            [
+                "uvx",
+                "--from",
+                f"uv@{uv_version}",
+                "uv",
+                "python",
+                "list",
+                python_version,
+                "--only-downloads",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
 
         if result.returncode == 0 and result.stdout.strip():
-            return True, f"verified via uv python list"
+            return True, "verified via uv python list"
         else:
-            return False, f"Python {python_version} not available"
+            return False, f"Python {python_version} not available for uv {uv_version}"
 
     except subprocess.TimeoutExpired:
         return True, "uv command timed out, assuming compatible"
     except FileNotFoundError:
-        return True, "uv not installed, assuming compatible"
+        return True, "uvx not installed, assuming compatible"
     except Exception as e:
         return True, f"unable to verify ({type(e).__name__})"
 
