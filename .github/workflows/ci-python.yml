@@ -7,24 +7,6 @@ on:
     pull_request:
 
 jobs:
-    # Check that uv version can download the Python version in pyproject.toml
-    check-uv-python-compatibility:
-        runs-on: ubuntu-latest
-        timeout-minutes: 5
-        name: Check uv and Python version compatibility
-        steps:
-            - uses: actions/checkout@v4
-
-            - name: Set up Python
-              uses: actions/setup-python@v5
-              with:
-                  python-version: 3.12.11
-
-            - name: Check uv and Python version compatibility
-              shell: bash
-              run: |
-                  python3 bin/check_uv_python_compatibility.py
-
     # Job to decide if we should run python ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
@@ -90,6 +72,11 @@ jobs:
               with:
                   enable-cache: true
                   version: 0.8.19
+
+            - name: Check uv and Python version compatibility
+              shell: bash
+              run: |
+                  python3 bin/check_uv_python_compatibility.py
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
