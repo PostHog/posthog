@@ -295,6 +295,22 @@ class WebTrendsAdapter implements ExportAdapter {
     }
 }
 
+export function getWorldMapTableData(response: TrendsQueryResponse): string[][] {
+    if (!response.results || response.results.length === 0) {
+        return []
+    }
+
+    // World Map shows breakdown by country with aggregated values
+    const headers = ['Country', 'Visitors']
+    const dataRows = response.results.map((series) => {
+        const countryCode = series.label ?? ''
+        const visitors = (series as any).aggregated_value ?? series.count ?? 0
+        return [countryCode, String(visitors)]
+    })
+
+    return [headers, ...dataRows]
+}
+
 export function getTrendsTableData(response: TrendsQueryResponse): string[][] {
     if (!response.results || response.results.length === 0) {
         return []
@@ -331,6 +347,31 @@ export function getTrendsTableData(response: TrendsQueryResponse): string[][] {
     return [headers, ...dataRows]
 }
 
+class WorldMapAdapter implements ExportAdapter {
+    toTableData(response: TrendsQueryResponse): string[][] {
+        return getWorldMapTableData(response)
+    }
+
+    canHandle(query: QuerySchema, response: any): boolean {
+        if (query.kind !== NodeKind.InsightVizNode) {
+            return false
+        }
+        const source = (query as InsightVizNode).source
+        if (!isTrendsQuery(source)) {
+            return false
+        }
+
+        // Check if it's a World Map display
+        const isWorldMap = (source as TrendsQuery)?.trendsFilter?.display === ChartDisplayType.WorldMap
+        if (!isWorldMap) {
+            return false
+        }
+
+        const trendsResponse = response as TrendsQueryResponse
+        return trendsResponse.results && trendsResponse.results.length > 0
+    }
+}
+
 class TrendsAdapter implements ExportAdapter {
     toTableData(response: TrendsQueryResponse): string[][] {
         return getTrendsTableData(response)
@@ -351,6 +392,12 @@ class TrendsAdapter implements ExportAdapter {
             return false
         }
 
+        // Exclude world maps (handled by WorldMapAdapter)
+        const isWorldMap = (source as TrendsQuery)?.trendsFilter?.display === ChartDisplayType.WorldMap
+        if (isWorldMap) {
+            return false
+        }
+
         const trendsResponse = response as TrendsQueryResponse
         return trendsResponse.results && trendsResponse.results.length > 0
     }
@@ -358,6 +405,7 @@ class TrendsAdapter implements ExportAdapter {
 
 export const adapters: ExportAdapter[] = [
     new CalendarHeatmapAdapter(),
+    new WorldMapAdapter(),
     new WebAnalyticsTableAdapter(),
     new WebTrendsAdapter(),
     new TrendsAdapter(),

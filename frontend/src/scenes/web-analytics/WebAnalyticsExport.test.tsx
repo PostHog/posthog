@@ -15,6 +15,7 @@ import {
     getTrendsTableData,
     getWebAnalyticsTableData,
     getWebTrendsTableData,
+    getWorldMapTableData,
 } from './webAnalyticsExportUtils'
 
 describe('WebAnalyticsExport helper functions', () => {
@@ -576,6 +577,91 @@ describe('WebAnalyticsExport helper functions', () => {
             expect(result[0]).toEqual(['Date', 'Organic Search', 'Unknown', 'Organic Video', 'Direct'])
             expect(result[1]).toEqual(['2024-01-01', '335', '133', '1', '0'])
             expect(result[2]).toEqual(['2024-01-02', '348', '113', '2', '0'])
+        })
+    })
+
+    describe('getWorldMapTableData', () => {
+        it('converts world map data to table format', () => {
+            const response: TrendsQueryResponse = {
+                results: [
+                    {
+                        label: 'US',
+                        aggregated_value: 45319,
+                        data: [],
+                        days: [],
+                    } as any,
+                    {
+                        label: 'GB',
+                        aggregated_value: 12345,
+                        data: [],
+                        days: [],
+                    } as any,
+                    {
+                        label: 'CA',
+                        aggregated_value: 8765,
+                        data: [],
+                        days: [],
+                    } as any,
+                ],
+            }
+
+            const result = getWorldMapTableData(response)
+
+            expect(result).toEqual([
+                ['Country', 'Visitors'],
+                ['US', '45319'],
+                ['GB', '12345'],
+                ['CA', '8765'],
+            ])
+        })
+
+        it('handles empty results', () => {
+            const response: TrendsQueryResponse = {
+                results: [],
+            }
+
+            const result = getWorldMapTableData(response)
+
+            expect(result).toEqual([])
+        })
+
+        it('handles missing aggregated_value with fallback to count', () => {
+            const response: TrendsQueryResponse = {
+                results: [
+                    {
+                        label: 'US',
+                        count: 100,
+                        data: [],
+                        days: [],
+                    } as any,
+                ],
+            }
+
+            const result = getWorldMapTableData(response)
+
+            expect(result).toEqual([
+                ['Country', 'Visitors'],
+                ['US', '100'],
+            ])
+        })
+
+        it('handles missing label', () => {
+            const response: TrendsQueryResponse = {
+                results: [
+                    {
+                        aggregated_value: 50,
+                        data: [],
+                        days: [],
+                    } as any,
+                ],
+            }
+
+            const result = getWorldMapTableData(response)
+
+            expect(result).toEqual([
+                ['Country', 'Visitors'],
+                ['', '50'],
+            ])
         })
     })
 })
