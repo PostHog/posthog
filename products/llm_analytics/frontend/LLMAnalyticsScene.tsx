@@ -306,8 +306,6 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                         checked={evaluation.enabled}
                         onChange={() => toggleEvaluationEnabled(evaluation.id)}
                         size="small"
-                        disabled={true}
-                        disabledReason="The evaluations backend is still WIP"
                     />
                     <span className={evaluation.enabled ? 'text-success' : 'text-muted'}>
                         {evaluation.enabled ? 'Enabled' : 'Disabled'}
