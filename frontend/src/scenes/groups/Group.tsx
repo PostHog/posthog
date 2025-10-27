@@ -2,10 +2,8 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { TZLabel } from 'lib/components/TZLabel'
 import { isEventFilter } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -36,16 +34,18 @@ import {
     ActivityScope,
     FilterLogicalOperator,
     GroupsTabType,
-    Group as IGroup,
     PersonsTabType,
     PropertyDefinitionType,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
 
+import GroupFeedCanvas from 'products/customer_analytics/frontend/components/GroupFeedCanvas/GroupFeedCanvas'
+
 import { GroupOverview } from './GroupOverview'
 import { RelatedGroups } from './RelatedGroups'
 import { GroupNotebookCard } from './cards/GroupNotebookCard'
+import { GroupCaption } from './components/GroupCaption'
 
 export const scene: SceneExport<GroupLogicProps> = {
     component: Group,
@@ -54,30 +54,6 @@ export const scene: SceneExport<GroupLogicProps> = {
         groupTypeIndex: parseInt(groupTypeIndex ?? '0'),
         groupKey: decodeURIComponent(groupKey ?? ''),
     }),
-}
-
-export function GroupCaption({ groupData, groupTypeName }: { groupData: IGroup; groupTypeName: string }): JSX.Element {
-    return (
-        <div className="flex items-center flex-wrap">
-            <div className="mr-4">
-                <span className="text-secondary">Type:</span> {groupTypeName}
-            </div>
-            <div className="mr-4">
-                <span className="text-secondary">Key:</span>{' '}
-                <CopyToClipboardInline
-                    tooltipMessage={null}
-                    description="group key"
-                    style={{ display: 'inline-flex', justifyContent: 'flex-end' }}
-                >
-                    {groupData.group_key}
-                </CopyToClipboardInline>
-            </div>
-            <div>
-                <span className="text-secondary">First seen:</span>{' '}
-                {groupData.created_at ? <TZLabel time={groupData.created_at} /> : 'unknown'}
-            </div>
-        </div>
-    )
 }
 
 export function Group(): JSX.Element {
@@ -94,6 +70,7 @@ export function Group(): JSX.Element {
     }
 
     const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
+    const activeTab = groupTab ?? (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] ? 'feed' : 'overview')
 
     return (
         <SceneContent>
@@ -124,9 +101,18 @@ export function Group(): JSX.Element {
             <SceneDivider />
             <LemonTabs
                 sceneInset
-                activeKey={groupTab ?? 'overview'}
+                activeKey={activeTab}
                 onChange={(tab) => router.actions.push(urls.group(String(groupTypeIndex), groupKey, true, tab))}
                 tabs={[
+                    ...(featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS]
+                        ? [
+                              {
+                                  key: GroupsTabType.FEED,
+                                  label: <span data-attr="groups-feed-tab">Feed</span>,
+                                  content: <GroupFeedCanvas group={groupData} />,
+                              },
+                          ]
+                        : []),
                     {
                         key: GroupsTabType.OVERVIEW,
                         label: <span data-attr="groups-overview-tab">Overview</span>,
