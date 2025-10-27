@@ -67,7 +67,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, create_hogql_database
 from posthog.hogql.modifiers import create_default_modifiers_for_user
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
 
@@ -553,6 +553,17 @@ def get_query_runner(
         from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 
         return ErrorTrackingQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "DocumentSimilarityQuery":
+        from .document_embeddings_query_runner import DocumentEmbeddingsQueryRunner
+
+        return DocumentEmbeddingsQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -1206,7 +1217,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def to_hogql(self, **kwargs) -> str:
         with self.timings.measure("to_hogql"):
-            return print_ast(
+            return prepare_and_print_ast(
                 self.to_query(),
                 HogQLContext(
                     team_id=self.team.pk,
@@ -1216,7 +1227,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 ),
                 "hogql",
                 **kwargs,
-            )
+            )[0]
 
     def get_cache_payload(self) -> dict:
         # remove the tags key, these are used in the query log comment but shouldn't break caching

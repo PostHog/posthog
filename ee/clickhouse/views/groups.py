@@ -23,21 +23,22 @@ from posthog.api.utils import action
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
-from posthog.models import GroupUsageMetric, Notebook
+from posthog.models import GroupUsageMetric
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group import Group
 from posthog.models.group.util import create_group, raw_create_group_ch
 from posthog.models.group_type_mapping import GROUP_TYPE_MAPPING_SERIALIZER_FIELDS, GroupTypeMapping
-from posthog.models.notebook import ResourceNotebook
-from posthog.models.notebook.util import (
+from posthog.models.user import User
+
+from products.notebooks.backend.models import Notebook, ResourceNotebook
+from products.notebooks.backend.util import (
     create_bullet_list,
     create_empty_paragraph,
     create_heading_with_text,
     create_text_content,
 )
-from posthog.models.user import User
 
 from ee.clickhouse.queries.related_actors_query import RelatedActorsQuery
 from ee.clickhouse.views.exceptions import TriggerGroupIdentifyException
@@ -94,7 +95,7 @@ class GroupsTypesViewSet(
             )
 
         dashboard = create_group_type_mapping_detail_dashboard(group_type_mapping, request.user)
-        group_type_mapping.detail_dashboard = dashboard
+        group_type_mapping.detail_dashboard_id = dashboard.id
         group_type_mapping.save()
         return response.Response(self.get_serializer(group_type_mapping).data)
 

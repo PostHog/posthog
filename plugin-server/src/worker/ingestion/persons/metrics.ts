@@ -183,3 +183,15 @@ export function observeLatencyByVersion(person: InternalPerson | undefined, star
     const versionBucket = getVersionBucketLabel(person.version)
     personOperationLatencyByVersionSummary.labels(operation, versionBucket).observe(performance.now() - start)
 }
+
+export const personProfileUpdateOutcomeCounter = new Counter({
+    name: 'person_profile_update_outcome_total',
+    help: 'Outcome of person profile update operations',
+    labelNames: ['outcome'], // outcome: changed, ignored, no_change, unsupported
+})
+
+export const personProfileIgnoredPropertiesCounter = new Counter({
+    name: 'person_profile_ignored_properties_total',
+    help: 'Count of specific properties that were ignored during person profile updates',
+    labelNames: ['property'],
+})

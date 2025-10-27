@@ -23,13 +23,19 @@ def build(handle: SourceHandle) -> BuiltQuery:
     product_schema = next((schema for schema in schemas if schema.name == STRIPE_PRODUCT_RESOURCE_NAME), None)
     if product_schema is None:
         return BuiltQuery(
-            key=f"{prefix}.no_source", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
+            key=str(source.id),  # Using source rather than table because table hasn't been found yet
+            prefix=prefix,
+            query=ast.SelectQuery.empty(columns=SCHEMA.fields),
+            test_comments="no_schema",
         )
 
     product_schema = cast(ExternalDataSchema, product_schema)
     if product_schema.table is None:
         return BuiltQuery(
-            key=f"{prefix}.no_table", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
+            key=str(source.id),  # Using source rather than table because table hasn't been found
+            prefix=prefix,
+            query=ast.SelectQuery.empty(columns=SCHEMA.fields),
+            test_comments="no_table",
         )
 
     table = cast(DataWarehouseTable, product_schema.table)

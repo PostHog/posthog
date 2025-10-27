@@ -1,10 +1,12 @@
-import { actions, afterMount, connect, kea, key, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { ChartDataset as ChartJsDataset } from 'lib/Chart'
 import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { hexToRGBA } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import {
     ExperimentMetric,
@@ -13,7 +15,7 @@ import {
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
 } from '~/queries/schema/schema-general'
-import { Experiment } from '~/types'
+import { Experiment, ExperimentIdType } from '~/types'
 
 import { COLORS } from './MetricsView/shared/colors'
 import { getVariantInterval } from './MetricsView/shared/utils'
@@ -58,13 +60,15 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
     path((key) => ['scenes', 'experiments', 'experimentTimeseriesLogic', key]),
     connect(() => ({
         values: [experimentLogic, ['experiment']],
+        actions: [eventUsageLogic, ['reportExperimentTimeseriesRecalculated']],
     })),
 
     actions(() => ({
         clearTimeseries: true,
+        recalculateTimeseries: ({ metric }: { metric: ExperimentMetric }) => ({ metric }),
     })),
 
-    loaders(({ props }) => ({
+    loaders(({ actions, props }) => ({
         timeseries: [
             null as ExperimentMetricTimeseries | null,
             {
@@ -82,11 +86,51 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                     return response
                 },
                 clearTimeseries: () => null,
+                recalculateTimeseries: async ({ metric }: { metric: ExperimentMetric }) => {
+                    if (!metric.fingerprint) {
+                        throw new Error('Metric fingerprint is required')
+                    }
+
+                    try {
+                        const response = await api.createResponse(
+                            `api/projects/@current/experiments/${props.experimentId}/recalculate_timeseries/`,
+                            {
+                                metric: metric,
+                                fingerprint: metric.fingerprint,
+                            }
+                        )
+
+                        if (response.ok) {
+                            if (response.status === 201) {
+                                lemonToast.success('Recalculation started successfully')
+                                actions.reportExperimentTimeseriesRecalculated(
+                                    props.experimentId as ExperimentIdType,
+                                    metric
+                                )
+                            } else if (response.status === 200) {
+                                lemonToast.info('Recalculation already in progress')
+                            }
+                        }
+                    } catch (error) {
+                        lemonToast.error('Failed to start recalculation')
+                        throw error
+                    }
+
+                    return null
+                },
             },
         ],
     })),
 
     selectors({
+        isRecalculating: [
+            (s) => [s.timeseries],
+            (timeseries: ExperimentMetricTimeseries | null): boolean => {
+                return (
+                    timeseries?.recalculation_status === 'pending' || timeseries?.recalculation_status === 'in_progress'
+                )
+            },
+        ],
         // Extract and process timeseries data for a specific variant
         processedVariantData: [
             (s) => [s.timeseries],
@@ -345,6 +389,15 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
             },
         ],
     }),
+
+    listeners(({ actions }) => ({
+        recalculateTimeseriesSuccess: ({ payload }) => {
+            const metric = payload?.metric
+            if (metric) {
+                actions.loadTimeseries({ metric })
+            }
+        },
+    })),
 
     afterMount(({ props, actions }) => {
         if (props.metric && props.metric.uuid && props.metric.fingerprint) {

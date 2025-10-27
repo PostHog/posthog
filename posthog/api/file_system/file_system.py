@@ -10,10 +10,14 @@ from rest_framework import filters, pagination, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.file_system.file_system import FileSystem, join_path, split_path
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.file_system.file_system_view_log import annotate_file_system_with_view_logs
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -22,6 +26,8 @@ HOG_FUNCTION_TYPES = ["broadcast", "campaign", "destination", "site_app", "sourc
 
 
 class FileSystemSerializer(serializers.ModelSerializer):
+    last_viewed_at = serializers.DateTimeField(read_only=True, allow_null=True)
+
     class Meta:
         model = FileSystem
         fields = [
@@ -34,12 +40,14 @@ class FileSystemSerializer(serializers.ModelSerializer):
             "meta",
             "shortcut",
             "created_at",
+            "last_viewed_at",
         ]
         read_only_fields = [
             "id",
             "depth",
             "created_at",
             "team_id",
+            "last_viewed_at",
         ]
 
     def update(self, instance: FileSystem, validated_data: dict[str, Any]) -> FileSystem:
@@ -87,6 +95,12 @@ class FileSystemsLimitOffsetPagination(pagination.LimitOffsetPagination):
 
 class UnfiledFilesQuerySerializer(serializers.Serializer):
     type = serializers.CharField(required=False, allow_blank=True)
+
+
+class FileSystemViewLogSerializer(serializers.Serializer):
+    type = serializers.CharField()
+    ref = serializers.CharField()
+    viewed_at = serializers.DateTimeField(required=False)
 
 
 class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -274,6 +288,22 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         elif order_by_param:
             if order_by_param in ["path", "-path", "created_at", "-created_at"]:
                 queryset = queryset.order_by(order_by_param)
+            elif order_by_param == "-last_viewed_at" and self.request.user.is_authenticated:
+                queryset = annotate_file_system_with_view_logs(
+                    team_id=self.team.id,
+                    user_id=self.request.user.id,
+                    queryset=queryset,
+                )
+                queryset = queryset.order_by(F("last_viewed_at").desc(nulls_last=True), "-created_at")
+            elif order_by_param == "last_viewed_at" and self.request.user.is_authenticated:
+                queryset = annotate_file_system_with_view_logs(
+                    team_id=self.team.id,
+                    user_id=self.request.user.id,
+                    queryset=queryset,
+                )
+                queryset = queryset.order_by(F("last_viewed_at").asc(nulls_first=True), "created_at")
+            else:
+                queryset = queryset.order_by("-created_at")
         elif self.action == "list":
             if depth_param is not None:
                 queryset = queryset.order_by(
@@ -467,6 +497,36 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
 
         return Response({"count": qs.count()}, status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=False, url_path="log_view")
+    def log_view(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if is_impersonated_session(request):
+            return Response(
+                {"detail": "Impersonated sessions cannot log file system views."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = FileSystemViewLogSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        data = serializer.validated_data
+        representation = FileSystemRepresentation(
+            base_folder="",
+            type=data["type"],
+            ref=data["ref"],
+            name="",
+            href="",
+            meta={},
+        )
+
+        log_api_file_system_view(
+            request,
+            representation,
+            team_id=self.team.id,
+            viewed_at=data.get("viewed_at"),
+        )
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(methods=["POST"], detail=False)
     def count_by_path(self, request: Request, *args: Any, **kwargs: Any) -> Response:

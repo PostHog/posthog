@@ -12,6 +12,8 @@ export const manifest: ProductManifest = {
             projectBased: true,
             defaultDocsPath: '/docs/tasks',
             activityScope: 'TaskTracker',
+            description: 'Tasks are a way to track your work and get things done.',
+            iconType: 'task',
         },
         TaskDetail: {
             name: 'Task Detail',
@@ -50,6 +52,7 @@ export const manifest: ProductManifest = {
             iconType: 'task',
             tags: ['alpha'],
             iconColor: ['var(--product-tasks-light)', 'var(--product-tasks-dark)'] as FileSystemIconColor,
+            sceneKey: 'TaskTracker',
         },
     ],
 }
