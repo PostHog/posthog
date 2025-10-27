@@ -417,6 +417,10 @@ utilities:
         bin_script: install-hogli-completion
         description: Install shell completion for hogli (bash/zsh)
         hidden: true
+    utilities:check-uv-python-compat:
+        bin_script: check_uv_python_compatibility.py
+        description: CI validation for uv/Python version compatibility
+        hidden: true
 compositions:
     dev:reset:
         steps:
