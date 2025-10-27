@@ -1260,7 +1260,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                         type="ai",
                     ),
                 ),
-                ("update", AssistantUpdateEvent(id="message_1", tool_call_id="1", content="Searching for information")),
                 (
                     "update",
                     AssistantUpdateEvent(id="message_2", tool_call_id="1", content="Checking PostHog documentation..."),
@@ -1644,16 +1643,11 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("message", HumanMessage(content="Hello")),
             (
                 "message",
-                AssistantMessage(
-                    content="",
-                    tool_calls=[
-                        AssistantToolCall(
-                            id="xyz",
-                            name="edit_current_insight",
-                            args={"query_description": "Foobar", "query_kind": "trends"},
-                        )
-                    ],
-                ),
+                {
+                    "tool_call_id": "xyz",
+                    "type": "tool",
+                    "ui_payload": {"edit_current_insight": query.model_dump(exclude_none=True)},
+                },  # Don't check content as it's implementation detail
             ),
             ("update", AssistantUpdateEvent(id="message_1", tool_call_id="xyz", content="Editing your insight")),
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),

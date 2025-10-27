@@ -200,7 +200,6 @@ class TaskResult(BaseModel):
     """
 
     id: str
-    description: str
     result: str
     artifacts: Sequence[TaskArtifact] = Field(default=[])
     status: TaskExecutionStatus
