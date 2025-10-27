@@ -98,6 +98,11 @@ echo -e "    \033[1;33m📦 Setting up Python environment...\033[0m"
 uv sync --quiet
 echo -e "    \033[32m✅ Python environment ready\033[0m"
 
+# Expose hogli CLI on PATH via the uv-managed virtualenv
+if [ -d "$UV_PROJECT_ENVIRONMENT/bin" ]; then
+  ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
+fi
+
 # Install shell completions for hogli in flox environment cache
 # Must run after uv sync so hogli.completion module is available
 HOGLI_COMPLETION_DIR="$FLOX_ENV_CACHE/completions"
