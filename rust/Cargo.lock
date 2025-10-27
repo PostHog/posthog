@@ -1528,6 +1528,7 @@ dependencies = [
  "lz-str",
  "metrics",
  "metrics-exporter-prometheus",
+ "multer",
  "once_cell",
  "opentelemetry 0.22.0",
  "opentelemetry-otlp",
@@ -2833,11 +2834,13 @@ dependencies = [
  "dateparser",
  "envconfig",
  "futures",
+ "governor 0.5.1",
  "health",
  "hex",
  "json5",
  "limiters",
  "md5",
+ "metrics",
  "moka",
  "once_cell",
  "opentelemetry 0.22.0",
@@ -2865,6 +2868,7 @@ dependencies = [
  "tokio-retry",
  "tower 0.4.13",
  "tower-http",
+ "tower_governor",
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
@@ -3260,6 +3264,26 @@ dependencies = [
  "quanta 0.9.3",
  "rand 0.8.5",
  "smallvec",
+]
+
+[[package]]
+name = "governor"
+version = "0.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68a7f542ee6b35af73b06abc0dad1c1bae89964e4e253bc4b587b91c9637867b"
+dependencies = [
+ "cfg-if",
+ "dashmap 5.5.3",
+ "futures",
+ "futures-timer",
+ "no-std-compat",
+ "nonzero_ext",
+ "parking_lot",
+ "portable-atomic",
+ "quanta 0.12.2",
+ "rand 0.8.5",
+ "smallvec",
+ "spinning_top",
 ]
 
 [[package]]
@@ -4290,6 +4314,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serve-metrics",
+ "sha2",
  "strum 0.27.2",
  "strum_macros 0.27.2",
  "tempfile",
@@ -4485,7 +4510,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "common-redis",
- "governor",
+ "governor 0.5.1",
  "metrics",
  "rand 0.8.5",
  "strum 0.26.3",
@@ -4550,6 +4575,7 @@ dependencies = [
  "apache-avro",
  "axum 0.7.5",
  "base64 0.22.1",
+ "bytes",
  "capture",
  "chrono",
  "clickhouse",
@@ -4560,6 +4586,7 @@ dependencies = [
  "jsonwebtoken",
  "metrics",
  "opentelemetry-proto 0.29.0",
+ "prost 0.13.5",
  "rdkafka",
  "serde",
  "serde_derive",
@@ -4568,8 +4595,6 @@ dependencies = [
  "thiserror 2.0.16",
  "tokio",
  "tonic 0.12.3",
- "tonic-web",
- "tower 0.4.13",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -4846,6 +4871,23 @@ dependencies = [
  "tagptr",
  "thiserror 1.0.69",
  "uuid",
+]
+
+[[package]]
+name = "multer"
+version = "3.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "83e87776546dc87511aa5ee218730c92b666d7264ab6ed41f9d215af9cd5224b"
+dependencies = [
+ "bytes",
+ "encoding_rs",
+ "futures-util",
+ "http 1.1.0",
+ "httparse",
+ "memchr",
+ "mime",
+ "spin 0.9.8",
+ "version_check",
 ]
 
 [[package]]
@@ -6404,6 +6446,7 @@ dependencies = [
  "js-sys",
  "log",
  "mime",
+ "mime_guess",
  "native-tls",
  "once_cell",
  "percent-encoding",
@@ -7076,9 +7119,9 @@ checksum = "ae1a47186c03a32177042e55dbc5fd5aee900b8e0069a8d70fba96a9375cd012"
 
 [[package]]
 name = "sha2"
-version = "0.10.8"
+version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "793db75ad2bcafc3ffa7c68b215fee268f537982cd901d132f89c6343f3a3dc8"
+checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
 dependencies = [
  "cfg-if",
  "cpufeatures",
@@ -7302,6 +7345,15 @@ name = "spin"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d5fe4ccb98d9c292d56fec89a5e07da7fc4cf0dc11e156b41793132775d3e591"
+dependencies = [
+ "lock_api",
+]
+
+[[package]]
+name = "spinning_top"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d96d2d1d716fb500937168cc09353ffdc7a012be8475ac7308e1bdf0e3923300"
 dependencies = [
  "lock_api",
 ]
@@ -8414,26 +8466,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tonic-web"
-version = "0.12.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5299dd20801ad736dccb4a5ea0da7376e59cd98f213bf1c3d478cf53f4834b58"
-dependencies = [
- "base64 0.22.1",
- "bytes",
- "http 1.1.0",
- "http-body 1.0.0",
- "http-body-util",
- "pin-project",
- "tokio-stream",
- "tonic 0.12.3",
- "tower-http",
- "tower-layer",
- "tower-service",
- "tracing",
-]
-
-[[package]]
 name = "tower"
 version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8496,6 +8528,22 @@ name = "tower-service"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3"
+
+[[package]]
+name = "tower_governor"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aea939ea6cfa7c4880f3e7422616624f97a567c16df67b53b11f0d03917a8e46"
+dependencies = [
+ "axum 0.7.5",
+ "forwarded-header-value",
+ "governor 0.6.3",
+ "http 1.1.0",
+ "pin-project",
+ "thiserror 1.0.69",
+ "tower 0.5.2",
+ "tracing",
+]
 
 [[package]]
 name = "tracing"

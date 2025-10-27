@@ -42,7 +42,6 @@ class DatabaseSyncToAsync(SyncToAsync):
                 execution_time = time() - start_time
                 fun_name = getattr(self.func, "__name__", "unknown")
                 DATABASE_SYNC_TO_ASYNC_TIME.labels(function_name=fun_name).observe(execution_time)
-                logger.debug(f"database_sync_to_async {fun_name} took {execution_time} seconds")
 
     def thread_handler(self, loop, *args, **kwargs):
         # Don't close the connection in tests

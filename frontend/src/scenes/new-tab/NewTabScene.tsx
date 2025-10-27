@@ -1,345 +1,281 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
 
-import { IconEllipsis, IconFeatures, IconSearch } from '@posthog/icons'
-import { Spinner } from '@posthog/lemon-ui'
+import { IconInfo, IconSearch } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
 import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
-import { Link } from 'lib/lemon-ui/Link'
-import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger } from 'lib/ui/ContextMenu/ContextMenu'
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuGroup,
-    DropdownMenuTrigger,
-} from 'lib/ui/DropdownMenu/DropdownMenu'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { cn } from 'lib/utils/css-classes'
-import { NEW_TAB_CATEGORY_ITEMS, NewTabTreeDataItem, newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
+import {
+    NEW_TAB_CATEGORY_ITEMS,
+    NEW_TAB_COMMANDS,
+    NEW_TAB_COMMANDS_ITEMS,
+    newTabSceneLogic,
+} from 'scenes/new-tab/newTabSceneLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
-import { SidePanelTab } from '~/types'
+
+import { Results } from './components/Results'
+import { SearchHints } from './components/SearchHints'
+import { SearchInput, SearchInputCommand, SearchInputHandle } from './components/SearchInput'
 
 export const scene: SceneExport = {
     component: NewTabScene,
     logic: newTabSceneLogic,
 }
 
-const getCategoryDisplayName = (category: string): string => {
-    const displayNames: Record<string, string> = {
-        'create-new': 'Create new',
-        apps: 'Apps',
-        'data-management': 'Data management',
-        recents: 'Recents',
-    }
-    return displayNames[category] || category
-}
-
-// Helper function to convert NewTabTreeDataItem to TreeDataItem for menu usage
-function convertToTreeDataItem(item: NewTabTreeDataItem): TreeDataItem {
-    return {
-        ...item,
-        record: {
-            ...item.record,
-            href: item.href,
-            path: item.name, // Use name as path for menu compatibility
-        },
-    }
-}
-
 export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homepage' } = {}): JSX.Element {
-    const inputRef = useRef<HTMLInputElement>(null)
+    const commandInputRef = useRef<SearchInputHandle>(null)
     const listboxRef = useRef<ListBoxHandle>(null)
-    const { filteredItemsGrid, groupedFilteredItems, search, selectedItem, categories, selectedCategory, isSearching } =
-        useValues(newTabSceneLogic({ tabId }))
+    const inputRef = useRef<HTMLInputElement>(null)
+    const { filteredItemsGrid, search, categories, selectedCategory, newTabSceneDataInclude, isSearching } = useValues(
+        newTabSceneLogic({ tabId })
+    )
     const { mobileLayout } = useValues(navigationLogic)
-    const { setSearch, setSelectedCategory } = useActions(newTabSceneLogic({ tabId }))
-    const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { setSearch, setSelectedCategory, toggleNewTabSceneDataInclude, refreshDataAfterToggle } = useActions(
+        newTabSceneLogic({ tabId })
+    )
     const { showSceneDashboardChoiceModal } = useActions(
         sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
     )
+    const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
 
-    // scroll it to view
-    useEffect(() => {
-        if (selectedItem) {
-            const element = document.querySelector('.selected-new-tab-item')
-            element?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' })
-        }
-    }, [selectedItem])
+    const focusSearchInput = (): void => {
+        commandInputRef.current?.focus()
+    }
+
+    const handleAskAi = (question?: string): void => {
+        const nextQuestion = (question ?? search).trim()
+        router.actions.push(urls.max(undefined, nextQuestion))
+    }
+
+    // The active commands are just the items in newTabSceneDataInclude
+    const activeCommands: NEW_TAB_COMMANDS[] = newTabSceneDataInclude
+
+    // Convert active commands to selected commands for the SearchInput
+    // Filter out 'all' since that represents the default state (no specific filters)
+    const selectedCommands: SearchInputCommand<NEW_TAB_COMMANDS>[] = activeCommands
+        .filter((commandValue) => commandValue !== 'all')
+        .map((commandValue) => {
+            const commandInfo = NEW_TAB_COMMANDS_ITEMS.find((cmd) => cmd.value === commandValue)
+            return commandInfo || { value: commandValue, displayName: commandValue }
+        })
+
     return (
-        <ListBox
-            ref={listboxRef}
-            className="w-full grid grid-rows-[auto_1fr] flex-col h-[calc(100vh-var(--scene-layout-header-height))]"
-            virtualFocus
-            autoSelectFirst
-        >
-            <div className="flex flex-col gap-4">
-                <div className="px-1 @lg/main-content:px-8 pt-2 @lg/main-content:pt-8 mx-auto w-full max-w-[1200px] ">
-                    <ListBox.Item asChild virtualFocusIgnore>
-                        <LemonInput
-                            inputRef={inputRef}
-                            value={search}
-                            onChange={(value) => setSearch(value)}
-                            prefix={<IconSearch />}
-                            className="w-full"
-                            placeholder="Search..."
-                            autoFocus
-                            allowClear
-                        />
-                    </ListBox.Item>
-                    <div className="mx-1.5">
-                        <div className="flex justify-between items-center relative text-xs font-medium overflow-hidden py-1 px-1.5 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]">
-                            <span>
-                                <span className="text-tertiary">Try:</span>
-                                <ListBox.Item asChild>
-                                    <ButtonPrimitive
-                                        size="xxs"
-                                        className="text-xs"
-                                        onClick={() => setSearch('New SQL query')}
-                                    >
-                                        New SQL query
-                                    </ButtonPrimitive>
-                                </ListBox.Item>
-                                <span className="text-tertiary">or</span>
-                                <ListBox.Item asChild>
-                                    <ButtonPrimitive
-                                        size="xxs"
-                                        className="text-xs"
-                                        onClick={() => setSearch('Experiment')}
-                                    >
-                                        Experiment
-                                    </ButtonPrimitive>
-                                </ListBox.Item>
-                            </span>
-                            <span className="text-primary flex gap-1 items-center">
-                                {/* if the filtered results length is 0, this will be the first to focus */}
-                                <ListBox.Item asChild focusFirst={filteredItemsGrid.length === 0}>
-                                    <ButtonPrimitive
-                                        size="xxs"
-                                        onClick={() => router.actions.push(urls.max(undefined, search))}
-                                        className="text-xs"
-                                        tooltip="Hit enter to open Max!"
-                                    >
-                                        Ask Max!
-                                        <IconFeatures />
-                                    </ButtonPrimitive>
-                                </ListBox.Item>
-                            </span>
-                        </div>
-                    </div>
-                </div>
-                <TabsPrimitive
-                    value={selectedCategory}
-                    onValueChange={(value) => setSelectedCategory(value as NEW_TAB_CATEGORY_ITEMS)}
-                >
-                    <TabsPrimitiveList className="border-b">
-                        <div className="max-w-[1200px] mx-auto w-full px-1 @lg/main-content:px-8 flex">
-                            {categories.map((category) => (
-                                <TabsPrimitiveTrigger
-                                    value={category.key}
-                                    className="px-2 py-1 cursor-pointer"
-                                    key={category.key}
-                                    onClick={() => {
-                                        if (!mobileLayout) {
-                                            // If not mobile, we want to re-focus the input if we trigger the tabs (which filter)
-                                            inputRef.current?.focus()
-                                            // Reset listbox focus on first item
-                                            listboxRef.current?.focusFirstItem()
-                                        }
-                                    }}
-                                >
-                                    {category.label}
-                                </TabsPrimitiveTrigger>
-                            ))}
-                            {source === 'homepage' ? (
-                                <>
-                                    <LemonButton
-                                        type="tertiary"
-                                        size="small"
-                                        data-attr="project-home-customize-homepage"
-                                        className="ml-auto"
-                                        onClick={showSceneDashboardChoiceModal}
-                                    >
-                                        Customize homepage
-                                    </LemonButton>
-                                    <SceneDashboardChoiceModal scene={Scene.ProjectHomepage} />
-                                </>
-                            ) : null}
-                        </div>
-                    </TabsPrimitiveList>
-                </TabsPrimitive>
-            </div>
-
-            <ScrollableShadows
-                direction="vertical"
-                className="flex flex-col gap-4 overflow-auto h-full"
-                innerClassName="pt-6"
-                styledScrollbars
+        <>
+            <ListBox
+                ref={listboxRef}
+                className="w-full grid grid-rows-[auto_1fr] flex-col h-[calc(100vh-var(--scene-layout-header-height))]"
+                virtualFocus
+                autoSelectFirst
             >
-                <div className="flex flex-col flex-1 max-w-[1200px] mx-auto w-full gap-4 px-3 @lg/main-content:px-8">
-                    {filteredItemsGrid.length === 0 ? (
-                        <div className="flex flex-col gap-4">
-                            {selectedCategory === 'recents' ? (
-                                <div className="flex flex-col gap-2 text-center py-8">
-                                    <h3 className="text-lg font-medium text-muted">Search for project items</h3>
-                                    <p className="text-muted">
-                                        Try searching for cohorts, actions, experiments, dashboards, and more...
-                                    </p>
+                <div className="sr-only">
+                    <p>
+                        Welcome to the new tab, type / to see commands... or type a search term, you can navigate all
+                        interactive elements with the keyboard
+                    </p>
+                </div>
+                <div className="flex flex-col gap-2">
+                    <div className="px-2 @lg/main-content:px-8 pt-2 @lg/main-content:pt-8 mx-auto w-full max-w-[1200px] ">
+                        {!newTabSceneData ? (
+                            <LemonInput
+                                inputRef={inputRef}
+                                value={search}
+                                onChange={(value) => setSearch(value)}
+                                prefix={<IconSearch />}
+                                className="w-full"
+                                placeholder="Search..."
+                                autoFocus
+                                allowClear
+                                aria-controls="combobox-listbox"
+                                aria-label="Search for a person, event, property, or app, you can navigate all interactive elements with the keyboard"
+                            />
+                        ) : (
+                            <SearchInput
+                                ref={commandInputRef}
+                                commands={NEW_TAB_COMMANDS_ITEMS}
+                                value={search}
+                                onChange={(value) => {
+                                    // Only prevent setting search if the entire value is just "/" (command mode)
+                                    // Allow "/" characters in other positions for normal search
+                                    if (value !== '/') {
+                                        setSearch(value)
+                                    }
+                                }}
+                                placeholder="Search or ask an AI question"
+                                activeCommands={activeCommands}
+                                selectedCommands={selectedCommands}
+                                onCommandSelect={(command) => {
+                                    if (command.value === 'all') {
+                                        // Check if "all" is currently selected
+                                        if (newTabSceneDataInclude.includes('all')) {
+                                            // If "all" is on, turn off everything (clear all filters)
+                                            newTabSceneDataInclude.forEach((selectedCommand) => {
+                                                toggleNewTabSceneDataInclude(selectedCommand)
+                                            })
+                                        } else {
+                                            // If "all" is off, turn it on (which will show all filters)
+                                            toggleNewTabSceneDataInclude('all')
+                                        }
+                                    } else {
+                                        toggleNewTabSceneDataInclude(command.value as NEW_TAB_COMMANDS)
+                                    }
+                                    // Refresh data after toggle
+                                    refreshDataAfterToggle()
+                                }}
+                                onClearAll={() => {
+                                    // Clear all filters by removing all items from newTabSceneDataInclude
+                                    newTabSceneDataInclude.forEach((command) => {
+                                        toggleNewTabSceneDataInclude(command)
+                                    })
+                                    refreshDataAfterToggle()
+                                }}
+                            />
+                        )}
+
+                        {!newTabSceneData && (
+                            <div className="mx-1.5">
+                                <SearchHints
+                                    filteredItemsGridLength={filteredItemsGrid.length}
+                                    focusSearchInput={focusSearchInput}
+                                    tabId={tabId || ''}
+                                    handleAskAi={handleAskAi}
+                                />
+                            </div>
+                        )}
+                    </div>
+                    {!newTabSceneData ? (
+                        <TabsPrimitive
+                            value={selectedCategory}
+                            onValueChange={(value) => setSelectedCategory(value as NEW_TAB_CATEGORY_ITEMS)}
+                        >
+                            <TabsPrimitiveList className="border-b">
+                                <div className="max-w-[1200px] mx-auto w-full px-1 @lg/main-content:px-8 flex">
+                                    {categories.map((category) => (
+                                        <TabsPrimitiveTrigger
+                                            value={category.key}
+                                            className="px-2 py-1 cursor-pointer"
+                                            key={category.key}
+                                            onClick={() => {
+                                                if (!mobileLayout) {
+                                                    // If not mobile, we want to re-focus the input if we trigger the tabs (which filter)
+                                                    focusSearchInput()
+                                                    // Reset listbox focus on first item
+                                                    listboxRef.current?.focusFirstItem()
+                                                }
+                                            }}
+                                        >
+                                            {category.label}
+                                        </TabsPrimitiveTrigger>
+                                    ))}
+                                    {source === 'homepage' ? (
+                                        <>
+                                            <LemonButton
+                                                type="tertiary"
+                                                size="small"
+                                                data-attr="project-home-customize-homepage"
+                                                className="ml-auto"
+                                                onClick={showSceneDashboardChoiceModal}
+                                            >
+                                                Customize homepage
+                                            </LemonButton>
+                                            <SceneDashboardChoiceModal scene={Scene.ProjectHomepage} />
+                                        </>
+                                    ) : null}
                                 </div>
-                            ) : (
-                                <div className="flex gap-1 items-center">
-                                    No results found,{' '}
-                                    <ListBox.Item asChild className="list-none">
-                                        <ButtonPrimitive size="sm" onClick={() => setSearch('')}>
-                                            Clear search
-                                        </ButtonPrimitive>{' '}
-                                    </ListBox.Item>
-                                    or{' '}
-                                    <ListBox.Item asChild>
-                                        <ButtonPrimitive size="sm" onClick={() => openSidePanel(SidePanelTab.Max)}>
-                                            Ask Max!
-                                        </ButtonPrimitive>
-                                    </ListBox.Item>
-                                </div>
-                            )}
-                        </div>
+                            </TabsPrimitiveList>
+                        </TabsPrimitive>
                     ) : (
-                        <div className="grid grid-cols-1 @md/main-content:grid-cols-2 @xl/main-content:grid-cols-3 @2xl/main-content:grid-cols-4 gap-4 group/colorful-product-icons colorful-product-icons-true">
-                            {Object.entries(groupedFilteredItems).map(([category, items], columnIndex) => {
-                                const typedItems = items as NewTabTreeDataItem[]
-                                const isFirstCategory = columnIndex === 0
-                                return (
-                                    <div
-                                        className={cn('mb-8', {
-                                            'col-span-4': selectedCategory !== 'all',
-                                        })}
-                                        key={category}
-                                    >
-                                        <div className="mb-4">
-                                            <div className="flex items-center gap-2">
-                                                <h3 className="mb-0 text-lg font-medium text-muted">
-                                                    {search ? (
-                                                        <SearchHighlightMultiple
-                                                            string={getCategoryDisplayName(category)}
-                                                            substring={search}
-                                                        />
-                                                    ) : (
-                                                        getCategoryDisplayName(category)
-                                                    )}
-                                                </h3>
-                                                {category === 'recents' && isSearching && <Spinner size="small" />}
-                                            </div>
-                                        </div>
-                                        <div className="flex flex-col gap-2">
-                                            {category === 'recents' && typedItems.length === 0 ? (
-                                                // Special handling for empty project items
-                                                <div className="flex flex-col gap-2 text-tertiary text-balance">
-                                                    {isSearching ? 'Searching...' : 'No results found'}
-                                                </div>
-                                            ) : (
-                                                typedItems.map((item, index) => (
-                                                    // If we have filtered results set virtual focus to first item
-                                                    <ButtonGroupPrimitive className="group w-full border-0">
-                                                        <ContextMenu>
-                                                            <ContextMenuTrigger asChild>
-                                                                <ListBox.Item
-                                                                    key={item.id}
-                                                                    asChild
-                                                                    focusFirst={
-                                                                        filteredItemsGrid.length > 0 &&
-                                                                        isFirstCategory &&
-                                                                        index === 0
-                                                                    }
-                                                                    row={index}
-                                                                    column={columnIndex}
-                                                                >
-                                                                    <Link
-                                                                        to={item.href || '#'}
-                                                                        className="w-full"
-                                                                        buttonProps={{
-                                                                            size: 'base',
-                                                                            hasSideActionRight: true,
-                                                                        }}
-                                                                    >
-                                                                        <span className="text-sm">
-                                                                            {item.icon ?? item.name[0]}
-                                                                        </span>
-                                                                        <span className="text-sm truncate text-primary">
-                                                                            {search ? (
-                                                                                <SearchHighlightMultiple
-                                                                                    string={item.name}
-                                                                                    substring={search}
-                                                                                />
-                                                                            ) : (
-                                                                                item.name
-                                                                            )}
-                                                                        </span>
-                                                                    </Link>
-                                                                </ListBox.Item>
-                                                            </ContextMenuTrigger>
-                                                            <ContextMenuContent loop className="max-w-[250px]">
-                                                                <ContextMenuGroup>
-                                                                    <MenuItems
-                                                                        item={convertToTreeDataItem(item)}
-                                                                        type="context"
-                                                                        root="project://"
-                                                                        onlyTree={false}
-                                                                        showSelectMenuOption={false}
-                                                                    />
-                                                                </ContextMenuGroup>
-                                                            </ContextMenuContent>
-                                                        </ContextMenu>
-                                                        <DropdownMenu>
-                                                            <DropdownMenuTrigger asChild>
-                                                                <ButtonPrimitive
-                                                                    size="xs"
-                                                                    iconOnly
-                                                                    isSideActionRight
-                                                                    className="opacity-0 group-hover:opacity-100 group-has-[button[data-state=open]]:opacity-100 mt-px"
-                                                                >
-                                                                    <IconEllipsis className="size-3" />
-                                                                </ButtonPrimitive>
-                                                            </DropdownMenuTrigger>
-                                                            <DropdownMenuContent
-                                                                loop
-                                                                align="end"
-                                                                side="bottom"
-                                                                className="max-w-[250px]"
-                                                            >
-                                                                <DropdownMenuGroup>
-                                                                    <MenuItems
-                                                                        item={convertToTreeDataItem(item)}
-                                                                        type="dropdown"
-                                                                        root="project://"
-                                                                        onlyTree={false}
-                                                                        showSelectMenuOption={false}
-                                                                    />
-                                                                </DropdownMenuGroup>
-                                                            </DropdownMenuContent>
-                                                        </DropdownMenu>
-                                                    </ButtonGroupPrimitive>
-                                                ))
-                                            )}
-                                        </div>
-                                    </div>
-                                )
-                            })}
+                        <div className="border-b">
+                            <div className="max-w-[1200px] mx-auto w-full px-2 @lg/main-content:px-10 pb-2">
+                                <div className="flex items-center gap-x-2 gap-y-2 flex-wrap">
+                                    {source === 'homepage' ? (
+                                        <>
+                                            <ButtonPrimitive
+                                                size="xxs"
+                                                data-attr="project-home-customize-homepage"
+                                                className="ml-auto text-xs"
+                                                onClick={showSceneDashboardChoiceModal}
+                                            >
+                                                Customize homepage
+                                            </ButtonPrimitive>
+                                            <SceneDashboardChoiceModal scene={Scene.ProjectHomepage} />
+                                        </>
+                                    ) : null}
+                                </div>
+                            </div>
                         </div>
                     )}
                 </div>
-            </ScrollableShadows>
-        </ListBox>
+
+                <ScrollableShadows
+                    direction="vertical"
+                    className="flex flex-col gap-4 overflow-auto h-full"
+                    innerClassName={cn('pt-6', { 'pt-4': newTabSceneData })}
+                    styledScrollbars
+                >
+                    <div className="flex flex-col flex-1 max-w-[1200px] mx-auto w-full gap-4 px-4 @lg/main-content:px-8 group/colorful-product-icons colorful-product-icons-true">
+                        {!newTabSceneData && filteredItemsGrid.length === 0 && !isSearching ? (
+                            <div className="flex flex-col gap-4 px-2 py-2 bg-glass-bg-3000 rounded-lg">
+                                <div className="flex flex-col gap-1">
+                                    <p className="text-tertiary mb-2">
+                                        <IconInfo /> No results found
+                                    </p>
+                                    <div className="flex gap-1">
+                                        <ListBox.Item asChild className="list-none">
+                                            <ButtonPrimitive size="sm" onClick={() => setSearch('')} variant="panel">
+                                                Clear search
+                                            </ButtonPrimitive>{' '}
+                                        </ListBox.Item>
+                                        or{' '}
+                                        <ListBox.Item asChild>
+                                            <ButtonPrimitive size="sm" onClick={() => handleAskAi()} variant="panel">
+                                                Ask Posthog AI
+                                            </ButtonPrimitive>
+                                        </ListBox.Item>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div
+                                className={cn({
+                                    'grid grid-cols-1 @md/main-content:grid-cols-2 @xl/main-content:grid-cols-3 @2xl/main-content:grid-cols-4 gap-4':
+                                        !newTabSceneData,
+                                    'flex flex-col gap-2 mb-32': newTabSceneData,
+                                })}
+                            >
+                                {/* TODO: Remove this once we're done testing */}
+                                {newTabSceneData && (
+                                    <div className="col-span-full border border-primary border-px rounded-md p-2 mb-2">
+                                        <p className="flex flex-col items-center @md/main-content:flex-row gap-1 m-0 text-sm text-tertiary">
+                                            <IconInfo className="size-4 text-accent" /> You're trying out the new tab UX
+                                            with the flag:{' '}
+                                            <span className="font-mono border border-primary border-px rounded-md px-1 mb-0">
+                                                data-in-new-tab-scene
+                                            </span>
+                                        </p>
+                                    </div>
+                                )}
+                                <Results
+                                    tabId={tabId || ''}
+                                    searchInputRef={commandInputRef.current?.getInputRef() || { current: null }}
+                                    listboxRef={listboxRef}
+                                    handleAskAi={handleAskAi}
+                                />
+                            </div>
+                        )}
+                    </div>
+                </ScrollableShadows>
+            </ListBox>
+        </>
     )
 }

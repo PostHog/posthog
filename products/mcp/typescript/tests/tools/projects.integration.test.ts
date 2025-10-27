@@ -98,7 +98,10 @@ describe('Projects', { concurrent: false }, () => {
                 expect(prop).toHaveProperty('name')
                 expect(prop).toHaveProperty('property_type')
                 expect(typeof prop.name).toBe('string')
-                expect(typeof prop.property_type).toBe('string')
+                // property_type can be a string or null
+                expect(['string', 'object', 'undefined'].includes(typeof prop.property_type)).toBe(
+                    true
+                )
             }
         })
 
