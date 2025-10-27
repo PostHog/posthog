@@ -2,7 +2,7 @@ import { actions, kea, key, path, props, reducers } from 'kea'
 
 import type { exceptionCardLogicType } from './exceptionCardLogicType'
 
-type ExceptionCardLogicProps = {
+export type ExceptionCardLogicProps = {
     issueId: string
 }
 
