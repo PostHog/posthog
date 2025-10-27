@@ -18,11 +18,11 @@
     "packageManager": "pnpm@9.15.5+sha256.8472168c3e1fd0bff287e694b053fccbbf20579a3ff9526b6333beab8df65a8d",
     "scripts": {
         "prepare": "husky install",
-        "schema:build": "hogli build:schema",
+        "schema:build": "bin/hogli build:schema",
         "schema:build:python": "bash bin/build-schema-python.sh",
         "taxonomy:build": "pnpm run taxonomy:build:json",
         "taxonomy:build:json": "python bin/build-taxonomy-json.py",
-        "grammar:build": "hogli build:grammar",
+        "grammar:build": "bin/hogli build:grammar",
         "grammar:build:python": "cd posthog/hogql/grammar && cat HogQLLexer.python.g4 > HogQLLexer.g4 && tail -n +2 HogQLLexer.common.g4 |sed s/isOpeningTag/self.isOpeningTag/ >> HogQLLexer.g4 && antlr -Dlanguage=Python3 HogQLLexer.g4 && rm HogQLLexer.g4 && antlr -visitor -no-listener -Dlanguage=Python3 HogQLParser.g4",
         "grammar:build:cpp": "cd posthog/hogql/grammar && cat HogQLLexer.cpp.g4 > HogQLLexer.g4 && tail -n +2 HogQLLexer.common.g4 >> HogQLLexer.g4 && antlr -o ../../../common/hogql_parser -Dlanguage=Cpp HogQLLexer.g4 && rm HogQLLexer.g4 && antlr -o ../../../common/hogql_parser -visitor -no-listener -Dlanguage=Cpp HogQLParser.g4",
         "generate:source-configs": "DEBUG=1 python manage.py generate_source-configs",
@@ -81,16 +81,16 @@
         }
     },
     "lint-staged": {
-        "*.{json,yaml,yml}": "hogli format:yaml",
-        "*.{css,scss}": "hogli format:css",
-        "{playwright,frontend,products,common,ee}/**/*.{js,jsx,mjs,ts,tsx}": "hogli format:js",
-        "plugin-server/**/*.{js,jsx,mjs,ts,tsx}": "hogli format:plugin-server",
-        "funnel-udf/**/*.rs": "hogli format:rust",
+        "*.{json,yaml,yml}": "bin/hogli format:yaml",
+        "*.{css,scss}": "bin/hogli format:css",
+        "{playwright,frontend,products,common,ee}/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:js",
+        "plugin-server/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:plugin-server",
+        "funnel-udf/**/*.rs": "bin/hogli format:rust",
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
-            "hogli lint:python:fix",
-            "hogli format:python"
+            "bin/hogli lint:python:fix",
+            "bin/hogli format:python"
         ],
-        "*.{md,mdx}": "hogli format:markdown"
+        "*.{md,mdx}": "bin/hogli format:markdown"
     },
     "browserslist": {
         "development": [

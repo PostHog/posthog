@@ -1521,6 +1521,7 @@ export enum PersonsTabType {
 }
 
 export enum GroupsTabType {
+    FEED = 'feed',
     NOTES = 'notes',
     OVERVIEW = 'overview',
 }
