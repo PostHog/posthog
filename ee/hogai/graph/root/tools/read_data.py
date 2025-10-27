@@ -7,7 +7,7 @@ from posthog.models import Team, User
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.sql.mixins import HogQLDatabaseMixin
-from ee.hogai.tool import MaxTool, MaxToolError, MaxToolErrorCode
+from ee.hogai.tool import MaxTool, MaxToolFatalError
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantState
 
@@ -88,7 +88,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             case "billing_info":
                 has_access = await self._context_manager.check_user_has_billing_access()
                 if not has_access:
-                    raise MaxToolError(BILLING_INSUFFICIENT_ACCESS_PROMPT, code=MaxToolErrorCode.PERMISSION_DENIED)
+                    raise MaxToolFatalError(BILLING_INSUFFICIENT_ACCESS_PROMPT)
                 # used for routing
                 billing_tool = ReadBillingTool(self._team, self._user, self._state, self._context_manager)
                 result = await billing_tool.execute()

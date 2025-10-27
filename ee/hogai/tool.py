@@ -3,19 +3,16 @@ import pkgutil
 import importlib
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from enum import Enum
 from typing import Annotated, Any, Literal, Self
-from uuid import uuid4
 
 import structlog
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, InjectedToolCallId
-from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field
 from pydantic.json_schema import SkipJsonSchema
 
-from posthog.schema import AssistantContextualTool, AssistantToolCallMessage
+from posthog.schema import AssistantContextualTool
 
 from posthog.models import Team, User
 
@@ -58,66 +55,78 @@ class ToolMessagesArtifact(BaseModel):
 
 class MaxToolError(Exception):
     """
-      Error Handling Strategy:
+    Base exception for MaxTool failures. All errors produce tool messages visible to LLM but not end users.
 
-    - MaxToolError: Permanent failures, LLM should not retry
-    - MaxToolRetryableError: Transient failures, LLM may retry with adjusted inputs/self-correction
-    - Generic Exception: Unknown failures, treated as permanent (as safety net)
+    Error Handling Strategy:
+    - MaxToolFatalError: Show-stoppers that cannot be recovered from (e.g., permissions, missing config)
+    - MaxToolTransientError: Intermittent issues that can be retried without changes (e.g., rate limits, timeouts)
+    - MaxToolRetryableError: Solvable issues that can be fixed with adjusted inputs (e.g., invalid parameters)
+    - Generic Exception: Unknown failures, treated as fatal (safety net)
 
-    All errors produce tool messages visible to LLM but not end users.
+    When raising these exceptions, provide actionable context about:
+    - What went wrong
+    - Why it went wrong (for retryable errors)
+    - What can be done about it (for retryable errors)
     """
 
-    def __init__(self, message: str, *, code: str | None = None):
+    def __init__(self, message: str):
+        """
+        Args:
+            message: Detailed, actionable error message that helps the LLM understand what went wrong
+        """
         super().__init__(message)
-        self.code = code
 
     @property
-    def retryable(self) -> bool:
-        return False
+    def retry_strategy(self) -> Literal["never", "once", "adjusted"]:
+        """
+        Returns the retry strategy for this error:
+        - "never": Do not retry (fatal errors)
+        - "once": Retry once without changes (transient errors)
+        - "adjusted": Retry with adjusted inputs (solvable errors)
+        """
+        return "never"
+
+    @property
+    def retry_hint(self) -> str:
+        """
+        Returns the retry hint message to append to error messages for the LLM.
+        """
+        retry_hints = {
+            "never": "",
+            "once": " You may retry this operation once without changes.",
+            "adjusted": " You may retry with adjusted inputs.",
+        }
+        return retry_hints[self.retry_strategy]
+
+
+class MaxToolFatalError(MaxToolError):
+    """
+    Fatal error that cannot be recovered from. Do not retry.
+    """
+
+    @property
+    def retry_strategy(self) -> Literal["never", "once", "adjusted"]:
+        return "never"
+
+
+class MaxToolTransientError(MaxToolError):
+    """
+    Transient error due to temporary service issues. Can be retried once without changes.
+    """
+
+    @property
+    def retry_strategy(self) -> Literal["never", "once", "adjusted"]:
+        return "once"
 
 
 class MaxToolRetryableError(MaxToolError):
-    """Retryable tool error. Raise for transient failures (timeouts, rate limits, temporary unavailability)."""
+    """
+    Solvable error that can be fixed with adjusted inputs. Can be retried with corrections.
+    """
 
     @property
-    def retryable(self) -> bool:
-        return True
-
-
-class MaxToolErrorCode(str, Enum):
-    """Error codes for MaxTool failures
-
-    Non-Retryable Codes --> MaxToolError
-    Retryable Codes     --> MaxToolRetryableError
-    """
-
-    # Non-retryable error codes
-    INVALID_INPUT = "invalid_input"
-    PERMISSION_DENIED = "permission_denied"
-    RESOURCE_NOT_FOUND = "resource_not_found"
-    VALIDATION_FAILED = "validation_failed"
-    CONFIGURATION_MISSING = "configuration_missing"
-    PARSING_FAILED = "parsing_failed"
-    INTERNAL_ERROR = "internal_error"
-
-    # Retryable error codes
-    SERVICE_TIMEOUT = "service_timeout"
-    RATE_LIMITED = "rate_limited"
-    SERVICE_UNAVAILABLE = "service_unavailable"
-    PARTIAL_FAILURE = "partial_failure"
-
-
-def _summarize_exception(e: Exception) -> str:
-    """
-    Summarize an exception for display to the user,
-    truncation is used to avoid leaking information
-    """
-    name = e.__class__.__name__
-    msg = str(e).strip()
-    # Should be good enough for most cases, can tweak if needed
-    if len(msg) > 500:
-        msg = msg[:500] + "…"
-    return f"{name}: {msg}"
+    def retry_strategy(self) -> Literal["never", "once", "adjusted"]:
+        return "adjusted"
 
 
 class MaxToolArgs(BaseModel):
@@ -205,41 +214,6 @@ class MaxTool(AssistantContextMixin, BaseTool):
             return self._run_impl(*args, **kwargs)
         except NotImplementedError:
             pass
-        except MaxToolError as e:
-            tool_call_id = kwargs.get("tool_call_id") or ""
-            if not tool_call_id:
-                logger.warning("maxtool_error", tool=self.get_name(), error=str(e))
-            capture_exception(
-                e,
-                distinct_id=str(self._user.distinct_id),
-                properties={"tool": self.get_name(), "retryable": e.retryable, "code": getattr(e, "code", None)},
-            )
-            retry_hint = " You may retry with adjusted inputs." if e.retryable else ""
-            content = f"Tool failed: {_summarize_exception(e)}.{retry_hint}"
-            return "", ToolMessagesArtifact(
-                messages=[
-                    AssistantToolCallMessage(
-                        content=content,
-                        id=str(uuid4()),
-                        tool_call_id=tool_call_id,
-                        visible=False,
-                    )
-                ]
-            )
-        except Exception as e:
-            tool_call_id = kwargs.get("tool_call_id") or ""
-            capture_exception(e, distinct_id=str(self._user.distinct_id), properties={"tool": self.get_name()})
-            content = f"Tool crashed: {_summarize_exception(e)}."
-            return "", ToolMessagesArtifact(
-                messages=[
-                    AssistantToolCallMessage(
-                        content=content,
-                        id=str(uuid4()),
-                        tool_call_id=tool_call_id,
-                        visible=False,
-                    )
-                ]
-            )
         return async_to_sync(self._arun_impl)(*args, **kwargs)
 
     async def _arun(self, *args, config: RunnableConfig, **kwargs):
@@ -247,41 +221,6 @@ class MaxTool(AssistantContextMixin, BaseTool):
             return await self._arun_impl(*args, **kwargs)
         except NotImplementedError:
             pass
-        except MaxToolError as e:
-            tool_call_id = kwargs.get("tool_call_id") or ""
-            if not tool_call_id:
-                logger.warning("maxtool_error", tool=self.get_name(), error=str(e))
-            capture_exception(
-                e,
-                distinct_id=str(self._user.distinct_id),
-                properties={"tool": self.get_name(), "retryable": e.retryable, "code": getattr(e, "code", None)},
-            )
-            retry_hint = " You may retry with adjusted inputs." if e.retryable else ""
-            content = f"Tool failed: {_summarize_exception(e)}.{retry_hint}"
-            return "", ToolMessagesArtifact(
-                messages=[
-                    AssistantToolCallMessage(
-                        content=content,
-                        id=str(uuid4()),
-                        tool_call_id=tool_call_id,
-                        visible=False,
-                    )
-                ]
-            )
-        except Exception as e:
-            tool_call_id = kwargs.get("tool_call_id") or ""
-            capture_exception(e, distinct_id=str(self._user.distinct_id), properties={"tool": self.get_name()})
-            content = f"Tool crashed: {_summarize_exception(e)}."
-            return "", ToolMessagesArtifact(
-                messages=[
-                    AssistantToolCallMessage(
-                        content=content,
-                        id=str(uuid4()),
-                        tool_call_id=tool_call_id,
-                        visible=False,
-                    )
-                ]
-            )
         return await super()._arun(*args, config=config, **kwargs)
 
     @property

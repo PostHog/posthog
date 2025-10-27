@@ -7,7 +7,7 @@ from posthog.models import Team, User
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.query_planner.toolkit import TaxonomyAgentToolkit
-from ee.hogai.tool import MaxTool, MaxToolError, MaxToolErrorCode
+from ee.hogai.tool import MaxTool, MaxToolRetryableError
 from ee.hogai.utils.helpers import format_events_yaml
 from ee.hogai.utils.types.base import AssistantState
 
@@ -148,9 +148,8 @@ class ReadTaxonomyTool(MaxTool):
             case ReadEntitySamplePropertyValues() as schema:
                 res = toolkit.retrieve_entity_property_values(schema.entity, schema.property_name)
             case _:
-                raise MaxToolError(
-                    f"Invalid query type. Got: {validated_query}",
-                    code=MaxToolErrorCode.INVALID_INPUT,
+                raise MaxToolRetryableError(
+                    f"Invalid query type: The query structure '{type(validated_query).__name__}' is not recognized."
                 )
         return res, None
 
