@@ -6,6 +6,7 @@ import { KafkaProducerWrapper } from '~/kafka/producer'
 
 import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
 import { HealthCheckResult, Hub, LogsIngestionConsumerConfig, PluginServerService } from '../types'
+import { isDevEnv } from '../utils/env-utils'
 import { logger } from '../utils/logger'
 
 export const logMessageDroppedCounter = new Counter({
@@ -17,7 +18,6 @@ export const logMessageDroppedCounter = new Counter({
 export type LogsIngestionMessage = {
     token: string
     teamId: number
-    distinctId: string
     message: Message
 }
 
@@ -82,7 +82,6 @@ export class LogsIngestionConsumer {
                     headers: {
                         token: message.token,
                         team_id: message.teamId.toString(),
-                        distinct_id: message.distinctId,
                     },
                 })
             })
@@ -98,24 +97,29 @@ export class LogsIngestionConsumer {
                 try {
                     const headers = parseKafkaHeaders(message.headers)
                     const token = headers.token
-                    const distinctId = headers.distinct_id
 
-                    if (!token || !distinctId) {
+                    if (!token) {
+                        logger.error('missing_token_or_distinct_id')
                         // Write to DLQ topic maybe?
                         logMessageDroppedCounter.inc({ reason: 'missing_token_or_distinct_id' })
                         return
                     }
 
-                    const team = await this.hub.teamManager.getTeamByToken(token)
+                    let team = await this.hub.teamManager.getTeamByToken(token)
+                    if (isDevEnv() && token === 'phc_local') {
+                        // phc_local is a special token used in dev to refer to team 1
+                        team = await this.hub.teamManager.getTeam(1)
+                    }
+
                     if (!team) {
                         // Write to DLQ topic maybe?
+                        logger.error('team_not_found')
                         logMessageDroppedCounter.inc({ reason: 'team_not_found' })
                         return
                     }
 
                     events.push({
                         token,
-                        distinctId,
                         message,
                         teamId: team.id,
                     })

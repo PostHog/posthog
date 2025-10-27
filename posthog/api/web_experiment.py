@@ -11,7 +11,6 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 
 from posthog.api.feature_flag import FeatureFlagSerializer
-from posthog.api.mixins import FileSystemViewSetMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import get_token
 from posthog.auth import TemporaryTokenAuthentication
@@ -210,7 +209,7 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         return feature_flag_key
 
 
-class WebExperimentViewSet(FileSystemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class WebExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment"
     serializer_class = WebExperimentsAPISerializer
     authentication_classes = [TemporaryTokenAuthentication]

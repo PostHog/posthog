@@ -1,5 +1,7 @@
+import os
 import json
 import asyncio
+import itertools
 from datetime import UTC, datetime, timedelta
 
 from temporalio import common, workflow
@@ -7,6 +9,7 @@ from temporalio import common, workflow
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.weekly_digest.activities import (
     count_organizations,
+    count_teams,
     generate_dashboard_lookup,
     generate_event_definition_lookup,
     generate_experiment_completed_lookup,
@@ -20,6 +23,7 @@ from posthog.temporal.weekly_digest.activities import (
 )
 from posthog.temporal.weekly_digest.types import (
     Digest,
+    GenerateDigestDataBatchInput,
     GenerateDigestDataInput,
     GenerateOrganizationDigestInput,
     SendWeeklyDigestBatchInput,
@@ -38,6 +42,12 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, input: WeeklyDigestInput) -> None:
+        if input.common.redis_host is None:
+            input.common.redis_host = os.getenv("WEEKLY_DIGEST_REDIS_HOST", "localhost")
+
+        if input.common.redis_port is None:
+            input.common.redis_port = int(os.getenv("WEEKLY_DIGEST_REDIS_PORT", "6379"))
+
         year, week, _ = datetime.now().isocalendar()
         period_end = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
         period_start = period_end - timedelta(days=7)
@@ -55,9 +65,8 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
                 common=input.common,
             ),
             parent_close_policy=workflow.ParentClosePolicy.REQUEST_CANCEL,
-            execution_timeout=timedelta(hours=3),
-            run_timeout=timedelta(hours=1),
-            task_timeout=timedelta(minutes=30),
+            execution_timeout=timedelta(hours=15),
+            run_timeout=timedelta(hours=6),
             retry_policy=common.RetryPolicy(
                 maximum_attempts=2,
                 initial_interval=timedelta(minutes=10),
@@ -72,9 +81,8 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
                 common=input.common,
             ),
             parent_close_policy=workflow.ParentClosePolicy.REQUEST_CANCEL,
-            execution_timeout=timedelta(hours=3),
-            run_timeout=timedelta(hours=1),
-            task_timeout=timedelta(minutes=30),
+            execution_timeout=timedelta(hours=15),
+            run_timeout=timedelta(hours=6),
             retry_policy=common.RetryPolicy(
                 maximum_attempts=2,
                 initial_interval=timedelta(minutes=10),
@@ -92,6 +100,20 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, input: GenerateDigestDataInput) -> None:
+        batch_size = input.common.batch_size
+
+        team_count = await workflow.execute_activity(
+            count_teams,
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=2,
+                initial_interval=timedelta(minutes=1),
+            ),
+            heartbeat_timeout=timedelta(minutes=1),
+        )
+
+        team_batches = [(i, i + batch_size) for i in range(0, team_count, batch_size)]
+
         generators = [
             generate_dashboard_lookup,
             generate_event_definition_lookup,
@@ -107,15 +129,19 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
             *[
                 workflow.execute_activity(
                     generator,
-                    input,
-                    start_to_close_timeout=timedelta(minutes=120),
+                    GenerateDigestDataBatchInput(
+                        batch=batch,
+                        digest=input.digest,
+                        common=input.common,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=30),
                     retry_policy=common.RetryPolicy(
                         maximum_attempts=2,
                         initial_interval=timedelta(minutes=1),
                     ),
-                    heartbeat_timeout=timedelta(minutes=5),
+                    heartbeat_timeout=timedelta(minutes=2),
                 )
-                for generator in generators
+                for batch, generator in itertools.product(team_batches, generators)
             ]
         )
 
@@ -129,8 +155,7 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
             heartbeat_timeout=timedelta(minutes=1),
         )
 
-        batch_size = input.common.batch_size
-        batches = [(i, i + batch_size) for i in range(0, organization_count, batch_size)]
+        org_batches = [(i, i + batch_size) for i in range(0, organization_count, batch_size)]
 
         await asyncio.gather(
             *[
@@ -146,9 +171,9 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
                         maximum_attempts=2,
                         initial_interval=timedelta(minutes=1),
                     ),
-                    heartbeat_timeout=timedelta(minutes=5),
+                    heartbeat_timeout=timedelta(minutes=2),
                 )
-                for batch in batches
+                for batch in org_batches
             ]
         )
 
@@ -188,7 +213,7 @@ class SendWeeklyDigestWorkflow(PostHogWorkflow):
                         maximum_attempts=2,
                         initial_interval=timedelta(minutes=1),
                     ),
-                    heartbeat_timeout=timedelta(minutes=5),
+                    heartbeat_timeout=timedelta(minutes=2),
                 )
                 for batch in batches
             ]
