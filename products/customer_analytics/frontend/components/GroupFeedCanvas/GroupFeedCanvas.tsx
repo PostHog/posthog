@@ -8,12 +8,12 @@ type GroupFeedCanvas = {
 }
 
 const GroupFeedCanvas = ({ group }: GroupFeedCanvas): JSX.Element => {
-    const key = group.group_key
+    const groupKey = group.group_key
 
     return (
         <Notebook
             editable={false}
-            shortId={`canvas-${key}`}
+            shortId={`canvas-${groupKey}`}
             mode="canvas"
             initialContent={{
                 type: 'doc',
@@ -21,17 +21,25 @@ const GroupFeedCanvas = ({ group }: GroupFeedCanvas): JSX.Element => {
                     {
                         type: 'ph-usage-metrics',
                         attrs: {
-                            groupKey: key,
+                            groupKey,
                             groupTypeIndex: group.group_type_index,
                             nodeId: uuid(),
                             children: [
                                 {
                                     type: 'ph-group',
                                     attrs: {
-                                        id: key,
+                                        id: groupKey,
                                         groupTypeIndex: group.group_type_index,
                                         nodeId: uuid(),
                                         title: 'Info',
+                                    },
+                                },
+                                {
+                                    type: 'ph-group-properties',
+                                    attrs: {
+                                        groupKey,
+                                        groupTypeIndex: group.group_type_index,
+                                        nodeId: uuid(),
                                     },
                                 },
                             ],
