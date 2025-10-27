@@ -527,12 +527,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         graph = (
             AssistantGraph(self.team, self.user)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-            .add_root(
-                {
-                    "root": AssistantNodeName.ROOT,
-                    "end": AssistantNodeName.END,
-                }
-            )
+            .add_root()
             .compile()
         )
 
@@ -1296,7 +1291,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         graph = (
             AssistantGraph(self.team, self.user)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-            .add_root({"root": AssistantNodeName.ROOT, "end": AssistantNodeName.END})
+            .add_root()
             .compile()
         )
         self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
@@ -1316,7 +1311,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         graph = (
             AssistantGraph(self.team, self.user)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-            .add_root({"root": AssistantNodeName.ROOT, "end": AssistantNodeName.END})
+            .add_root()
             .compile()
         )
 
@@ -1367,12 +1362,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         graph = (
             AssistantGraph(self.team, self.user)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-            .add_root(
-                {
-                    "root": AssistantNodeName.ROOT,
-                    "end": AssistantNodeName.END,
-                }
-            )
+            .add_root()
             .compile()
         )
 
@@ -1713,12 +1703,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         output, assistant = await self._run_assistant_graph(
             test_graph=AssistantGraph(self.team, self.user)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-            .add_root(
-                {
-                    "root": AssistantNodeName.ROOT,
-                    "end": AssistantNodeName.END,
-                }
-            )
+            .add_root()
             .compile(),
             conversation=self.conversation,
             is_new_conversation=True,
@@ -1784,7 +1769,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         graph = (
             AssistantGraph(self.team, self.user)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-            .add_root({"root": AssistantNodeName.ROOT, "end": AssistantNodeName.END})
+            .add_root()
             .compile()
         )
 
@@ -2096,12 +2081,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         test_graph = (
             AssistantGraph(self.team, self.user)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-            .add_root(
-                {
-                    "root": AssistantNodeName.ROOT,
-                    "end": AssistantNodeName.END,
-                }
-            )
+            .add_root()
             .compile()
         )
 
@@ -2445,3 +2425,88 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(state.start_id, new_human_message.id)
         # should be equal to the summary message, minus reasoning message
         self.assertEqual(state.root_conversation_start_id, state.messages[3].id)
+
+    @patch("ee.hogai.graph.root.tools.search.SearchTool._arun_impl", return_value=("Docs doubt it", None))
+    @patch(
+        "ee.hogai.graph.root.tools.read_taxonomy.ReadTaxonomyTool._run_impl",
+        return_value=("Hedgehogs have not talked yet", None),
+    )
+    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
+    async def test_root_node_can_execute_multiple_tool_calls(self, root_mock, search_mock, read_taxonomy_mock):
+        """Test that the root node can execute multiple tool calls in parallel."""
+        tool_call_id1, tool_call_id2 = [str(uuid4()), str(uuid4())]
+
+        def root_side_effect(msgs: list[BaseMessage]):
+            # Check if we've already received a tool result
+            last_message = msgs[-1]
+            if (
+                isinstance(last_message.content, list)
+                and isinstance(last_message.content[-1], dict)
+                and last_message.content[-1]["type"] == "tool_result"
+            ):
+                # After tool execution, respond with final message
+                return messages.AIMessage(content="No")
+
+            return messages.AIMessage(
+                content="Not sure. Let me check.",
+                tool_calls=[
+                    {
+                        "id": tool_call_id1,
+                        "name": "search",
+                        "args": {"kind": "docs", "query": "Do hedgehogs speak?"},
+                    },
+                    {
+                        "id": tool_call_id2,
+                        "name": "read_taxonomy",
+                        "args": {"query": {"kind": "events"}},
+                    },
+                ],
+            )
+
+        root_mock.return_value = FakeAnthropicRunnableLambdaWithTokenCounter(root_side_effect)
+
+        # Create a minimal test graph
+        graph = (
+            AssistantGraph(self.team, self.user)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_root()
+            .compile()
+        )
+
+        expected_output = [
+            (AssistantEventType.MESSAGE, HumanMessage(content="Do hedgehogs speak?")),
+            (
+                AssistantEventType.MESSAGE,
+                AssistantMessage(
+                    content="Not sure. Let me check.",
+                    tool_calls=[
+                        {
+                            "id": tool_call_id1,
+                            "name": "search",
+                            "args": {"kind": "docs", "query": "Do hedgehogs speak?"},
+                        },
+                        {
+                            "id": tool_call_id2,
+                            "name": "read_taxonomy",
+                            "args": {"query": {"kind": "events"}},
+                        },
+                    ],
+                ),
+            ),
+            (AssistantEventType.MESSAGE, ReasoningMessage(content="Searching for information")),
+            (AssistantEventType.MESSAGE, ReasoningMessage(content="Searching for information")),
+            (
+                AssistantEventType.MESSAGE,
+                AssistantToolCallMessage(content="Docs doubt it", tool_call_id=tool_call_id1),
+            ),
+            (
+                AssistantEventType.MESSAGE,
+                AssistantToolCallMessage(content="Hedgehogs have not talked yet", tool_call_id=tool_call_id2),
+            ),
+            (AssistantEventType.MESSAGE, AssistantMessage(content="No")),
+        ]
+        output, _ = await self._run_assistant_graph(
+            graph, message="Do hedgehogs speak?", conversation=self.conversation
+        )
+
+        self.assertConversationEqual(output, expected_output)
