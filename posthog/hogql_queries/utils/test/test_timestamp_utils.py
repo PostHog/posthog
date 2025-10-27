@@ -258,9 +258,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         flush_persons_and_events()
 
         # When event is None, it should return the earliest timestamp across ALL events
-        series = [EventsNode(event=None)]
-        earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)
-
+        earliest_timestamp = get_earliest_timestamp_from_series(self.team, [EventsNode(event=None)])
         self.assertEqual(earliest_timestamp, datetime.datetime(2020, 1, 1, 12, 0, 0, tzinfo=datetime.UTC))
 
     def test_returns_earliest_timestamp_for_action(self):
@@ -282,10 +280,8 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         )
         flush_persons_and_events()
 
-        series = [ActionsNode(id=action.id)]
-        earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)
-
         # Should return the earliest timestamp for $pageview events only (not $pageleave)
+        earliest_timestamp = get_earliest_timestamp_from_series(self.team, [ActionsNode(id=action.id)])
         self.assertEqual(earliest_timestamp, datetime.datetime(2022, 1, 1, 12, 0, 0, tzinfo=datetime.UTC))
 
     def test_compares_global_vs_event_specific_earliest(self):
@@ -345,5 +341,4 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         # should still return the earliest timestamp from the first query
         cached_earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)  # type: ignore
-
         self.assertEqual(cached_earliest_timestamp, earliest_timestamp)

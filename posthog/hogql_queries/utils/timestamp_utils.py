@@ -168,7 +168,7 @@ def get_team_earliest_timestamp(team: Team) -> datetime:
         select=[ast.Field(chain=["timestamp"])],
         select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
         where=ast.CompareOperation(
-            op=">",
+            op=ast.CompareOperationOp.Gt,
             left=ast.Field(chain=["timestamp"]),
             right=ast.Constant(value=earliest_timestamp),
         ),

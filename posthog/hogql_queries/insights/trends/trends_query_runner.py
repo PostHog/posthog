@@ -690,6 +690,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             # Event-specific earliest across all series (cached per event)
             return get_earliest_timestamp_from_series(team=self.team, series=[series.series for series in self.series])
 
+        return None
+
     @cached_property
     def query_date_range(self):
         interval = IntervalType.DAY if self._trends_display.is_total_value() else self.query.interval
