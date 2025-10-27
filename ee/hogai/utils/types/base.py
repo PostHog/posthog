@@ -419,3 +419,8 @@ class WithCommentary(BaseModel):
     commentary: str = Field(
         description="A commentary on what you are doing, using the first person: 'I am doing this because...'"
     )
+
+
+class AgentMode(StrEnum):
+    PRODUCT_ANALYTICS = "product_analytics"
+    SQL = "sql"
