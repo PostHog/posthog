@@ -1,7 +1,7 @@
 import math
 import datetime as dt
 import dataclasses
-from typing import Any
+from typing import Any, TypedDict
 
 import temporalio.common
 import temporalio.activity
@@ -18,6 +18,16 @@ from posthog.temporal.messaging.realtime_cohort_calculation_workflow import (
 )
 
 LOGGER = get_logger(__name__)
+
+
+class WorkflowConfig(TypedDict):
+    """Type definition for workflow configuration."""
+
+    id: str
+    inputs: RealtimeCohortCalculationWorkflowInputs
+    offset: int
+    limit: int
+    index: int
 
 
 @dataclasses.dataclass
@@ -98,7 +108,7 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
         actions_per_workflow = math.ceil(total_actions / inputs.parallelism)
 
         # Step 3: Prepare all workflow configs first
-        workflow_configs = []
+        workflow_configs: list[WorkflowConfig] = []
         for i in range(inputs.parallelism):
             offset = i * actions_per_workflow
             limit = min(actions_per_workflow, total_actions - offset)
@@ -107,18 +117,18 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
                 break
 
             workflow_configs.append(
-                {
-                    "id": f"{temporalio.workflow.info().workflow_id}-child-{i}",
-                    "inputs": RealtimeCohortCalculationWorkflowInputs(
+                WorkflowConfig(
+                    id=f"{temporalio.workflow.info().workflow_id}-child-{i}",
+                    inputs=RealtimeCohortCalculationWorkflowInputs(
                         days=inputs.days,
                         min_matches=inputs.min_matches,
                         limit=limit,
                         offset=offset,
                     ),
-                    "offset": offset,
-                    "limit": limit,
-                    "index": i + 1,
-                }
+                    offset=offset,
+                    limit=limit,
+                    index=i + 1,
+                )
             )
 
         total_workflows = len(workflow_configs)
@@ -139,7 +149,7 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
             # Start all workflows in current batch
             for config in batch_configs:
                 await temporalio.workflow.start_child_workflow(
-                    RealtimeCohortCalculationWorkflow,
+                    RealtimeCohortCalculationWorkflow.run,
                     config["inputs"],
                     id=config["id"],
                     task_queue=MESSAGING_TASK_QUEUE,
@@ -147,11 +157,8 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
                 )
                 workflows_scheduled += 1
 
-                offset_val = config["offset"]
-                limit_val = config["limit"]
-                index_val = config["index"]
                 workflow_logger.info(
-                    f"Scheduled workflow {index_val} for actions {offset_val}-{offset_val + limit_val - 1}"
+                    f"Scheduled workflow {config['index']} for actions {config['offset']}-{config['offset'] + config['limit'] - 1}"
                 )
 
             workflow_logger.info(
