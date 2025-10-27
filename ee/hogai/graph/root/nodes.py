@@ -34,8 +34,8 @@ from ee.hogai.graph.root.compaction_manager import AnthropicConversationCompacti
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL, ToolMessagesArtifact
-from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages, normalize_ai_anthropic_message
-from ee.hogai.utils.helpers import convert_tool_messages_to_dict
+from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages
+from ee.hogai.utils.helpers import convert_tool_messages_to_dict, normalize_ai_message
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types import (
     AssistantMessageUnion,
@@ -170,7 +170,7 @@ class RootNode(AssistantNode):
         add_cache_control(system_prompts[-1])
 
         message = await model.ainvoke(system_prompts + langchain_messages, config)
-        assistant_message = normalize_ai_anthropic_message(message)
+        assistant_message = normalize_ai_message(message)
 
         new_messages: list[AssistantMessageUnion] = [assistant_message]
         # Replace the messages with the new message window
