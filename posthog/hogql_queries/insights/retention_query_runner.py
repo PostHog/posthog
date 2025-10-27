@@ -245,7 +245,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             team=self.team,
             interval=interval,
             now=datetime.now(),
-            lookahead_days=intervals_to_look_ahead if self.is_custom_bracket_retention else None,
+            lookahead_days=int(intervals_to_look_ahead) if self.is_custom_bracket_retention else None,
         )
 
     def get_events_for_entity(self, entity: RetentionEntity) -> list[str | None]:
