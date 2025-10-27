@@ -12,6 +12,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="hogflow",
             name="variables",
-            field=models.JSONField(default=list),
+            field=models.JSONField(default=list, null=True, blank=True),
         ),
     ]
