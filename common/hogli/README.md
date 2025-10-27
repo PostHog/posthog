@@ -89,13 +89,20 @@ hogli is built with [Click](https://click.palletsprojects.com/) and discovers al
 
 **Key Components:**
 
-- `hogli/manifest.yaml` - Single source of truth: all command definitions, service metadata, and category grouping
-- `hogli/cli.py` - Click CLI framework with dynamic command registration
-- `hogli/commands.py` - Command class hierarchy (BinScriptCommand, DirectCommand, CompositeCommand)
-- `hogli/manifest.py` - Manifest loading with singleton pattern
-- `hogli/validate.py` - Auto-discovery and validation for missing commands
+- `common/hogli/manifest.yaml` - Single source of truth: all command definitions, service metadata, and category grouping
+- `common/hogli/commands.py` - **Developer extension point** for adding custom Click commands
+- `common/hogli/core/cli.py` - Click CLI framework with dynamic command registration
+- `common/hogli/core/command_types.py` - Command class hierarchy (BinScriptCommand, DirectCommand, CompositeCommand)
+- `common/hogli/core/manifest.py` - Manifest loading with singleton pattern
+- `common/hogli/core/validate.py` - Auto-discovery and validation for missing commands
 - `bin/` - Executable shell scripts that hogli wraps
 - `package.json` - High-level npm commands exposed through hogli
+
+**Structure:**
+
+- `common/hogli/core/` - Framework internals (don't modify directly)
+- `common/hogli/manifest.yaml` - Developer configuration
+- `common/hogli/commands.py` - Developer extension point for Click commands
 
 **Help Organization:**
 Commands are grouped into categories (see `hogli --help`), auto-formatted in git-style sections. Categories and their display order are defined in the manifest's metadata section.
@@ -104,13 +111,18 @@ Commands are grouped into categories (see `hogli --help`), auto-formatted in git
 
 #### Adding a new command - Decision tree
 
-There are 4 ways to add commands to hogli. Use this decision tree to choose the right approach:
+There are 5 ways to add commands to hogli. Use this decision tree to choose the right approach:
 
-```
+```text
 Need to add a new command?
 │
+├─ Is it a custom Python Click command with workflow logic?
+│  └─ YES → Add @cli.command() in common/hogli/commands.py
+│     When: Need Python logic for dev workflows (not just shell commands)
+│     Examples: Custom validators, multi-step Python logic, Click argument parsing
+│
 ├─ Does it manipulate hogli itself (meta-level operations)?
-│  └─ YES → Add @cli.command() in hogli/cli.py
+│  └─ YES → Add @cli.command() in common/hogli/core/cli.py
 │     When: Command validates manifest, shows framework info, or uses hogli internals
 │     Examples: quickstart, meta:check, meta:concepts
 │
@@ -130,8 +142,11 @@ Need to add a new command?
       Examples: docker:services:up, lint, format, test:python
 ```
 
-**Special case - trivial Python (3-5 lines):**
-If your command is 3-5 lines of simple Python (just `click.echo()` or basic conditionals) and is **meta/framework-related**, add it to `cli.py`. If it's a **workflow command** (dev tasks, builds, tests), prefer `cmd:` in manifest instead.
+**Note on Python commands:**
+
+- **Developer workflow commands** → Add to `common/hogli/commands.py` (main extension point)
+- **Framework/meta commands** → Add to `common/hogli/core/cli.py` (rarely needed)
+- If it's 1-2 lines of Python, prefer `cmd:` in manifest instead
 
 **Auto-discovery:**
 hogli automatically discovers missing bin scripts on every invocation (except `meta:check`). Auto-discovered commands are marked as `hidden: true` by default until reviewed. Use `hogli meta:check` in CI to enforce manifest completeness.
@@ -150,19 +165,35 @@ Hidden commands are still fully functional and can be invoked directly (e.g., `h
 
 Use the decision tree above to choose, then reference these examples for syntax:
 
-**1. Click command in cli.py** - For meta/framework commands:
+**1. Click command in commands.py** - For developer workflow commands:
 
 ```python
-@cli.command(name="my-meta-command", help="Does something with hogli internals")
+# In common/hogli/commands.py
+from hogli.core.cli import cli
+import click
+
+@cli.command(name="my-workflow", help="Custom workflow command")
+@click.option('--verbose', is_flag=True, help='Verbose output')
+def my_workflow(verbose: bool) -> None:
+    """Custom workflow implementation."""
+    # Your Python logic here
+    click.echo("Running custom workflow...")
+```
+
+**2. Click command in core/cli.py** - For meta/framework commands (rarely needed):
+
+```python
+# In common/hogli/core/cli.py
+@cli.command(name="meta:my-command", help="Does something with hogli internals")
 def my_meta_command() -> None:
     """Command implementation."""
-    from hogli.manifest import load_manifest
+    from hogli.core.manifest import load_manifest
     manifest = load_manifest()
     # Your logic here
     click.echo("Done!")
 ```
 
-**2. steps** - Orchestrates hogli commands (no shell needed):
+**3. steps** - Orchestrates hogli commands (no shell needed):
 
 ```yaml
 dev:reset:
@@ -174,7 +205,7 @@ dev:reset:
     description: Full reset and reload
 ```
 
-**3. bin_script** - Delegates to shell script with logic:
+**4. bin_script** - Delegates to shell script with logic:
 
 Create `bin/my-script`:
 
@@ -197,7 +228,7 @@ check:my-service:
     services: [docker]
 ```
 
-**4. cmd** - Simple shell one-liner:
+**5. cmd** - Simple shell one-liner:
 
 ```yaml
 lint:
