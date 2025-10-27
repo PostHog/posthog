@@ -285,7 +285,12 @@ jobs:
             - name: Save ESBuild artifacts
               run: |
                   mkdir -p build-comparison/esbuild
-                  cp -r frontend/dist/* build-comparison/esbuild/
+                  # Use rsync to copy all files including hidden ones, or use cp with explicit dotglob
+                  rsync -av frontend/dist/ build-comparison/esbuild/ 2>/dev/null || {
+                      # Fallback: use cp with explicit hidden file handling  
+                      cp -r frontend/dist/* build-comparison/esbuild/ 2>/dev/null || true
+                      cp -r frontend/dist/.* build-comparison/esbuild/ 2>/dev/null || true
+                  }
                   cp esbuild-stats.txt build-comparison/
 
             - name: Clean dist directory
@@ -351,7 +356,12 @@ jobs:
             - name: Save Vite artifacts
               run: |
                   mkdir -p build-comparison/vite
-                  cp -r frontend/dist/* build-comparison/vite/
+                  # Use rsync to copy all files including hidden ones, or use cp with explicit dotglob
+                  rsync -av frontend/dist/ build-comparison/vite/ 2>/dev/null || {
+                      # Fallback: use cp with explicit hidden file handling
+                      cp -r frontend/dist/* build-comparison/vite/ 2>/dev/null || true
+                      cp -r frontend/dist/.* build-comparison/vite/ 2>/dev/null || true
+                  }
                   cp vite-stats.txt build-comparison/
 
             - name: Generate bundle comparison report
