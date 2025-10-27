@@ -4,11 +4,13 @@ from datetime import datetime
 from typing import Optional
 
 from django.db.models import QuerySet
+from django.utils import timezone
 
 import redis.asyncio as redis
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
+from posthog.models.messaging import MessagingRecord, get_email_hash
 from posthog.sync import database_sync_to_async
 from posthog.tasks.email import NotificationSetting, should_send_notification
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -35,7 +37,7 @@ from posthog.temporal.weekly_digest.types import (
     ExperimentList,
     ExternalDataSourceList,
     FeatureFlagList,
-    GenerateDigestDataInput,
+    GenerateDigestDataBatchInput,
     GenerateOrganizationDigestInput,
     OrganizationDigest,
     SendWeeklyDigestBatchInput,
@@ -52,7 +54,7 @@ LOGGER = get_write_only_logger()
 
 
 async def generate_digest_data_lookup(
-    input: GenerateDigestDataInput,
+    input: GenerateDigestDataBatchInput,
     resource_key: str,
     query_func: Callable[[datetime, datetime], QuerySet],
     resource_type: DigestResourceType,
@@ -69,7 +71,9 @@ async def generate_digest_data_lookup(
 
         async with redis.from_url(_redis_url(input.common)) as r:
             db_query: QuerySet = query_func(input.digest.period_start, input.digest.period_end)
-            async for team in query_teams_for_digest():
+
+            batch_start, batch_end = input.batch
+            async for team in query_teams_for_digest()[batch_start:batch_end]:
                 digest_data = resource_type(await queryset_to_list(db_query.filter(team_id=team.id)))
 
                 resource_count += len(digest_data.root)
@@ -87,7 +91,7 @@ async def generate_digest_data_lookup(
 
 
 @activity.defn(name="generate-dashboard-lookup")
-async def generate_dashboard_lookup(input: GenerateDigestDataInput) -> None:
+async def generate_dashboard_lookup(input: GenerateDigestDataBatchInput) -> None:
     return await generate_digest_data_lookup(
         input,
         resource_key="dashboards",
@@ -97,7 +101,7 @@ async def generate_dashboard_lookup(input: GenerateDigestDataInput) -> None:
 
 
 @activity.defn(name="generate-event-definition-lookup")
-async def generate_event_definition_lookup(input: GenerateDigestDataInput) -> None:
+async def generate_event_definition_lookup(input: GenerateDigestDataBatchInput) -> None:
     return await generate_digest_data_lookup(
         input,
         resource_key="event-definitions",
@@ -107,7 +111,7 @@ async def generate_event_definition_lookup(input: GenerateDigestDataInput) -> No
 
 
 @activity.defn(name="generate-experiment-completed-lookup")
-async def generate_experiment_completed_lookup(input: GenerateDigestDataInput) -> None:
+async def generate_experiment_completed_lookup(input: GenerateDigestDataBatchInput) -> None:
     await generate_digest_data_lookup(
         input,
         resource_key="experiments-completed",
@@ -117,7 +121,7 @@ async def generate_experiment_completed_lookup(input: GenerateDigestDataInput) -
 
 
 @activity.defn(name="generate-experiment-launched-lookup")
-async def generate_experiment_launched_lookup(input: GenerateDigestDataInput) -> None:
+async def generate_experiment_launched_lookup(input: GenerateDigestDataBatchInput) -> None:
     return await generate_digest_data_lookup(
         input,
         resource_key="experiments-launched",
@@ -127,7 +131,7 @@ async def generate_experiment_launched_lookup(input: GenerateDigestDataInput) ->
 
 
 @activity.defn(name="generate-external-data-source-lookup")
-async def generate_external_data_source_lookup(input: GenerateDigestDataInput) -> None:
+async def generate_external_data_source_lookup(input: GenerateDigestDataBatchInput) -> None:
     return await generate_digest_data_lookup(
         input,
         resource_key="external-data-sources",
@@ -137,7 +141,7 @@ async def generate_external_data_source_lookup(input: GenerateDigestDataInput) -
 
 
 @activity.defn(name="generate-feature-flag-lookup")
-async def generate_feature_flag_lookup(input: GenerateDigestDataInput) -> None:
+async def generate_feature_flag_lookup(input: GenerateDigestDataBatchInput) -> None:
     return await generate_digest_data_lookup(
         input,
         resource_key="feature-flags",
@@ -147,7 +151,7 @@ async def generate_feature_flag_lookup(input: GenerateDigestDataInput) -> None:
 
 
 @activity.defn(name="generate-survey-lookup")
-async def generate_survey_lookup(input: GenerateDigestDataInput) -> None:
+async def generate_survey_lookup(input: GenerateDigestDataBatchInput) -> None:
     return await generate_digest_data_lookup(
         input,
         resource_key="surveys-launched",
@@ -157,7 +161,7 @@ async def generate_survey_lookup(input: GenerateDigestDataInput) -> None:
 
 
 @activity.defn(name="generate-user-notification-lookup")
-async def generate_user_notification_lookup(input: GenerateDigestDataInput) -> None:
+async def generate_user_notification_lookup(input: GenerateDigestDataBatchInput) -> None:
     async with Heartbeater():
         bind_contextvars(digest_key=input.digest.key)
         logger = LOGGER.bind()
@@ -167,7 +171,8 @@ async def generate_user_notification_lookup(input: GenerateDigestDataInput) -> N
         user_count = 0
 
         async with redis.from_url(_redis_url(input.common)) as r:
-            async for team in query_teams_for_digest():
+            batch_start, batch_end = input.batch
+            async for team in query_teams_for_digest()[batch_start:batch_end]:
                 team_count += 1
                 async for user in await database_sync_to_async(team.all_users_with_access)():
                     user_count += 1
@@ -185,6 +190,12 @@ async def generate_user_notification_lookup(input: GenerateDigestDataInput) -> N
 async def count_organizations() -> int:
     async with Heartbeater():
         return await query_orgs_for_digest().acount()
+
+
+@activity.defn(name="count-teams")
+async def count_teams() -> int:
+    async with Heartbeater():
+        return await query_teams_for_digest().acount()
 
 
 @activity.defn(name="generate-organization-digest-batch")
@@ -272,13 +283,23 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                 raw_digest: Optional[str] = await r.get(f"{input.digest.key}-{organization.id}")
 
                 if not raw_digest:
-                    logger.warning(f"Missing digest data for organization", organization_id=organization.id)
+                    logger.warning(
+                        f"Missing digest data for organization, skipping...", organization_id=organization.id
+                    )
                     continue
 
                 org_digest = OrganizationDigest.model_validate_json(raw_digest)
 
                 if org_digest.is_empty():
                     empty_org_digest_count += 1
+                    continue
+
+                messaging_record, created = await MessagingRecord.objects.aget_or_create(
+                    email_hash=get_email_hash(f"org_{organization.id}"), campaign_key=input.digest.key
+                )
+
+                if not created and messaging_record.sent_at:
+                    logger.info(f"Digest already sent for organization, skipping...", organization_id=organization.id)
                     continue
 
                 async for member in query_org_members(organization):
@@ -298,6 +319,10 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                         raise NotImplementedError()
 
                     sent_digest_count += 1
+
+                if not input.dry_run:
+                    messaging_record.sent_at = timezone.now()
+                    await messaging_record.asave()
 
         logger.info(
             "Finished sending weekly digest batch",

@@ -1,5 +1,6 @@
 from posthog.temporal.weekly_digest.activities import (
     count_organizations,
+    count_teams,
     generate_dashboard_lookup,
     generate_event_definition_lookup,
     generate_experiment_completed_lookup,
@@ -34,5 +35,6 @@ ACTIVITIES = [
     generate_user_notification_lookup,
     generate_organization_digest_batch,
     count_organizations,
+    count_teams,
     send_weekly_digest_batch,
 ]
