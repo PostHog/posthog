@@ -173,7 +173,9 @@ function getTrendsTableData(response: TrendsQueryResponse): string[][] {
     }
 
     const seriesLabels = response.results.map((series) => {
-        const baseName = series.action?.custom_name || series.label || 'Series'
+        // Use breakdown value if available, otherwise use action name or label
+        const breakdownValue = (series as any).breakdown_value
+        const baseName = breakdownValue ?? series.action?.custom_name ?? series.label ?? 'Series'
         const compareLabel = series.compare_label
         return compareLabel ? `${baseName} (${compareLabel})` : baseName
     })
@@ -676,6 +678,43 @@ describe('WebAnalyticsExport helper functions', () => {
                 ['2024-01-02', ''],
                 ['2024-01-03', '20'],
             ])
+        })
+
+        it('uses breakdown_value when available instead of label', () => {
+            const response: TrendsQueryResponse = {
+                results: [
+                    {
+                        label: 'Unique visitors',
+                        breakdown_value: 'Organic Search',
+                        data: [335, 348],
+                        labels: ['2024-01-01', '2024-01-02'],
+                    } as any,
+                    {
+                        label: 'Unique visitors',
+                        breakdown_value: 'Unknown',
+                        data: [133, 113],
+                        labels: ['2024-01-01', '2024-01-02'],
+                    } as any,
+                    {
+                        label: 'Unique visitors',
+                        breakdown_value: 'Organic Video',
+                        data: [1, 2],
+                        labels: ['2024-01-01', '2024-01-02'],
+                    } as any,
+                    {
+                        label: 'Unique visitors',
+                        breakdown_value: 'Direct',
+                        data: [0, 0],
+                        labels: ['2024-01-01', '2024-01-02'],
+                    } as any,
+                ],
+            }
+
+            const result = getTrendsTableData(response)
+
+            expect(result[0]).toEqual(['Date', 'Organic Search', 'Unknown', 'Organic Video', 'Direct'])
+            expect(result[1]).toEqual(['2024-01-01', '335', '133', '1', '0'])
+            expect(result[2]).toEqual(['2024-01-02', '348', '113', '2', '0'])
         })
     })
 })

@@ -52,6 +52,46 @@ const webTrendsMetricDisplayNames: Record<WebTrendsMetric, string> = {
     [WebTrendsMetric.TOTAL_SESSIONS]: 'Total sessions',
 }
 
+// Export adapter interface
+interface ExportAdapter {
+    toTableData(response: any, query: QuerySchema): string[][]
+    canHandle(query: QuerySchema, response: any): boolean
+}
+
+// Generic export utility that handles all formats
+function exportTableData(tableData: string[][], format: ExporterFormat): void {
+    try {
+        switch (format) {
+            case ExporterFormat.CSV: {
+                const csv = Papa.unparse(tableData)
+                void copyToClipboard(csv, 'table')
+                break
+            }
+            case ExporterFormat.JSON: {
+                const [headers, ...rows] = tableData
+                const jsonData = rows.map((row) =>
+                    headers.reduce(
+                        (acc, header, index) => {
+                            acc[header] = row[index]
+                            return acc
+                        },
+                        {} as Record<string, any>
+                    )
+                )
+                void copyToClipboard(JSON.stringify(jsonData, null, 4), 'table')
+                break
+            }
+            case ExporterFormat.XLSX: {
+                const tsv = Papa.unparse(tableData, { delimiter: '\t' })
+                void copyToClipboard(tsv, 'table')
+                break
+            }
+        }
+    } catch {
+        lemonToast.error('Copy failed!')
+    }
+}
+
 function getCalendarHeatmapTableData(
     response: TrendsQueryResponse,
     rowLabels: string[],
@@ -109,46 +149,31 @@ function getCalendarHeatmapTableData(
     return [headers, ...dataRows, aggregationRow]
 }
 
-function copyCalendarHeatmapToCsv(response: TrendsQueryResponse, rowLabels: string[], columnLabels: string[]): void {
-    try {
-        const tableData = getCalendarHeatmapTableData(response, rowLabels, columnLabels)
-        const csv = Papa.unparse(tableData)
-        void copyToClipboard(csv, 'table')
-    } catch {
-        lemonToast.error('Copy failed!')
+// Calendar Heatmap Adapter
+class CalendarHeatmapAdapter implements ExportAdapter {
+    toTableData(response: TrendsQueryResponse): string[][] {
+        const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+        const hourLabels = Array.from({ length: 24 }, (_, i) => String(i))
+        return getCalendarHeatmapTableData(response, dayLabels, hourLabels)
     }
-}
 
-function copyCalendarHeatmapToJson(response: TrendsQueryResponse, rowLabels: string[], columnLabels: string[]): void {
-    try {
-        const tableData = getCalendarHeatmapTableData(response, rowLabels, columnLabels)
-        const headers = tableData[0]
-        const rows = tableData.slice(1)
+    canHandle(query: QuerySchema, response: any): boolean {
+        if (query.kind !== NodeKind.InsightVizNode) {
+            return false
+        }
+        const source = (query as InsightVizNode).source
+        if (!isTrendsQuery(source)) {
+            return false
+        }
+        const isHeatmap = (source as TrendsQuery)?.trendsFilter?.display === ChartDisplayType.CalendarHeatmap
+        if (!isHeatmap) {
+            return false
+        }
 
-        const jsonData = rows.map((row) => {
-            return headers.reduce(
-                (acc, header, index) => {
-                    acc[header] = row[index]
-                    return acc
-                },
-                {} as Record<string, any>
-            )
-        })
-
-        const json = JSON.stringify(jsonData, null, 4)
-        void copyToClipboard(json, 'table')
-    } catch {
-        lemonToast.error('Copy failed!')
-    }
-}
-
-function copyCalendarHeatmapToExcel(response: TrendsQueryResponse, rowLabels: string[], columnLabels: string[]): void {
-    try {
-        const tableData = getCalendarHeatmapTableData(response, rowLabels, columnLabels)
-        const tsv = Papa.unparse(tableData, { delimiter: '\t' })
-        void copyToClipboard(tsv, 'table')
-    } catch {
-        lemonToast.error('Copy failed!')
+        const trendsResponse = response as TrendsQueryResponse
+        const firstResult = (trendsResponse as any)?.results?.[0]
+        const heatmapData = firstResult?.calendar_heatmap_data
+        return heatmapData && heatmapData.data && heatmapData.data.length > 0
     }
 }
 
@@ -192,58 +217,33 @@ function getWebAnalyticsTableData(
     return [displayHeaders, ...dataRows]
 }
 
-function copyWebAnalyticsTableToCsv(
-    response: WebStatsTableQueryResponse,
-    columns: string[],
-    query: WebStatsTableQuery | WebGoalsQuery | WebExternalClicksTableQuery
-): void {
-    try {
-        const tableData = getWebAnalyticsTableData(response, columns, query)
-        const csv = Papa.unparse(tableData)
-        void copyToClipboard(csv, 'table')
-    } catch {
-        lemonToast.error('Copy failed!')
+// Web Analytics Table Adapter
+class WebAnalyticsTableAdapter implements ExportAdapter {
+    toTableData(response: WebStatsTableQueryResponse, query: QuerySchema): string[][] {
+        const dataTableQuery = query as DataTableNode
+        const source = dataTableQuery.source as WebStatsTableQuery | WebGoalsQuery | WebExternalClicksTableQuery
+        const columns = (response.columns as string[]) || []
+        return getWebAnalyticsTableData(response, columns, source)
     }
-}
 
-function copyWebAnalyticsTableToJson(
-    response: WebStatsTableQueryResponse,
-    columns: string[],
-    query: WebStatsTableQuery | WebGoalsQuery | WebExternalClicksTableQuery
-): void {
-    try {
-        const tableData = getWebAnalyticsTableData(response, columns, query)
-        const headers = tableData[0]
-        const rows = tableData.slice(1)
+    canHandle(query: QuerySchema, response: any): boolean {
+        if (query.kind !== NodeKind.DataTableNode) {
+            return false
+        }
+        const dataTableQuery = query as DataTableNode
+        const source = dataTableQuery.source
+        const isWebAnalytics =
+            isWebStatsTableQuery(source) || isWebGoalsQuery(source) || isWebExternalClicksQuery(source)
 
-        const jsonData = rows.map((row) => {
-            return headers.reduce(
-                (acc, header, index) => {
-                    acc[header] = row[index]
-                    return acc
-                },
-                {} as Record<string, any>
-            )
-        })
+        if (!isWebAnalytics) {
+            return false
+        }
 
-        const json = JSON.stringify(jsonData, null, 4)
-        void copyToClipboard(json, 'table')
-    } catch {
-        lemonToast.error('Copy failed!')
-    }
-}
+        const tableResponse = response as WebStatsTableQueryResponse
+        const hasData = tableResponse.results && tableResponse.results.length > 0
+        const columns = (tableResponse.columns as string[]) || []
 
-function copyWebAnalyticsTableToExcel(
-    response: WebStatsTableQueryResponse,
-    columns: string[],
-    query: WebStatsTableQuery | WebGoalsQuery | WebExternalClicksTableQuery
-): void {
-    try {
-        const tableData = getWebAnalyticsTableData(response, columns, query)
-        const tsv = Papa.unparse(tableData, { delimiter: '\t' })
-        void copyToClipboard(tsv, 'table')
-    } catch {
-        lemonToast.error('Copy failed!')
+        return hasData && columns.length > 0
     }
 }
 
@@ -289,46 +289,25 @@ function getWebTrendsTableData(response: WebTrendsQueryResponse, query: WebTrend
     return [displayHeaders, ...dataRows]
 }
 
-function copyWebTrendsToCsv(response: WebTrendsQueryResponse, query: WebTrendsQuery): void {
-    try {
-        const tableData = getWebTrendsTableData(response, query)
-        const csv = Papa.unparse(tableData)
-        void copyToClipboard(csv, 'table')
-    } catch {
-        lemonToast.error('Copy failed!')
+// Web Trends Adapter
+class WebTrendsAdapter implements ExportAdapter {
+    toTableData(response: WebTrendsQueryResponse, query: QuerySchema): string[][] {
+        const insightVizNode = query as InsightVizNode
+        const source = insightVizNode.source as unknown as WebTrendsQuery
+        return getWebTrendsTableData(response, source)
     }
-}
 
-function copyWebTrendsToJson(response: WebTrendsQueryResponse, query: WebTrendsQuery): void {
-    try {
-        const tableData = getWebTrendsTableData(response, query)
-        const headers = tableData[0]
-        const rows = tableData.slice(1)
+    canHandle(query: QuerySchema, response: any): boolean {
+        if (query.kind !== NodeKind.InsightVizNode) {
+            return false
+        }
+        const source = (query as InsightVizNode).source
+        if (!isWebTrendsQuery(source)) {
+            return false
+        }
 
-        const jsonData = rows.map((row) => {
-            return headers.reduce(
-                (acc, header, index) => {
-                    acc[header] = row[index]
-                    return acc
-                },
-                {} as Record<string, any>
-            )
-        })
-
-        const json = JSON.stringify(jsonData, null, 4)
-        void copyToClipboard(json, 'table')
-    } catch {
-        lemonToast.error('Copy failed!')
-    }
-}
-
-function copyWebTrendsToExcel(response: WebTrendsQueryResponse, query: WebTrendsQuery): void {
-    try {
-        const tableData = getWebTrendsTableData(response, query)
-        const tsv = Papa.unparse(tableData, { delimiter: '\t' })
-        void copyToClipboard(tsv, 'table')
-    } catch {
-        lemonToast.error('Copy failed!')
+        const trendsResponse = response as WebTrendsQueryResponse
+        return trendsResponse.results && trendsResponse.results.length > 0
     }
 }
 
@@ -347,7 +326,9 @@ function getTrendsTableData(response: TrendsQueryResponse): string[][] {
 
     // Create headers: Date + each series label
     const seriesLabels = response.results.map((series) => {
-        const baseName = series.action?.custom_name || series.label || 'Series'
+        // Use breakdown value if available, otherwise use action name or label
+        const breakdownValue = (series as any).breakdown_value
+        const baseName = breakdownValue ?? series.action?.custom_name ?? series.label ?? 'Series'
         const compareLabel = series.compare_label
         return compareLabel ? `${baseName} (${compareLabel})` : baseName
     })
@@ -366,199 +347,119 @@ function getTrendsTableData(response: TrendsQueryResponse): string[][] {
     return [headers, ...dataRows]
 }
 
-function copyTrendsToCsv(response: TrendsQueryResponse): void {
-    try {
-        const tableData = getTrendsTableData(response)
-        const csv = Papa.unparse(tableData)
-        void copyToClipboard(csv, 'table')
-    } catch {
-        lemonToast.error('Copy failed!')
+// Trends Adapter (for non-heatmap trends)
+class TrendsAdapter implements ExportAdapter {
+    toTableData(response: TrendsQueryResponse): string[][] {
+        return getTrendsTableData(response)
+    }
+
+    canHandle(query: QuerySchema, response: any): boolean {
+        if (query.kind !== NodeKind.InsightVizNode) {
+            return false
+        }
+        const source = (query as InsightVizNode).source
+        if (!isTrendsQuery(source)) {
+            return false
+        }
+
+        // Exclude calendar heatmaps (handled by CalendarHeatmapAdapter)
+        const isHeatmap = (source as TrendsQuery)?.trendsFilter?.display === ChartDisplayType.CalendarHeatmap
+        if (isHeatmap) {
+            return false
+        }
+
+        const trendsResponse = response as TrendsQueryResponse
+        return trendsResponse.results && trendsResponse.results.length > 0
     }
 }
 
-function copyTrendsToJson(response: TrendsQueryResponse): void {
-    try {
-        const tableData = getTrendsTableData(response)
-        const headers = tableData[0]
-        const rows = tableData.slice(1)
-
-        const jsonData = rows.map((row) => {
-            return headers.reduce(
-                (acc, header, index) => {
-                    acc[header] = row[index]
-                    return acc
-                },
-                {} as Record<string, any>
-            )
-        })
-
-        const json = JSON.stringify(jsonData, null, 4)
-        void copyToClipboard(json, 'table')
-    } catch {
-        lemonToast.error('Copy failed!')
-    }
-}
-
-function copyTrendsToExcel(response: TrendsQueryResponse): void {
-    try {
-        const tableData = getTrendsTableData(response)
-        const tsv = Papa.unparse(tableData, { delimiter: '\t' })
-        void copyToClipboard(tsv, 'table')
-    } catch {
-        lemonToast.error('Copy failed!')
-    }
-}
+// Create adapter instances
+const adapters: ExportAdapter[] = [
+    new CalendarHeatmapAdapter(),
+    new WebAnalyticsTableAdapter(),
+    new WebTrendsAdapter(),
+    new TrendsAdapter(),
+]
 
 export function WebAnalyticsExport({ query, insightProps }: WebAnalyticsExportProps): JSX.Element | null {
     // For queries, use insightDataLogic - must be called before any early returns
     const builtInsightDataLogic = insightDataLogic(insightProps)
     const { insightDataRaw } = useValues(builtInsightDataLogic)
 
-    const isTableQuery = query.kind === NodeKind.DataTableNode
-
-    const insightVizSource = query.kind === NodeKind.InsightVizNode ? (query as InsightVizNode).source : null
-    const isWebTrendsViz = insightVizSource && isWebTrendsQuery(insightVizSource)
-    const isTrendsViz = insightVizSource && isTrendsQuery(insightVizSource)
-    const isCalendarHeatmap =
-        isTrendsViz && (insightVizSource as TrendsQuery)?.trendsFilter?.display === ChartDisplayType.CalendarHeatmap
-
-    // WebOverview uses dataNodeLogic directly and isn't compatible with this export component
-    // TODO: Add separate export support for WebOverview
-    if (!isTableQuery && !isWebTrendsViz && !isTrendsViz) {
+    if (!insightDataRaw) {
         return null
     }
 
-    // Use the insight data
-    const responseData = insightDataRaw
+    // Find the appropriate adapter for this query and response
+    const adapter = adapters.find((a) => a.canHandle(query, insightDataRaw))
 
-    if (!responseData) {
-        return null
-    }
+    if (!adapter) {
+        // Check if we need to handle non-web-analytics table queries
+        if (query.kind === NodeKind.DataTableNode) {
+            const tableResponse = insightDataRaw as WebStatsTableQueryResponse
+            const columns = (tableResponse.columns as string[]) || []
+            const dataTableQuery = query as DataTableNode
+            const source = dataTableQuery.source
+            const isWebAnalyticsTable =
+                isWebStatsTableQuery(source) || isWebGoalsQuery(source) || isWebExternalClicksQuery(source)
 
-    let hasData = false
-    if (isTableQuery) {
-        const tableResponse = responseData as WebStatsTableQueryResponse
-        hasData = tableResponse.results && tableResponse.results.length > 0
-    } else if (isWebTrendsViz) {
-        const trendsResponse = responseData as WebTrendsQueryResponse
-        hasData = trendsResponse.results && trendsResponse.results.length > 0
-    } else if (isTrendsViz) {
-        const trendsResponse = responseData as TrendsQueryResponse
-        if (isCalendarHeatmap) {
-            const firstResult = (trendsResponse as any)?.results?.[0]
-            const heatmapData = firstResult?.calendar_heatmap_data
-            hasData = heatmapData && heatmapData.data && heatmapData.data.length > 0
-        } else {
-            hasData = trendsResponse.results && trendsResponse.results.length > 0
+            // If not a web analytics table, use fallback to clipboardUtils
+            if (!isWebAnalyticsTable && tableResponse.results && tableResponse.results.length > 0 && columns.length) {
+                const handleCopy = (format: ExporterFormat): void => {
+                    const dataTableRows: DataTableRow[] = tableResponse.results.map((result) => ({
+                        result: result as Record<string, any> | any[],
+                    }))
+
+                    switch (format) {
+                        case ExporterFormat.CSV:
+                            copyTableToCsv(dataTableRows, columns, dataTableQuery, columns)
+                            break
+                        case ExporterFormat.JSON:
+                            copyTableToJson(dataTableRows, columns, dataTableQuery)
+                            break
+                        case ExporterFormat.XLSX:
+                            copyTableToExcel(dataTableRows, columns, dataTableQuery, columns)
+                            break
+                    }
+                }
+
+                return (
+                    <LemonMenu
+                        items={[
+                            {
+                                label: 'CSV',
+                                onClick: () => handleCopy(ExporterFormat.CSV),
+                            },
+                            {
+                                label: 'JSON',
+                                onClick: () => handleCopy(ExporterFormat.JSON),
+                            },
+                            {
+                                label: 'Excel',
+                                onClick: () => handleCopy(ExporterFormat.XLSX),
+                            },
+                        ]}
+                        placement="bottom-end"
+                    >
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconCopy />}
+                            size="small"
+                            data-attr="web-analytics-copy-dropdown"
+                        >
+                            Copy
+                        </LemonButton>
+                    </LemonMenu>
+                )
+            }
         }
-    }
 
-    if (!hasData) {
         return null
     }
 
     const handleCopy = (format: ExporterFormat): void => {
-        if (isTableQuery) {
-            const tableResponse = responseData as WebStatsTableQueryResponse
-            const columns = (tableResponse.columns as string[]) || []
-            const dataTableQuery = query as DataTableNode
-            const source = dataTableQuery.source
-
-            if (!columns.length) {
-                return
-            }
-
-            const isWebAnalyticsTable =
-                isWebStatsTableQuery(source) || isWebGoalsQuery(source) || isWebExternalClicksQuery(source)
-
-            if (isWebAnalyticsTable) {
-                const webAnalyticsSource = source as WebStatsTableQuery | WebGoalsQuery | WebExternalClicksTableQuery
-
-                switch (format) {
-                    case ExporterFormat.CSV:
-                        copyWebAnalyticsTableToCsv(tableResponse, columns, webAnalyticsSource)
-                        break
-                    case ExporterFormat.JSON:
-                        copyWebAnalyticsTableToJson(tableResponse, columns, webAnalyticsSource)
-                        break
-                    case ExporterFormat.XLSX:
-                        copyWebAnalyticsTableToExcel(tableResponse, columns, webAnalyticsSource)
-                        break
-                }
-            } else {
-                const dataTableRows: DataTableRow[] = tableResponse.results.map((result) => ({
-                    result: result as Record<string, any> | any[],
-                }))
-
-                if (!dataTableRows.length) {
-                    return
-                }
-
-                switch (format) {
-                    case ExporterFormat.CSV:
-                        copyTableToCsv(dataTableRows, columns, dataTableQuery, columns)
-                        break
-                    case ExporterFormat.JSON:
-                        copyTableToJson(dataTableRows, columns, dataTableQuery)
-                        break
-                    case ExporterFormat.XLSX:
-                        copyTableToExcel(dataTableRows, columns, dataTableQuery, columns)
-                        break
-                }
-            }
-        } else if (isWebTrendsViz) {
-            const trendsResponse = responseData as WebTrendsQueryResponse
-            const insightVizNode = query as InsightVizNode
-            const trendsQuery = insightVizNode.source
-
-            if (!isWebTrendsQuery(trendsQuery)) {
-                return
-            }
-
-            switch (format) {
-                case ExporterFormat.CSV:
-                    copyWebTrendsToCsv(trendsResponse, trendsQuery)
-                    break
-                case ExporterFormat.JSON:
-                    copyWebTrendsToJson(trendsResponse, trendsQuery)
-                    break
-                case ExporterFormat.XLSX:
-                    copyWebTrendsToExcel(trendsResponse, trendsQuery)
-                    break
-            }
-        } else if (isTrendsViz) {
-            const trendsResponse = responseData as TrendsQueryResponse
-
-            if (isCalendarHeatmap) {
-                // For active hours heatmap: rows are days (Sun-Sat), columns are hours (0-23)
-                const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-                const hourLabels = Array.from({ length: 24 }, (_, i) => String(i))
-
-                switch (format) {
-                    case ExporterFormat.CSV:
-                        copyCalendarHeatmapToCsv(trendsResponse, dayLabels, hourLabels)
-                        break
-                    case ExporterFormat.JSON:
-                        copyCalendarHeatmapToJson(trendsResponse, dayLabels, hourLabels)
-                        break
-                    case ExporterFormat.XLSX:
-                        copyCalendarHeatmapToExcel(trendsResponse, dayLabels, hourLabels)
-                        break
-                }
-            } else {
-                switch (format) {
-                    case ExporterFormat.CSV:
-                        copyTrendsToCsv(trendsResponse)
-                        break
-                    case ExporterFormat.JSON:
-                        copyTrendsToJson(trendsResponse)
-                        break
-                    case ExporterFormat.XLSX:
-                        copyTrendsToExcel(trendsResponse)
-                        break
-                }
-            }
-        }
+        const tableData = adapter.toTableData(insightDataRaw, query)
+        exportTableData(tableData, format)
     }
 
     return (
