@@ -1202,13 +1202,20 @@
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_3_person_id_override_properties_joined
   '''
-  
-  SELECT timestamp
-  from events
-  WHERE team_id = 99999
-    AND timestamp > '2015-01-01'
-  order by timestamp
-  limit 1
+  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  FROM events
+  WHERE and(equals(events.team_id, 99999), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')))
+  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  LIMIT 1 SETTINGS readonly=2,
+                   max_execution_time=60,
+                   allow_experimental_object_type=1,
+                   format_csv_allow_double_quotes=0,
+                   max_ast_elements=4000000,
+                   max_expanded_ast_elements=4000000,
+                   max_bytes_before_external_group_by=0,
+                   transform_null_in=1,
+                   optimize_min_equality_disjunction_chain_length=4294967295,
+                   allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_3_person_id_override_properties_joined.1
