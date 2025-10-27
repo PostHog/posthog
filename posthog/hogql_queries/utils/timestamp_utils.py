@@ -40,17 +40,24 @@ def _get_data_warehouse_earliest_timestamp_query(node: DataWarehouseNode) -> Sel
 def _get_event_earliest_timestamp_query(team: Team, node: Union[EventsNode, ActionsNode]) -> SelectQuery:
     """
     Get the select query for the earliest timestamp for a specific event or action.
-    This is used for "Since event first seen" date filtering.
+    This is used for "All time" date filtering.
 
     :param team: The team
     :param node: The EventsNode or ActionsNode to filter by
-            - EventsNode with event="pageview": earliest timestamp for $pageview events
-            - EventsNode with event=None: earliest timestamp across ANY event (no WHERE clause)
-            - ActionsNode: earliest timestamp matching the action's criteria
+            - EventsNode with event="pageview": earliest timestamp for $pageview events after 1980
+            - EventsNode with event=None: earliest timestamp across ANY event after 1980
+            - ActionsNode: earliest timestamp matching the action's criteria after 1980
     :return: A SelectQuery object that retrieves the earliest timestamp for the specific event/action.
     """
 
-    where_exprs: list[ast.Expr] = []
+    where_exprs: list[ast.Expr] = [
+        # Always filter out events before 1980 to exclude corrupted/invalid timestamps
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.Gt,
+            left=ast.Field(chain=["timestamp"]),
+            right=ast.Constant(value=EARLIEST_EVENT_TIMESTAMP),
+        )
+    ]
 
     if isinstance(node, ActionsNode):
         action = Action.objects.get(pk=node.id, team=team)
@@ -67,7 +74,7 @@ def _get_event_earliest_timestamp_query(team: Team, node: Union[EventsNode, Acti
     return ast.SelectQuery(
         select=[ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])],
         select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-        where=ast.And(exprs=where_exprs) if where_exprs else None,
+        where=ast.And(exprs=where_exprs),
     )
 
 

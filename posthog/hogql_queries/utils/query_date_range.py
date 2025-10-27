@@ -114,7 +114,7 @@ class QueryDateRange:
 
     def date_from(self) -> datetime:
         date_from: datetime
-        if self._date_range and self._date_range.date_from in ("all", "since_event_first_seen"):
+        if self._date_range and self._date_range.date_from == "all":
             date_from = self.get_earliest_timestamp()
         elif self._date_range and isinstance(self._date_range.date_from, str):
             date_from = relative_date_parse(

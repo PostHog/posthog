@@ -68,11 +68,7 @@ from posthog.hogql_queries.utils.formula_ast import FormulaAST
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.hogql_queries.utils.timestamp_utils import (
-    format_label_date,
-    get_earliest_timestamp_from_series,
-    get_team_earliest_timestamp,
-)
+from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_from_series
 from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
@@ -672,22 +668,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
     @cached_property
     def _earliest_timestamp(self) -> datetime | None:
-        """
-        Compute the earliest timestamp based on the date filter.
-        Both paths use cached functions for optimal performance.
-
-        - "all": Global earliest across all events (team-level cache)
-        - "since_event_first_seen": Earliest across all series events (event-specific cache)
-        """
-        if not self.query.dateRange:
-            return None
-
-        if self.query.dateRange.date_from == "all":
-            # Global earliest across all events (cached at team level)
-            return get_team_earliest_timestamp(team=self.team)
-
-        if self.query.dateRange.date_from == "since_event_first_seen":
-            # Event-specific earliest across all series (cached per event)
+        if self.query.dateRange and self.query.dateRange.date_from == "all":
+            # Get earliest timestamp across all series in this insight
             return get_earliest_timestamp_from_series(team=self.team, series=[series.series for series in self.series])
 
         return None
