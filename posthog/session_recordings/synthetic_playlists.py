@@ -25,7 +25,7 @@ except ImportError:
 
 
 class GetSessionIdsCallable(Protocol):
-    def __call__(self, team: Team, user: User, limit: int | None = None) -> list[str]: ...
+    def __call__(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]: ...
 
 
 class CountSessionIdsCallable(Protocol):
@@ -33,8 +33,24 @@ class CountSessionIdsCallable(Protocol):
 
 
 class SyntheticPlaylistSource(ABC):
+    @staticmethod
+    def _slice_indices(limit: int | None = None, offset: int | None = None) -> tuple[int, int | None]:
+        start = offset or 0
+        end = (start + limit) if limit is not None else None
+        return start, end
+
+    @staticmethod
+    def _paginate_queryset(queryset, limit: int | None = None, offset: int | None = None):
+        start, end = SyntheticPlaylistSource._slice_indices(limit, offset)
+        return queryset[start:end]
+
+    @staticmethod
+    def _paginate_list(items: list[str], limit: int | None = None, offset: int | None = None) -> list[str]:
+        start, end = SyntheticPlaylistSource._slice_indices(limit, offset)
+        return items[start:end]
+
     @abstractmethod
-    def get_session_ids(self, team: Team, user: User, limit: int | None = None) -> list[str]:
+    def get_session_ids(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]:
         pass
 
     @abstractmethod
@@ -48,11 +64,9 @@ class SyntheticPlaylistSource(ABC):
 
 @dataclass
 class WatchedPlaylistSource(SyntheticPlaylistSource):
-    def get_session_ids(self, team: Team, user: User, limit: int | None = None) -> list[str]:
+    def get_session_ids(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]:
         qs = SessionRecordingViewed.objects.filter(team=team, user=user).order_by("-created_at")
-        if limit is not None:
-            qs = qs[:limit]
-        return list(qs.values_list("session_id", flat=True))
+        return list(self._paginate_queryset(qs, limit, offset).values_list("session_id", flat=True))
 
     def count_session_ids(self, team: Team, user: User) -> int:
         return SessionRecordingViewed.objects.filter(team=team, user=user).count()
@@ -72,16 +86,14 @@ class WatchedPlaylistSource(SyntheticPlaylistSource):
 
 @dataclass
 class CommentedPlaylistSource(SyntheticPlaylistSource):
-    def get_session_ids(self, team: Team, user: User, limit: int | None = None) -> list[str]:
+    def get_session_ids(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]:
         qs = (
             Comment.objects.filter(team=team, scope="Replay", deleted=False)
             .exclude(item_id__isnull=True)
             .values_list("item_id", flat=True)
             .distinct()
         )
-        if limit is not None:
-            qs = qs[:limit]
-        return list(qs)
+        return list(self._paginate_queryset(qs, limit, offset))
 
     def count_session_ids(self, team: Team, user: User) -> int:
         return (
@@ -107,16 +119,14 @@ class CommentedPlaylistSource(SyntheticPlaylistSource):
 
 @dataclass
 class SharedPlaylistSource(SyntheticPlaylistSource):
-    def get_session_ids(self, team: Team, user: User, limit: int | None = None) -> list[str]:
+    def get_session_ids(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]:
         qs = (
             SharingConfiguration.objects.filter(team=team, enabled=True)
             .exclude(recording__isnull=True)
             .values_list("recording__session_id", flat=True)
             .distinct()
         )
-        if limit is not None:
-            qs = qs[:limit]
-        return list(qs)
+        return list(self._paginate_queryset(qs, limit, offset))
 
     def count_session_ids(self, team: Team, user: User) -> int:
         return (
@@ -142,7 +152,7 @@ class SharedPlaylistSource(SyntheticPlaylistSource):
 
 @dataclass
 class ExportedPlaylistSource(SyntheticPlaylistSource):
-    def get_session_ids(self, team: Team, user: User, limit: int | None = None) -> list[str]:
+    def get_session_ids(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]:
         qs = (
             ExportedAsset.objects.filter(team=team)
             .filter(export_context__has_key="session_recording_id")
@@ -151,10 +161,8 @@ class ExportedPlaylistSource(SyntheticPlaylistSource):
             .order_by("-created_at")
             .values_list("export_context__session_recording_id", flat=True)
         )
-        if limit is not None:
-            qs = qs[:limit]
-        # Remove duplicates while preserving order (most recent first)
-        return list(dict.fromkeys(qs))
+        session_ids = list(dict.fromkeys(qs))
+        return self._paginate_list(session_ids, limit, offset)
 
     def count_session_ids(self, team: Team, user: User) -> int:
         return (
@@ -182,7 +190,7 @@ class ExportedPlaylistSource(SyntheticPlaylistSource):
 
 @dataclass
 class SummarisedPlaylistSource(SyntheticPlaylistSource):
-    def get_session_ids(self, team: Team, user: User, limit: int | None = None) -> list[str]:
+    def get_session_ids(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]:
         if not HAS_EE:
             return []
         qs = (
@@ -191,9 +199,7 @@ class SummarisedPlaylistSource(SyntheticPlaylistSource):
             .values_list("session_id", flat=True)
             .distinct()
         )
-        if limit is not None:
-            qs = qs[:limit]
-        return list(qs)
+        return list(self._paginate_queryset(qs, limit, offset))
 
     def count_session_ids(self, team: Team, user: User) -> int:
         if not HAS_EE:
@@ -215,19 +221,16 @@ class SummarisedPlaylistSource(SyntheticPlaylistSource):
 
 @dataclass
 class ExpiringPlaylistSource(SyntheticPlaylistSource):
-    def get_session_ids(self, team: Team, user: User, limit: int | None = None) -> list[str]:
-        query = RecordingsQuery(limit=1000, order=RecordingOrder.RECORDING_TTL)
+    def get_session_ids(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]:
+        fetch_limit = ((offset or 0) + (limit or 50)) * 2
+        query = RecordingsQuery(limit=fetch_limit, order=RecordingOrder.RECORDING_TTL)
         recordings, _, _ = list_recordings_from_query(query, user, team)
 
         now = datetime.now(UTC)
         ten_days_from_now = now + timedelta(days=10)
 
         result = [r.session_id for r in recordings if r.expiry_time and now <= r.expiry_time <= ten_days_from_now]
-
-        if limit:
-            result = result[:limit]
-
-        return result
+        return self._paginate_list(result, limit, offset)
 
     def count_session_ids(self, team: Team, user: User) -> int:
         query = RecordingsQuery(limit=10000, order=RecordingOrder.RECORDING_TTL)

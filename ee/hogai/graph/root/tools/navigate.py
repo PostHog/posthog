@@ -18,12 +18,16 @@ These pages are tied to PostHog's products and/or functionalities and provide to
 After navigating to a page, you can use the tools available there to retrieve information or perform actions.
 Make sure that the state is aligned with the user's request using the tools available.
 
-Some of the pages in the app have helpful descriptions. Some have tools that you can use only there. See the following list:
-{{{scene_descriptions}}}
+# When to use this tool
+- To access tools that are only available on specific pages.
+- To navigate to a page that the user is looking for.
+- If the user asks to do something fun in the platform, you can navigate them to the `game368hedgehogs` page.
 
-General rules for navigation:
-- If you don't have tools available for a specific functionality, navigate to the relevant product page to get access to its tools.
-- If a user asks to do something fun in the platform you can navigate them to the `game368hedgehogs` page.
+# When NOT to use this tool:
+- If the currently defined tools can be used to assist the user. For example, if a SQL query fails, the tools of the SQL Editor page will not fix the query.
+
+# List of pages and the tools available on a page
+{{{scene_descriptions}}}
 """.strip()
 
 

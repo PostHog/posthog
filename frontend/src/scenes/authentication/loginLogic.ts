@@ -95,6 +95,27 @@ export const loginLogic = kea<loginLogicType>([
                 },
             },
         ],
+        resendResponse: [
+            null as { success: boolean; message: string } | null,
+            {
+                resendEmailMFA: async (_, breakpoint) => {
+                    breakpoint()
+                    try {
+                        const response = await api.create<any>('api/login/email-mfa/resend')
+                        lemonToast.success('Verification email resent')
+                        return response
+                    } catch (e) {
+                        const { code, detail } = e as Record<string, any>
+                        if (code === 'too_soon') {
+                            lemonToast.error(detail || 'Please wait before requesting another email')
+                        } else {
+                            lemonToast.error(detail || 'Failed to resend email')
+                        }
+                        return null
+                    }
+                },
+            },
+        ],
     })),
     selectors(() => ({
         signupUrl: [
@@ -117,16 +138,25 @@ export const loginLogic = kea<loginLogicType>([
                 try {
                     return await api.create<any>('api/login', { email, password })
                 } catch (e) {
-                    const { code } = e as Record<string, any>
-                    let { detail } = e as Record<string, any>
+                    const { code, detail } = e as Record<string, any>
                     if (code === '2fa_required') {
                         router.actions.push(urls.login2FA())
                         throw e
                     }
-                    if (code === 'invalid_credentials' && values.preflight?.cloud) {
-                        detail += ' Make sure you have selected the right data region.'
+                    if (code === 'email_mfa_required') {
+                        const emailAddress = detail?.email || email
+                        actions.setGeneralError(
+                            'email_verification_sent',
+                            `For your security, we've sent a verification link to ${emailAddress}. Please check your inbox and click the link to complete
+  your login.`
+                        )
+                        throw e
                     }
-                    actions.setGeneralError(code, detail)
+                    let errorDetail = detail
+                    if (code === 'invalid_credentials' && values.preflight?.cloud) {
+                        errorDetail = detail + ' Make sure you have selected the right data region.'
+                    }
+                    actions.setGeneralError(code, errorDetail)
                     throw e
                 }
             },
