@@ -1590,15 +1590,15 @@ wheels = [
 
 [[package]]
 name = "django-redis"
-version = "5.2.0"
+version = "6.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "django" },
     { name = "redis" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1b/9d/e4f6b6974f602b6c2dd08694b66cd3b30ca75640d185a566d0c075e4b71f/django-redis-5.2.0.tar.gz", hash = "sha256:8a99e5582c79f894168f5865c52bd921213253b7fd64d16733ae4591564465de", size = 44132, upload-time = "2021-12-22T15:10:38.485Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/08/53/dbcfa1e528e0d6c39947092625b2c89274b5d88f14d357cee53c4d6dbbd4/django_redis-6.0.0.tar.gz", hash = "sha256:2d9cb12a20424a4c4dde082c6122f486628bae2d9c2bee4c0126a4de7fda00dd", size = 56904, upload-time = "2025-06-17T18:15:46.376Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/75/59/35ac380419a4eafcc30660eaf142cbb334b19922c7250254636e406b8b82/django_redis-5.2.0-py3-none-any.whl", hash = "sha256:1d037dc02b11ad7aa11f655d26dac3fb1af32630f61ef4428860a2e29ff92026", size = 30837, upload-time = "2021-12-22T15:10:32.31Z" },
+    { url = "https://files.pythonhosted.org/packages/7e/79/055dfcc508cfe9f439d9f453741188d633efa9eab90fc78a67b0ab50b137/django_redis-6.0.0-py3-none-any.whl", hash = "sha256:20bf0063a8abee567eb5f77f375143c32810c8700c0674ced34737f8de4e36c0", size = 33687, upload-time = "2025-06-17T18:15:34.165Z" },
 ]
 
 [[package]]
@@ -4430,7 +4430,7 @@ requires-dist = [
     { name = "django-oauth-toolkit", specifier = ">=3.0.1" },
     { name = "django-picklefield", specifier = "==3.0.1" },
     { name = "django-prometheus", specifier = "==2.2.0" },
-    { name = "django-redis", specifier = "==5.2.0" },
+    { name = "django-redis", specifier = "==6.0.0" },
     { name = "django-statsd", specifier = "==2.5.2" },
     { name = "django-structlog", extras = ["celery"], specifier = "~=9.1.0" },
     { name = "django-two-factor-auth", specifier = "~=1.18.0" },
@@ -4499,7 +4499,7 @@ requires-dist = [
     { name = "pyarrow", specifier = "==18.1.0" },
     { name = "pydantic", specifier = "==2.10.3" },
     { name = "pydantic-avro", specifier = ">=0.9.0" },
-    { name = "pyjwt", specifier = "~=2.7.0" },
+    { name = "pyjwt", specifier = "~=2.10.0" },
     { name = "pymongo", specifier = "==4.13.2" },
     { name = "pympler", specifier = "==1.1" },
     { name = "pymssql", specifier = "==2.3.5" },
@@ -4510,7 +4510,7 @@ requires-dist = [
     { name = "python3-saml", specifier = "==1.16.0" },
     { name = "pytz", specifier = "==2023.3" },
     { name = "pyyaml", specifier = "==6.0.1" },
-    { name = "redis", specifier = "==4.5.4" },
+    { name = "redis", specifier = "==5.3.1" },
     { name = "requests", specifier = "~=2.32.3" },
     { name = "retry", specifier = "==0.9.2" },
     { name = "runloop-api-client", specifier = ">=0.60.0" },
@@ -4989,11 +4989,11 @@ wheels = [
 
 [[package]]
 name = "pyjwt"
-version = "2.7.0"
+version = "2.10.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e0/f0/9804c72e9a314360c135f42c434eb42eaabb5e7ebad760cbd8fc7023be38/PyJWT-2.7.0.tar.gz", hash = "sha256:bd6ca4a3c4285c1a2d4349e5a035fdf8fb94e04ccd0fcbe6ba289dae9cc3e074", size = 77902, upload-time = "2023-05-09T20:04:43.179Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e7/46/bd74733ff231675599650d3e47f361794b22ef3e3770998dda30d3b63726/pyjwt-2.10.1.tar.gz", hash = "sha256:3cc5772eb20009233caf06e9d8a0577824723b44e6648ee0a2aedb6cf9381953", size = 87785, upload-time = "2024-11-28T03:43:29.933Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c7/e8/01b2e35d81e618a8212e651e10c91660bdfda49c1d15ce66f4ca1ff43649/PyJWT-2.7.0-py3-none-any.whl", hash = "sha256:ba2b425b15ad5ef12f200dc67dd56af4e26de2331f965c5439994dad075876e1", size = 22366, upload-time = "2023-05-09T20:04:39.903Z" },
+    { url = "https://files.pythonhosted.org/packages/61/ad/689f02752eeec26aed679477e80e632ef1b682313be70793d798c1d5fc8f/PyJWT-2.10.1-py3-none-any.whl", hash = "sha256:dcdd193e30abefd5debf142f9adfcdd2b58004e644f25406ffaebd50bd98dacb", size = 22997, upload-time = "2024-11-28T03:43:27.893Z" },
 ]
 
 [package.optional-dependencies]
@@ -5418,11 +5418,14 @@ wheels = [
 
 [[package]]
 name = "redis"
-version = "4.5.4"
+version = "5.3.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/15/00/141ee6abca8d32448b23539e8f0e74091842c30ef357b636b372e2606aa9/redis-4.5.4.tar.gz", hash = "sha256:73ec35da4da267d6847e47f68730fdd5f62e2ca69e3ef5885c6a78a9374c3893", size = 4552103, upload-time = "2023-03-29T13:31:08.61Z" }
+dependencies = [
+    { name = "pyjwt" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6a/cf/128b1b6d7086200c9f387bd4be9b2572a30b90745ef078bd8b235042dc9f/redis-5.3.1.tar.gz", hash = "sha256:ca49577a531ea64039b5a36db3d6cd1a0c7a60c34124d46924a45b956e8cf14c", size = 4626200, upload-time = "2025-07-25T08:06:27.778Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b5/d4/ef474a49ec5821f3155c5de2d37ddcc4a497e2500cd16d4a9e51ce02030d/redis-4.5.4-py3-none-any.whl", hash = "sha256:2c19e6767c474f2e85167909061d525ed65bea9301c0770bb151e041b7ac89a2", size = 238873, upload-time = "2023-03-29T13:31:06.319Z" },
+    { url = "https://files.pythonhosted.org/packages/7f/26/5c5fa0e83c3621db835cfc1f1d789b37e7fa99ed54423b5f519beb931aa7/redis-5.3.1-py3-none-any.whl", hash = "sha256:dc1909bd24669cc31b5f67a039700b16ec30571096c5f1f0d9d2324bff31af97", size = 272833, upload-time = "2025-07-25T08:06:26.317Z" },
 ]
 
 [[package]]

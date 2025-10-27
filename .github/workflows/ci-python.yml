@@ -36,6 +36,8 @@ jobs:
                         - .github/workflows/ci-python.yml
                         - .github/workflows/ci-dagster.yml
                         - .github/workflows/ci-backend.yml
+                        - .flox/env/manifest.toml
+                        - bin/check_uv_python_compatibility.py
                         # Schema changes need to trigger Python CI to validate schema.py is regenerated
                         - 'frontend/src/queries/schema.json'
 
@@ -70,6 +72,11 @@ jobs:
               with:
                   enable-cache: true
                   version: 0.8.19
+
+            - name: Check uv and Python version compatibility
+              shell: bash
+              run: |
+                  python3 bin/check_uv_python_compatibility.py
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
