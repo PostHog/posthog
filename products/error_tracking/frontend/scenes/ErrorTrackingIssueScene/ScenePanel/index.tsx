@@ -17,7 +17,7 @@ import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 import { BaseActions } from './BaseActions'
 import { IssueAssigneeSelect } from './IssueAssigneeSelect'
 import { IssueStatusSelect } from './IssueStatusSelect'
-import { SimilarIssueList } from './SimilarIssueList'
+import { SimilarIssuesList } from './SimilarIssuesList'
 
 const RESOURCE_TYPE = 'issue'
 
@@ -54,7 +54,7 @@ export const ErrorTrackingIssueScenePanel = ({ showActions = true }: { showActio
             {hasIssueSplitting && <IssueFingerprints />}
             {hasTasks && <IssueTasks />}
             <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
-            {hasSimilarIssues && <SimilarIssueList />}
+            {hasSimilarIssues && <SimilarIssuesList />}
         </div>
     ) : null
 }

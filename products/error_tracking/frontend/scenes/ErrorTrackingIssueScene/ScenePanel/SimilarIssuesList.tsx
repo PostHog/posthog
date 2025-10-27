@@ -15,7 +15,7 @@ import SimilarIssueCard from '../../../components/SimilarIssueCard'
 import { useErrorTagRenderer } from '../../../hooks/use-error-tag-renderer'
 import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 
-export const SimilarIssueList = (): JSX.Element => {
+export const SimilarIssuesList = (): JSX.Element => {
     const { issue, similarIssues, similarIssuesLoading } = useValues(errorTrackingIssueSceneLogic)
     const { loadSimilarIssues } = useActions(errorTrackingIssueSceneLogic)
     const { mergeIssues } = useAsyncActions(issueActionsLogic)
