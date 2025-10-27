@@ -502,6 +502,10 @@ export class HogFlowExecutorService {
                 return
             }
 
+            if (!result.invocation.state.variables) {
+                result.invocation.state.variables = {}
+            }
+
             result.invocation.state.variables[action.output_variable.key] = action.output_variable?.result_path
                 ? get(actionResult, action.output_variable.result_path)
                 : actionResult
