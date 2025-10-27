@@ -206,6 +206,180 @@ jobs:
             - name: Check if mobile replay "schema.json" is up to date
               run: pnpm --filter=@posthog/ee mobile-replay:schema:build:json && git diff --exit-code
 
+    vite-build-test:
+        name: Vite build test and bundle comparison
+        needs: [changes]
+        if: needs.changes.outputs.frontend == 'true'
+        runs-on: depot-ubuntu-24.04-4
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22.17.1
+                  cache: 'pnpm'
+
+            - name: Get pnpm cache directory path
+              id: pnpm-cache-dir
+              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+            - uses: actions/cache@v4
+              id: pnpm-cache
+              with:
+                  path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
+                  key: ${{ runner.os }}-pnpm-frontend-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-pnpm-frontend-
+
+            - name: Install package.json dependencies with pnpm
+              run: |
+                  pnpm --filter=@posthog/playwright... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/frontend prepare
+
+            - name: Build products
+              run: pnpm --filter=@posthog/frontend build:products
+
+            - name: Build with ESBuild (baseline)
+              run: pnpm --filter=@posthog/frontend build
+              env:
+                  NODE_OPTIONS: --max-old-space-size=16384
+
+            - name: Collect ESBuild bundle stats
+              run: |
+                  echo "=== ESBuild Bundle Analysis ===" > esbuild-stats.txt
+                  echo "Build completed at: $(date)" >> esbuild-stats.txt
+                  echo "" >> esbuild-stats.txt
+                  ls -la frontend/dist/ >> esbuild-stats.txt
+                  echo "" >> esbuild-stats.txt
+                  echo "File sizes:" >> esbuild-stats.txt
+                  du -h frontend/dist/*.js frontend/dist/*.css 2>/dev/null >> esbuild-stats.txt || true
+                  echo "" >> esbuild-stats.txt
+                  echo "Total dist size:" >> esbuild-stats.txt
+                  du -sh frontend/dist/ >> esbuild-stats.txt
+
+            - name: Save ESBuild artifacts
+              run: |
+                  mkdir -p build-comparison/esbuild
+                  cp -r frontend/dist/* build-comparison/esbuild/
+                  cp esbuild-stats.txt build-comparison/
+
+            - name: Clean dist directory
+              run: rm -rf frontend/dist/*
+
+            - name: Build with Vite
+              run: NODE_OPTIONS="--max-old-space-size=16384" POSTHOG_USE_VITE_PROD=1 pnpm --filter=@posthog/frontend build
+
+            - name: Collect Vite bundle stats
+              run: |
+                  echo "=== Vite Bundle Analysis ===" > vite-stats.txt
+                  echo "Build completed at: $(date)" >> vite-stats.txt
+                  echo "" >> vite-stats.txt
+                  ls -la frontend/dist/ >> vite-stats.txt
+                  echo "" >> vite-stats.txt
+                  echo "File sizes:" >> vite-stats.txt
+                  du -h frontend/dist/*.js frontend/dist/*.css 2>/dev/null >> vite-stats.txt || true
+                  echo "" >> vite-stats.txt
+                  echo "Total dist size:" >> vite-stats.txt
+                  du -sh frontend/dist/ >> vite-stats.txt
+
+            - name: Save Vite artifacts
+              run: |
+                  mkdir -p build-comparison/vite
+                  cp -r frontend/dist/* build-comparison/vite/
+                  cp vite-stats.txt build-comparison/
+
+            - name: Generate bundle comparison report
+              run: |
+                  echo "# Bundle Size Comparison Report" > build-comparison/comparison-report.md
+                  echo "" >> build-comparison/comparison-report.md
+                  echo "Generated on: $(date)" >> build-comparison/comparison-report.md
+                  echo "" >> build-comparison/comparison-report.md
+
+                  echo "## ESBuild Results" >> build-comparison/comparison-report.md
+                  echo "\`\`\`" >> build-comparison/comparison-report.md
+                  cat build-comparison/esbuild-stats.txt >> build-comparison/comparison-report.md
+                  echo "\`\`\`" >> build-comparison/comparison-report.md
+                  echo "" >> build-comparison/comparison-report.md
+
+                  echo "## Vite Results" >> build-comparison/comparison-report.md
+                  echo "\`\`\`" >> build-comparison/comparison-report.md
+                  cat build-comparison/vite-stats.txt >> build-comparison/comparison-report.md
+                  echo "\`\`\`" >> build-comparison/comparison-report.md
+                  echo "" >> build-comparison/comparison-report.md
+
+                  echo "## Bundle Size Comparison" >> build-comparison/comparison-report.md
+                  echo "" >> build-comparison/comparison-report.md
+
+                  # Compare specific entry points
+                  for entry in index exporter render-query toolbar; do
+                      echo "### $entry.js" >> build-comparison/comparison-report.md
+                      esbuild_size=$(find build-comparison/esbuild -name "${entry}*.js" -exec du -h {} \; | cut -f1 | head -1)
+                      vite_size=$(find build-comparison/vite -name "${entry}*.js" -exec du -h {} \; | cut -f1 | head -1)
+                      echo "- ESBuild: $esbuild_size" >> build-comparison/comparison-report.md
+                      echo "- Vite: $vite_size" >> build-comparison/comparison-report.md
+                      echo "" >> build-comparison/comparison-report.md
+                  done
+
+            - name: Validate build artifacts
+              run: |
+                  echo "Validating Vite build artifacts..."
+
+                  # Check that all expected entry points exist
+                  for entry in index exporter render-query toolbar testWorker; do
+                      if ! find build-comparison/vite -name "${entry}*.js" | grep -q .; then
+                          echo "❌ Missing entry point: $entry"
+                          exit 1
+                      else
+                          echo "✅ Found entry point: $entry"
+                      fi
+                  done
+
+                  # Check that manifest.json exists
+                  if [ ! -f "build-comparison/vite/.vite/manifest.json" ]; then
+                      echo "❌ Missing Vite manifest.json"
+                      exit 1
+                  else
+                      echo "✅ Found Vite manifest.json"
+                  fi
+
+                  # Check that assets are copied
+                  if [ ! -d "build-comparison/vite/assets" ]; then
+                      echo "❌ Missing assets directory"
+                      exit 1
+                  else
+                      echo "✅ Found assets directory"
+                  fi
+
+                  echo "✅ All Vite build artifacts validated successfully"
+
+            - name: Upload build comparison artifacts
+              uses: actions/upload-artifact@v4
+              with:
+                  name: bundle-comparison-${{ github.run_id }}
+                  path: build-comparison/
+                  retention-days: 7
+
+            - name: Comment bundle comparison on PR
+              if: github.event_name == 'pull_request'
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const fs = require('fs');
+
+                      if (fs.existsSync('build-comparison/comparison-report.md')) {
+                          const report = fs.readFileSync('build-comparison/comparison-report.md', 'utf8');
+                          
+                          github.rest.issues.createComment({
+                              issue_number: context.issue.number,
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              body: `## 📦 Vite Build Test Results\n\n${report}\n\n*This comment was generated by the vite-build-test CI job.*`
+                          });
+                      }
+
     jest:
         runs-on: depot-ubuntu-24.04
         needs: changes
@@ -247,7 +421,7 @@ jobs:
 
     calculate-running-time:
         name: Calculate running time
-        needs: [jest, frontend-typescript-checks, frontend-format, frontend-toolbar-checks, changes]
+        needs: [jest, frontend-typescript-checks, frontend-format, frontend-toolbar-checks, vite-build-test, changes]
         runs-on: ubuntu-latest
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
             needs.changes.outputs.frontend == 'true' && (
@@ -286,7 +460,7 @@ jobs:
                   properties: '{"runner": "depot", "duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'
 
     frontend_tests:
-        needs: [jest, frontend-format, frontend-toolbar-checks, frontend-typescript-checks]
+        needs: [jest, frontend-format, frontend-toolbar-checks, frontend-typescript-checks, vite-build-test]
         name: Frontend Tests Pass
         runs-on: ubuntu-latest
         if: always()
@@ -314,3 +488,8 @@ jobs:
                     exit 1
                   fi
                   echo "Frontend TypeScript checks passed."
+                  if [[ "${{ needs.vite-build-test.result }}" != "success" && "${{ needs.vite-build-test.result }}" != "skipped" ]]; then
+                    echo "Vite build test failed."
+                    exit 1
+                  fi
+                  echo "Vite build test passed."
