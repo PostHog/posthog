@@ -1372,7 +1372,7 @@ export type SearchResponse = {
     counts: Record<SearchableEntity, number | null>
 }
 
-export type GroupListParams = { group_type_index: GroupTypeIndex; search: string }
+export type GroupListParams = { group_type_index: GroupTypeIndex; search: string; limit?: number }
 
 export type CreateGroupParams = {
     group_type_index: GroupTypeIndex

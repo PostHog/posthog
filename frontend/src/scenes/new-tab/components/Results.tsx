@@ -26,6 +26,7 @@ import { urls } from 'scenes/urls'
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
+import { groupsModel } from '~/models/groupsModel'
 import { SidePanelTab } from '~/types'
 
 import { NoResultsFound } from './NoResultsFound'
@@ -37,6 +38,7 @@ export const getCategoryDisplayName = (category: string): string => {
         'data-management': 'Data management',
         recents: 'Recents',
         persons: 'Persons',
+        groups: 'Groups',
         eventDefinitions: 'Events',
         propertyDefinitions: 'Properties',
         askAI: 'Posthog AI',
@@ -128,6 +130,7 @@ function Category({
         newTabSceneDataInclude,
     } = useValues(newTabSceneLogic({ tabId }))
     const { showMoreInSection } = useActions(newTabSceneLogic({ tabId }))
+    const { groupTypes } = useValues(groupsModel)
 
     return (
         <>
@@ -151,7 +154,7 @@ function Category({
                         {category === 'recents' && isSearching && <Spinner size="small" />}
                         {/* Show "No results found" tag for other categories when empty and include is NOT 'all' */}
                         {newTabSceneData &&
-                            !['persons', 'eventDefinitions', 'propertyDefinitions'].includes(category) &&
+                            !['persons', 'groups', 'eventDefinitions', 'propertyDefinitions'].includes(category) &&
                             typedItems.length === 0 &&
                             !newTabSceneDataInclude.includes('all') && (
                                 <LemonTag className="text-xs text-tertiary" size="small">
@@ -333,6 +336,19 @@ function Category({
                                         }}
                                     >
                                         <IconArrowRight /> See all events
+                                    </Link>
+                                </ListBox.Item>
+                            )}
+                            {category === 'groups' && groupTypes.size > 0 && (
+                                <ListBox.Item asChild>
+                                    <Link
+                                        to={urls.groups(Array.from(groupTypes.keys())[0])}
+                                        buttonProps={{
+                                            size: 'sm',
+                                            className: 'w-full text-tertiary data-[focused=true]:text-primary',
+                                        }}
+                                    >
+                                        <IconArrowRight /> See all groups
                                     </Link>
                                 </ListBox.Item>
                             )}
