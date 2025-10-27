@@ -67,15 +67,21 @@ def call_root_for_insight_generation(demo_org_team_user):
             final_state_raw = await graph.ainvoke(final_state, {"configurable": {"thread_id": conversation.id}})
             final_state = AssistantState.model_validate(final_state_raw)
 
-        if not final_state.messages or not isinstance(final_state.messages[-1], VisualizationMessage):
+        # The order is a viz message, tool call message, and assistant message.
+        if (
+            not final_state.messages
+            or not len(final_state.messages) >= 3
+            or not isinstance(final_state.messages[-3], VisualizationMessage)
+        ):
             return {
                 "plan": None,
                 "query": None,
                 "query_generation_retry_count": final_state.query_generation_retry_count,
             }
+
         return {
-            "plan": final_state.messages[-1].plan,
-            "query": final_state.messages[-1].answer,
+            "plan": final_state.messages[-3].plan,
+            "query": final_state.messages[-3].answer,
             "query_generation_retry_count": final_state.query_generation_retry_count,
         }
 
