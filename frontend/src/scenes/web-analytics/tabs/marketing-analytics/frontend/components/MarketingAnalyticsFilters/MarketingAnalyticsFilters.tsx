@@ -10,6 +10,7 @@ import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollec
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../../logic/marketingAnalyticsTilesLogic'
+import { AddIntegrationButton } from './AddIntegrationButton'
 import { IntegrationFilter } from './IntegrationFilter'
 
 export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
@@ -23,6 +24,7 @@ export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.
                 left={<ReloadAll />}
                 right={
                     <>
+                        <AddIntegrationButton />
                         <IntegrationFilter />
                         <DateFilter
                             allowTimePrecision

@@ -10,7 +10,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.visitor import clear_locations
 
 
@@ -24,11 +24,11 @@ class TestFilters(BaseTest):
         return clear_locations(parse_select(select, placeholders=placeholders))
 
     def _print_ast(self, node: ast.Expr):
-        return print_ast(
+        return prepare_and_print_ast(
             node,
             dialect="hogql",
             context=HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-        )
+        )[0]
 
     def test_replace_filters_empty(self):
         select = replace_filters(self._parse_select("SELECT event FROM events"), HogQLFilters(), self.team)

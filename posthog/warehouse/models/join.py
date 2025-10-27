@@ -55,7 +55,10 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         self.save()
 
     def join_function(
-        self, override_source_table_key: Optional[str] = None, override_joining_table_key: Optional[str] = None
+        self,
+        override_source_table_key: Optional[str] = None,
+        override_joining_table_key: Optional[str] = None,
+        override_join_type: Optional[str] = None,
     ):
         def _join_function(
             join_to_add: LazyJoinToAdd,
@@ -70,8 +73,8 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
             if not join_to_add.fields_accessed:
                 raise ResolutionError(f"No fields requested from {join_to_add.to_table}")
 
-            left = self.__parse_table_key_expression(_source_table_key, join_to_add.from_table)
-            right = self.__parse_table_key_expression(_joining_table_key, join_to_add.to_table)
+            left = self.parse_table_key_expression(_source_table_key, join_to_add.from_table)
+            right = self.parse_table_key_expression(_joining_table_key, join_to_add.to_table)
 
             join_expr = ast.JoinExpr(
                 table=ast.SelectQuery(
@@ -81,7 +84,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
                     ],
                     select_from=ast.JoinExpr(table=ast.Field(chain=self.joining_table_name_chain)),
                 ),
-                join_type="LEFT JOIN",
+                join_type=override_join_type or "LEFT JOIN",
                 alias=join_to_add.to_table,
                 constraint=ast.JoinConstraint(
                     expr=ast.CompareOperation(
@@ -112,8 +115,8 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
             if not timestamp_key:
                 raise ResolutionError("experiments_timestamp_key is not set for this join")
 
-            left = self.__parse_table_key_expression(self.source_table_key, join_to_add.from_table)
-            right = self.__parse_table_key_expression(self.joining_table_key, join_to_add.to_table)
+            left = self.parse_table_key_expression(self.source_table_key, join_to_add.from_table)
+            right = self.parse_table_key_expression(self.joining_table_key, join_to_add.to_table)
 
             whereExpr: list[ast.Expr] = [
                 ast.CompareOperation(
@@ -202,7 +205,8 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
 
         return _join_function_for_experiments
 
-    def __parse_table_key_expression(self, table_key: str, table_name: str) -> ast.Expr:
+    @classmethod
+    def parse_table_key_expression(cls, table_key: str, table_name: str) -> ast.Expr:
         expr = parse_expr(table_key)
         if isinstance(expr, ast.Field):
             expr.chain = [table_name, *expr.chain]

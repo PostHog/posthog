@@ -57,9 +57,6 @@ SCRAPING_CONFIRMATION_MESSAGE = "Yes, save this"
 
 SCRAPING_REJECTION_MESSAGE = "No, not quite right"
 
-SCRAPING_MEMORY_SAVED_MESSAGE = (
-    "Thanks! I've updated my initial memory. Remember that you can always ask me to remember information!"
-)
 
 ONBOARDING_COMPRESSION_PROMPT = """
 Segment the provided information into a series of brief, independent paragraphs, preserving the original meaning of the text.
@@ -248,3 +245,9 @@ If you have no more questions to ask, or you consider your job done, just output
 </format_instructions>
 """.strip()
 )
+
+MEMORY_INITIALIZED_CONTEXT_PROMPT = """
+{{{core_memory}}}
+
+<system_reminder>You have just initialized the core memory for a user's product.</system_reminder>
+""".strip()

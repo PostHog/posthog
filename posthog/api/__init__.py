@@ -30,7 +30,7 @@ import products.endpoints.backend.api as endpoints
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
-from products.error_tracking.backend.api import error_tracking
+from products.error_tracking.backend.api import error_tracking, git_provider_file_link_resolver
 from products.llm_analytics.backend.api import (
     DatasetItemViewSet,
     DatasetViewSet,
@@ -59,6 +59,7 @@ from . import (
     dead_letter_queue,
     debug_ch_queries,
     event_definition,
+    event_schema,
     exports,
     feature_flag,
     flag_value,
@@ -81,6 +82,7 @@ from . import (
     proxy_record,
     query,
     scheduled_change,
+    schema_property_group,
     search,
     sharing,
     survey,
@@ -226,14 +228,6 @@ projects_router.register(r"agents", tasks.AgentDefinitionViewSet, "project_agent
 # Workflows endpoints
 projects_router.register(r"llm_gateway", llm_gateway.http.LLMGatewayViewSet, "project_llm_gateway", ["team_id"])
 
-project_workflows_router = projects_router.register(
-    r"workflows", tasks.TaskWorkflowViewSet, "project_workflows", ["team_id"]
-)
-
-project_workflows_router.register(
-    r"stages", tasks.WorkflowStageViewSet, "project_workflow_stages", ["team_id", "workflow_id"]
-)
-
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
 projects_router.register(
     r"dashboard_templates",
@@ -359,6 +353,18 @@ projects_router.register(
     r"property_definitions",
     property_definition_api.PropertyDefinitionViewSet,
     "project_property_definitions",
+    ["project_id"],
+)
+projects_router.register(
+    r"schema_property_groups",
+    schema_property_group.SchemaPropertyGroupViewSet,
+    "project_schema_property_groups",
+    ["project_id"],
+)
+projects_router.register(
+    r"event_schemas",
+    event_schema.EventSchemaViewSet,
+    "project_event_schemas",
     ["project_id"],
 )
 
@@ -498,6 +504,7 @@ organizations_router.register(
 router.register(r"login", authentication.LoginViewSet, "login")
 router.register(r"login/token", authentication.TwoFactorViewSet, "login_token")
 router.register(r"login/precheck", authentication.LoginPrecheckViewSet, "login_precheck")
+router.register(r"login/email-mfa", authentication.EmailMFAViewSet, "login_email_mfa")
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 router.register(r"users", user.UserViewSet, "users")
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
@@ -725,6 +732,13 @@ environments_router.register(
     r"error_tracking/stack_frames",
     error_tracking.ErrorTrackingStackFrameViewSet,
     "project_error_tracking_stack_frames",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"error_tracking/git-provider-file-links",
+    git_provider_file_link_resolver.GitProviderFileLinksViewSet,
+    "project_error_tracking_git_provider_file_links",
     ["team_id"],
 )
 
