@@ -6,7 +6,6 @@ from django.conf import settings
 
 import aiohttp
 import structlog
-from slack_sdk.web.async_client import AsyncWebClient
 
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.integration import Integration, SlackIntegration
@@ -227,10 +226,7 @@ async def send_slack_message_with_integration_async(
     slack_integration = SlackIntegration(integration)
 
     async with aiohttp.ClientSession() as slack_session:
-        async_client = AsyncWebClient(
-            token=slack_integration.integration.sensitive_config["access_token"],
-            session=slack_session,
-        )
+        async_client = slack_integration.async_client(session=slack_session)
 
         message_res = await _send_slack_message_with_retry(
             async_client,
