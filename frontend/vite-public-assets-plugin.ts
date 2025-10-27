@@ -113,6 +113,11 @@ export function publicAssetsPlugin(): Plugin {
             deleteAssetsFiles()
             copyPublicAssets()
         },
+        buildStart() {
+            // Also copy assets when building for production
+            deleteAssetsFiles()
+            copyPublicAssets()
+        },
         handleHotUpdate({ file }) {
             // If a file in public directory changes, re-copy it to assets
             const publicDir = resolve('.', 'public')
