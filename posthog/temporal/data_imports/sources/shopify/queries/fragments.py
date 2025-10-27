@@ -1,3 +1,8 @@
+COUNT_FRAGMENT = """{
+    count
+    precision
+}"""
+
 KV_FRAGMENT = """{
     key
     value
@@ -26,6 +31,21 @@ MAILING_ADDRESS_FRAGMENT = """{
     validationResultSummary
     zip
 }"""
+
+METAFIELD_CONNECTIONS_FRAGMENT = """{
+    nodes {
+        compareDigest
+        createdAt
+        id
+        jsonValue
+        key
+        namespace
+        type
+        updatedAt
+        value
+    }
+}"""
+
 
 MONEY_V2_FRAGMENT = """{
     amount
