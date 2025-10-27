@@ -135,8 +135,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             breakdown_limit = None  # TODO: Investigate what this override is used for
             breakdown_limit_expr = ast.Constant(value=breakdown_limit or self._get_breakdown_limit())
 
+            is_cumulative = self._trends_display.display_type == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE
+
             return parse_select(
-                """
+                f"""
                 WITH (
                     -- Breakdown values ranked by total count
                     SELECT
@@ -145,7 +147,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                             PARTITION BY day_start
                             ORDER BY total_count_for_breakdown DESC
                         ) AS breakdown_rank
-                    FROM {inner_query}
+                    FROM {{inner_query}}
                 ) AS ranked_breakdown_values,
                 (
                     -- Top N breakdown values
@@ -154,16 +156,16 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         count AS value,
                         breakdown_value
                     FROM ranked_breakdown_values
-                    WHERE breakdown_rank <= {breakdown_limit}
+                    WHERE breakdown_rank <= {{breakdown_limit}}
                 ) AS top_n_breakdown_values,
                 (
                     -- "Other" breakdown value
                     SELECT
                         day_start,
                         sum(count) as value,
-                        {breakdown_other} as breakdown_value
+                        {{breakdown_other}} as breakdown_value
                     FROM ranked_breakdown_values
-                    WHERE breakdown_rank > {breakdown_limit}
+                    WHERE breakdown_rank > {{breakdown_limit}}
                     GROUP BY breakdown_value, day_start
                 ) AS other_breakdown_values,
                 (
@@ -178,14 +180,14 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 (
                     -- All dates in the range; :TODO: Reuse self._get_date_subqueries()
                     arrayMap(
-                        number -> {date_from_start_of_interval} + {number_interval_period}, -- NOTE: flipped the order around to use start date
+                        number -> {{date_from_start_of_interval}} + {{number_interval_period}}, -- NOTE: flipped the order around to use start date
                         range(
                             0,
                             coalesce(
                                 dateDiff(
-                                    {interval},
-                                    {date_from_start_of_interval},
-                                    {date_to_start_of_interval}
+                                    {{interval}},
+                                    {{date_from_start_of_interval}},
+                                    {{date_to_start_of_interval}}
                                 )
                             ) + 1
                         )
@@ -201,7 +203,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                             arrayMap((v, dd) -> dd = d ? v : 0, vals, days)
                         ),
                         all_dates
-                    ) AS total,
+                    ) AS {'values' if is_cumulative else 'total'},
+                    {'arrayMap(i -> arraySum(arraySlice(values, 1, i)), arrayEnumerate(values)) AS total,' if is_cumulative else ''}
                     breakdown_value
                 FROM (
                     SELECT
@@ -211,7 +214,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     FROM top_n_and_other_breakdown_values
                     GROUP BY breakdown_value
                 )
-                ORDER BY {breakdown_order} ASC, arraySum(vals) DESC, breakdown_value ASC
+                ORDER BY {{breakdown_order}} ASC, arraySum(vals) DESC, breakdown_value ASC
                 """,
                 {
                     "inner_query": inner_query,
@@ -377,7 +380,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         if self.breakdown.enabled:
             query = self._inner_breakdown_subquery(query, self.breakdown)
 
-        if self._trends_display.should_wrap_inner_query():
+        if self._trends_display.should_wrap_inner_query() and (
+            not self._team_flag_fewer_array_ops() or not self.breakdown.enabled
+        ):
             query = self._trends_display.wrap_inner_query(query, self.breakdown.enabled)
             if self.breakdown.enabled:
                 query.select.append(ast.Field(chain=["breakdown_value"]))
