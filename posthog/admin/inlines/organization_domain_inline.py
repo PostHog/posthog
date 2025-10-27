@@ -1,5 +1,6 @@
-from posthog.admin.inlines.tabular_inline_paginated import TabularInlinePaginated
-from posthog.models import OrganizationDomain
+from django_admin_inline_paginator.admin import TabularInlinePaginated
+
+from posthog.models.organization_domain import OrganizationDomain
 
 
 class OrganizationDomainInline(TabularInlinePaginated):
