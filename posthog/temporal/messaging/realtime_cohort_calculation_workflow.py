@@ -1,3 +1,5 @@
+import time
+import asyncio
 import datetime as dt
 import dataclasses
 from typing import Any, Optional
@@ -6,22 +8,21 @@ import temporalio.activity
 import temporalio.workflow
 from structlog.contextvars import bind_contextvars
 
-from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_COHORT_MEMBERSHIP_CHANGED
 from posthog.models.action import Action
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
+from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
 LOGGER = get_logger(__name__)
 
 
 @dataclasses.dataclass
-class ActionsWorkflowInputs:
-    """Inputs for the actions processing workflow."""
+class RealtimeCohortCalculationWorkflowInputs:
+    """Inputs for the realtime cohort calculation workflow."""
 
     days: int = 30
     min_matches: int = 3
@@ -38,62 +39,50 @@ class ActionsWorkflowInputs:
         }
 
 
-@dataclasses.dataclass
-class ProcessActionsResult:
-    """Result from processing actions."""
-
-    actions_processed: int
-    offset: int
-
-
 @temporalio.activity.defn
-def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActionsResult:
+async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCalculationWorkflowInputs) -> None:
     """Process a batch of actions with bytecode."""
     bind_contextvars()
     logger = LOGGER.bind()
 
-    # Send heartbeat at start
-    temporalio.activity.heartbeat()
+    logger.info(f"Starting realtime cohort calculation workflow for range offset={inputs.offset}, limit={inputs.limit}")
 
-    # Basic validation
-    if not isinstance(inputs.days, int) or inputs.days < 0 or inputs.days > 365:
-        raise ValueError(f"Invalid days value: {inputs.days}")
-    if not isinstance(inputs.min_matches, int) or inputs.min_matches < 0:
-        raise ValueError(f"Invalid min_matches value: {inputs.min_matches}")
+    async with Heartbeater(details=(f"Starting to process actions (offset={inputs.offset})",)) as heartbeater:
+        start_time = time.time()
 
-    # Only get actions that are not deleted and have bytecode
-    # Only fetch the fields we need for efficiency
-    queryset = Action.objects.filter(deleted=False, bytecode__isnull=False).only("id", "team_id", "steps_json")
+        # Basic validation
+        if not isinstance(inputs.days, int) or inputs.days < 0 or inputs.days > 365:
+            raise ValueError(f"Invalid days value: {inputs.days}")
+        if not isinstance(inputs.min_matches, int) or inputs.min_matches < 0:
+            raise ValueError(f"Invalid min_matches value: {inputs.min_matches}")
 
-    # Apply pagination
-    queryset = (
-        queryset.order_by("id")[inputs.offset : inputs.offset + inputs.limit]
-        if inputs.limit
-        else queryset[inputs.offset :]
-    )
+        # Only get actions that are not deleted and have bytecode
+        # Only fetch the fields we need for efficiency
+        queryset = Action.objects.filter(deleted=False, bytecode__isnull=False).only("id", "team_id")
 
-    actions: list[Action] = list(queryset)
+        # Apply pagination
+        queryset = (
+            queryset.order_by("id")[inputs.offset : inputs.offset + inputs.limit]
+            if inputs.limit
+            else queryset[inputs.offset :]
+        )
 
-    actions_count = 0
+        actions: list[Action] = list(queryset)
 
-    # Process each action with heartbeat to keep activity alive
-    with HeartbeaterSync(logger=logger):
+        actions_count = 0
+
+        # Initialize Kafka producer once before the loop
+        kafka_producer = KafkaProducer()
+
+        # Process each action
         for idx, action in enumerate(actions, 1):
-            # Extract event name from the first step in steps_json
-            if not action.steps_json or len(action.steps_json) == 0:
-                continue
-
-            first_step = action.steps_json[0] if isinstance(action.steps_json, list) else None
-            if not first_step or not isinstance(first_step, dict):
-                continue
-
-            event_name = first_step.get("event")
-            if not event_name:
-                continue
+            # Update heartbeat progress every 100 actions to minimize overhead
+            if idx % 100 == 0 or idx == len(actions):
+                heartbeater.details = (f"Processing action {idx}/{len(actions)}",)
 
             # Log progress periodically
-            if idx % 100 == 0:
-                logger.info(f"Processed {idx} actions so far")
+            if idx % 100 == 0 or idx == len(actions):
+                logger.info(f"Processed {idx}/{len(actions)} actions so far")
 
             # Query ClickHouse for persons who performed event X at least N times over the last X days
             query = """
@@ -162,69 +151,76 @@ def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActionsRes
                     product=Product.MESSAGING,
                     query_type="action_event_counts_per_person_per_day",
                 ):
-                    results = sync_execute(
-                        query,
-                        {
-                            "team_id": action.team_id,
-                            "action_id": action.id,
-                            "days": inputs.days,
-                            "min_matches": inputs.min_matches,
-                        },
-                        ch_user=ClickHouseUser.DEFAULT,
-                        workload=Workload.OFFLINE,
-                    )
-
-                    for row in results:
-                        payload = {
-                            "team_id": row[0],
-                            "cohort_id": row[1],
-                            "person_id": str(row[2]),
-                            "last_updated": str(row[3]),
-                            "status": row[4],
-                        }
-                        KafkaProducer().produce(
-                            topic=KAFKA_COHORT_MEMBERSHIP_CHANGED, key=payload["person_id"], data=payload
-                        )
+                    async with get_client(team_id=action.team_id) as client:
+                        async for row in client.stream_query_as_jsonl(
+                            query + " FORMAT JSONEachRow",
+                            query_parameters={
+                                "team_id": action.team_id,
+                                "action_id": action.id,
+                                "days": inputs.days,
+                                "min_matches": inputs.min_matches,
+                            },
+                        ):
+                            payload = {
+                                "team_id": row["team_id"],
+                                "cohort_id": row["cohort_id"],
+                                "person_id": str(row["person_id"]),
+                                "last_updated": str(row["last_updated"]),
+                                "status": row["status"],
+                            }
+                            await asyncio.to_thread(
+                                kafka_producer.produce,
+                                topic=KAFKA_COHORT_MEMBERSHIP_CHANGED,
+                                key=payload["person_id"],
+                                data=payload,
+                            )
 
             except Exception as e:
                 logger.exception(
                     f"Error querying events for action {action.id}",
                     action_id=action.id,
-                    event_name=event_name,
                     error=str(e),
                 )
                 continue
 
             actions_count += 1
 
-    return ProcessActionsResult(
-        actions_processed=actions_count,
-        offset=inputs.offset,
-    )
+        end_time = time.time()
+        duration_seconds = end_time - start_time
+        duration_minutes = duration_seconds / 60
 
+        heartbeater.details = (f"Completed: processed {actions_count} actions in {duration_minutes:.1f} minutes",)
 
-@temporalio.workflow.defn(name="actions-processing")
-class ActionsWorkflow(PostHogWorkflow):
-    """Child workflow that processes a subset of actions."""
-
-    @staticmethod
-    def parse_inputs(inputs: list[str]) -> ActionsWorkflowInputs:
-        """Parse inputs from the management command CLI."""
-        return ActionsWorkflowInputs()
-
-    @temporalio.workflow.run
-    async def run(self, inputs: ActionsWorkflowInputs) -> ProcessActionsResult:
-        """Run the workflow to process actions."""
-        workflow_logger = temporalio.workflow.logger
-        workflow_logger.info(
-            f"Starting actions processing workflow",
+        logger.info(
+            f"Completed processing: processed {actions_count} actions in {duration_minutes:.1f} minutes ({duration_seconds:.1f} seconds)",
+            actions_processed=actions_count,
+            duration_seconds=duration_seconds,
+            duration_minutes=duration_minutes,
             offset=inputs.offset,
             limit=inputs.limit,
         )
 
+
+@temporalio.workflow.defn(name="realtime-cohort-calculation")
+class RealtimeCohortCalculationWorkflow(PostHogWorkflow):
+    """Child workflow that processes realtime cohort calculations."""
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> RealtimeCohortCalculationWorkflowInputs:
+        """Parse inputs from the management command CLI."""
+        return RealtimeCohortCalculationWorkflowInputs()
+
+    @temporalio.workflow.run
+    async def run(self, inputs: RealtimeCohortCalculationWorkflowInputs) -> None:
+        """Run the workflow to process realtime cohort calculations."""
+        workflow_logger = temporalio.workflow.logger
+        workflow_logger.info(
+            f"Starting realtime cohort calculation child workflow for range starting at offset={inputs.offset}"
+        )
+
         # Process the batch of actions
-        result = await temporalio.workflow.execute_activity(
-            process_actions_activity,
+        await temporalio.workflow.execute_activity(
+            process_realtime_cohort_calculation_activity,
             inputs,
             start_to_close_timeout=dt.timedelta(minutes=30),
             heartbeat_timeout=dt.timedelta(minutes=5),
@@ -235,9 +231,4 @@ class ActionsWorkflow(PostHogWorkflow):
             ),
         )
 
-        workflow_logger.info(
-            f"Completed processing {result.actions_processed} actions",
-            offset=result.offset,
-        )
-
-        return result
+        workflow_logger.info("Child workflow completed")
