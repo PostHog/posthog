@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
+import { dayjsUtcToTimezone } from 'lib/dayjs'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -92,10 +92,10 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
                                               'YYYY-MM-DD HH:mm:ss'
                                           ),
                                           dateTo: job.finished_at
-                                              ? dayjsUtcToTimezone(job.finished_at, timezone).format(
-                                                    'YYYY-MM-DD HH:mm:ss'
-                                                )
-                                              : dayjs().tz(timezone).format('YYYY-MM-DD HH:mm:ss'),
+                                              ? dayjsUtcToTimezone(job.finished_at, timezone)
+                                                    .add(1, 'hour')
+                                                    .format('YYYY-MM-DD HH:mm:ss')
+                                              : undefined,
                                           levels: showDebugLogs ? ['DEBUG', ...LOG_LEVELS] : LOG_LEVELS,
                                       }}
                                   />
