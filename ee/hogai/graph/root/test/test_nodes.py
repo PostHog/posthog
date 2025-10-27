@@ -39,7 +39,7 @@ from ee.hogai.graph.root.prompts import (
     ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
 )
-from ee.hogai.tool import ToolMessagesArtifact
+from ee.hogai.tool import MaxToolError, MaxToolRetryableError, ToolMessagesArtifact
 from ee.hogai.utils.tests import FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantMessageUnion
@@ -998,3 +998,65 @@ class TestRootNodeTools(BaseTest):
             assert isinstance(result.messages[0], AssistantToolCallMessage)
             self.assertEqual(result.messages[0].tool_call_id, "tool-123")
             self.assertIn("does not exist", result.messages[0].content)
+
+    @patch("ee.hogai.graph.root.tools.create_and_query_insight.CreateAndQueryInsightTool._arun_impl")
+    async def test_tool_retryable_error_becomes_hidden_tool_message(self, create_and_query_insight_mock):
+        create_and_query_insight_mock.side_effect = MaxToolRetryableError("Temporary issue")
+
+        node = RootNodeTools(self.team, self.user)
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="Hello",
+                    id="test-id",
+                    tool_calls=[
+                        AssistantToolCall(
+                            id="xyz",
+                            name="create_and_query_insight",
+                            args={"query_description": "test query"},
+                        )
+                    ],
+                )
+            ]
+        )
+        result = await node.arun(state, {})
+        self.assertIsInstance(result, PartialAssistantState)
+        self.assertEqual(len(result.messages), 1)
+        tool_msg = result.messages[0]
+        self.assertIsInstance(tool_msg, AssistantToolCallMessage)
+        assert isinstance(tool_msg, AssistantToolCallMessage)
+        self.assertEqual(tool_msg.tool_call_id, "xyz")
+        self.assertFalse(tool_msg.visible)
+        self.assertIn("Tool failed:", tool_msg.content)
+        self.assertIn("You may retry", tool_msg.content)
+
+    @patch("ee.hogai.graph.root.tools.create_and_query_insight.CreateAndQueryInsightTool._arun_impl")
+    async def test_tool_non_retryable_error_becomes_hidden_tool_message(self, create_and_query_insight_mock):
+        create_and_query_insight_mock.side_effect = MaxToolError("Bad input")
+
+        node = RootNodeTools(self.team, self.user)
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="Hello",
+                    id="test-id",
+                    tool_calls=[
+                        AssistantToolCall(
+                            id="xyz",
+                            name="create_and_query_insight",
+                            args={"query_description": "test query"},
+                        )
+                    ],
+                )
+            ]
+        )
+        result = await node.arun(state, {})
+        self.assertIsInstance(result, PartialAssistantState)
+        self.assertEqual(len(result.messages), 1)
+        tool_msg = result.messages[0]
+        self.assertIsInstance(tool_msg, AssistantToolCallMessage)
+        assert isinstance(tool_msg, AssistantToolCallMessage)
+        self.assertEqual(tool_msg.tool_call_id, "xyz")
+        self.assertFalse(tool_msg.visible)
+        self.assertIn("Tool failed:", tool_msg.content)
+        self.assertNotIn("You may retry", tool_msg.content)
