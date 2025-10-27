@@ -80,7 +80,9 @@ async def _prep_local_db_for_prod_reads():
         pass
     try:
         await Organization.objects.using("default").acreate(
-            name=f"Placeholder for {settings.DEBUG_LOG_IN_AS_EMAIL}", id=user.current_organization_id
+            name=f"Placeholder for {settings.DEBUG_LOG_IN_AS_EMAIL}",
+            id=user.current_organization_id,
+            slug=user.current_organization_id,
         )
     except Exception:
         pass
