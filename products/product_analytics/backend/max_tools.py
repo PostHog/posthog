@@ -2,7 +2,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from posthog.schema import AssistantMessage, AssistantToolCallMessage, VisualizationMessage
+from posthog.schema import AssistantMessage, AssistantToolCallMessage, FailureMessage, VisualizationMessage
 
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.utils.types import AssistantState
@@ -94,7 +94,7 @@ IMPORTANT: DO NOT REMOVE ANY FIELDS FROM THE CURRENT INSIGHT DEFINITION. DO NOT 
     args_schema: type[BaseModel] = EditCurrentInsightArgs
     show_tool_call_message: bool = False
 
-    async def _arun_impl(self, query_kind: str, query_description: str) -> tuple[str, ToolMessagesArtifact]:
+    async def _arun_impl(self, query_kind: str, query_description: str) -> tuple[str, ToolMessagesArtifact | None]:
         from ee.hogai.graph.graph import InsightsAssistantGraph  # avoid circular import
 
         if "current_query" not in self.context:
@@ -107,6 +107,7 @@ IMPORTANT: DO NOT REMOVE ANY FIELDS FROM THE CURRENT INSIGHT DEFINITION. DO NOT 
             raise ValueError("Last message is not an AssistantMessage")
         if last_message.tool_calls is None or len(last_message.tool_calls) == 0:
             raise ValueError("Last message has no tool calls")
+        tool_call_id = last_message.tool_calls[0].id
 
         state.root_tool_insight_plan = query_description
         state.root_tool_call_id = last_message.tool_calls[0].id
@@ -118,18 +119,18 @@ IMPORTANT: DO NOT REMOVE ANY FIELDS FROM THE CURRENT INSIGHT DEFINITION. DO NOT 
         viz_messages = [message for message in state.messages if isinstance(message, VisualizationMessage)]
         viz_message = viz_messages[-1] if viz_messages else None
         if not viz_message:
-            raise ValueError("Visualization was not generated")
-        if not isinstance(result, AssistantToolCallMessage):
-            raise ValueError("Last message is not an AssistantToolCallMessage")
+            return "Something went wrong – I couldn't create the query.", None
+        if not isinstance(result, AssistantToolCallMessage | FailureMessage):
+            raise ValueError("Last message is not an AssistantToolCallMessage nor FailureMessage - impossible")
 
         return "", ToolMessagesArtifact(
             messages=[
                 viz_message,
                 AssistantToolCallMessage(
-                    content=result.content,
+                    content=result.content or "Something went wrong – I couldn't execute the query.",
                     ui_payload={self.get_name(): viz_message.answer.model_dump(exclude_none=True)},
                     id=str(uuid4()),
-                    tool_call_id=result.tool_call_id,
+                    tool_call_id=tool_call_id,
                     visible=self.show_tool_call_message,
                 ),
             ]
