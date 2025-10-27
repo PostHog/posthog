@@ -5,7 +5,7 @@ import { useValues } from 'kea'
 import React, { useEffect, useRef, useState } from 'react'
 import TextareaAutosize from 'react-textarea-autosize'
 
-import { IconMarkdown, IconPencil } from '@posthog/icons'
+import { IconMarkdownFilled, IconPencil } from '@posthog/icons'
 
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -217,7 +217,7 @@ export function EditableField({
                                 {markdown && (
                                     <Tooltip title="Markdown formatting support">
                                         <span className="flex items-center">
-                                            <IconMarkdown className="text-secondary text-2xl" />
+                                            <IconMarkdownFilled className="text-secondary text-2xl" />
                                         </span>
                                     </Tooltip>
                                 )}
