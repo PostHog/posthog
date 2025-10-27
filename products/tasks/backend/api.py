@@ -11,7 +11,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 
 from .agents import get_agent_dict_by_id, get_all_agents
@@ -37,7 +37,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
 
     serializer_class = TaskSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     scope_object = "task"
     queryset = Task.objects.all()
@@ -180,7 +180,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
 
     serializer_class = TaskRunDetailSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     scope_object = "task"
     queryset = TaskRun.objects.select_related("task").all()
@@ -277,7 +277,7 @@ class AgentDefinitionViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
     """
 
     serializer_class = AgentDefinitionSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     queryset = None  # No model queryset since we're using hardcoded agents
     scope_object = "task"
     posthog_feature_flag = {"tasks": ["list", "retrieve"]}

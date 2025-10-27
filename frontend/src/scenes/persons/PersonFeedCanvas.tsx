@@ -48,7 +48,7 @@ const PersonFeedCanvas = ({ person }: PersonFeedCanvasProps): JSX.Element => {
                                       ]
                                     : []),
                                 {
-                                    type: 'ph-properties',
+                                    type: 'ph-person-properties',
                                     attrs: { id, distinctId, nodeId: uuid() },
                                 },
                             ],
@@ -56,6 +56,10 @@ const PersonFeedCanvas = ({ person }: PersonFeedCanvasProps): JSX.Element => {
                     },
                     {
                         type: 'ph-llm-trace',
+                        attrs: { personId: id, nodeId: uuid() },
+                    },
+                    {
+                        type: 'ph-zendesk-tickets',
                         attrs: { personId: id, nodeId: uuid() },
                     },
                     {

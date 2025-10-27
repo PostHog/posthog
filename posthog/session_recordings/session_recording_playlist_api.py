@@ -20,7 +20,6 @@ from posthog.schema import RecordingsQuery
 from posthog.api.documentation import extend_schema
 from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.mixins import FileSystemViewSetMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -346,7 +345,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
 
 
 class SessionRecordingPlaylistViewSet(
-    FileSystemViewSetMixin, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet
+    TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet
 ):
     scope_object = "session_recording_playlist"
     queryset = SessionRecordingPlaylist.objects.all()

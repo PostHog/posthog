@@ -20,6 +20,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
 import { SceneSelect } from 'lib/components/Scenes/SceneSelect'
+import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -90,12 +91,25 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
         setEarlyAccessFeatureValue,
         showGAPromotionConfirmation,
     } = useActions(earlyAccessFeatureLogic)
+    const { currentTeamId } = useValues(teamLogic)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
 
     // Determine if Save/Cancel buttons should be visible
     const wasOriginallyGA = originalEarlyAccessFeatureStage === EarlyAccessFeatureStage.GeneralAvailability
     const canShowSaveButtons = !wasOriginallyGA && (isNewEarlyAccessFeature || isEditingFeature)
+
+    const earlyAccessFeatureId =
+        earlyAccessFeature && 'id' in earlyAccessFeature && earlyAccessFeature.id !== 'new'
+            ? earlyAccessFeature.id
+            : null
+
+    useFileSystemLogView({
+        type: 'early_access_feature',
+        ref: earlyAccessFeatureId,
+        enabled: Boolean(currentTeamId && earlyAccessFeatureId && !earlyAccessFeatureLoading),
+        deps: [currentTeamId, earlyAccessFeatureId, earlyAccessFeatureLoading],
+    })
 
     if (earlyAccessFeatureMissing) {
         return <NotFound object="early access feature" />
