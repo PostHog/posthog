@@ -243,7 +243,14 @@ jobs:
               run: pnpm --filter=@posthog/frontend build:products
 
             - name: Build with ESBuild (baseline)
-              run: pnpm --filter=@posthog/frontend build
+              run: |
+                  echo "Starting ESBuild at: $(date '+%Y-%m-%d %H:%M:%S')"
+                  start_time=$(date +%s)
+                  pnpm --filter=@posthog/frontend build
+                  end_time=$(date +%s)
+                  build_duration=$((end_time - start_time))
+                  echo "ESBuild completed in: ${build_duration} seconds"
+                  echo "ESBUILD_DURATION=${build_duration}" >> $GITHUB_ENV
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
 
@@ -251,6 +258,7 @@ jobs:
               run: |
                   echo "=== ESBuild Bundle Analysis ===" > esbuild-stats.txt
                   echo "Build completed at: $(date)" >> esbuild-stats.txt
+                  echo "Build duration: ${ESBUILD_DURATION} seconds" >> esbuild-stats.txt
                   echo "" >> esbuild-stats.txt
                   ls -la frontend/dist/ >> esbuild-stats.txt
                   echo "" >> esbuild-stats.txt
@@ -270,12 +278,20 @@ jobs:
               run: rm -rf frontend/dist/*
 
             - name: Build with Vite
-              run: NODE_OPTIONS="--max-old-space-size=16384" POSTHOG_USE_VITE_PROD=1 pnpm --filter=@posthog/frontend build
+              run: |
+                  echo "Starting Vite build at: $(date '+%Y-%m-%d %H:%M:%S')"
+                  start_time=$(date +%s)
+                  NODE_OPTIONS="--max-old-space-size=16384" POSTHOG_USE_VITE_PROD=1 pnpm --filter=@posthog/frontend build
+                  end_time=$(date +%s)
+                  build_duration=$((end_time - start_time))
+                  echo "Vite build completed in: ${build_duration} seconds"
+                  echo "VITE_DURATION=${build_duration}" >> $GITHUB_ENV
 
             - name: Collect Vite bundle stats
               run: |
                   echo "=== Vite Bundle Analysis ===" > vite-stats.txt
                   echo "Build completed at: $(date)" >> vite-stats.txt
+                  echo "Build duration: ${VITE_DURATION} seconds" >> vite-stats.txt
                   echo "" >> vite-stats.txt
                   ls -la frontend/dist/ >> vite-stats.txt
                   echo "" >> vite-stats.txt
@@ -293,35 +309,76 @@ jobs:
 
             - name: Generate bundle comparison report
               run: |
-                  echo "# Bundle Size Comparison Report" > build-comparison/comparison-report.md
+                  echo "# 📦 Vite vs ESBuild Build Comparison" > build-comparison/comparison-report.md
                   echo "" >> build-comparison/comparison-report.md
                   echo "Generated on: $(date)" >> build-comparison/comparison-report.md
+                  echo "Commit: \`${{ github.sha }}\`" >> build-comparison/comparison-report.md
                   echo "" >> build-comparison/comparison-report.md
 
-                  echo "## ESBuild Results" >> build-comparison/comparison-report.md
+                  # Performance Summary
+                  echo "## ⚡ Performance Summary" >> build-comparison/comparison-report.md
+                  echo "" >> build-comparison/comparison-report.md
+                  echo "| Metric | ESBuild | Vite | Difference |" >> build-comparison/comparison-report.md
+                  echo "|--------|---------|------|------------|" >> build-comparison/comparison-report.md
+
+                  # Calculate performance difference
+                  if [ -n "${ESBUILD_DURATION}" ] && [ -n "${VITE_DURATION}" ]; then
+                      diff=$((VITE_DURATION - ESBUILD_DURATION))
+                      if [ $diff -gt 0 ]; then
+                          diff_text="+${diff}s slower"
+                      elif [ $diff -lt 0 ]; then
+                          diff_text="${diff}s faster"
+                      else
+                          diff_text="Same"
+                      fi
+                      echo "| Build Time | ${ESBUILD_DURATION}s | ${VITE_DURATION}s | ${diff_text} |" >> build-comparison/comparison-report.md
+                  fi
+
+                  # Calculate total bundle sizes
+                  esbuild_total=$(du -sh build-comparison/esbuild/ | cut -f1)
+                  vite_total=$(du -sh build-comparison/vite/ | cut -f1)
+                  echo "| Total Bundle Size | ${esbuild_total} | ${vite_total} | - |" >> build-comparison/comparison-report.md
+                  echo "" >> build-comparison/comparison-report.md
+
+                  # Entry Points Comparison
+                  echo "## 📁 Entry Points Comparison" >> build-comparison/comparison-report.md
+                  echo "" >> build-comparison/comparison-report.md
+                  echo "| Entry Point | ESBuild | Vite | Status |" >> build-comparison/comparison-report.md
+                  echo "|-------------|---------|------|--------|" >> build-comparison/comparison-report.md
+
+                  for entry in index exporter render-query toolbar testWorker; do
+                      esbuild_file=$(find build-comparison/esbuild -name "${entry}*.js" | head -1)
+                      vite_file=$(find build-comparison/vite -name "${entry}*.js" | head -1)
+                      
+                      if [ -n "$esbuild_file" ] && [ -n "$vite_file" ]; then
+                          esbuild_size=$(du -h "$esbuild_file" | cut -f1)
+                          vite_size=$(du -h "$vite_file" | cut -f1)
+                          echo "| $entry | $esbuild_size | $vite_size | ✅ |" >> build-comparison/comparison-report.md
+                      elif [ -n "$vite_file" ]; then
+                          vite_size=$(du -h "$vite_file" | cut -f1)
+                          echo "| $entry | Missing | $vite_size | ⚠️ |" >> build-comparison/comparison-report.md
+                      elif [ -n "$esbuild_file" ]; then
+                          esbuild_size=$(du -h "$esbuild_file" | cut -f1)
+                          echo "| $entry | $esbuild_size | Missing | ❌ |" >> build-comparison/comparison-report.md
+                      else
+                          echo "| $entry | Missing | Missing | ❌ |" >> build-comparison/comparison-report.md
+                      fi
+                  done
+                  echo "" >> build-comparison/comparison-report.md
+
+                  echo "## 📊 Detailed Build Analysis" >> build-comparison/comparison-report.md
+                  echo "" >> build-comparison/comparison-report.md
+                  echo "### ESBuild Results" >> build-comparison/comparison-report.md
                   echo "\`\`\`" >> build-comparison/comparison-report.md
                   cat build-comparison/esbuild-stats.txt >> build-comparison/comparison-report.md
                   echo "\`\`\`" >> build-comparison/comparison-report.md
                   echo "" >> build-comparison/comparison-report.md
 
-                  echo "## Vite Results" >> build-comparison/comparison-report.md
+                  echo "### Vite Results" >> build-comparison/comparison-report.md
                   echo "\`\`\`" >> build-comparison/comparison-report.md
                   cat build-comparison/vite-stats.txt >> build-comparison/comparison-report.md
                   echo "\`\`\`" >> build-comparison/comparison-report.md
                   echo "" >> build-comparison/comparison-report.md
-
-                  echo "## Bundle Size Comparison" >> build-comparison/comparison-report.md
-                  echo "" >> build-comparison/comparison-report.md
-
-                  # Compare specific entry points
-                  for entry in index exporter render-query toolbar; do
-                      echo "### $entry.js" >> build-comparison/comparison-report.md
-                      esbuild_size=$(find build-comparison/esbuild -name "${entry}*.js" -exec du -h {} \; | cut -f1 | head -1)
-                      vite_size=$(find build-comparison/vite -name "${entry}*.js" -exec du -h {} \; | cut -f1 | head -1)
-                      echo "- ESBuild: $esbuild_size" >> build-comparison/comparison-report.md
-                      echo "- Vite: $vite_size" >> build-comparison/comparison-report.md
-                      echo "" >> build-comparison/comparison-report.md
-                  done
 
             - name: Validate build artifacts
               run: |
@@ -354,6 +411,36 @@ jobs:
                   fi
 
                   echo "✅ All Vite build artifacts validated successfully"
+
+                  # Performance threshold checks
+                  echo ""
+                  echo "Performance threshold checks:"
+
+                  # Check if Vite build is significantly slower (>2x)
+                  if [ -n "${ESBUILD_DURATION}" ] && [ -n "${VITE_DURATION}" ]; then
+                      threshold=$((ESBUILD_DURATION * 2))
+                      if [ "${VITE_DURATION}" -gt "${threshold}" ]; then
+                          echo "⚠️  WARNING: Vite build took ${VITE_DURATION}s, which is >2x slower than ESBuild (${ESBUILD_DURATION}s)"
+                          echo "Consider investigating build performance optimizations"
+                      else
+                          echo "✅ Vite build performance is within acceptable threshold"
+                      fi
+                  fi
+
+                  # Check for missing entry points
+                  missing_entries=0
+                  for entry in index exporter render-query toolbar testWorker; do
+                      if ! find build-comparison/vite -name "${entry}*.js" | grep -q .; then
+                          missing_entries=$((missing_entries + 1))
+                      fi
+                  done
+
+                  if [ "${missing_entries}" -gt 0 ]; then
+                      echo "❌ CRITICAL: ${missing_entries} entry points are missing from Vite build"
+                      exit 1
+                  else
+                      echo "✅ All entry points present in Vite build"
+                  fi
 
             - name: Upload build comparison artifacts
               uses: actions/upload-artifact@v4
