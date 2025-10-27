@@ -125,11 +125,6 @@ class Command(BaseCommand):
                 print(f"Team with ID {options['team_id']} does not exist!")
                 return
 
-        if os.environ.get("CI") is None and existing_team_id is None and Team.objects.count() != 0:
-            print("No team ID provided and database is not empty. Aborting.")
-            print("Either pass a team ID or reset your database before running this command.")
-            return
-
         print("Instantiating the Matrix...")
         try:
             RelevantMatrix = {"hedgebox": HedgeboxMatrix, "spikegpt": SpikeGPTMatrix}[options["product"]]
