@@ -57,7 +57,6 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
         if not isinstance(inputs.min_matches, int) or inputs.min_matches < 0:
             raise ValueError(f"Invalid min_matches value: {inputs.min_matches}")
 
-        # Create a sync function to fetch actions
         @database_sync_to_async
         def get_actions():
             # Only get actions that are not deleted and have bytecode
