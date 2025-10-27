@@ -13,6 +13,7 @@ import {
     IconHogQL,
     IconLifecycle,
     IconLive,
+    IconLlmAnalytics,
     IconPerson,
     IconPieChart,
     IconPiggyBank,
@@ -472,12 +473,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
     [NodeKind.TracesQuery]: {
         name: 'LLM Analytics Traces',
-        icon: IconAI,
+        icon: IconLlmAnalytics,
         inMenu: false,
     },
     [NodeKind.TraceQuery]: {
         name: 'LLM Analytics Trace',
-        icon: IconAI,
+        icon: IconLlmAnalytics,
         inMenu: false,
     },
     [NodeKind.DocumentSimilarityQuery]: {
