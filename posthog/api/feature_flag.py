@@ -1182,7 +1182,16 @@ class FeatureFlagViewSet(
                 queryset.filter(deleted=False)
                 .prefetch_related("features")
                 .prefetch_related("analytics_dashboards")
-                .prefetch_related("surveys_linked_flag")
+                .prefetch_related(
+                    Prefetch(
+                        "surveys_linked_flag",
+                        queryset=Survey.objects.select_related(
+                            "linked_flag",
+                            "targeting_flag",
+                            "internal_targeting_flag",
+                        ).prefetch_related("actions"),
+                    )
+                )
                 .prefetch_related(
                     Prefetch(
                         "team__cohort_set",

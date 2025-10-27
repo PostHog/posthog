@@ -113,7 +113,9 @@ class ReplaceFilters(CloningVisitor):
             dateTo = self.filters.dateRange.date_to if self.filters.dateRange else None
             if dateTo is not None:
                 try:
-                    parsed_date = isoparse(dateTo).replace(tzinfo=self.team.timezone_info)
+                    parsed_date = isoparse(dateTo)
+                    if parsed_date.tzinfo is None:
+                        parsed_date = parsed_date.replace(tzinfo=self.team.timezone_info)
                 except ValueError:
                     parsed_date = relative_date_parse(dateTo, self.team.timezone_info)
                 exprs.append(
@@ -128,7 +130,9 @@ class ReplaceFilters(CloningVisitor):
             dateFrom = self.filters.dateRange.date_from if self.filters.dateRange else None
             if dateFrom is not None and dateFrom != "all":
                 try:
-                    parsed_date = isoparse(dateFrom).replace(tzinfo=self.team.timezone_info)
+                    parsed_date = isoparse(dateFrom)
+                    if parsed_date.tzinfo is None:
+                        parsed_date = parsed_date.replace(tzinfo=self.team.timezone_info)
                 except ValueError:
                     parsed_date = relative_date_parse(dateFrom, self.team.timezone_info)
                 exprs.append(
@@ -160,7 +164,9 @@ class ReplaceFilters(CloningVisitor):
             dateFrom = self.filters.dateRange.date_from if self.filters.dateRange else None
             if dateFrom is not None and dateFrom != "all":
                 try:
-                    parsed_date = isoparse(dateFrom).replace(tzinfo=self.team.timezone_info)
+                    parsed_date = isoparse(dateFrom)
+                    if parsed_date.tzinfo is None:
+                        parsed_date = parsed_date.replace(tzinfo=self.team.timezone_info)
                 except ValueError:
                     parsed_date = relative_date_parse(dateFrom, self.team.timezone_info)
 
@@ -180,7 +186,9 @@ class ReplaceFilters(CloningVisitor):
             dateTo = self.filters.dateRange.date_to if self.filters.dateRange else None
             if dateTo is not None:
                 try:
-                    parsed_date = isoparse(dateTo).replace(tzinfo=self.team.timezone_info)
+                    parsed_date = isoparse(dateTo)
+                    if parsed_date.tzinfo is None:
+                        parsed_date = parsed_date.replace(tzinfo=self.team.timezone_info)
                 except ValueError:
                     parsed_date = relative_date_parse(dateTo, self.team.timezone_info)
                 return ast.Constant(value=parsed_date)

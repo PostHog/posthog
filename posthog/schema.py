@@ -14764,6 +14764,7 @@ class EndpointRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    cache_age_seconds: Optional[float] = None
     description: Optional[str] = None
     is_active: Optional[bool] = None
     name: Optional[str] = None

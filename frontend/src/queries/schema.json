@@ -10593,6 +10593,9 @@
         "EndpointRequest": {
             "additionalProperties": false,
             "properties": {
+                "cache_age_seconds": {
+                    "type": "number"
+                },
                 "description": {
                     "type": "string"
                 },
