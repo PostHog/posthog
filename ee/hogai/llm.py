@@ -106,7 +106,6 @@ class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
         super().model_post_init(__context)
         if settings.IN_EVAL_TESTING and not self.service_tier and self.model_name in OPENAI_FLEX_MODELS:
             self.service_tier = "flex"  # 50% cheaper than default tier, but slower
-        self.output_version = "responses/v1"
 
     def _enrich_responses_api_model_kwargs(self, project_org_user_variables: dict[str, Any]) -> None:
         """Mutate the provided model_kwargs dict in-place, ensuring the project/org/user context is present.
