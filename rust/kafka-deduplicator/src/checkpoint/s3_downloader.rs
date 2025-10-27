@@ -91,28 +91,44 @@ impl CheckpointDownloader for S3Downloader {
     // The method assumes the local path parent directories were pre-created
     async fn download_and_store_file(&self, remote_key: &str, local_filepath: &Path) -> Result<()> {
         let start_time = Instant::now();
-        let contents = self.download_file(remote_key).await.with_context(|| {
-            format!("In download_and_store_file with local filepath: {local_filepath:?}")
-        })?;
 
-        match tokio::fs::write(local_filepath, contents).await {
-            Ok(()) => {
-                metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "success")
-                    .increment(1);
-                let elapsed = start_time.elapsed();
-                metrics::histogram!(CHECKPOINT_FILE_FETCH_STORE_HISTOGRAM)
-                    .record(elapsed.as_secs() as f64);
-                info!("Downloaded remote file {remote_key} to {local_filepath:?}");
-                Ok(())
-            }
+        let get_object = match self
+            .client
+            .get_object()
+            .bucket(&self.config.s3_bucket)
+            .key(remote_key)
+            .send()
+            .await
+        {
+            Ok(get_object) => get_object,
             Err(e) => {
                 metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "error")
                     .increment(1);
-                Err::<(), anyhow::Error>(anyhow::anyhow!(
-                    "Failed to write remote contents to local filepath: {local_filepath:?}: {e}"
-                ))
+                return Err(anyhow::anyhow!(format!(
+                    "Failed to get object from S3 bucket: s3://{0}/{remote_key}: {e}",
+                    self.config.s3_bucket
+                )));
             }
+        };
+
+        // Create the file and copy the remote stream into it
+        let mut file = tokio::fs::File::create(local_filepath)
+            .await
+            .with_context(|| format!("Failed to create local file: {local_filepath:?}"))?;
+        let mut stream = get_object.body.into_async_read();
+        if let Err(e) = tokio::io::copy(&mut stream, &mut file).await {
+            metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "error").increment(1);
+            return Err(anyhow::anyhow!(
+                "Failed to write remote contents to local file: {local_filepath:?}: {e}"
+            ));
         }
+
+        metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "success").increment(1);
+        let elapsed = start_time.elapsed();
+        metrics::histogram!(CHECKPOINT_FILE_FETCH_STORE_HISTOGRAM).record(elapsed.as_secs() as f64);
+
+        info!("Downloaded remote file {remote_key} to {local_filepath:?}");
+        Ok(())
     }
 
     async fn download_files(&self, remote_keys: &[String], local_base_path: &Path) -> Result<()> {
@@ -128,7 +144,9 @@ impl CheckpointDownloader for S3Downloader {
             let remote_filename = remote_key
                 .rsplit('/')
                 .next()
-                .with_context(|| format!("Failed to get remote filename from key: {remote_key}"))?
+                .with_context(|| {
+                    format!("Failed to extract remote filename from key: {remote_key}")
+                })?
                 .to_string();
             let local_filepath = local_base_path.join(&remote_filename);
 
