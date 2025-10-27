@@ -118,3 +118,5 @@ ee/frontend/mobile-replay @PostHog/team-replay
 # DevEx
 
 posthog/management/migration_analysis/ @PostHog/DevEx
+common/hogli/ @PostHog/DevEx
+bin/ @PostHog/DevEx
