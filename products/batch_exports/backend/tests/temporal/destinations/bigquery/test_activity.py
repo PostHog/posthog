@@ -17,10 +17,6 @@ from google.cloud import bigquery
 
 from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
-from posthog.temporal.tests.utils.persons import (
-    generate_test_person_distinct_id2_in_clickhouse,
-    generate_test_persons_in_clickhouse,
-)
 
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryInsertInputs,
@@ -37,6 +33,10 @@ from products.batch_exports.backend.tests.temporal.destinations.bigquery.utils i
     TEST_MODELS,
     TEST_TIME,
     assert_clickhouse_records_in_bigquery,
+)
+from products.batch_exports.backend.tests.temporal.utils.persons import (
+    generate_test_person_distinct_id2_in_clickhouse,
+    generate_test_persons_in_clickhouse,
 )
 
 pytestmark = [

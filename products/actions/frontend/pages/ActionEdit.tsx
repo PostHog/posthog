@@ -10,6 +10,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
+import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -81,6 +82,15 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
         AccessControlLevel.Editor,
         action.user_access_level
     )
+
+    const actionId = typeof action?.id === 'number' ? action.id : null
+
+    useFileSystemLogView({
+        type: 'action',
+        ref: actionId,
+        enabled: Boolean(actionId && !actionLoading),
+        deps: [actionId, actionLoading],
+    })
 
     // Handle 404 when loading is done and action is missing
     if (id && !actionLoading && !loadedAction) {
