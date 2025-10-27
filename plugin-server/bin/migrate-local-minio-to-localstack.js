@@ -17,6 +17,7 @@ const {
     GetObjectCommand,
     PutObjectCommand,
     HeadBucketCommand,
+    CreateBucketCommand,
 } = require('@aws-sdk/client-s3')
 const fs = require('fs')
 
@@ -293,6 +294,29 @@ function createS3Client(endpoint, accessKeyId, secretAccessKey, region = 'us-eas
 // MIGRATION LOGIC
 // ============================================================================
 
+async function ensureBucketExists(client, endpoint, bucket) {
+    try {
+        await client.send(new HeadBucketCommand({ Bucket: bucket }))
+        return true
+    } catch (err) {
+        if (err.name === 'NotFound' || err.$metadata?.httpStatusCode === 404) {
+            // Bucket doesn't exist, try to create it
+            console.log(`📦 Bucket '${bucket}' not found in ${endpoint}, creating it...`)
+            try {
+                await client.send(new CreateBucketCommand({ Bucket: bucket }))
+                console.log(`✅ Successfully created bucket '${bucket}'`)
+                return true
+            } catch (createErr) {
+                console.error(`❌ Failed to create bucket '${bucket}': ${createErr.message}`)
+                return false
+            }
+        } else {
+            console.error(`❌ Cannot connect to ${endpoint} bucket '${bucket}': ${err.message}`)
+            return false
+        }
+    }
+}
+
 async function testConnectivity(client, endpoint, bucket) {
     try {
         await client.send(new HeadBucketCommand({ Bucket: bucket }))
@@ -427,17 +451,26 @@ async function migrateService(serviceName, config, options, checkpoint) {
         options.localstackSecretKey
     )
 
-    // Test connectivity
+    // Test connectivity and ensure buckets exist
     console.log('Testing connectivity...')
     const minioOk = await testConnectivity(minioClient, options.minioEndpoint, config.bucket)
-    const localstackOk = await testConnectivity(localstackClient, options.localstackEndpoint, config.bucket)
 
-    if (!minioOk || !localstackOk) {
-        console.error('❌ Connectivity test failed. Skipping this service.')
+    if (!minioOk) {
+        console.error('❌ MinIO connectivity test failed. Skipping this service.')
         return false
     }
 
-    console.log('✅ Connected to both MinIO and LocalStack\n')
+    console.log('✅ Connected to MinIO')
+
+    // Ensure LocalStack bucket exists (auto-create if missing)
+    const localstackOk = await ensureBucketExists(localstackClient, options.localstackEndpoint, config.bucket)
+
+    if (!localstackOk) {
+        console.error('❌ LocalStack connectivity test failed. Skipping this service.')
+        return false
+    }
+
+    console.log('✅ Connected to LocalStack and bucket is ready\n')
 
     // Discover objects
     console.log('Discovering objects...')
