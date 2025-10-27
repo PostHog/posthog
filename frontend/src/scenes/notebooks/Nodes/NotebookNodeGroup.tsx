@@ -74,7 +74,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes
                         <LemonSkeleton className="h-4 w-20 mb-2" />
                         <LemonSkeleton className="h-3 w-32" />
                         <LemonSkeleton className="h-3 w-40" />
-                        <LemonSkeleton className="h-3 w-42" />
+                        <LemonSkeleton className="h-3 w-44" />
                     </div>
                 ) : groupData ? (
                     <>
