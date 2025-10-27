@@ -46,7 +46,7 @@ describe('TemporalService', () => {
 
     describe('connection management', () => {
         it('creates client with correct config', async () => {
-            await service.startEvaluationWorkflow('test', 'test')
+            await service.startEvaluationRunWorkflow('test', 'test')
 
             expect(Connection.connect).toHaveBeenCalledWith({
                 address: 'localhost:7233',
@@ -60,7 +60,7 @@ describe('TemporalService', () => {
             hub.TEMPORAL_CLIENT_KEY = 'client-key'
 
             const newService = new TemporalService(hub)
-            await newService.startEvaluationWorkflow('test', 'test')
+            await newService.startEvaluationRunWorkflow('test', 'test')
 
             expect(Connection.connect).toHaveBeenCalledWith({
                 address: 'localhost:7233',
@@ -75,7 +75,7 @@ describe('TemporalService', () => {
         })
 
         it('disconnects client properly', async () => {
-            await service.startEvaluationWorkflow('test', 'test')
+            await service.startEvaluationRunWorkflow('test', 'test')
             await service.disconnect()
 
             expect(mockConnection.close).toHaveBeenCalled()
@@ -83,8 +83,8 @@ describe('TemporalService', () => {
     })
 
     describe('workflow triggering', () => {
-        it('starts evaluation workflow with correct parameters', async () => {
-            await service.startEvaluationWorkflow('eval-123', 'event-456')
+        it('starts evaluation run workflow with correct parameters', async () => {
+            await service.startEvaluationRunWorkflow('eval-123', 'event-456')
 
             expect(mockClient.workflow.start).toHaveBeenCalledWith('run-evaluation', {
                 taskQueue: 'general-purpose-task-queue',
@@ -100,8 +100,8 @@ describe('TemporalService', () => {
         })
 
         it('generates deterministic workflow IDs', async () => {
-            await service.startEvaluationWorkflow('eval-123', 'event-456')
-            await service.startEvaluationWorkflow('eval-123', 'event-456')
+            await service.startEvaluationRunWorkflow('eval-123', 'event-456')
+            await service.startEvaluationRunWorkflow('eval-123', 'event-456')
 
             const calls = (mockClient.workflow.start as jest.Mock).mock.calls
             const workflowId1 = calls[0][1].workflowId
@@ -112,8 +112,8 @@ describe('TemporalService', () => {
         })
 
         it('generates different workflow IDs for different events', async () => {
-            await service.startEvaluationWorkflow('eval-123', 'event-1')
-            await service.startEvaluationWorkflow('eval-123', 'event-2')
+            await service.startEvaluationRunWorkflow('eval-123', 'event-1')
+            await service.startEvaluationRunWorkflow('eval-123', 'event-2')
 
             const calls = (mockClient.workflow.start as jest.Mock).mock.calls
             const workflowId1 = calls[0][1].workflowId
@@ -125,35 +125,17 @@ describe('TemporalService', () => {
         })
 
         it('returns workflow handle on success', async () => {
-            const handle = await service.startEvaluationWorkflow('eval-123', 'event-456')
+            const handle = await service.startEvaluationRunWorkflow('eval-123', 'event-456')
 
             expect(handle).toBeDefined()
             expect(handle).toBe(mockWorkflowHandle)
         })
 
-        it('returns undefined on workflow start failure', async () => {
+        it('throws on workflow start failure', async () => {
             ;(mockClient.workflow.start as jest.Mock).mockRejectedValue(new Error('Temporal unavailable'))
 
-            const handle = await service.startEvaluationWorkflow('eval-123', 'event-456')
-
-            expect(handle).toBeUndefined()
-        })
-
-        it('logs error on workflow start failure', async () => {
-            const error = new Error('Connection failed')
-            ;(mockClient.workflow.start as jest.Mock).mockRejectedValue(error)
-
-            const loggerSpy = jest.spyOn(require('../../utils/logger').logger, 'error')
-
-            await service.startEvaluationWorkflow('eval-123', 'event-456')
-
-            expect(loggerSpy).toHaveBeenCalledWith(
-                'Failed to start evaluation workflow',
-                expect.objectContaining({
-                    evaluationId: 'eval-123',
-                    targetEventId: 'event-456',
-                    error: 'Connection failed',
-                })
+            await expect(service.startEvaluationRunWorkflow('eval-123', 'event-456')).rejects.toThrow(
+                'Temporal unavailable'
             )
         })
     })

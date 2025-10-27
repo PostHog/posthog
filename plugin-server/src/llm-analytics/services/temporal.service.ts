@@ -3,13 +3,12 @@ import { Counter } from 'prom-client'
 
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
-import { captureException } from '../../utils/posthog'
 
 const EVALUATION_TASK_QUEUE = 'general-purpose-task-queue'
 
 const temporalWorkflowsStarted = new Counter({
-    name: 'evaluation_temporal_workflows_started',
-    help: 'Number of evaluation workflows started',
+    name: 'evaluation_run_workflows_started',
+    help: 'Number of evaluation run workflows started',
     labelNames: ['status'],
 })
 
@@ -69,44 +68,32 @@ export class TemporalService {
         return client
     }
 
-    async startEvaluationWorkflow(evaluationId: string, targetEventId: string): Promise<WorkflowHandle | undefined> {
-        try {
-            const client = await this.ensureConnected()
+    async startEvaluationRunWorkflow(evaluationId: string, targetEventId: string): Promise<WorkflowHandle> {
+        const client = await this.ensureConnected()
 
-            const workflowId = `${evaluationId}-${targetEventId}-ingestion`
+        const workflowId = `${evaluationId}-${targetEventId}-ingestion`
 
-            const handle = await client.workflow.start('run-evaluation', {
-                args: [
-                    {
-                        evaluation_id: evaluationId,
-                        target_event_id: targetEventId,
-                    },
-                ],
-                taskQueue: EVALUATION_TASK_QUEUE,
-                workflowId,
-                workflowIdConflictPolicy: 'USE_EXISTING',
-            })
+        const handle = await client.workflow.start('run-evaluation', {
+            args: [
+                {
+                    evaluation_id: evaluationId,
+                    target_event_id: targetEventId,
+                },
+            ],
+            taskQueue: EVALUATION_TASK_QUEUE,
+            workflowId,
+            workflowIdConflictPolicy: 'USE_EXISTING',
+        })
 
-            temporalWorkflowsStarted.labels({ status: 'success' }).inc()
+        temporalWorkflowsStarted.labels({ status: 'success' }).inc()
 
-            logger.debug('Started evaluation workflow', {
-                workflowId,
-                evaluationId,
-                targetEventId,
-            })
+        logger.debug('Started evaluation run workflow', {
+            workflowId,
+            evaluationId,
+            targetEventId,
+        })
 
-            return handle
-        } catch (error: unknown) {
-            temporalWorkflowsStarted.labels({ status: 'error' }).inc()
-            logger.error('Failed to start evaluation workflow', {
-                evaluationId,
-                targetEventId,
-                error: error instanceof Error ? error.message : String(error),
-            })
-            captureException(error)
-            // Don't throw - we don't want to fail event processing
-            return undefined
-        }
+        return handle
     }
 
     async disconnect(): Promise<void> {

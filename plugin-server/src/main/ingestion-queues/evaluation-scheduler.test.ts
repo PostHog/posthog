@@ -1,4 +1,4 @@
-import { KafkaMessage } from 'kafkajs'
+import { Message } from 'node-rdkafka'
 
 import { createAiGenerationEvent, createEvaluation, createEvaluationCondition } from '~/llm-analytics/_tests/fixtures'
 import { Hub } from '~/types'
@@ -31,17 +31,17 @@ describe('Evaluation Scheduler', () => {
 
     describe('filterAndParseMessages', () => {
         it('filters messages by productTrack header and parses JSON', () => {
-            const messages: KafkaMessage[] = [
+            const messages: Message[] = [
                 {
-                    headers: { productTrack: Buffer.from('llma') },
+                    headers: [{ productTrack: Buffer.from('llma') }],
                     value: Buffer.from(JSON.stringify(createAiGenerationEvent(teamId))),
                 } as any,
                 {
-                    headers: { productTrack: Buffer.from('general') },
+                    headers: [{ productTrack: Buffer.from('general') }],
                     value: Buffer.from(JSON.stringify({ event: '$pageview', team_id: teamId })),
                 } as any,
                 {
-                    headers: { productTrack: Buffer.from('llma') },
+                    headers: [{ productTrack: Buffer.from('llma') }],
                     value: Buffer.from(JSON.stringify(createAiGenerationEvent(teamId))),
                 } as any,
             ]
@@ -53,13 +53,13 @@ describe('Evaluation Scheduler', () => {
         })
 
         it('handles malformed JSON gracefully', () => {
-            const messages: KafkaMessage[] = [
+            const messages: Message[] = [
                 {
-                    headers: { productTrack: Buffer.from('llma') },
+                    headers: [{ productTrack: Buffer.from('llma') }],
                     value: Buffer.from('invalid json{'),
                 } as any,
                 {
-                    headers: { productTrack: Buffer.from('llma') },
+                    headers: [{ productTrack: Buffer.from('llma') }],
                     value: Buffer.from(JSON.stringify(createAiGenerationEvent(teamId))),
                 } as any,
             ]
@@ -70,9 +70,9 @@ describe('Evaluation Scheduler', () => {
         })
 
         it('filters out messages without llma header', () => {
-            const messages: KafkaMessage[] = [
+            const messages: Message[] = [
                 {
-                    headers: { productTrack: Buffer.from('general') },
+                    headers: [{ productTrack: Buffer.from('general') }],
                     value: Buffer.from(JSON.stringify({ event: '$pageview' })),
                 } as any,
                 {
