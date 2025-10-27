@@ -11,7 +11,7 @@ from posthog.models import Dashboard, Insight, Team, User
 from ee.hogai.graph.dashboards.nodes import DashboardCreationExecutorNode, DashboardCreationNode, QueryMetadata
 from ee.hogai.utils.helpers import build_dashboard_url, build_insight_url
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import BaseStateWithTaskResults, InsightArtifact, InsightQuery, TaskResult
+from ee.hogai.utils.types.base import BaseStateWithTasks, InsightArtifact, InsightQuery, TaskResult
 
 
 class TestQueryMetadata(TestCase):
@@ -358,7 +358,7 @@ class TestDashboardCreationNodeAsyncMethods:
             ],
             status=TaskExecutionStatus.COMPLETED,
         )
-        mock_executor_node.arun = AsyncMock(return_value=BaseStateWithTaskResults(task_results=[mock_task_result]))
+        mock_executor_node.arun = AsyncMock(return_value=BaseStateWithTasks(task_results=[mock_task_result]))
 
         # Mock _process_insight_creation_results to return the modified query_metadata
         async def mock_process_insight_creation_results(tool_calls, task_results, query_metadata):
@@ -410,7 +410,7 @@ class TestDashboardCreationNodeAsyncMethods:
             ],
             status=TaskExecutionStatus.COMPLETED,
         )
-        mock_executor_node.arun = AsyncMock(return_value=BaseStateWithTaskResults(task_results=[mock_task_result]))
+        mock_executor_node.arun = AsyncMock(return_value=BaseStateWithTasks(task_results=[mock_task_result]))
 
         queries_metadata = {
             "task_1": QueryMetadata(

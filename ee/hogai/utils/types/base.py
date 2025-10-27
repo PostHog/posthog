@@ -10,7 +10,7 @@ from langchain_core.messages import (
     BaseMessage as LangchainBaseMessage,
 )
 from langgraph.graph import END, START
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.schema import (
     AssistantEventType,
@@ -198,6 +198,8 @@ class TaskResult(BaseModel):
     """
     The result of an individual task.
     """
+
+    model_config = ConfigDict(extra="ignore")
 
     id: str
     result: str

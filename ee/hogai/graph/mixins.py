@@ -157,10 +157,7 @@ class StateClassMixin:
 class TaxonomyUpdateDispatcherNodeMixin:
     _team: Team
     _user: User
-
-    @property
-    def dispatcher(self) -> AssistantDispatcher:
-        raise NotImplementedError
+    dispatcher: AssistantDispatcher
 
     def dispatch_update_message(self, state: BaseStateWithIntermediateSteps) -> None:
         substeps: list[str] = []

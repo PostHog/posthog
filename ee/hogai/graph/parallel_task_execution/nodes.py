@@ -6,12 +6,13 @@ from typing import Any, Generic, TypeVar, cast
 import structlog
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import AssistantToolCall, AssistantToolCallMessage
+from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage
 
 from posthog.exceptions_capture import capture_exception
 
 from ee.hogai.graph.base import BaseAssistantNode
-from ee.hogai.utils.types.base import BaseState, BaseStateWithTaskResults, TaskArtifact, TaskResult
+from ee.hogai.utils.helpers import find_last_message_of_type
+from ee.hogai.utils.types.base import BaseState, BaseStateWithMessages, BaseStateWithTasks, TaskArtifact, TaskResult
 
 logger = structlog.get_logger(__name__)
 
@@ -27,7 +28,7 @@ TaskExecutionInputTuple = tuple[AssistantToolCall, list[TaskArtifact], TaskExecu
 
 # Type variables for generic state types
 StateT = TypeVar("StateT", bound=BaseState)
-PartialStateT = TypeVar("PartialStateT", bound=BaseStateWithTaskResults)
+PartialStateT = TypeVar("PartialStateT", bound=BaseStateWithTasks)
 
 
 class BaseTaskExecutorNode(BaseAssistantNode[StateT, PartialStateT], Generic[StateT, PartialStateT]):
@@ -60,18 +61,16 @@ class BaseTaskExecutorNode(BaseAssistantNode[StateT, PartialStateT], Generic[Sta
     _reasoning_callback: Callable[[str, str | None], Coroutine[Any, Any, None]]
 
     async def arun(self, state: StateT, config: RunnableConfig) -> PartialStateT:
-        """
-        Main entry point for task execution. Must be implemented by subclasses.
-        Must call self.aexecute.
-
-        Args:
-            state: The current state containing task definitions
-            config: Langchain configuration for execution
-
-        Returns:
-            Partial state with execution results
-        """
-        raise NotImplementedError
+        if not isinstance(state, BaseStateWithMessages):
+            # make mypy happy
+            raise ValueError("State is not a BaseStateWithMessages")
+        messages = state.messages
+        last_message = find_last_message_of_type(messages, AssistantMessage)
+        if not last_message or not last_message.tool_calls:
+            raise ValueError("No last message found or no tool calls found")
+        tool_calls = last_message.tool_calls
+        self.dispatcher.message(last_message)
+        return await self.aexecute(tool_calls, config)
 
     async def _aget_input_tuples(self, tool_calls: list[AssistantToolCall]) -> list[TaskExecutionInputTuple]:
         """
@@ -101,7 +100,7 @@ class BaseTaskExecutorNode(BaseAssistantNode[StateT, PartialStateT], Generic[Sta
         # Cast to PartialStateT since we know subclasses will use compatible types
         return cast(
             PartialStateT,
-            BaseStateWithTaskResults(
+            BaseStateWithTasks(
                 task_results=task_results,
             ),
         )

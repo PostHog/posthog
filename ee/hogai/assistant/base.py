@@ -343,7 +343,7 @@ class BaseAssistant(ABC):
 
         return None
 
-    async def _aprocess_value_update(self, update: GraphValueUpdateTuple) -> AssistantMessageUnion | None:
+    async def _aprocess_value_update(self, update: GraphValueUpdateTuple) -> AssistantResultUnion | None:
         return None
 
     def _build_root_config_for_persistence(self) -> RunnableConfig:

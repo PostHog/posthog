@@ -36,7 +36,7 @@ class DeepResearchTaskExecutorNode(
 
         tool_call_id = last_tool_call_message.tool_calls[0].id
         self.tool_call_id = tool_call_id
-        return await self.aexecute(last_tool_call_message.tool_calls, config)
+        return await super().arun(state, config)
 
     async def _aget_input_tuples(self, tool_calls: list[AssistantToolCall]) -> list[TaskExecutionInputTuple]:
         input_tuples: list[TaskExecutionInputTuple] = []

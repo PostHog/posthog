@@ -28,9 +28,9 @@ from ee.hogai.graph.parallel_task_execution.mixins import (
 )
 from ee.hogai.graph.parallel_task_execution.nodes import BaseTaskExecutorNode, TaskExecutionInputTuple
 from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
-from ee.hogai.utils.helpers import build_dashboard_url, build_insight_url, cast_assistant_query, find_last_message_of_type
+from ee.hogai.utils.helpers import build_dashboard_url, build_insight_url, cast_assistant_query
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import BaseState, BaseStateWithMessages, BaseStateWithTaskResults, InsightArtifact, InsightQuery, TaskResult
+from ee.hogai.utils.types.base import BaseStateWithTasks, InsightArtifact, InsightQuery, TaskResult
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
@@ -55,8 +55,8 @@ class QueryMetadata(BaseModel):
 
 class DashboardCreationExecutorNode(
     BaseTaskExecutorNode[
-        BaseStateWithTaskResults,
-        BaseStateWithTaskResults,
+        AssistantState,
+        BaseStateWithTasks,
     ],
     WithInsightSearchTaskExecution,
     WithInsightCreationTaskExecution,
@@ -68,18 +68,6 @@ class DashboardCreationExecutorNode(
     @property
     def node_name(self) -> MaxNodeName:
         return AssistantNodeName.DASHBOARD_CREATION_EXECUTOR
-
-    async def arun(self, state: BaseState, config: RunnableConfig) -> BaseStateWithTaskResults:
-        if not isinstance(state, BaseStateWithMessages):
-            # make mypy happy
-            raise ValueError("State is not a BaseStateWithMessages")
-        messages = state.messages
-        last_message = find_last_message_of_type(messages, AssistantMessage)
-        if not last_message or not last_message.tool_calls:
-            raise ValueError("No last message found or no tool calls found")
-        tool_calls = last_message.tool_calls
-        self.dispatcher.message(last_message)
-        return await self.aexecute(tool_calls, config)
 
     async def _aget_input_tuples(self, tool_calls: list[AssistantToolCall]) -> list[TaskExecutionInputTuple]:
         input_tuples: list[TaskExecutionInputTuple] = []
@@ -226,7 +214,7 @@ class DashboardCreationNode(AssistantNode):
         result = await executor.arun(
             AssistantState(messages=[message], root_tool_call_id=self._parent_tool_call_id), config
         )
-        final_task_executor_state = BaseStateWithTaskResults.model_validate(result)
+        final_task_executor_state = BaseStateWithTasks.model_validate(result)
 
         for task_result in final_task_executor_state.task_results:
             if task_result.status == TaskExecutionStatus.COMPLETED:
@@ -237,10 +225,13 @@ class DashboardCreationNode(AssistantNode):
                             f"\n -{queries_metadata[task_result.id].query.name}: Found insights for the query and the reason for selection is **{artifact.content}**"
                         )
                     else:
-                        tool_call = next(tool_call for tool_call in tool_calls if tool_call.id == task_result.id)
-                        queries_metadata[task_result.id].found_insight_messages.append(
-                            f"\n -{queries_metadata[task_result.id].query.name}: Could not find insights for the query with the description **{tool_call.args['search_insights_query']}**"
-                        )
+                        try:
+                            tool_call = next(tool_call for tool_call in tool_calls if tool_call.id == task_result.id)
+                            queries_metadata[task_result.id].found_insight_messages.append(
+                                f"\n -{queries_metadata[task_result.id].query.name}: Could not find insights for the query with the description **{tool_call.args['search_insights_query']}**"
+                            )
+                        except StopIteration:
+                            pass
         return queries_metadata
 
     @transaction.atomic
@@ -259,10 +250,13 @@ class DashboardCreationNode(AssistantNode):
 
         for task_result in task_results:
             if task_result.status != TaskExecutionStatus.COMPLETED:
-                tool_call = next(tool_call for tool_call in tool_calls if tool_call.id == task_result.id)
-                query_metadata[task_result.id].created_insight_messages.append(
-                    f"\n -{query_metadata[task_result.id].query.name}: Could not create insights for the query with the description **{tool_call.args['query_description']}**"
-                )
+                try:
+                    tool_call = next(tool_call for tool_call in tool_calls if tool_call.id == task_result.id)
+                    query_metadata[task_result.id].created_insight_messages.append(
+                        f"\n -{query_metadata[task_result.id].query.name}: Could not create insights for the query with the description **{tool_call.args['query_description']}**"
+                    )
+                except StopIteration:
+                    pass
                 continue
 
             for artifact in task_result.artifacts:

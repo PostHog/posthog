@@ -51,7 +51,9 @@ class TestStreamProcessor(BaseTest):
         )
 
     def _create_dispatcher_event(
-        self, action: MessageAction | NodeStartAction, node_name: AssistantNodeName = AssistantNodeName.ROOT
+        self,
+        action: MessageAction | NodeStartAction | MessageChunkAction,
+        node_name: AssistantNodeName = AssistantNodeName.ROOT,
     ) -> AssistantDispatcherEvent:
         """Helper to create a dispatcher event for testing."""
         return AssistantDispatcherEvent(action=action, node_name=node_name)
@@ -324,32 +326,6 @@ class TestStreamProcessor(BaseTest):
         result = cast(AssistantGenerationStatusEvent, result)
         self.assertEqual(result.type, AssistantGenerationStatusType.ACK)
 
-    def test_max_depth_exceeded(self):
-        """Test that exceeding max depth raises error."""
-        # Create a very deep chain (> 100)
-        current_id = None
-        for i in range(105):
-            tool_call_id = str(uuid4())
-            message = AssistantMessage(
-                id=str(uuid4()),
-                content=f"Message {i}",
-                tool_calls=[AssistantToolCall(id=tool_call_id, name=f"tool_{i}", args={})],
-                parent_tool_call_id=current_id,
-            )
-            self.stream_processor._tool_call_id_to_message[tool_call_id] = message
-            current_id = tool_call_id
-
-        # Try to process a child of the deepest message
-        leaf_message = AssistantMessage(content="Leaf", parent_tool_call_id=current_id)
-        event = self._create_dispatcher_event(MessageAction(message=leaf_message))
-
-        with self.assertRaises(ValueError) as ctx:
-            self.stream_processor.process(event)
-
-        error_msg = str(ctx.exception)
-        self.assertIn("exceeded maximum depth", error_msg)
-        self.assertIn("100", error_msg)
-
     def test_handles_mixed_content_types_in_chunks(self):
         """Test that stream processor correctly handles switching between string and list content formats."""
         # Test string to list transition
@@ -365,7 +341,7 @@ class TestStreamProcessor(BaseTest):
         # Verify the chunks were reset to list format
         self.assertIsInstance(self.stream_processor._chunks.content, list)
         self.assertEqual(len(self.stream_processor._chunks.content), 1)
-        self.assertEqual(self.stream_processor._chunks.content[0]["text"], "new content from o3")
+        self.assertEqual(cast(dict, self.stream_processor._chunks.content[0])["text"], "new content from o3")
 
         # Test list to string transition
         string_chunk = AIMessageChunk(content="back to string format")
@@ -375,7 +351,7 @@ class TestStreamProcessor(BaseTest):
         self.stream_processor.process(event)
 
         # Verify the chunks were reset to string format
-        self.assertIsInstance(self.stream_processor._chunks.content, str)  # type: ignore
+        self.assertIsInstance(self.stream_processor._chunks.content, str)
         self.assertEqual(self.stream_processor._chunks.content, "back to string format")
 
     def test_handles_multiple_list_chunks(self):

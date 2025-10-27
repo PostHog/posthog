@@ -1,3 +1,5 @@
+from typing import cast
+
 import structlog
 from langchain_core.messages import AIMessageChunk
 
@@ -58,7 +60,7 @@ class AssistantStreamProcessor:
         node_name = event.node_name
 
         if isinstance(action, MessageChunkAction):
-            return self._handle_message_stream(action.message, node_name)
+            return self._handle_message_stream(action.message, cast(MaxNodeName, node_name))
 
         if isinstance(action, NodeStartAction):
             return AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK)
@@ -68,7 +70,7 @@ class AssistantStreamProcessor:
 
             # Register any tool calls for later parent chain lookups
             self._register_tool_calls(message)
-            result = self._handle_message(message, node_name)
+            result = self._handle_message(message, cast(MaxNodeName, node_name))
             return (
                 result if result is not None else AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK)
             )
@@ -122,7 +124,7 @@ class AssistantStreamProcessor:
             if next_parent_tool_call_id is None:
                 return root_message_id, root_tool_call_id
             root_tool_call_id = next_parent_tool_call_id
-        return root_message_id, root_tool_call_id
+        raise ValueError("Should not reach here")
 
     def _register_tool_calls(self, message: AssistantMessageUnion) -> None:
         """Register any tool calls in the message for later lookup."""

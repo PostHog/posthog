@@ -9,7 +9,7 @@ from posthog.schema import DeepResearchNotebook
 
 from ee.hogai.graph.root.tools.todo_write import TodoItem
 from ee.hogai.utils.types import AssistantMessageUnion, add_and_merge_messages
-from ee.hogai.utils.types.base import BaseStateWithMessages, BaseStateWithTaskResults, append, replace
+from ee.hogai.utils.types.base import BaseStateWithMessages, BaseStateWithTasks, append, replace
 
 NotebookInfo = DeepResearchNotebook
 
@@ -23,7 +23,7 @@ class DeepResearchIntermediateResult(BaseModel):
     artifact_ids: list[str] = Field(default=[])
 
 
-class _SharedDeepResearchState(BaseStateWithMessages, BaseStateWithTaskResults):
+class _SharedDeepResearchState(BaseStateWithMessages, BaseStateWithTasks):
     todos: Annotated[Optional[list[TodoItem]], replace] = Field(default=None)
     """
     The current TO-DO list.
