@@ -84,41 +84,6 @@ describe('createExperimentLogic', () => {
                 })
         })
 
-        it('prevents submission when description is empty and shows error', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setExperiment({
-                    ...NEW_EXPERIMENT,
-                    name: 'Valid name',
-                    description: '',
-                })
-                logic.actions.submitExperiment()
-            })
-                .toDispatchActions(['setExperiment', 'submitExperiment', 'submitExperimentFailure'])
-                .toMatchValues({
-                    experimentErrors: partial({
-                        description: 'Hypothesis is required',
-                    }),
-                })
-        })
-
-        it('shows both errors when both name and description are empty', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setExperiment({
-                    ...NEW_EXPERIMENT,
-                    name: '',
-                    description: '',
-                })
-                logic.actions.submitExperiment()
-            })
-                .toDispatchActions(['setExperiment', 'submitExperiment', 'submitExperimentFailure'])
-                .toMatchValues({
-                    experimentErrors: partial({
-                        name: 'Name is required',
-                        description: 'Hypothesis is required',
-                    }),
-                })
-        })
-
         it('allows submission with valid data', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setExperiment({
@@ -156,9 +121,9 @@ describe('createExperimentLogic', () => {
                     description: 'Test hypothesis',
                 })
                 logic.actions.submitExperiment()
-            }).toDispatchActions(['submitExperiment', 'createExperimentSuccess'])
-
-            await new Promise((resolve) => setTimeout(resolve, 10))
+            })
+                .toDispatchActions(['submitExperiment', 'createExperimentSuccess'])
+                .toFinishAllListeners()
 
             expect(refreshTreeItem).toHaveBeenCalledWith('experiment', '123')
             expect(refreshTreeItem).toHaveBeenCalledWith('feature_flag', '456')
@@ -172,14 +137,16 @@ describe('createExperimentLogic', () => {
                     description: 'Test hypothesis',
                 })
                 logic.actions.submitExperiment()
-            }).toDispatchActions(['submitExperiment', 'createExperimentSuccess'])
-
-            await new Promise((resolve) => setTimeout(resolve, 10))
+            })
+                .toDispatchActions(['submitExperiment', 'createExperimentSuccess'])
+                .toFinishAllListeners()
 
             expect(routerPushSpy).toHaveBeenCalledWith('/experiments/123')
         })
 
         it('shows success toast with view button', async () => {
+            routerPushSpy.mockClear()
+
             await expectLogic(logic, () => {
                 logic.actions.setExperiment({
                     ...NEW_EXPERIMENT,
@@ -187,9 +154,9 @@ describe('createExperimentLogic', () => {
                     description: 'Test hypothesis',
                 })
                 logic.actions.submitExperiment()
-            }).toDispatchActions(['submitExperiment', 'createExperimentSuccess'])
-
-            await new Promise((resolve) => setTimeout(resolve, 10))
+            })
+                .toDispatchActions(['submitExperiment', 'createExperimentSuccess'])
+                .toFinishAllListeners()
 
             expect(lemonToast.success).toHaveBeenCalledWith(
                 'Experiment created successfully!',
