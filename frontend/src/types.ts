@@ -1112,9 +1112,6 @@ export type SessionRecordingSnapshotParams = (
           start_blob_key?: string
           end_blob_key?: string
       }
-    | {
-          source: 'realtime'
-      }
 ) & {
     decompress?: boolean
 }
@@ -5713,6 +5710,7 @@ export interface Conversation {
     created_at: string | null
     updated_at: string | null
     type: ConversationType
+    has_unsupported_content?: boolean
 }
 
 export interface ConversationDetail extends Conversation {

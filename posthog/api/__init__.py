@@ -30,7 +30,7 @@ import products.endpoints.backend.api as endpoints
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
-from products.error_tracking.backend.api import error_tracking
+from products.error_tracking.backend.api import error_tracking, git_provider_file_link_resolver
 from products.llm_analytics.backend.api import (
     DatasetItemViewSet,
     DatasetViewSet,
@@ -504,6 +504,7 @@ organizations_router.register(
 router.register(r"login", authentication.LoginViewSet, "login")
 router.register(r"login/token", authentication.TwoFactorViewSet, "login_token")
 router.register(r"login/precheck", authentication.LoginPrecheckViewSet, "login_precheck")
+router.register(r"login/email-mfa", authentication.EmailMFAViewSet, "login_email_mfa")
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 router.register(r"users", user.UserViewSet, "users")
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
@@ -731,6 +732,13 @@ environments_router.register(
     r"error_tracking/stack_frames",
     error_tracking.ErrorTrackingStackFrameViewSet,
     "project_error_tracking_stack_frames",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"error_tracking/git-provider-file-links",
+    git_provider_file_link_resolver.GitProviderFileLinksViewSet,
+    "project_error_tracking_git_provider_file_links",
     ["team_id"],
 )
 

@@ -1401,6 +1401,9 @@ class FileSystemEntry(BaseModel):
     )
     href: Optional[str] = Field(default=None, description="Object's URL")
     id: str = Field(..., description="Unique UUID for tree entry")
+    last_viewed_at: Optional[str] = Field(
+        default=None, description="Timestamp when the file system entry was last viewed"
+    )
     meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
     path: str = Field(..., description="Object's name and folder")
     ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
@@ -1481,6 +1484,9 @@ class FileSystemImport(BaseModel):
     iconColor: Optional[list[str]] = Field(default=None, description="Color of the icon")
     iconType: Optional[FileSystemIconType] = None
     id: Optional[str] = None
+    last_viewed_at: Optional[str] = Field(
+        default=None, description="Timestamp when the file system entry was last viewed"
+    )
     meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
     path: str = Field(..., description="Object's name and folder")
     protocol: Optional[str] = Field(default=None, description='Protocol of the item, defaults to "project://"')
@@ -14633,6 +14639,7 @@ class EndpointRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    cache_age_seconds: Optional[float] = None
     description: Optional[str] = None
     is_active: Optional[bool] = None
     name: Optional[str] = None
