@@ -183,10 +183,6 @@ export const getToolsFromContext = async (
     } catch (error) {
         // OAuth tokens don't support /api/personal_api_keys/@current endpoint yet
         // Return empty tool set until backend OAuth support is added
-        console.log(
-            '[MCP] Skipping tool scope filtering (likely OAuth token):',
-            (error as Error).message
-        )
         return []
     }
 }
