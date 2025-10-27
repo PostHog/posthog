@@ -1,5 +1,7 @@
 import { inStorybookTestRunner } from 'lib/utils'
 
+import { AssistantMessage } from '~/queries/schema/schema-assistant-messages'
+
 export const THINKING_MESSAGES = [
     'Booping', // playful interaction
     'Crunching', // data in progress
@@ -93,4 +95,17 @@ export const getRandomThinkingMessage = (): string => {
     }
     const randomIndex = Math.floor(Math.random() * THINKING_MESSAGES.length)
     return THINKING_MESSAGES[randomIndex] + '...'
+}
+
+export const getThinkingMessageFromResponse = (message: AssistantMessage): string | null => {
+    const thinkingMeta = message.meta?.thinking
+    let thinking = null
+    if (thinkingMeta && thinkingMeta.length > 0) {
+        if (thinkingMeta[0].type === 'thinking') {
+            thinking = thinkingMeta[0].thinking as string
+        } else if (thinkingMeta[0].type === 'reasoning') {
+            thinking = (thinkingMeta[0].summary as any[])[0].text as string
+        }
+    }
+    return thinking ?? null
 }

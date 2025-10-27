@@ -87,7 +87,7 @@ import {
     isNotebookUpdateMessage,
     isVisualizationMessage,
 } from './utils'
-import { getRandomThinkingMessage } from './utils/thinkingMessages'
+import { getThinkingMessageFromResponse } from './utils/thinkingMessages'
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
@@ -232,11 +232,12 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                             !!(message.content.length > 0 || (message.tool_calls && message.tool_calls.length > 0)) ||
                             !isLastInGroup
                         let thinkingElement = null
-                        if (message.meta?.thinking && message.meta.thinking.length > 0) {
+                        const thinkingContent = getThinkingMessageFromResponse(message)
+                        if (thinkingContent) {
                             thinkingElement = (
                                 <ReasoningAnswer
                                     key={`${key}-thinking`}
-                                    thinking={message.meta.thinking}
+                                    content={thinkingContent}
                                     id={message.id || key}
                                     completed={isMessageComplete}
                                     showCompletionIcon={false}
@@ -802,16 +803,13 @@ function AssistantActionComponent({
 }
 
 interface ReasoningAnswerProps {
-    thinking: Record<string, unknown>[]
+    content: string
     completed: boolean
     id: string
     showCompletionIcon?: boolean
 }
 
-function ReasoningAnswer({ thinking, completed, id, showCompletionIcon = true }: ReasoningAnswerProps): JSX.Element {
-    const content =
-        thinking.length > 0 && 'thinking' in thinking[0] ? String(thinking[0].thinking) : getRandomThinkingMessage()
-
+function ReasoningAnswer({ content, completed, id, showCompletionIcon = true }: ReasoningAnswerProps): JSX.Element {
     return (
         <AssistantActionComponent
             id={id}
