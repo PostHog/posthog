@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 # ruff: noqa: T201 allow print statements
 """
-Validate that uv can download the Python version specified in pyproject.toml.
+Validate uv configuration for local development and CI.
 
-uv uses python-build-standalone for Python versions. This script uses
-`uv python list --only-downloads` to verify the required Python version is available.
+Performs two checks:
+1. Verify flox's uv can download the Python version from pyproject.toml
+   (critical for local development)
+2. Verify uv versions are consistent across flox and CI workflows
+   (helps maintain configuration consistency)
 
-Run in CI via .github/workflows/ci-python.yml to catch incompatibilities early
-when pyproject.toml is updated.
+Run in CI via .github/workflows/ci-python.yml to catch issues early.
 
 Exit codes:
-    0: Python version is available
-    1: Python version not available or error occurred
+    0: All checks passed
+    1: Flox uv cannot download required Python or config error
 """
 
 import re
@@ -104,69 +106,102 @@ def check_uv_python_compatibility(uv_version: str, python_version: str) -> tuple
 
 def main() -> int:
     """Main entry point for the validation script."""
-    print("Checking uv and Python version compatibility...")
+    print("Validating uv configuration...")
     print()
 
+    # Get Python version from pyproject.toml
     try:
         python_version = get_python_version_from_pyproject()
-        print(f"✓ Python version from pyproject.toml: {python_version}")
+        print(f"Python version required: {python_version}")
     except Exception as e:
         print(f"✗ Error reading Python version: {e}")
         return 1
 
-    # Collect all uv versions from different sources
-    all_uv_versions = {}
-
-    # Check flox manifest
+    # Get uv versions from all sources
+    flox_uv = None
     try:
         flox_uv = get_uv_version_from_flox()
         if flox_uv:
-            all_uv_versions["flox manifest"] = flox_uv
-            print(f"✓ Found uv version in flox manifest: {flox_uv}")
+            print(f"Flox uv version: {flox_uv}")
     except Exception as e:
         print(f"⚠ Warning: Could not read flox manifest: {e}")
 
-    # Check workflows
+    workflow_versions = {}
     try:
         workflow_versions = get_uv_versions_from_workflows()
         if workflow_versions:
-            all_uv_versions.update(workflow_versions)
-            print(f"✓ Found uv versions in {len(workflow_versions)} workflow(s)")
+            print(f"Found uv in {len(workflow_versions)} workflow(s)")
     except Exception as e:
-        print(f"✗ Error reading workflow versions: {e}")
-        return 1
-
-    if not all_uv_versions:
-        print("⚠ Warning: No uv versions found")
-        return 0
+        print(f"⚠ Warning: Could not read workflows: {e}")
 
     print()
-
-    # Check each source's uv version
-    all_compatible = True
-    for source, uv_version in all_uv_versions.items():
-        compatible, message = check_uv_python_compatibility(uv_version, python_version)
-        status = "✓" if compatible else "✗"
-        detail = f" ({message})" if message else ""
-        print(
-            f"{status} {source}: uv {uv_version} {'supports' if compatible else 'may not support'} Python {python_version}{detail}"
-        )
-        if not compatible:
-            all_compatible = False
-
+    print("=" * 60)
     print()
-    if all_compatible:
-        print("✓ All uv versions are compatible with the required Python version")
-        return 0
+
+    # Check 1: Can flox uv download the required Python version?
+    print("Check 1: Flox uv Python compatibility")
+    print("-" * 60)
+
+    if not flox_uv:
+        print("⚠ Skipped: No flox manifest found")
+        flox_compatible = True
     else:
-        print("✗ Some uv versions may not support the required Python version")
-        print()
-        print("To fix this:")
-        print("1. Update the uv version in the affected workflows or flox manifest")
-        print("2. Or use an older Python version in pyproject.toml")
-        print()
-        print("See uv releases: https://github.com/astral-sh/uv/releases")
+        compatible, message = check_uv_python_compatibility(flox_uv, python_version)
+        if compatible:
+            print(f"✓ Flox uv {flox_uv} can download Python {python_version}")
+            print(f"  {message}")
+            flox_compatible = True
+        else:
+            print(f"✗ Flox uv {flox_uv} cannot download Python {python_version}")
+            print(f"  {message}")
+            print()
+            print("  To fix: Update uv version in .flox/env/manifest.toml")
+            print("  See: https://github.com/astral-sh/uv/releases")
+            flox_compatible = False
+
+    print()
+    print("=" * 60)
+    print()
+
+    # Check 2: Are all uv versions consistent?
+    print("Check 2: uv version consistency")
+    print("-" * 60)
+
+    all_versions = {}
+    if flox_uv:
+        all_versions["flox"] = flox_uv
+    all_versions.update(workflow_versions)
+
+    if len(all_versions) < 2:
+        print("⚠ Not enough sources to check consistency")
+        versions_consistent = True
+    else:
+        unique_versions = set(all_versions.values())
+        if len(unique_versions) == 1:
+            print(f"✓ All sources use uv {unique_versions.pop()}")
+            versions_consistent = True
+        else:
+            print("⚠ Inconsistent uv versions found:")
+            for source, version in sorted(all_versions.items()):
+                print(f"  - {source}: {version}")
+            print()
+            print("  Consider standardizing to a single uv version")
+            versions_consistent = False
+
+    print()
+    print("=" * 60)
+    print()
+
+    # Summary
+    if flox_compatible and versions_consistent:
+        print("✓ All checks passed")
+        return 0
+    elif not flox_compatible:
+        print("✗ Failed: Flox uv cannot download required Python version")
         return 1
+    else:
+        print("⚠ Passed with warnings: Version inconsistency detected")
+        return 0
 
 
 if __name__ == "__main__":
