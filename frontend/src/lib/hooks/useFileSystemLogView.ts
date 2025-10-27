@@ -2,7 +2,20 @@ import { DependencyList, useEffect } from 'react'
 
 import api from 'lib/api'
 
-type FileSystemLogViewType = 'experiment' | 'feature_flag' | 'insight' | 'dashboard' | 'scene'
+type FileSystemLogViewType =
+    | 'experiment'
+    | 'feature_flag'
+    | 'insight'
+    | 'dashboard'
+    | 'scene'
+    | 'action'
+    | 'cohort'
+    | 'survey'
+    | 'early_access_feature'
+    | 'link'
+    | 'notebook'
+    | 'session_recording_playlist'
+    | `hog_function/${string}`
 
 interface TrackFileSystemLogViewOptions {
     type: FileSystemLogViewType
@@ -15,7 +28,7 @@ export interface UseFileSystemLogViewOptions extends TrackFileSystemLogViewOptio
 }
 
 export function trackFileSystemLogView({ type, ref, enabled = true }: TrackFileSystemLogViewOptions): void {
-    if (!enabled || ref === null || ref === undefined) {
+    if (!enabled || window.IMPERSONATED_SESSION || ref === null || ref === undefined) {
         return
     }
 

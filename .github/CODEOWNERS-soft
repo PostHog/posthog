@@ -22,6 +22,7 @@ plugin-server/src/ @PostHog/team-ingestion @PostHog/team-workflows
 plugin-server/tests/ @PostHog/team-ingestion
 plugin-server/src/ingestion/ @PostHog/team-ingestion
 plugin-server/src/cdp/ @PostHog/team-workflows
+plugin-server/src/ingestion/ai-costs/ @PostHog/team-llm-analytics
 
 # ClickHouse team owns Clickhouse migrations
 
