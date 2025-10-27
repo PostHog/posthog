@@ -4,11 +4,18 @@ from posthog.models.event_ingestion_restriction_config import RestrictionType
 
 
 class EventIngestionRestrictionConfigAdmin(admin.ModelAdmin):
-    list_display = ("id", "token", "restriction_type", "has_distinct_ids")
-    list_filter = ("restriction_type",)
+    list_display = ("id", "token", "restriction_type", "analytics", "session_recordings", "has_distinct_ids")
+    list_filter = ("restriction_type", "analytics", "session_recordings")
     search_fields = ("token", "distinct_ids")
     fieldsets = (
         (None, {"fields": ("token", "restriction_type", "note")}),
+        (
+            "Ingestion Pipelines",
+            {
+                "fields": ("analytics", "session_recordings"),
+                "description": "Select which ingestion pipelines this restriction applies to.",
+            },
+        ),
         (
             "Distinct IDs",
             {

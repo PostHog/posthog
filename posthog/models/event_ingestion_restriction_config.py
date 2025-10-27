@@ -29,6 +29,12 @@ class EventIngestionRestrictionConfig(UUIDTModel):
     note = models.TextField(
         blank=True, null=True, help_text="Optional note explaining why this restriction was put in place"
     )
+    analytics = models.BooleanField(
+        default=True, help_text="Whether this restriction applies to the analytics ingestion pipeline"
+    )
+    session_recordings = models.BooleanField(
+        default=False, help_text="Whether this restriction applies to the session recordings ingestion pipeline"
+    )
 
     class Meta:
         unique_together = ("token", "restriction_type")
