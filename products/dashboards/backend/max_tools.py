@@ -39,8 +39,7 @@ class EditCurrentDashboardArgs(BaseModel):
 class EditCurrentDashboardTool(MaxTool):
     name: str = "edit_current_dashboard"
     description: str = "Update the dashboard the user is currently working on, such as renaming it or adding insights."
-    thinking_message: str = "Editing your dashboard"
-    root_system_prompt_template: str = """The user is currently editing a dashboard. Here is that dashboard's current definition:
+    context_prompt_template: str = """The user is currently editing a dashboard. Here is that dashboard's current definition:
 
 ```json
 {current_dashboard}
