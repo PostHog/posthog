@@ -7,10 +7,11 @@ from django.test import override_settings
 
 from dateutil import parser
 
-from posthog.schema import DateRange, EventsNode, IntervalType
+from posthog.schema import ActionsNode, DateRange, EventsNode, IntervalType
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_from_series
+from posthog.models.action.action import Action
 from posthog.models.team import WeekStartDay
 
 
@@ -233,14 +234,85 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
             EventsNode(event="$pageleave"),
         ]
         earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)  # type: ignore
+        self.assertEqual(earliest_timestamp, datetime.datetime(2020, 1, 1, 12, 0, 0, tzinfo=datetime.UTC))
+
+        earliest_timestamp_pageview = get_earliest_timestamp_from_series(self.team, [EventsNode(event="$pageview")])
+        self.assertEqual(earliest_timestamp_pageview, datetime.datetime(2022, 1, 1, 12, 0, 0, tzinfo=datetime.UTC))
+        earliest_timestamp_pageleave = get_earliest_timestamp_from_series(self.team, [EventsNode(event="$pageleave")])
+        self.assertEqual(earliest_timestamp_pageleave, datetime.datetime(2020, 1, 1, 12, 0, 0, tzinfo=datetime.UTC))
+
+    def test_returns_earliest_timestamp_for_all_events(self):
+        """Test that event=None returns earliest across ALL events"""
+        _create_event(
+            team=self.team,
+            event="$pageleave",
+            distinct_id="person1",
+            timestamp="2020-01-01T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="person1",
+            timestamp="2022-01-01T12:00:00Z",
+        )
+        flush_persons_and_events()
+
+        # When event is None, it should return the earliest timestamp across ALL events
+        series = [EventsNode(event=None)]
+        earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)
 
         self.assertEqual(earliest_timestamp, datetime.datetime(2020, 1, 1, 12, 0, 0, tzinfo=datetime.UTC))
 
-        # earliest timestamp is the same for all events regardless of the type
-        earliest_timestamp_pageview = get_earliest_timestamp_from_series(self.team, [EventsNode(event="$pageview")])
-        self.assertEqual(earliest_timestamp, earliest_timestamp_pageview)
-        earliest_timestamp_pageleave = get_earliest_timestamp_from_series(self.team, [EventsNode(event="$pageleave")])
-        self.assertEqual(earliest_timestamp, earliest_timestamp_pageleave)
+    def test_returns_earliest_timestamp_for_action(self):
+        """Test that actions respect their event filters"""
+        # Create an action that matches $pageview events
+        action = Action.objects.create(team=self.team, name="Pageview Action", steps_json=[{"event": "$pageview"}])
+
+        _create_event(
+            team=self.team,
+            event="$pageleave",
+            distinct_id="person1",
+            timestamp="2020-01-01T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="person1",
+            timestamp="2022-01-01T12:00:00Z",
+        )
+        flush_persons_and_events()
+
+        series = [ActionsNode(id=action.id)]
+        earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)
+
+        # Should return the earliest timestamp for $pageview events only (not $pageleave)
+        self.assertEqual(earliest_timestamp, datetime.datetime(2022, 1, 1, 12, 0, 0, tzinfo=datetime.UTC))
+
+    def test_compares_global_vs_event_specific_earliest(self):
+        """Test the difference between global (all time) and event-specific (since first seen) timestamps"""
+        from posthog.queries.util import get_earliest_timestamp
+
+        _create_event(
+            team=self.team,
+            event="$pageleave",
+            distinct_id="person1",
+            timestamp="2020-01-01T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="person1",
+            timestamp="2022-01-01T12:00:00Z",
+        )
+        flush_persons_and_events()
+
+        # Global earliest (used for "all time") - returns earliest across ALL events
+        earliest_global = get_earliest_timestamp(self.team.id)
+        self.assertEqual(earliest_global, datetime.datetime(2020, 1, 1, 12, 0, 0, tzinfo=datetime.UTC))
+
+        # Event-specific earliest (used for "since event first seen") - returns earliest for specific event
+        earliest_pageview_specific = get_earliest_timestamp_from_series(self.team, [EventsNode(event="$pageview")])
+        self.assertEqual(earliest_pageview_specific, datetime.datetime(2022, 1, 1, 12, 0, 0, tzinfo=datetime.UTC))
 
     def test_caches_earliest_timestamp(self):
         _create_event(

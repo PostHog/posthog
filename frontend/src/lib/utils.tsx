@@ -1022,6 +1022,12 @@ export const dateMapping: DateMappingOption[] = [
         defaultInterval: 'month',
     },
     {
+        key: 'Since event first seen',
+        values: ['since_event_first_seen'],
+        defaultInterval: 'month',
+        inactive: true, // Enabled by feature flag SINCE_EVENT_FIRST_SEEN
+    },
+    {
         key: 'All time',
         values: ['all'],
         defaultInterval: 'month',

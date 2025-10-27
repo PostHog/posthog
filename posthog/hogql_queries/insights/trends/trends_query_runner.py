@@ -68,19 +68,19 @@ from posthog.hogql_queries.utils.formula_ast import FormulaAST
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.hogql_queries.utils.timestamp_utils import format_label_date
+from posthog.hogql_queries.utils.timestamp_utils import (
+    format_label_date,
+    get_earliest_timestamp_from_series,
+    get_team_earliest_timestamp,
+)
 from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property_definition import PropertyDefinition
-from posthog.queries.util import correct_result_for_sampling, get_earliest_timestamp
+from posthog.queries.util import correct_result_for_sampling
 from posthog.utils import multisort
 from posthog.warehouse.models.util import get_view_or_table_by_name
-
-# All the data inserted by mistake or with wrong format falls in 1970 or before.
-# Filter out these events when calculating trends for "All time" period
-TRENDS_EARLIEST_TIMESTAMP = "1980-01-01"
 
 
 class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
@@ -149,11 +149,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     def to_queries(self) -> list[ast.SelectQuery | ast.SelectSetQuery]:
         queries = []
         with self.timings.measure("trends_to_query"):
-            # If user requests 'all' time, determine the true earliest timestamp
-            earliest_timestamp = None
-            if self.query.dateRange and self.query.dateRange.date_from == "all":
-                earliest_timestamp = self._earliest_timestamp
-
+            earliest_timestamp = self._earliest_timestamp
             for series in self.series:
                 if not series.is_previous_period_series:
                     query_date_range = self.query_date_range
@@ -675,8 +671,24 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         return self.query.trendsFilter and self.query.trendsFilter.display == ChartDisplayType.BOLD_NUMBER
 
     @cached_property
-    def _earliest_timestamp(self) -> datetime:
-        return get_earliest_timestamp(self.team.id, since=TRENDS_EARLIEST_TIMESTAMP)
+    def _earliest_timestamp(self) -> datetime | None:
+        """
+        Compute the earliest timestamp based on the date filter.
+        Both paths use cached functions for optimal performance.
+
+        - "all": Global earliest across all events (team-level cache)
+        - "since_event_first_seen": Earliest across all series events (event-specific cache)
+        """
+        if not self.query.dateRange:
+            return None
+
+        if self.query.dateRange.date_from == "all":
+            # Global earliest across all events (cached at team level)
+            return get_team_earliest_timestamp(team=self.team)
+
+        if self.query.dateRange.date_from == "since_event_first_seen":
+            # Event-specific earliest across all series (cached per event)
+            return get_earliest_timestamp_from_series(team=self.team, series=[series.series for series in self.series])
 
     @cached_property
     def query_date_range(self):

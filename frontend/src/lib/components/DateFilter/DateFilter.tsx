@@ -1,7 +1,7 @@
 import { Placement } from '@floating-ui/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 
 import { IconCalendar } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDivider, Popover } from '@posthog/lemon-ui'
@@ -13,10 +13,12 @@ import {
     DateFilterView,
     NO_OVERRIDE_RANGE_PLACEHOLDER,
 } from 'lib/components/DateFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelect, LemonCalendarSelectProps } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateFilterToText, dateMapping, uuid } from 'lib/utils'
 
 import { DateMappingOption, PropertyOperator } from '~/types'
@@ -117,12 +119,24 @@ export function DateFilter({
         isRollingDateRange,
         dateFromHasTimePrecision,
     } = useValues(dateFilterLogic(logicProps))
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const optionsRef = useRef<HTMLDivElement | null>(null)
     const rollingDateRangeRef = useRef<HTMLDivElement | null>(null)
     const [granularity, setGranularity] = useState<LemonCalendarSelectProps['granularity']>(
         forceGranularity ?? (dateFromHasTimePrecision ? 'minute' : 'day')
     )
+
+    // Modify date options based on feature flags
+    const dateOpts = useMemo(() => {
+        return dateMapping.map((option) => {
+            // If "Since event first seen" and feature flag is enabled, set inactive to false
+            if (option.key === 'Since event first seen' && !!featureFlags[FEATURE_FLAGS.SINCE_EVENT_FIRST_SEEN]) {
+                return { ...option, inactive: false }
+            }
+            return option
+        })
+    }, [featureFlags])
 
     const popoverOverlay =
         view === DateFilterView.FixedRange ? (
@@ -164,7 +178,7 @@ export function DateFilter({
             />
         ) : (
             <div className="deprecated-space-y-px" ref={optionsRef} onClick={(e) => e.stopPropagation()}>
-                {dateOptions.map(({ key, values, inactive }) => {
+                {dateOpts.map(({ key, values, inactive }) => {
                     if (key === CUSTOM_OPTION_KEY && !showCustom) {
                         return null
                     }
