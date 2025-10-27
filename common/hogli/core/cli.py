@@ -52,7 +52,8 @@ class CategorizedGroup(click.Group):
         # Build category order from the list
         category_order = {idx: cat.get("key") for idx, cat in enumerate(categories_list)}
 
-        def get_category_sort_key(cat_tuple: tuple[str, str]) -> int:
+        def get_category_sort_key(item: tuple[tuple[str, str], list[tuple[str, str]]]) -> int:
+            cat_tuple, _commands = item
             key = cat_tuple[0]
             if key == "commands":  # Default category goes last
                 return len(category_order) + 1

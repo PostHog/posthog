@@ -94,7 +94,7 @@ class Manifest:
 
     def get_all_commands(self) -> list[str]:
         """Get all available commands from the manifest."""
-        commands = []
+        commands: list[str] = []
         for category in self._data.values():
             if isinstance(category, dict) and category is not self._data.get("metadata"):
                 commands.extend(category.keys())

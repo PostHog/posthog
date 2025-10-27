@@ -6,6 +6,7 @@ import os
 import shlex
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import click
 from hogli.core.manifest import get_services_for_command
@@ -87,7 +88,7 @@ class Command:
         """Override in subclasses."""
         raise NotImplementedError("Subclasses must implement execute()")
 
-    def register(self, cli_group: click.Group) -> None:
+    def register(self, cli_group: click.Group) -> Any:
         """Register this command with the CLI group."""
         help_text = self.get_help_text()
 
@@ -99,7 +100,7 @@ class Command:
                 raise
 
         # Store config on the Click command for visibility filtering
-        cmd.hogli_config = self.config
+        cmd.hogli_config = self.config  # type: ignore[attr-defined]
         return cmd
 
 
@@ -121,7 +122,7 @@ class BinScriptCommand(Command):
             # If not relative to repo root, just return the name
             return self.script_path.name
 
-    def register(self, cli_group: click.Group) -> None:
+    def register(self, cli_group: click.Group) -> Any:
         """Register command with extra args support."""
         help_text = self.get_help_text()
 
@@ -138,7 +139,7 @@ class BinScriptCommand(Command):
                 raise
 
         # Store config on the Click command for visibility filtering
-        cmd.hogli_config = self.config
+        cmd.hogli_config = self.config  # type: ignore[attr-defined]
         return cmd
 
     def execute(self, *args: str) -> None:
@@ -153,7 +154,7 @@ class DirectCommand(Command):
         """Return the shell command."""
         return self.config.get("cmd", "")
 
-    def register(self, cli_group: click.Group) -> None:
+    def register(self, cli_group: click.Group) -> Any:
         """Register command with extra args support."""
         help_text = self.get_help_text()
 
@@ -170,7 +171,7 @@ class DirectCommand(Command):
                 raise
 
         # Store config on the Click command for visibility filtering
-        cmd.hogli_config = self.config
+        cmd.hogli_config = self.config  # type: ignore[attr-defined]
         return cmd
 
     def execute(self, *args: str) -> None:
