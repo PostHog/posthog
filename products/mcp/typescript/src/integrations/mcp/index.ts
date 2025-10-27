@@ -290,7 +290,7 @@ export default {
             )
         }
 
-        if (!token.startsWith('phx_')) {
+        if (!token.startsWith('ph')) {
             return new Response(
                 `Invalid token, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,
                 {
