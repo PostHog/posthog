@@ -1,8 +1,8 @@
-import { ItemCategory, ItemLoaderFactory, ItemRenderer, TimelineItem } from '..'
+import { ItemCategory, ItemRenderer, TimelineItem } from '..'
 
 import { IconTerminal } from '@posthog/icons'
 
-import { Dayjs, dayjs } from 'lib/dayjs'
+import { Dayjs } from 'lib/dayjs'
 
 import { RuntimeIcon } from 'products/error_tracking/frontend/components/RuntimeIcon'
 
@@ -10,7 +10,7 @@ import { BasePreview, LogEntryLoader } from './base'
 
 export interface ConsoleLogItem extends TimelineItem {
     payload: {
-        severity: string
+        level: string
         message: string
     }
 }
@@ -19,11 +19,17 @@ export const consoleLogRenderer: ItemRenderer<ConsoleLogItem> = {
     sourceIcon: ({}) => <RuntimeIcon runtime="web" />,
     categoryIcon: <IconTerminal />,
     render: ({ item }): JSX.Element => {
-        return <BasePreview name={`Console ${item.payload.severity}`} description={item.payload.message} />
+        return (
+            <BasePreview
+                name={`Console ${item.payload.level}`}
+                description={item.payload.message}
+                descriptionTitle={item.payload.message}
+            />
+        )
     },
 }
 
-export class ConsoleLogLoader extends LogEntryLoader<ConsoleLogItem> {
+export class ConsoleLogItemLoader extends LogEntryLoader<ConsoleLogItem> {
     sessionId: string
 
     constructor(sessionId: string, timestamp: Dayjs) {
@@ -39,25 +45,23 @@ export class ConsoleLogLoader extends LogEntryLoader<ConsoleLogItem> {
         return this.sessionId
     }
 
-    buildItem(timestamp: string, severity: string, message: string): ConsoleLogItem {
+    buildItem({
+        timestamp,
+        level,
+        message,
+    }: {
+        timestamp: Dayjs
+        level: 'info' | 'warn' | 'error'
+        message: string
+    }): ConsoleLogItem {
         return {
-            id: timestamp,
+            id: timestamp.unix() + '',
             category: ItemCategory.CONSOLE_LOGS,
-            timestamp: dayjs.utc(timestamp),
+            timestamp,
             payload: {
-                severity: severity,
-                message: JSON.parse(message),
+                level,
+                message: message,
             },
         } as ConsoleLogItem
-    }
-}
-
-export const consoleLogLoader: ItemLoaderFactory<ConsoleLogItem> = (sessionId: string, timestamp: Dayjs) => {
-    const logLoader = new ConsoleLogLoader(sessionId, timestamp)
-    return {
-        hasPrevious: logLoader.hasPrevious.bind(logLoader),
-        previous: logLoader.previous.bind(logLoader),
-        hasNext: logLoader.hasNext.bind(logLoader),
-        next: logLoader.next.bind(logLoader),
     }
 }
