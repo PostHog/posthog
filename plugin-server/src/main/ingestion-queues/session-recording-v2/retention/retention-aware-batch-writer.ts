@@ -71,16 +71,15 @@ export class RetentionAwareStorage implements SessionBatchFileStorage {
         private readonly s3: S3Client,
         private readonly bucket: string,
         private readonly prefix: string,
-        private readonly retentionService: RetentionService,
-        private readonly timeout: number = 5000
+        private readonly timeout: number = 5000,
+        private readonly retentionService: RetentionService
     ) {
         this.storageMap = ValidRetentionPeriods.reduce(
             (storage, retentionPeriod) => {
-                const retentionPrefix = `${this.prefix}/${retentionPeriod}`
                 storage[retentionPeriod] = new S3SessionBatchFileStorage(
                     this.s3,
                     this.bucket,
-                    retentionPrefix,
+                    `${this.prefix}/${retentionPeriod}`,
                     this.timeout
                 )
                 return storage

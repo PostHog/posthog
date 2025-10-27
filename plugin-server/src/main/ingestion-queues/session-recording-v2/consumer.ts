@@ -86,7 +86,6 @@ export class SessionRecordingIngester {
             autoOffsetStore: false,
         })
 
-        // S3 client for session recording storage
         let s3Client: S3Client | null = null
         if (
             config.SESSION_RECORDING_V2_S3_ENDPOINT &&
@@ -136,18 +135,15 @@ export class SessionRecordingIngester {
             this.config.SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC,
             { messageLimit: this.config.SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT }
         )
-        // Create file storage based on configuration
-        if (!s3Client) {
-            this.fileStorage = new BlackholeSessionBatchFileStorage()
-        } else {
-            this.fileStorage = new RetentionAwareStorage(
-                s3Client,
-                this.config.SESSION_RECORDING_V2_S3_BUCKET,
-                this.config.SESSION_RECORDING_V2_S3_PREFIX,
-                retentionService,
-                this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS
-            )
-        }
+        this.fileStorage = s3Client
+            ? new RetentionAwareStorage(
+                  s3Client,
+                  this.config.SESSION_RECORDING_V2_S3_BUCKET,
+                  this.config.SESSION_RECORDING_V2_S3_PREFIX,
+                  this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS,
+                  retentionService
+              )
+            : new BlackholeSessionBatchFileStorage()
 
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: this.config.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,
