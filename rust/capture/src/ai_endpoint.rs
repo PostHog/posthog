@@ -307,12 +307,12 @@ fn process_event_part(
     // Parse the event JSON
     let event_json_str = std::str::from_utf8(&field_data).map_err(|e| {
         warn!("Event part is not valid UTF-8: {}", e);
-        CaptureError::RequestDecodingError("Event part must be valid UTF-8".to_string())
+        CaptureError::RequestParsingError("Event part must be valid UTF-8".to_string())
     })?;
 
     let event_json = serde_json::from_str(event_json_str).map_err(|e| {
         warn!("Event part is not valid JSON: {}", e);
-        CaptureError::RequestDecodingError("Event part must be valid JSON".to_string())
+        CaptureError::RequestParsingError("Event part must be valid JSON".to_string())
     })?;
 
     let part_info = PartInfo {
@@ -335,12 +335,12 @@ fn process_properties_part(
     // Parse the properties JSON
     let properties_json_str = std::str::from_utf8(&field_data).map_err(|e| {
         warn!("Properties part is not valid UTF-8: {}", e);
-        CaptureError::RequestDecodingError("Properties part must be valid UTF-8".to_string())
+        CaptureError::RequestParsingError("Properties part must be valid UTF-8".to_string())
     })?;
 
     let properties_json = serde_json::from_str(properties_json_str).map_err(|e| {
         warn!("Properties part is not valid JSON: {}", e);
-        CaptureError::RequestDecodingError("Properties part must be valid JSON".to_string())
+        CaptureError::RequestParsingError("Properties part must be valid JSON".to_string())
     })?;
 
     let part_info = PartInfo {
@@ -365,12 +365,12 @@ fn process_blob_part(
     if let Some(ref ct) = content_type {
         let ct_lower = ct.to_lowercase();
         if !is_valid_blob_content_type(&ct_lower) {
-            return Err(CaptureError::RequestDecodingError(
+            return Err(CaptureError::RequestParsingError(
                 format!("Unsupported content type for blob part '{field_name}': '{ct}'. Supported types: application/octet-stream, application/json, text/plain"),
             ));
         }
     } else {
-        return Err(CaptureError::RequestDecodingError(format!(
+        return Err(CaptureError::RequestParsingError(format!(
             "Missing required Content-Type header for blob part '{field_name}'"
         )));
     }
@@ -380,7 +380,7 @@ fn process_blob_part(
 
     // Reject empty blobs
     if field_data_len == 0 {
-        return Err(CaptureError::RequestDecodingError(format!(
+        return Err(CaptureError::RequestParsingError(format!(
             "Blob part '{field_name}' cannot be empty (0 bytes)"
         )));
     }
@@ -458,7 +458,7 @@ async fn retrieve_multipart_parts(
 
             // Validate that the first part is the event part
             if field_name != "event" {
-                return Err(CaptureError::RequestDecodingError(format!(
+                return Err(CaptureError::RequestParsingError(format!(
                     "First part must be 'event', got '{field_name}'"
                 )));
             }
@@ -493,14 +493,14 @@ async fn retrieve_multipart_parts(
             // Extract the property name after "event.properties."
             // Validate that the property name doesn't contain dots (enforce top-level properties only)
             if property_name.contains('.') {
-                return Err(CaptureError::RequestDecodingError(format!(
+                return Err(CaptureError::RequestParsingError(format!(
                     "Blob property '{field_name}' contains nested properties (dots). Only top-level properties are allowed."
                 )));
             }
 
             // Check for duplicates before processing
             if seen_property_names.contains(&field_name) {
-                return Err(CaptureError::RequestDecodingError(format!(
+                return Err(CaptureError::RequestParsingError(format!(
                     "Duplicate blob property: {field_name}"
                 )));
             }
@@ -519,7 +519,7 @@ async fn retrieve_multipart_parts(
             warn!("Unknown multipart field: {}", field_name);
 
             // Reject unknown fields that don't match expected patterns
-            return Err(CaptureError::RequestDecodingError(format!(
+            return Err(CaptureError::RequestParsingError(format!(
                 "Unknown multipart field: '{field_name}'. Expected 'event', 'event.properties', or 'event.properties.<property_name>'"
             )));
         }
@@ -527,7 +527,7 @@ async fn retrieve_multipart_parts(
 
     // Validate that we have at least the event part
     if !has_event_part {
-        return Err(CaptureError::RequestDecodingError(
+        return Err(CaptureError::RequestParsingError(
             "Missing required 'event' part in multipart data".to_string(),
         ));
     }
@@ -557,7 +557,7 @@ async fn retrieve_multipart_parts(
         .is_some();
 
     if has_embedded_properties && properties_json.is_some() {
-        return Err(CaptureError::RequestDecodingError(
+        return Err(CaptureError::RequestParsingError(
             "Event cannot have both embedded properties and a separate 'event.properties' part"
                 .to_string(),
         ));
@@ -600,7 +600,7 @@ fn parse_multipart_data(
     if let Some(event_obj) = event.as_object_mut() {
         event_obj.insert("properties".to_string(), parts.properties_json);
     } else {
-        return Err(CaptureError::RequestDecodingError(
+        return Err(CaptureError::RequestParsingError(
             "Event must be a JSON object".to_string(),
         ));
     }
@@ -613,14 +613,14 @@ fn parse_multipart_data(
         .as_object()
         .and_then(|obj| obj.get("event"))
         .and_then(|v| v.as_str())
-        .ok_or_else(|| CaptureError::RequestDecodingError("Event name is required".to_string()))?
+        .ok_or_else(|| CaptureError::RequestParsingError("Event name is required".to_string()))?
         .to_string();
 
     let distinct_id = event
         .as_object()
         .and_then(|obj| obj.get("distinct_id"))
         .and_then(|v| v.as_str())
-        .ok_or_else(|| CaptureError::RequestDecodingError("distinct_id is required".to_string()))?
+        .ok_or_else(|| CaptureError::RequestParsingError("distinct_id is required".to_string()))?
         .to_string();
 
     // Extract and validate UUID
@@ -628,11 +628,11 @@ fn parse_multipart_data(
         .as_object()
         .and_then(|obj| obj.get("uuid"))
         .and_then(|v| v.as_str())
-        .ok_or_else(|| CaptureError::RequestDecodingError("Event UUID is required".to_string()))
+        .ok_or_else(|| CaptureError::RequestParsingError("Event UUID is required".to_string()))
         .and_then(|uuid_str| {
             Uuid::parse_str(uuid_str).map_err(|e| {
                 warn!("Invalid UUID format: {}", e);
-                CaptureError::RequestDecodingError(format!("Invalid UUID format: {e}"))
+                CaptureError::RequestParsingError(format!("Invalid UUID format: {e}"))
             })
         })?;
 
@@ -705,7 +705,7 @@ fn validate_event_structure(event: &Value) -> Result<(), CaptureError> {
     // Check if event is an object
     let event_obj = event.as_object().ok_or_else(|| {
         warn!("Event must be a JSON object");
-        CaptureError::RequestDecodingError("Event must be a JSON object".to_string())
+        CaptureError::RequestParsingError("Event must be a JSON object".to_string())
     })?;
 
     // Validate event name
@@ -714,11 +714,11 @@ fn validate_event_structure(event: &Value) -> Result<(), CaptureError> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| {
             warn!("Event missing 'event' field");
-            CaptureError::RequestDecodingError("Event missing 'event' field".to_string())
+            CaptureError::RequestParsingError("Event missing 'event' field".to_string())
         })?;
 
     if event_name.is_empty() {
-        return Err(CaptureError::RequestDecodingError(
+        return Err(CaptureError::RequestParsingError(
             "Event name cannot be empty".to_string(),
         ));
     }
@@ -734,7 +734,7 @@ fn validate_event_structure(event: &Value) -> Result<(), CaptureError> {
     ];
 
     if !ALLOWED_AI_EVENTS.contains(&event_name) {
-        return Err(CaptureError::RequestDecodingError(format!(
+        return Err(CaptureError::RequestParsingError(format!(
             "Event name must be one of: {}, got '{}'",
             ALLOWED_AI_EVENTS.join(", "),
             event_name
@@ -747,11 +747,11 @@ fn validate_event_structure(event: &Value) -> Result<(), CaptureError> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| {
             warn!("Event missing 'distinct_id' field");
-            CaptureError::RequestDecodingError("Event missing 'distinct_id' field".to_string())
+            CaptureError::RequestParsingError("Event missing 'distinct_id' field".to_string())
         })?;
 
     if distinct_id.is_empty() {
-        return Err(CaptureError::RequestDecodingError(
+        return Err(CaptureError::RequestParsingError(
             "distinct_id cannot be empty".to_string(),
         ));
     }
@@ -762,12 +762,12 @@ fn validate_event_structure(event: &Value) -> Result<(), CaptureError> {
         .and_then(|v| v.as_object())
         .ok_or_else(|| {
             warn!("Event missing 'properties' field");
-            CaptureError::RequestDecodingError("Event missing 'properties' field".to_string())
+            CaptureError::RequestParsingError("Event missing 'properties' field".to_string())
         })?;
 
     // Validate required AI properties
     if !properties.contains_key("$ai_model") {
-        return Err(CaptureError::RequestDecodingError(
+        return Err(CaptureError::RequestParsingError(
             "Event properties must contain '$ai_model'".to_string(),
         ));
     }
@@ -777,11 +777,11 @@ fn validate_event_structure(event: &Value) -> Result<(), CaptureError> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| {
             warn!("$ai_model must be a string");
-            CaptureError::RequestDecodingError("$ai_model must be a string".to_string())
+            CaptureError::RequestParsingError("$ai_model must be a string".to_string())
         })?;
 
     if ai_model.is_empty() {
-        return Err(CaptureError::RequestDecodingError(
+        return Err(CaptureError::RequestParsingError(
             "$ai_model cannot be empty".to_string(),
         ));
     }
