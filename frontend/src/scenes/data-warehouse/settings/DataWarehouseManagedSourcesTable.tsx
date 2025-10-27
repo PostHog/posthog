@@ -2,13 +2,16 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonDialog, LemonSkeleton, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
-import { ExternalDataJobStatus } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ExternalDataJobStatus } from '~/types'
 
 import { availableSourcesDataLogic } from '../new/availableSourcesDataLogic'
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
@@ -27,8 +30,14 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
     const { deleteSource, reloadSource } = useActions(dataWarehouseSettingsLogic)
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesDataLogic)
 
+    const hasAccess = userHasAccess(AccessControlResourceType.ExternalDataSource, AccessControlLevel.Viewer)
+
     if (availableSourcesLoading || !availableSources) {
         return <LemonSkeleton />
+    }
+
+    if (!hasAccess) {
+        return <AccessDenied object="data warehouse sources" inline />
     }
 
     return (
@@ -106,42 +115,57 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                                     <More
                                         overlay={
                                             <>
-                                                <Tooltip title="Start the data import for this schema again">
+                                                <AccessControlAction
+                                                    resourceType={AccessControlResourceType.ExternalDataSource}
+                                                    minAccessLevel={AccessControlLevel.Editor}
+                                                    userAccessLevel={source.user_access_level}
+                                                >
+                                                    {({ disabledReason }) => (
+                                                        <Tooltip title="Start the data import for this schema again">
+                                                            <LemonButton
+                                                                type="tertiary"
+                                                                data-attr={`reload-data-warehouse-${source.source_type}`}
+                                                                key={`reload-data-warehouse-${source.source_type}`}
+                                                                onClick={() => {
+                                                                    reloadSource(source)
+                                                                }}
+                                                                disabledReason={disabledReason}
+                                                            >
+                                                                Reload
+                                                            </LemonButton>
+                                                        </Tooltip>
+                                                    )}
+                                                </AccessControlAction>
+
+                                                <AccessControlAction
+                                                    resourceType={AccessControlResourceType.ExternalDataSource}
+                                                    minAccessLevel={AccessControlLevel.Editor}
+                                                    userAccessLevel={source.user_access_level}
+                                                >
                                                     <LemonButton
-                                                        type="tertiary"
-                                                        data-attr={`reload-data-warehouse-${source.source_type}`}
-                                                        key={`reload-data-warehouse-${source.source_type}`}
+                                                        status="danger"
+                                                        data-attr={`delete-data-warehouse-${source.source_type}`}
+                                                        key={`delete-data-warehouse-${source.source_type}`}
                                                         onClick={() => {
-                                                            reloadSource(source)
+                                                            LemonDialog.open({
+                                                                title: 'Delete data source?',
+                                                                description:
+                                                                    'Are you sure you want to delete this data source? All related tables will be deleted.',
+
+                                                                primaryButton: {
+                                                                    children: 'Delete',
+                                                                    status: 'danger',
+                                                                    onClick: () => deleteSource(source),
+                                                                },
+                                                                secondaryButton: {
+                                                                    children: 'Cancel',
+                                                                },
+                                                            })
                                                         }}
                                                     >
-                                                        Reload
+                                                        Delete
                                                     </LemonButton>
-                                                </Tooltip>
-
-                                                <LemonButton
-                                                    status="danger"
-                                                    data-attr={`delete-data-warehouse-${source.source_type}`}
-                                                    key={`delete-data-warehouse-${source.source_type}`}
-                                                    onClick={() => {
-                                                        LemonDialog.open({
-                                                            title: 'Delete data source?',
-                                                            description:
-                                                                'Are you sure you want to delete this data source? All related tables will be deleted.',
-
-                                                            primaryButton: {
-                                                                children: 'Delete',
-                                                                status: 'danger',
-                                                                onClick: () => deleteSource(source),
-                                                            },
-                                                            secondaryButton: {
-                                                                children: 'Cancel',
-                                                            },
-                                                        })
-                                                    }}
-                                                >
-                                                    Delete
-                                                </LemonButton>
+                                                </AccessControlAction>
                                             </>
                                         }
                                     />

@@ -28,6 +28,8 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'revenue analytics'
     } else if (resource === AccessControlResourceType.WebAnalytics) {
         return 'web analytics'
+    } else if (resource === AccessControlResourceType.ExternalDataSource) {
+        return 'data warehouse sources'
     }
 
     return resource.replace(/_/g, ' ') + 's'
@@ -59,6 +61,8 @@ export const resourceTypeToString = (resourceType: AccessControlResourceType): s
         return 'revenue analytics resource'
     } else if (resourceType === AccessControlResourceType.WebAnalytics) {
         return 'web analytics resource'
+    } else if (resourceType === AccessControlResourceType.ExternalDataSource) {
+        return 'data warehouse source'
     }
 
     return resourceType.replace(/_/g, ' ')
@@ -134,4 +138,18 @@ export const userHasAccess = (
     userAccessLevel?: AccessControlLevel
 ): boolean => {
     return !getAccessControlDisabledReason(resourceType, minAccessLevel, userAccessLevel)
+}
+
+/**
+ * Returns a tooltip message for a resource type if it has special access control behavior.
+ * Use this to inform users about resource-specific access control limitations or clarifications.
+ *
+ * @param resource - The API scope object to get tooltip text for
+ * @returns Tooltip text describing special access control behavior, or null if no special behavior
+ */
+export const getAccessControlTooltip = (resource: APIScopeObject): string | null => {
+    if (resource === AccessControlResourceType.ExternalDataSource) {
+        return 'Data warehouse sources currently only apply to the source itself, not querying data from the source.'
+    }
+    return null
 }
