@@ -42,13 +42,6 @@ await buildInParallel(
             ...common,
         },
         {
-            name: 'Test Worker',
-            entryPoints: ['src/scenes/session-recordings/player/testWorker.ts'],
-            format: 'esm',
-            outfile: path.resolve(__dirname, 'dist', 'testWorker.js'),
-            ...common,
-        },
-        {
             name: 'Exporter',
             globalName: 'posthogExporter',
             entryPoints: ['src/exporter/index.tsx'],

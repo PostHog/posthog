@@ -25,8 +25,6 @@ import {
 } from './__mocks__/test-setup'
 import { snapshotDataLogic } from './snapshotDataLogic'
 
-jest.mock('./TestWorkerManager')
-
 describe('sessionRecordingPlayerLogic', () => {
     let logic: ReturnType<typeof sessionRecordingPlayerLogic.build>
     const mockWarn = jest.fn()

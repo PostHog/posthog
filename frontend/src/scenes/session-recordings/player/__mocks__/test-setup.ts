@@ -8,8 +8,6 @@ import recordingEventsJson from '../../__mocks__/recording_events_query'
 import { recordingMetaJson } from '../../__mocks__/recording_meta'
 import { snapshotsAsJSONLines } from '../../__mocks__/recording_snapshots'
 
-jest.mock('../TestWorkerManager')
-
 export const BLOB_SOURCE_V2: SessionRecordingSnapshotSource = {
     source: 'blob_v2',
     start_timestamp: '2023-08-11T12:03:36.097000Z',
