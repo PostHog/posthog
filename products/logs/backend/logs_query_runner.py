@@ -123,6 +123,11 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
 
         return LogsQueryResponse(results=results, **self.paginator.response_params())
 
+    def run(self, *args, **kwargs) -> LogsQueryResponse | CachedLogsQueryResponse:
+        response = super().run(*args, **kwargs)
+        assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
+        return response
+
     def to_query(self) -> ast.SelectQuery:
         # utilize a hack to fix read_in_order_optimization not working correctly
         # from: https://github.com/ClickHouse/ClickHouse/pull/82478/
