@@ -325,7 +325,6 @@ export const FEATURE_FLAGS = {
     COHORT_CALCULATION_CHUNKED: 'cohort-calculation-chunked', // owner: @gustavo #team-feature-flags
     EXPERIMENTS_USE_NEW_QUERY_BUILDER: 'experiments-use-new-query-builder', // owner: @andehen #team-experiments
     ADVANCE_MARKETING_ANALYTICS_SETTINGS: 'advance-marketing-analytics-settings', // owner: @jabahamondes  #team-web-analytics
-    SINCE_EVENT_FIRST_SEEN: 'since-event-first-seen', // owner @gesh #team-product-analytics
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
