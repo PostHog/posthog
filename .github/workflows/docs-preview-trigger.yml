@@ -3,7 +3,12 @@ name: Trigger Docs Preview Build
 on:
     pull_request:
         paths:
-            - 'docs/**'
+            - 'docs/published/**'
+    push:
+        branches:
+            - master
+        paths:
+            - 'docs/published/**'
 
 permissions:
     pull-requests: write
@@ -117,11 +122,11 @@ jobs:
                         const previewUrl = deploymentUrl || 'https://posthog.com';
                         const inspectorUrl = deploymentUrl ? deploymentUrl.replace('https://', 'https://vercel.com/post-hog/posthog-com/') : '';
 
-                        message = `${commentHash}\nThe latest updates on your projects. Learn more about [Vercel for GitHub](https://vercel.link/github-learn-more).\n\n` +
+                        message = `${commentHash}\nDocs from this PR will be published at posthog.com\n\n` +
                                   `| Project | Deployment | Preview | Updated (UTC) |\n` +
                                   `| :--- | :----- | :------ | :------ |\n` +
                                   `| [posthog.com](https://vercel.com/post-hog/posthog-com) | ![Building](https://vercel.com/static/status/building.svg) Building | [Preview](${previewUrl}) | ${timestamp} |\n\n` +
-                                  `*Preview will be ready in ~2 minutes. Click Preview link above to access docs at \`/handbook/engineering/\`*`;
+                                  `*Preview will be ready in ~10 minutes. Click Preview link above to access docs at \`/handbook/engineering/\`*`;
                       } else {
                         message = `${commentHash}\n⚠️ **Docs Preview Build Failed**\n\n` +
                                   `Preview build could not be triggered. Check the [GitHub Action logs](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) for details.`;
