@@ -372,8 +372,8 @@ importers:
         specifier: '*'
         version: 8.57.0
       posthog-js:
-        specifier: 1.280.1
-        version: 1.280.1
+        specifier: 1.281.0
+        version: 1.281.0
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -826,8 +826,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.280.1
-        version: 1.280.1
+        specifier: 1.281.0
+        version: 1.281.0
       posthog-js-lite:
         specifier: 4.1.0
         version: 4.1.0
@@ -1798,8 +1798,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.280.1
-        version: 1.280.1
+        specifier: 1.281.0
+        version: 1.281.0
       react:
         specifier: '*'
         version: 18.2.0
@@ -2416,8 +2416,8 @@ importers:
         specifier: ^3.4.1
         version: 3.4.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.280.1
-        version: 1.280.1
+        specifier: 1.281.0
+        version: 1.281.0
       react:
         specifier: '*'
         version: 18.2.0
@@ -2488,8 +2488,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.280.1
-        version: 1.280.1
+        specifier: 1.281.0
+        version: 1.281.0
       react:
         specifier: '*'
         version: 18.2.0
@@ -6397,8 +6397,8 @@ packages:
   '@poppinss/exception@1.2.2':
     resolution: {integrity: sha512-m7bpKCD4QMlFCjA/nKTs23fuvoVFoA83brRKmObCUNmi/9tVu8Ve3w4YQAnJu4q3Tjf5fr685HYIC/IA2zHRSg==}
 
-  '@posthog/core@1.3.1':
-    resolution: {integrity: sha512-sGKVHituJ8L/bJxVV4KamMFp+IBWAZyCiYunFawJZ4cc59PCtLnKFIMEV6kn7A4eZQcQ6EKV5Via4sF3Z7qMLQ==}
+  '@posthog/core@1.4.0':
+    resolution: {integrity: sha512-jmW8/I//YOHAfjzokqas+Qtc2T57Ux8d2uIJu7FLcMGxywckHsl6od59CD18jtUzKToQdjQhV6Y3429qj+KeNw==}
 
   '@posthog/icons@0.33.0':
     resolution: {integrity: sha512-zH3yRdG7kvJ1UCReOz4o/l2A915Xbcq3+SS+OevJ6I9BdV2i2sRyLStnAm4LFqxfqT8hBMpP9G6I1Or9p2bdvw==}
@@ -16370,8 +16370,8 @@ packages:
   posthog-js-lite@4.1.0:
     resolution: {integrity: sha512-a+MoPmflhYtnKOuDg7tEgeiwT70mWwcZdqeMhduJw/3LPTFMTvnssTJ0jppmnwTkBoPdBgLYTO40l8k64Tl/yQ==}
 
-  posthog-js@1.280.1:
-    resolution: {integrity: sha512-ZfXaExn42aZBQg88pBzGo71sy4hmei3ubBPb7DBbsfYC3ipZ6F6xmNr3ScNdOyF8cBTZbG24SlIvntp83jTlUA==}
+  posthog-js@1.281.0:
+    resolution: {integrity: sha512-t3sAlgVozpU1W1ppiF5zLG6eBRPUs0hmtxN8R1V7P0qZFmnECshAAk2cBxCsxEanadT3iUpS8Z7crBytATqWQQ==}
 
   posthog-node@4.14.0:
     resolution: {integrity: sha512-PitSiuxGiVFl0ItuhIfi3Sq1tcaMU4vlbPu1wv0qufTJGDjWthOOr4vYfFIs1xkbJFOQcfGczMXkr44kX5TDDg==}
@@ -25586,7 +25586,7 @@ snapshots:
 
   '@poppinss/exception@1.2.2': {}
 
-  '@posthog/core@1.3.1': {}
+  '@posthog/core@1.4.0': {}
 
   '@posthog/icons@0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
@@ -38262,9 +38262,9 @@ snapshots:
 
   posthog-js-lite@4.1.0: {}
 
-  posthog-js@1.280.1:
+  posthog-js@1.281.0:
     dependencies:
-      '@posthog/core': 1.3.1
+      '@posthog/core': 1.4.0
       core-js: 3.46.0
       fflate: 0.4.8
       preact: 10.27.2
