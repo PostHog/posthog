@@ -16,6 +16,7 @@ import {
 } from '../../../types'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { createRedisPool } from '../../../utils/db/redis'
+import { EventIngestionRestrictionManager } from '../../../utils/event-ingestion-restriction-manager'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
@@ -59,6 +60,7 @@ export class SessionRecordingIngester {
     private readonly teamFilter: TeamFilter
     private readonly libVersionMonitor?: LibVersionMonitor
     private readonly fileStorage: SessionBatchFileStorage
+    private readonly eventIngestionRestrictionManager: EventIngestionRestrictionManager
 
     constructor(
         private config: PluginsServerConfig,
@@ -114,6 +116,10 @@ export class SessionRecordingIngester {
         this.redisPool = createRedisPool(this.config, 'session-recording')
 
         const teamService = new TeamService(postgres)
+
+        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(this.config, {
+            pipeline: 'session_recordings',
+        })
 
         this.teamFilter = new TeamFilter(teamService)
         if (ingestionWarningProducer) {
