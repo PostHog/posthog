@@ -302,7 +302,9 @@ export class HogExecutorService {
                 }
             } else {
                 // Finish execution, carrying forward previous execResult
-                result = await this.execute(nextInvocation, options, result || {})
+                // Tricky: We don't pass metrics in previousResult as they're accumulated in the local metrics array
+                const { metrics: _, ...previousResultWithoutMetrics } = result || {}
+                result = await this.execute(nextInvocation, options, previousResultWithoutMetrics)
             }
 
             logs.push(...result.logs)
