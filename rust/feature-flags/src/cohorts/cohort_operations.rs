@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use super::cohort_models::CohortPropertyType;
 use super::cohort_models::CohortValues;
 use crate::cohorts::cohort_models::{Cohort, CohortId, CohortProperty, InnerCohortProperty};
+use crate::database::get_connection_with_metrics;
 use crate::properties::property_matching::match_property;
 use crate::properties::property_models::OperatorType;
 use crate::utils::graph_utils::{DependencyGraph, DependencyProvider, DependencyType};
@@ -17,14 +18,16 @@ impl Cohort {
         client: PostgresReader,
         project_id: i64,
     ) -> Result<Vec<Cohort>, FlagError> {
-        let mut conn = client.get_connection().await.map_err(|e| {
-            tracing::error!(
-                "Failed to get database connection for project {}: {}",
-                project_id,
-                e
-            );
-            FlagError::DatabaseUnavailable
-        })?;
+        let mut conn = get_connection_with_metrics(&client, "non_persons_reader", "fetch_cohorts")
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    "Failed to get database connection for project {}: {}",
+                    project_id,
+                    e
+                );
+                FlagError::DatabaseUnavailable
+            })?;
 
         let query = r#"
             SELECT c.id,
