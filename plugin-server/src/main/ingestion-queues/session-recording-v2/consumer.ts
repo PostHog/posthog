@@ -86,7 +86,7 @@ export class SessionRecordingIngester {
             autoOffsetStore: false,
         })
 
-        // Primary S3 client (MinIO in local dev, S3 in production)
+        // S3 client for session recording storage
         let s3Client: S3Client | null = null
         if (
             config.SESSION_RECORDING_V2_S3_ENDPOINT &&
@@ -108,32 +108,6 @@ export class SessionRecordingIngester {
             }
 
             s3Client = new S3Client(s3Config)
-        }
-
-        // Secondary S3 client for dual-write mode (LOCAL DEV ONLY)
-        let secondaryS3Client: S3Client | null = null
-        if (config.OBJECT_STORAGE_DUAL_WRITE_ENABLED && config.OBJECT_STORAGE_SECONDARY_ENDPOINT) {
-            logger.info('🔄', 'session_recording_dual_write_enabled', {
-                primaryEndpoint: config.SESSION_RECORDING_V2_S3_ENDPOINT,
-                secondaryEndpoint: config.OBJECT_STORAGE_SECONDARY_ENDPOINT,
-                message:
-                    'Dual-write mode enabled for session recordings - writing to both primary and secondary storage',
-            })
-
-            const secondaryS3Config: S3ClientConfig = {
-                region: config.OBJECT_STORAGE_REGION,
-                endpoint: config.OBJECT_STORAGE_SECONDARY_ENDPOINT,
-                forcePathStyle: true,
-            }
-
-            if (config.OBJECT_STORAGE_SECONDARY_ACCESS_KEY_ID && config.OBJECT_STORAGE_SECONDARY_SECRET_ACCESS_KEY) {
-                secondaryS3Config.credentials = {
-                    accessKeyId: config.OBJECT_STORAGE_SECONDARY_ACCESS_KEY_ID,
-                    secretAccessKey: config.OBJECT_STORAGE_SECONDARY_SECRET_ACCESS_KEY,
-                }
-            }
-
-            secondaryS3Client = new S3Client(secondaryS3Config)
         }
 
         this.kafkaParser = new KafkaMessageParser()
@@ -165,19 +139,7 @@ export class SessionRecordingIngester {
         // Create file storage based on configuration
         if (!s3Client) {
             this.fileStorage = new BlackholeSessionBatchFileStorage()
-        } else if (secondaryS3Client) {
-            // Dual-write mode: Use a custom retention-aware storage that creates dual-write storages
-            this.fileStorage = new RetentionAwareStorage(
-                s3Client,
-                this.config.SESSION_RECORDING_V2_S3_BUCKET,
-                this.config.SESSION_RECORDING_V2_S3_PREFIX,
-                retentionService,
-                this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS,
-                secondaryS3Client, // Pass secondary client to enable dual-write
-                this.config.OBJECT_STORAGE_BUCKET
-            )
         } else {
-            // Normal mode: write to primary storage only
             this.fileStorage = new RetentionAwareStorage(
                 s3Client,
                 this.config.SESSION_RECORDING_V2_S3_BUCKET,

@@ -359,12 +359,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     OBJECT_STORAGE_ACCESS_KEY_ID: string
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
     OBJECT_STORAGE_BUCKET: string // the object storage bucket name
-
-    // Dual-write configuration for migration from MinIO to LocalStack
-    OBJECT_STORAGE_DUAL_WRITE_ENABLED: boolean // Enable writing to both primary and secondary storage during migration (LOCAL DEV ONLY)
-    OBJECT_STORAGE_SECONDARY_ENDPOINT: string // Secondary S3 endpoint (e.g., LocalStack)
-    OBJECT_STORAGE_SECONDARY_ACCESS_KEY_ID: string
-    OBJECT_STORAGE_SECONDARY_SECRET_ACCESS_KEY: string
     PLUGIN_SERVER_MODE: PluginServerMode | null
     PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: string | null // TODO: shouldn't be a string probably
     PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
