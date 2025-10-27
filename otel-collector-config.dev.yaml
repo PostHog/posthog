@@ -27,15 +27,14 @@ exporters:
         endpoint: 'jaeger-local:4317' # Sending OTLP gRPC to Jaeger
         tls:
             insecure: true # For local communication to Jaeger
-    otlp/logs:
-        endpoint: 'log-capture:3308'
+    otlphttp/logs:
+        endpoint: 'http://log-capture:4318'
         compression: none
         tls:
             insecure: true
         headers:
-            # hardcoded JWT signed by the dev secret key ('<randomly generated secret key>') to ship logs to team 1
-            # (TODO: use normal capture tokens instead of these jwts)
-            authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoiMSIsImV4cCI6OTIyMzM3MjAzNjg1NDc3Nn0.M2CClSDIm9T6aDUjffL1BjI2lHEsXYLkt_pShIgItrU
+            # special "local" token is automatically mapped to team_id 1 in dev environments
+            authorization: Bearer phc_local
 
 extensions: # Declaring the extensions
     health_check: # Default configuration is usually fine
@@ -52,7 +51,7 @@ service:
             exporters: [otlp]
         logs:
             exporters:
-                - otlp/logs
+                - otlphttp/logs
             processors:
                 - batch
             receivers:
