@@ -16,6 +16,23 @@ pub struct DatabasePools {
 }
 
 impl DatabasePools {
+    /// Helper to build a pool configuration with specific min_connections and statement_timeout
+    fn build_pool_config(
+        base: &PoolConfig,
+        min_connections: u32,
+        statement_timeout_ms: u64,
+    ) -> PoolConfig {
+        PoolConfig {
+            min_connections,
+            statement_timeout_ms: if statement_timeout_ms > 0 {
+                Some(statement_timeout_ms)
+            } else {
+                None
+            },
+            ..base.clone()
+        }
+    }
+
     pub async fn from_config(config: &Config) -> Result<Self, FlagError> {
         // Validate acquire_timeout_secs - must be at least 1 second
         if config.acquire_timeout_secs == 0 {
@@ -26,6 +43,7 @@ impl DatabasePools {
 
         // Create base pool config (used for both readers and writers)
         let base_pool_config = PoolConfig {
+            min_connections: 0, // Will be overridden per pool
             max_connections: config.max_pg_connections,
             acquire_timeout: Duration::from_secs(config.acquire_timeout_secs),
             idle_timeout: if config.idle_timeout_secs > 0 {
@@ -38,14 +56,11 @@ impl DatabasePools {
         };
 
         // Non-persons reader pool config (may allow longer queries for analytics)
-        let non_persons_reader_pool_config = PoolConfig {
-            statement_timeout_ms: if config.non_persons_reader_statement_timeout_ms > 0 {
-                Some(config.non_persons_reader_statement_timeout_ms)
-            } else {
-                None
-            },
-            ..base_pool_config.clone()
-        };
+        let non_persons_reader_pool_config = Self::build_pool_config(
+            &base_pool_config,
+            config.min_non_persons_reader_connections,
+            config.non_persons_reader_statement_timeout_ms,
+        );
         info!(
             pool = "non_persons_reader",
             statement_timeout_ms = ?config.non_persons_reader_statement_timeout_ms,
@@ -53,29 +68,30 @@ impl DatabasePools {
         );
 
         // Persons reader pool config (may allow longer queries for analytics)
-        let persons_reader_pool_config = PoolConfig {
-            statement_timeout_ms: if config.persons_reader_statement_timeout_ms > 0 {
-                Some(config.persons_reader_statement_timeout_ms)
-            } else {
-                None
-            },
-            ..base_pool_config.clone()
-        };
+        let persons_reader_pool_config = Self::build_pool_config(
+            &base_pool_config,
+            config.min_persons_reader_connections,
+            config.persons_reader_statement_timeout_ms,
+        );
         info!(
             pool = "persons_reader",
             statement_timeout_ms = ?config.persons_reader_statement_timeout_ms,
             "Creating persons reader pool config"
         );
 
-        // Writer pool config (should be fast transactional operations)
-        let writer_pool_config = PoolConfig {
-            statement_timeout_ms: if config.writer_statement_timeout_ms > 0 {
-                Some(config.writer_statement_timeout_ms)
-            } else {
-                None
-            },
-            ..base_pool_config
-        };
+        // Non-persons writer pool config (should be fast transactional operations)
+        let non_persons_writer_pool_config = Self::build_pool_config(
+            &base_pool_config,
+            config.min_non_persons_writer_connections,
+            config.writer_statement_timeout_ms,
+        );
+
+        // Persons writer pool config (should be fast transactional operations)
+        let persons_writer_pool_config = Self::build_pool_config(
+            &base_pool_config,
+            config.min_persons_writer_connections,
+            config.writer_statement_timeout_ms,
+        );
         info!(
             pool = "writer",
             statement_timeout_ms = ?config.writer_statement_timeout_ms,
@@ -94,7 +110,7 @@ impl DatabasePools {
         );
 
         let non_persons_writer = Arc::new(
-            get_pool_with_config(&config.write_database_url, writer_pool_config.clone())
+            get_pool_with_config(&config.write_database_url, non_persons_writer_pool_config)
                 .await
                 .map_err(|e| {
                     FlagError::DatabaseError(
@@ -125,14 +141,17 @@ impl DatabasePools {
 
         let persons_writer = if config.is_persons_db_routing_enabled() {
             Arc::new(
-                get_pool_with_config(&config.get_persons_write_database_url(), writer_pool_config)
-                    .await
-                    .map_err(|e| {
-                        FlagError::DatabaseError(
-                            e,
-                            Some("Failed to create persons writer pool".to_string()),
-                        )
-                    })?,
+                get_pool_with_config(
+                    &config.get_persons_write_database_url(),
+                    persons_writer_pool_config,
+                )
+                .await
+                .map_err(|e| {
+                    FlagError::DatabaseError(
+                        e,
+                        Some("Failed to create persons writer pool".to_string()),
+                    )
+                })?,
             )
         } else {
             non_persons_writer.clone()
@@ -141,6 +160,10 @@ impl DatabasePools {
         // Log pool configuration at startup
         info!(
             max_connections = config.max_pg_connections,
+            min_non_persons_reader_connections = config.min_non_persons_reader_connections,
+            min_non_persons_writer_connections = config.min_non_persons_writer_connections,
+            min_persons_reader_connections = config.min_persons_reader_connections,
+            min_persons_writer_connections = config.min_persons_writer_connections,
             acquire_timeout_secs = config.acquire_timeout_secs,
             idle_timeout_secs = config.idle_timeout_secs,
             test_before_acquire = config.test_before_acquire.0,
