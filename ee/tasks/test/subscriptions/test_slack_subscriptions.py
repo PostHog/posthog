@@ -269,7 +269,8 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
             {"ts": "1.234"},  # Main message
             {"ts": "2.345"},  # First thread message (asset 2)
             TimeoutError(),  # Second thread message (asset 3) attempt 1
-            TimeoutError(),  # Second thread message (asset 3) attempt 2 (final failure)
+            TimeoutError(),  # Second thread message (asset 3) attempt 2
+            TimeoutError(),  # Second thread message (asset 3) attempt 3 (final failure)
             {"ts": "3.456"},  # Third thread message "Showing 3 of 10"
         ]
 
@@ -285,7 +286,7 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
             )
         )
 
-        assert mock_async_client.chat_postMessage.call_count == 5
+        assert mock_async_client.chat_postMessage.call_count == 6
         assert result.is_partial_failure
         assert not result.is_complete_success
         assert result.main_message_sent
@@ -304,7 +305,8 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
 
         mock_async_client.chat_postMessage.side_effect = [
             TimeoutError(),  # Attempt 1
-            TimeoutError(),  # Attempt 2 (final)
+            TimeoutError(),  # Attempt 2
+            TimeoutError(),  # Attempt 3 (final)
         ]
 
         assets = list(ExportedAsset.objects.filter(id=self.asset.id).select_related("insight")[:1])
@@ -316,7 +318,7 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
                 )
             )
 
-        assert mock_async_client.chat_postMessage.call_count == 2
+        assert mock_async_client.chat_postMessage.call_count == 3
 
     @patch("ee.tasks.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
     def test_async_delivery_retry_succeeds_on_second_attempt(
