@@ -28,5 +28,6 @@ const re2CreationCounter = new Counter({
  */
 export function createTrackedRE2(pattern: string | RegExp, flags?: string, source = 'unknown'): RE2 {
     re2CreationCounter.inc({ source })
-    return flags ? new RE2(pattern, flags) : new RE2(pattern)
+    const regex = flags ? new RE2(pattern, flags) : new RE2(pattern)
+    return regex as RE2
 }
