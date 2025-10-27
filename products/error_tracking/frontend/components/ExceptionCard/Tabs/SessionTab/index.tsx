@@ -10,6 +10,7 @@ import { SessionTimeline, SessionTimelineHandle } from 'lib/components/SessionTi
 import { ItemCategory, ItemCollector } from 'lib/components/SessionTimeline/timeline'
 import { customItemLoader, customItemRenderer } from 'lib/components/SessionTimeline/timeline/items/custom'
 import { exceptionLoader, exceptionRenderer } from 'lib/components/SessionTimeline/timeline/items/exceptions'
+import { consoleLogLoader, consoleLogRenderer } from 'lib/components/SessionTimeline/timeline/items/logs'
 import { pageLoader, pageRenderer } from 'lib/components/SessionTimeline/timeline/items/page'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import {
@@ -104,6 +105,11 @@ export function SessionTimelineTab(): JSX.Element {
             ItemCategory.CUSTOM_EVENTS,
             customItemRenderer,
             customItemLoader(sessionId, timestampDayJs)
+        )
+        collector.addCategory(
+            ItemCategory.CONSOLE_LOGS,
+            consoleLogRenderer,
+            consoleLogLoader(sessionId, timestampDayJs)
         )
         return collector
     }, [sessionId, timestamp])

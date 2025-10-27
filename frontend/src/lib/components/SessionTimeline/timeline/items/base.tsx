@@ -5,6 +5,7 @@ import { Dayjs } from 'lib/dayjs'
 import { TimeTree } from 'lib/utils/time-tree'
 
 import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { HogQLQueryString, hogql } from '~/queries/utils'
 
 export function BasePreview({
     name,
@@ -120,4 +121,84 @@ export abstract class EventLoader<T extends TimelineItem> implements ItemLoader<
     abstract select(): string[]
     abstract where(): string[]
     abstract buildItem(data: any): T
+}
+
+export abstract class LogEntryLoader<T extends TimelineItem> implements ItemLoader<T> {
+    private cache: TimeTree<T>
+    private afterCursor: Dayjs
+    private previousCursor: Dayjs
+    private _hasNext: boolean = true
+    private _hasPrevious: boolean = true
+
+    constructor(timestamp: Dayjs) {
+        this.afterCursor = timestamp
+        this.previousCursor = timestamp
+        this.cache = new TimeTree<T>()
+    }
+
+    hasPrevious(to: Dayjs): boolean {
+        if (this.cache.previous(to)) {
+            return true
+        }
+        return this._hasPrevious
+    }
+
+    hasNext(from: Dayjs): boolean {
+        if (this.cache.next(from)) {
+            return true
+        }
+        return this._hasNext
+    }
+
+    async previous(to: Dayjs, limit: number): Promise<T | null> {
+        const item = this.cache.previous(to)
+        if (item) {
+            return item
+        } else if (this._hasPrevious) {
+            const query = this.buildQueryTo(this.previousCursor, limit)
+            const response = await api.queryHogQL(query)
+            if (response.results.length === 0) {
+                this._hasPrevious = false
+            }
+            const items = response.results.map((row) => this.buildItem(row[0], row[1], row[2]))
+            if (items.length > 0) {
+                this.previousCursor = items[items.length - 1].timestamp
+            }
+            this.cache.add(items)
+            return this.cache.previous(to) ?? null
+        }
+        return null
+    }
+
+    async next(from: Dayjs, limit: number): Promise<T | null> {
+        const item = this.cache.next(from)
+        if (item) {
+            return item
+        } else if (this._hasNext) {
+            const query = this.buildQueryFrom(this.afterCursor, limit)
+            const response = await api.queryHogQL(query)
+            if (response.results.length === 0) {
+                this._hasNext = false
+            }
+            const items = response.results.map((row) => this.buildItem(row[0], row[1], row[2]))
+            if (items.length > 0) {
+                this.afterCursor = items[items.length - 1].timestamp
+            }
+            this.cache.add(items)
+            return this.cache.next(from) ?? null
+        }
+        return null
+    }
+
+    buildQueryFrom(from: Dayjs, limit: number): HogQLQueryString {
+        return hogql`SELECT timestamp, level, message FROM log_entries WHERE log_source = ${this.logSource()} AND log_source_id = ${this.logSourceId()} AND timestamp >= ${from} and timestamp <= ${from.add(6, 'hours')} ORDER BY timestamp ASC LIMIT ${limit}`
+    }
+
+    buildQueryTo(to: Dayjs, limit: number): HogQLQueryString {
+        return hogql`SELECT timestamp, level, message FROM log_entries WHERE log_source = ${this.logSource()} AND log_source_id = ${this.logSourceId()} AND timestamp <= ${to} and timestamp >= ${to.subtract(6, 'hours')} ORDER BY timestamp DESC LIMIT ${limit}`
+    }
+
+    abstract logSource(): string
+    abstract logSourceId(): string
+    abstract buildItem(timestamp: string, level: 'info' | 'warn' | 'error', message: string): T
 }
