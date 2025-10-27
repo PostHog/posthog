@@ -17,14 +17,26 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAttributes>): JSX.Element | null => {
     const { expanded } = useValues(notebookNodeLogic)
-    const { personId } = attributes
-    const logic = dataNodeLogic({
-        query: {
-            kind: NodeKind.UsageMetricsQuery,
-            person_id: personId,
-        },
-        key: personId,
-    })
+    const { personId, groupKey, groupTypeIndex } = attributes
+    const dataNodeLogicProps = personId
+        ? {
+              query: {
+                  kind: NodeKind.UsageMetricsQuery,
+                  person_id: personId,
+              },
+              key: personId,
+          }
+        : groupKey
+          ? {
+                query: {
+                    kind: NodeKind.UsageMetricsQuery,
+                    group_key: groupKey,
+                    group_type_index: groupTypeIndex,
+                },
+                key: groupKey,
+            }
+          : { key: 'error', query: { kind: NodeKind.UsageMetricsQuery } }
+    const logic = dataNodeLogic(dataNodeLogicProps)
     const { response, responseLoading, responseError } = useValues(logic)
 
     if (!expanded) {
@@ -69,7 +81,9 @@ const Settings = ({ attributes }: NotebookNodeAttributeProperties<NotebookNodeUs
 }
 
 type NotebookNodeUsageMetricsAttributes = {
-    personId: string
+    personId?: string
+    groupKey?: string
+    groupTypeIndex?: number
 }
 
 export const NotebookNodeUsageMetrics = createPostHogWidgetNode<NotebookNodeUsageMetricsAttributes>({
@@ -83,5 +97,7 @@ export const NotebookNodeUsageMetrics = createPostHogWidgetNode<NotebookNodeUsag
     startExpanded: true,
     attributes: {
         personId: {},
+        groupKey: {},
+        groupTypeIndex: {},
     },
 })
