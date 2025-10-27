@@ -52,7 +52,7 @@ export enum NotebookNodeType {
     ReplayTimestamp = 'ph-replay-timestamp',
     Image = 'ph-image',
     PersonFeed = 'ph-person-feed',
-    Properties = 'ph-properties',
+    PersonProperties = 'ph-person-properties',
     Map = 'ph-map',
     Embed = 'ph-embed',
     Latex = 'ph-latex',

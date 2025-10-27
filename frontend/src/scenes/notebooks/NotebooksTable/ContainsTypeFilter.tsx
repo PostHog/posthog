@@ -9,7 +9,7 @@ export const fromNodeTypeToLabel: Omit<
     Record<NotebookNodeType, string>,
     | NotebookNodeType.Backlink
     | NotebookNodeType.PersonFeed
-    | NotebookNodeType.Properties
+    | NotebookNodeType.PersonProperties
     | NotebookNodeType.Map
     | NotebookNodeType.Mention
     | NotebookNodeType.Embed
