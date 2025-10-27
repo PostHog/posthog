@@ -92,6 +92,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             }
         }) => ({ config }),
         createExperiment: () => ({}),
+        createExperimentSuccess: true,
         setSharedMetrics: (sharedMetrics: { primary: ExperimentMetric[]; secondary: ExperimentMetric[] }) => ({
             sharedMetrics,
         }),
@@ -254,7 +255,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                         intent_context: ProductIntentContext.EXPERIMENT_CREATED,
                     })
 
-                    // Show success toast
+                    // Show success toast with view button
                     lemonToast.success('Experiment created successfully!')
 
                     // Reset form for next experiment (clear persisted state)

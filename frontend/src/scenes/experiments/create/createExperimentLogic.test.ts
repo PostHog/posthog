@@ -14,6 +14,7 @@ import { createExperimentLogic } from './createExperimentLogic'
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {
         success: jest.fn(),
+        error: jest.fn(),
     },
 }))
 
@@ -104,6 +105,7 @@ describe('createExperimentLogic', () => {
                     name: 'Test Experiment',
                     description: 'Test hypothesis',
                     type: 'product',
+                    feature_flag_key: 'test-experiment',
                 })
                 logic.actions.submitExperiment()
             })
@@ -119,6 +121,7 @@ describe('createExperimentLogic', () => {
                     ...NEW_EXPERIMENT,
                     name: 'Test Experiment',
                     description: 'Test hypothesis',
+                    feature_flag_key: 'test-experiment',
                 })
                 logic.actions.submitExperiment()
             })
@@ -135,6 +138,7 @@ describe('createExperimentLogic', () => {
                     ...NEW_EXPERIMENT,
                     name: 'Test Experiment',
                     description: 'Test hypothesis',
+                    feature_flag_key: 'test-experiment',
                 })
                 logic.actions.submitExperiment()
             })
@@ -152,6 +156,7 @@ describe('createExperimentLogic', () => {
                     ...NEW_EXPERIMENT,
                     name: 'Test Experiment',
                     description: 'Test hypothesis',
+                    feature_flag_key: 'test-experiment',
                 })
                 logic.actions.submitExperiment()
             })
@@ -444,6 +449,7 @@ describe('createExperimentLogic', () => {
                     ...NEW_EXPERIMENT,
                     name: 'Test Experiment',
                     description: 'Test hypothesis',
+                    feature_flag_key: 'test-experiment',
                     parameters: {
                         feature_flag_variants: [
                             { key: 'control', rollout_percentage: 50 },

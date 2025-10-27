@@ -116,6 +116,7 @@ describe('CreateExperiment Integration', () => {
                     ...NEW_EXPERIMENT,
                     name: 'Test Experiment',
                     description: 'Test hypothesis',
+                    feature_flag_key: 'test-experiment',
                 })
                 logic.actions.submitExperiment()
             })
@@ -140,6 +141,7 @@ describe('CreateExperiment Integration', () => {
                     ...NEW_EXPERIMENT,
                     name: 'Valid Name',
                     description: 'Valid Description',
+                    feature_flag_key: 'valid-experiment',
                 })
                 logic.actions.submitExperiment()
             })
