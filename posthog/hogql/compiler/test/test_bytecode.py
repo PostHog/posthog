@@ -166,8 +166,7 @@ class TestBytecode(BaseTest):
                 0,
                 op.GET_LOCAL,
                 0,
-                op.POP_SCOPE,
-                1,
+                op.POP,
             ],
         )
         self.assertEqual(
@@ -193,8 +192,7 @@ class TestBytecode(BaseTest):
                 0,
                 op.GET_LOCAL,
                 0,
-                op.POP_SCOPE,
-                1,
+                op.POP,
             ],
         )
         self.assertEqual(to_bytecode("not('test')"), [_H, HOGQL_BYTECODE_VERSION, op.STRING, "test", op.NOT])
