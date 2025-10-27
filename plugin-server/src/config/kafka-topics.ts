@@ -52,3 +52,9 @@ export const KAFKA_COHORT_MEMBERSHIP_CHANGED = `${prefix}cohort_membership_chang
 // Error tracking topics
 export const KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT = `${prefix}clickhouse_error_tracking_issue_fingerprint${suffix}`
 export const KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES = `${prefix}clickhouse_error_tracking_issue_fingerprint_overrides${suffix}`
+
+// Logs ingestion topics
+export const KAFKA_LOGS_INGESTION = `${prefix}logs_ingestion${suffix}`
+export const KAFKA_LOGS_INGESTION_DLQ = `${prefix}logs_ingestion_dlq${suffix}`
+export const KAFKA_LOGS_INGESTION_OVERFLOW = `${prefix}logs_ingestion_overflow${suffix}`
+export const KAFKA_LOGS_CLICKHOUSE = `${prefix}clickhouse_logs${suffix}`
