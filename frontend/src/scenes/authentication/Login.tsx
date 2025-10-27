@@ -96,7 +96,7 @@ export function Login(): JSX.Element {
         >
             {preflight?.cloud && <RedirectIfLoggedInOtherInstance />}
             <div className="deprecated-space-y-4">
-                <h2>Log in</h2>
+                <h2>{isEmailVerificationSent ? 'Check your email' : 'Log in'}</h2>
                 {generalError && (
                     <LemonBanner type={generalError.code === 'email_verification_sent' ? 'warning' : 'error'}>
                         {generalError.detail || ERROR_MESSAGES[generalError.code] || (
@@ -110,19 +110,21 @@ export function Login(): JSX.Element {
                 )}
                 {isEmailVerificationSent ? (
                     <div className="deprecated-space-y-4">
-                        <LemonButton
-                            type="secondary"
-                            fullWidth
-                            center
-                            size="large"
-                            loading={resendResponseLoading}
-                            onClick={() => resendEmailMFA(null)}
-                        >
-                            Resend verification email
-                        </LemonButton>
-                        <LemonButton type="tertiary" fullWidth center size="large" onClick={() => clearGeneralError()}>
-                            Back to login
-                        </LemonButton>
+                        <div className="flex justify-center">
+                            <LemonButton
+                                type="tertiary"
+                                size="small"
+                                loading={resendResponseLoading}
+                                onClick={() => resendEmailMFA(null)}
+                            >
+                                Resend verification email
+                            </LemonButton>
+                        </div>
+                        <div className="text-center">
+                            <Link onClick={() => clearGeneralError()} className="text-muted">
+                                Back to login
+                            </Link>
+                        </div>
                     </div>
                 ) : (
                     <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="deprecated-space-y-4">

@@ -319,7 +319,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         organizationBased: true,
         defaultDocsPath: '/docs/data/organizations-and-projects',
     },
-    [Scene.ProjectHomepage]: { projectBased: true, name: 'Homepage', hideProjectNotice: true, layout: 'app-raw' },
+    [Scene.ProjectHomepage]: {
+        projectBased: true,
+        name: 'Homepage',
+        layout: 'app-raw',
+    },
     [Scene.PropertyDefinitionEdit]: {
         projectBased: true,
         name: 'Data management',
