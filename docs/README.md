@@ -27,7 +27,7 @@ Documentation that stays in the repository:
 
 ## Publishing Flow
 
-```
+```text
 Engineer creates PR with /docs/** changes
   ↓
 GitHub Action triggers posthog.com preview build

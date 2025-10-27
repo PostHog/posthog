@@ -18,10 +18,8 @@ jobs:
         name: Trigger posthog.com preview build
         runs-on: ubuntu-latest
         steps:
-            - name: Checkout PR branch
+            - name: Checkout
               uses: actions/checkout@v4
-              with:
-                  ref: ${{ github.event.pull_request.head.ref }}
 
             - name: Trigger Vercel build with inline env
               id: trigger-build
@@ -35,7 +33,7 @@ jobs:
                     exit 0
                   fi
 
-                  PR_BRANCH="${{ github.event.pull_request.head.ref }}"
+                  PR_BRANCH="${{ github.event.pull_request.head.ref || github.ref_name }}"
 
                   echo "📢 Triggering Vercel deployment for posthog.com@master (gatsby-source-git)"
                   echo "   Monorepo branch: $PR_BRANCH (per-deployment env)"
@@ -78,7 +76,7 @@ jobs:
                   fi
 
             - name: Comment on PR
-              if: always()
+              if: github.event_name == 'pull_request'
               uses: actions/github-script@v7
               with:
                   script: |
