@@ -2383,22 +2383,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_tool.return_value = ("Event list" * 128000, None)
         mock_should_compact.side_effect = cycle([False, True])  # Also changed this
 
-        graph = (
-            AssistantGraph(self.team, self.user)
-            .add_root(
-                path_map={
-                    "insights": AssistantNodeName.END,
-                    "search_documentation": AssistantNodeName.END,
-                    "root": AssistantNodeName.ROOT,
-                    "end": AssistantNodeName.END,
-                    "insights_search": AssistantNodeName.END,
-                    "session_summarization": AssistantNodeName.END,
-                    "create_dashboard": AssistantNodeName.END,
-                }
-            )
-            .add_memory_onboarding()
-            .compile()
-        )
+        graph = AssistantGraph(self.team, self.user).add_root().add_memory_onboarding().compile()
 
         expected_output = [
             ("message", HumanMessage(content="First")),
