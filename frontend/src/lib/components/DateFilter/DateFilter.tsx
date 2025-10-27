@@ -117,6 +117,7 @@ export function DateFilter({
         isRollingDateRange,
         dateFromHasTimePrecision,
     } = useValues(dateFilterLogic(logicProps))
+
     const optionsRef = useRef<HTMLDivElement | null>(null)
     const rollingDateRangeRef = useRef<HTMLDivElement | null>(null)
     const [granularity, setGranularity] = useState<LemonCalendarSelectProps['granularity']>(

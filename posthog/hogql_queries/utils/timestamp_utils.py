@@ -156,41 +156,6 @@ def get_earliest_timestamp_from_series(
     return min(timestamps)
 
 
-def get_team_earliest_timestamp(team: Team) -> datetime:
-    """
-    Get the global earliest timestamp for a team across all events.
-
-    :param team: The team
-    :return: The earliest timestamp across all events for the team
-    """
-    cache_key = _get_earliest_timestamp_cache_key(team)
-    cached_result = get_safe_cache(cache_key)
-    if cached_result is not None:
-        return cached_result
-
-    earliest_timestamp = EARLIEST_EVENT_TIMESTAMP
-
-    # Query for earliest timestamp across all events
-    query = ast.SelectQuery(
-        select=[ast.Field(chain=["timestamp"])],
-        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-        where=ast.CompareOperation(
-            op=ast.CompareOperationOp.Gt,
-            left=ast.Field(chain=["timestamp"]),
-            right=ast.Constant(value=earliest_timestamp),
-        ),
-        order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="ASC")],
-        limit=ast.Constant(value=1),
-    )
-
-    result = execute_hogql_query(query=query, team=team)
-    if result and len(result.results) > 0 and len(result.results[0]) > 0:
-        earliest_timestamp = result.results[0][0]
-
-    cache.set(cache_key, earliest_timestamp, timeout=EARLIEST_TIMESTAMP_CACHE_TTL)
-    return earliest_timestamp
-
-
 def _get_week_boundaries(input_date: date, week_start_day: WeekStartDay) -> tuple[date, date]:
     """
     Get the start and end dates of the week for a given date, considering the week start day.
