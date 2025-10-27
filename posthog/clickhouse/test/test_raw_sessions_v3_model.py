@@ -594,7 +594,14 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
             team_id=self.team.pk,
             distinct_id=distinct_id,
             session_id=session_id,
+            first_timestamp="2024-03-08",
+            last_timestamp="2024-03-08",
         )
 
         result_2 = self.select_by_session_id(session_id)
         assert result_2[0]["has_replay_events"] is True
+
+        # everything else except for inserted_at should be the same
+        assert {k: v for k, v in result_1[0].items() if k not in {"has_replay_events", "max_inserted_at"}} == {
+            k: v for k, v in result_2[0].items() if k not in {"has_replay_events", "max_inserted_at"}
+        }
