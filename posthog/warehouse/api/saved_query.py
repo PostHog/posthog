@@ -17,6 +17,8 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from temporalio.client import ScheduleActionExecutionStartWorkflow
 
+from posthog.schema import DataWarehouseManagedViewsetKind
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, SerializedField, serialize_fields
 from posthog.hogql.errors import ExposedHogQLError
@@ -158,7 +160,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
         return None
 
-    def get_managed_viewset_kind(self, view: DataWarehouseSavedQuery):
+    def get_managed_viewset_kind(self, view: DataWarehouseSavedQuery) -> DataWarehouseManagedViewsetKind | None:
         return view.managed_viewset.kind if view.managed_viewset else None
 
     def create(self, validated_data):

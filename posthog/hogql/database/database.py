@@ -120,6 +120,8 @@ from posthog.models.team.team import WeekStartDay
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.table import DataWarehouseTable, DataWarehouseTableColumns
 
+from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
+
 if TYPE_CHECKING:
     from posthog.models import Team
 
@@ -697,9 +699,8 @@ class Database(BaseModel):
                     )
 
         with timings.measure("revenue_analytics_views"):
-            revenue_views = []
+            revenue_views: list[RevenueAnalyticsBaseView] = []
             try:
-                revenue_views = []
                 if not is_managed_viewset_enabled:
                     revenue_views = list(build_all_revenue_analytics_views(team, timings))
             except Exception as e:
