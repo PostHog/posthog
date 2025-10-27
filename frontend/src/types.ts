@@ -242,6 +242,7 @@ export enum ProductKey {
     MAX = 'max',
     LINKS = 'links',
     ENDPOINTS = 'endpoints',
+    LLM_ANALYTICS = 'llm_analytics',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -2145,6 +2146,7 @@ export interface EndpointType extends WithAccessControl {
     created_at: string
     updated_at: string
     created_by: UserBasicType | null
+    cache_age_seconds: number
     /** Purely local value to determine whether the query endpoint should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
     /** Last execution time from ClickHouse query_log table */

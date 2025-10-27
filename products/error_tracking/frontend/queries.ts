@@ -4,6 +4,7 @@ import {
     DocumentSimilarityQuery,
     ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingQuery,
+    ErrorTrackingSimilarIssuesQuery,
     EventsQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
@@ -166,6 +167,24 @@ export const errorTrackingIssueCorrelationQuery = ({
     return setLatestVersionsOnQuery<ErrorTrackingIssueCorrelationQuery>({
         kind: NodeKind.ErrorTrackingIssueCorrelationQuery,
         events,
+        tags: { productKey: ProductKey.ERROR_TRACKING },
+    })
+}
+
+export const errorTrackingSimilarIssuesQuery = ({
+    issueId,
+    limit,
+    maxDistance,
+}: {
+    issueId: string
+    limit: number
+    maxDistance: number
+}): ErrorTrackingSimilarIssuesQuery => {
+    return setLatestVersionsOnQuery<ErrorTrackingSimilarIssuesQuery>({
+        kind: NodeKind.ErrorTrackingSimilarIssuesQuery,
+        issueId,
+        limit,
+        maxDistance,
         tags: { productKey: ProductKey.ERROR_TRACKING },
     })
 }
