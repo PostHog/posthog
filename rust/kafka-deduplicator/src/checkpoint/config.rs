@@ -36,7 +36,8 @@ pub struct CheckpointConfig {
     pub checkpoint_worker_shutdown_timeout: Duration,
 
     /// Number of hours prior to "now" that the checkpoint import mechanism
-    /// will search for valid checkpoint attempts in a DR recovery scenario
+    /// will search for valid checkpoint attempts in a DR recovery or HPA
+    /// autoscaling scenario where net-new Persistent Volumes are created
     pub checkpoint_import_window_hours: u32,
 
     /// Timeout for S3 operations (including all retry attempts)
