@@ -184,16 +184,16 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING(f"File exists: {source_file}"))
 
     def _pull_logo_png(self, repo: Repo, url: str | None, filename: str):
+        path = os.path.join(repo.working_dir, "frontend", "public", "services", filename)
+        if os.path.exists(path):
+            self.stdout.write(self.style.WARNING(f"Logo image {path} already exists. Skipping..."))
+            return
         warn_msg = "You will need to supply a logo image file in frontend/public/services manually..."
         if url:
             publishable_key = "pk_ObrK3F_LS8u7MUbD1itCTA"
             logo_dev_url = f"https://img.logo.dev/{url}?token={publishable_key}&size=256&format=png"
             res = requests.get(logo_dev_url, stream=True)
             if res.status_code == 200:
-                path = os.path.join(repo.working_dir, "frontend", "public", "services", filename)
-                if os.path.exists(path):
-                    self.stdout.write(self.style.WARNING(f"Logo image {path} already exists. Skipping..."))
-                    return
                 with open(path, "wb") as f:
                     for chunk in res.iter_content(chunk_size=8 * 1024):
                         if chunk:
