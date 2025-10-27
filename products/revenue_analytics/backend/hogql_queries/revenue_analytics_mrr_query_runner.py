@@ -351,9 +351,26 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
     # items at the end of the query for all of the subscriptions which ended in this period
     # to allow us to properly calculate churn
     def _revenue_item_subquery(self, view: RevenueAnalyticsBaseView) -> ast.SelectQuery | ast.SelectSetQuery:
+        # Not doing "SELECT *" here because it'll use an arbitrary order for the columns
+        # since this is expanded to the order stored in Postgres for the saved query (see resolver.py)
+        #
+        # Since Postgres jsonb does NOT store the columns in the same order they were inserted
+        # doing "SELECT *" will cause this to fail the `UNION ALL` below since we have a likely different
+        # order for the columns when creating the fake subscription query below
+        #
+        # This poses some problems because we need to expose all possible fields here if we wanna
+        # be able to UNION ALL so we'll just reimport the fields in the right orders from the schema
+        #
+        # :NERD: It stores them by key length and then alphabetically
+        # https://www.postgresql.org/docs/17/datatype-json.html
         queries: list[ast.SelectQuery | ast.SelectSetQuery] = [
             ast.SelectQuery(
-                select=[ast.Field(chain=["*"])],
+                select=[
+                    ast.Field(chain=[field])
+                    for field in VIEW_SCHEMAS[
+                        DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM
+                    ].fields.keys()
+                ],
                 select_from=ast.JoinExpr(table=ast.Field(chain=[view.name])),
             ),
         ]
