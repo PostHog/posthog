@@ -239,13 +239,20 @@ class JavaScriptCompiler(Visitor):
             raise QueryError(f"Unsupported comparison operator: {op}")
 
     def visit_between_expr(self, node: ast.BetweenExpr):
+        self._start_scope()
+        temp_var = f"__between_temp__"
+        self._declare_local(temp_var)
         val = self.visit(node.expr)
         low = self.visit(node.low)
         high = self.visit(node.high)
+        temp_var_sanitized = _sanitize_identifier(temp_var)
         if node.negated:
-            code = f"({val} < {low} || {val} > {high})"
+            code = f"(({temp_var_sanitized} = {val}), ({temp_var_sanitized} < {low} || {temp_var_sanitized} > {high}))"
         else:
-            code = f"({val} >= {low} && {val} <= {high})"
+            code = (
+                f"(({temp_var_sanitized} = {val}), ({temp_var_sanitized} >= {low} && {temp_var_sanitized} <= {high}))"
+            )
+        self._end_scope()
         return f"!!{code}"
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
