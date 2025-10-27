@@ -1,197 +1,21 @@
 import {
-    EventsHeatMapColumnAggregationResult,
     EventsHeatMapDataResult,
-    EventsHeatMapRowAggregationResult,
     NodeKind,
     TrendsQueryResponse,
     WebStatsBreakdown,
     WebStatsTableQuery,
     WebStatsTableQueryResponse,
     WebTrendsMetric,
+    WebTrendsQuery,
     WebTrendsQueryResponse,
 } from '~/queries/schema/schema-general'
 
-// Import the functions to test - these are not exported, so we'll need to test them via the component
-// For now, let's copy the helper functions into the test file to test them directly
-// This is a temporary solution - ideally we'd export them or test via the component
-
-function getCalendarHeatmapTableData(
-    response: TrendsQueryResponse,
-    rowLabels: string[],
-    columnLabels: string[]
-): string[][] {
-    const firstResult = (response as any)?.results?.[0]
-    const heatmapData = firstResult?.calendar_heatmap_data
-
-    if (!heatmapData || !heatmapData.data) {
-        return []
-    }
-
-    const data = heatmapData.data || []
-    const rowAggregations = heatmapData.rowAggregations || []
-    const columnAggregations = heatmapData.columnAggregations || []
-    const allAggregations = heatmapData.allAggregations || 0
-
-    const numRows = rowLabels.length
-    const numCols = columnLabels.length
-
-    const matrix: number[][] = Array(numRows)
-        .fill(0)
-        .map(() => Array(numCols).fill(0))
-    data.forEach((item: EventsHeatMapDataResult) => {
-        if (item.row < numRows && item.column < numCols) {
-            matrix[item.row][item.column] = item.value
-        }
-    })
-
-    const rowAggMap: Record<number, number> = {}
-    rowAggregations.forEach((item: EventsHeatMapRowAggregationResult) => {
-        rowAggMap[item.row] = item.value
-    })
-
-    const colAggArray: number[] = Array(numCols).fill(0)
-    columnAggregations.forEach((item: EventsHeatMapColumnAggregationResult) => {
-        if (item.column < numCols) {
-            colAggArray[item.column] = item.value
-        }
-    })
-
-    const headers = ['', ...columnLabels, 'All']
-    const dataRows = rowLabels.map((rowLabel, rowIndex) => {
-        const rowValues = matrix[rowIndex].map(String)
-        const rowTotal = rowAggMap[rowIndex] != null ? String(rowAggMap[rowIndex]) : ''
-        return [rowLabel, ...rowValues, rowTotal]
-    })
-
-    const aggregationRow = ['All', ...colAggArray.map(String), String(allAggregations)]
-
-    return [headers, ...dataRows, aggregationRow]
-}
-
-function getWebAnalyticsTableData(
-    response: WebStatsTableQueryResponse,
-    columns: string[],
-    query: WebStatsTableQuery
-): string[][] {
-    if (!response.results || response.results.length === 0 || !columns.length) {
-        return []
-    }
-
-    const hasComparison = query.compareFilter?.compare === true
-
-    const firstRow = response.results[0] as any[]
-    const columnHasComparison = columns.map((_, colIndex) => Array.isArray(firstRow[colIndex]))
-
-    const getDisplayColumnName = (col: string): string => {
-        // Simplified version for testing
-        return col.replace('context.columns.', '').replace(/_/g, ' ')
-    }
-
-    const displayHeaders = hasComparison
-        ? columns.flatMap((col, colIndex) => {
-              const displayName = getDisplayColumnName(col)
-              if (columnHasComparison[colIndex]) {
-                  return [`${displayName} (current)`, `${displayName} (previous)`]
-              }
-              return displayName
-          })
-        : columns.map((col) => getDisplayColumnName(col))
-
-    const dataRows = response.results.map((result) => {
-        const row = result as any[]
-        return columns.flatMap((_, colIndex) => {
-            const value = row[colIndex]
-            if (hasComparison && Array.isArray(value)) {
-                return [value[0] != null ? String(value[0]) : '', value[1] != null ? String(value[1]) : '']
-            }
-            return value != null ? String(value) : ''
-        })
-    })
-
-    return [displayHeaders, ...dataRows]
-}
-
-function getWebTrendsTableData(response: WebTrendsQueryResponse, hasComparison: boolean): string[][] {
-    if (!response.results || response.results.length === 0) {
-        return []
-    }
-
-    const webTrendsMetricDisplayNames: Record<WebTrendsMetric, string> = {
-        [WebTrendsMetric.UNIQUE_USERS]: 'Visitors',
-        [WebTrendsMetric.PAGE_VIEWS]: 'Views',
-        [WebTrendsMetric.SESSIONS]: 'Sessions',
-        [WebTrendsMetric.BOUNCES]: 'Bounces',
-        [WebTrendsMetric.SESSION_DURATION]: 'Session duration',
-        [WebTrendsMetric.TOTAL_SESSIONS]: 'Total sessions',
-    }
-
-    const allMetricsSet = new Set<WebTrendsMetric>()
-    response.results.forEach((item) => {
-        Object.keys(item.metrics).forEach((metric) => allMetricsSet.add(metric as WebTrendsMetric))
-    })
-
-    const orderedMetrics = Array.from(allMetricsSet).sort()
-
-    if (orderedMetrics.length === 0) {
-        return []
-    }
-
-    const displayHeaders = hasComparison
-        ? [
-              'Date',
-              ...orderedMetrics.flatMap((m) => [
-                  `${webTrendsMetricDisplayNames[m] || m} (current)`,
-                  `${webTrendsMetricDisplayNames[m] || m} (previous)`,
-              ]),
-          ]
-        : ['Date', ...orderedMetrics.map((m) => webTrendsMetricDisplayNames[m] || m)]
-
-    const dataRows = response.results.map((item) => {
-        const metricValues = orderedMetrics.flatMap((metric) => {
-            const value = item.metrics[metric]
-            if (hasComparison && Array.isArray(value)) {
-                return [value[0] != null ? String(value[0]) : '', value[1] != null ? String(value[1]) : '']
-            }
-            return value != null ? String(value) : ''
-        })
-        return [item.bucket, ...metricValues]
-    })
-
-    return [displayHeaders, ...dataRows]
-}
-
-function getTrendsTableData(response: TrendsQueryResponse): string[][] {
-    if (!response.results || response.results.length === 0) {
-        return []
-    }
-
-    const firstSeries = response.results[0]
-    const dateLabels = (firstSeries.labels || firstSeries.days || []) as string[]
-
-    if (dateLabels.length === 0) {
-        return []
-    }
-
-    const seriesLabels = response.results.map((series) => {
-        // Use breakdown value if available, otherwise use action name or label
-        const breakdownValue = (series as any).breakdown_value
-        const baseName = breakdownValue ?? series.action?.custom_name ?? series.label ?? 'Series'
-        const compareLabel = series.compare_label
-        return compareLabel ? `${baseName} (${compareLabel})` : baseName
-    })
-    const headers = ['Date', ...seriesLabels]
-
-    const dataRows = dateLabels.map((date, dateIndex) => {
-        const values = response.results.map((series) => {
-            const data = series.data as number[]
-            const value = data[dateIndex]
-            return value != null ? String(value) : ''
-        })
-        return [date, ...values]
-    })
-
-    return [headers, ...dataRows]
-}
+import {
+    getCalendarHeatmapTableData,
+    getTrendsTableData,
+    getWebAnalyticsTableData,
+    getWebTrendsTableData,
+} from './webAnalyticsExportUtils'
 
 describe('WebAnalyticsExport helper functions', () => {
     beforeEach(() => {
@@ -357,7 +181,7 @@ describe('WebAnalyticsExport helper functions', () => {
             const result = getWebAnalyticsTableData(response, columns, query)
 
             expect(result).toEqual([
-                ['pathname', 'visitors', 'views'],
+                ['pathname', 'Visitors', 'Views'],
                 ['/home', '100', '50'],
                 ['/about', '75', '30'],
             ])
@@ -383,7 +207,7 @@ describe('WebAnalyticsExport helper functions', () => {
             const result = getWebAnalyticsTableData(response, columns, query)
 
             expect(result).toEqual([
-                ['pathname', 'visitors (current)', 'visitors (previous)', 'views (current)', 'views (previous)'],
+                ['pathname', 'Visitors (current)', 'Visitors (previous)', 'Views (current)', 'Views (previous)'],
                 ['/home', '100', '90', '50', '45'],
                 ['/about', '75', '70', '30', '28'],
             ])
@@ -422,7 +246,7 @@ describe('WebAnalyticsExport helper functions', () => {
             const result = getWebAnalyticsTableData(response, columns, query)
 
             expect(result).toEqual([
-                ['pathname', 'visitors', 'views'],
+                ['pathname', 'Visitors', 'Views'],
                 ['/home', '', '50'],
             ])
         })
@@ -448,8 +272,16 @@ describe('WebAnalyticsExport helper functions', () => {
                     },
                 ],
             }
+            const query: WebTrendsQuery = {
+                kind: NodeKind.WebTrendsQuery,
+                dateRange: { date_from: '-7d' },
+                properties: [],
+                compareFilter: { compare: false },
+                interval: 'day',
+                metrics: [WebTrendsMetric.UNIQUE_USERS, WebTrendsMetric.PAGE_VIEWS],
+            }
 
-            const result = getWebTrendsTableData(response, false)
+            const result = getWebTrendsTableData(response, query)
 
             expect(result).toEqual([
                 ['Date', 'Views', 'Visitors'],
@@ -477,8 +309,16 @@ describe('WebAnalyticsExport helper functions', () => {
                     },
                 ],
             }
+            const query: WebTrendsQuery = {
+                kind: NodeKind.WebTrendsQuery,
+                dateRange: { date_from: '-7d' },
+                properties: [],
+                compareFilter: { compare: true },
+                interval: 'day',
+                metrics: [WebTrendsMetric.UNIQUE_USERS, WebTrendsMetric.PAGE_VIEWS],
+            }
 
-            const result = getWebTrendsTableData(response, true)
+            const result = getWebTrendsTableData(response, query)
 
             expect(result).toEqual([
                 ['Date', 'Views (current)', 'Views (previous)', 'Visitors (current)', 'Visitors (previous)'],
@@ -503,8 +343,15 @@ describe('WebAnalyticsExport helper functions', () => {
                     },
                 ],
             }
+            const query: WebTrendsQuery = {
+                kind: NodeKind.WebTrendsQuery,
+                dateRange: { date_from: '-7d' },
+                properties: [],
+                interval: 'day',
+                metrics: Object.values(WebTrendsMetric),
+            }
 
-            const result = getWebTrendsTableData(response, false)
+            const result = getWebTrendsTableData(response, query)
 
             expect(result[0]).toEqual([
                 'Date',
@@ -522,8 +369,15 @@ describe('WebAnalyticsExport helper functions', () => {
             const response: WebTrendsQueryResponse = {
                 results: [],
             }
+            const query: WebTrendsQuery = {
+                kind: NodeKind.WebTrendsQuery,
+                dateRange: { date_from: '-7d' },
+                properties: [],
+                interval: 'day',
+                metrics: [WebTrendsMetric.UNIQUE_USERS, WebTrendsMetric.PAGE_VIEWS],
+            }
 
-            const result = getWebTrendsTableData(response, false)
+            const result = getWebTrendsTableData(response, query)
 
             expect(result).toEqual([])
         })
@@ -540,8 +394,15 @@ describe('WebAnalyticsExport helper functions', () => {
                     },
                 ],
             }
+            const query: WebTrendsQuery = {
+                kind: NodeKind.WebTrendsQuery,
+                dateRange: { date_from: '-7d' },
+                properties: [],
+                interval: 'day',
+                metrics: [WebTrendsMetric.UNIQUE_USERS, WebTrendsMetric.PAGE_VIEWS],
+            }
 
-            const result = getWebTrendsTableData(response, false)
+            const result = getWebTrendsTableData(response, query)
 
             expect(result).toEqual([
                 ['Date', 'Views', 'Visitors'],
