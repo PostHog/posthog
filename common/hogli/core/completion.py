@@ -1,8 +1,7 @@
 """Generate shell completion scripts for hogli."""
 
 import click
-
-from hogli.manifest import get_manifest
+from hogli.core.manifest import get_manifest
 
 
 def generate_bash_completion(cli_name: str = "hogli") -> str:

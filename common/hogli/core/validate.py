@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import yaml
-
-from hogli.manifest import REPO_ROOT, get_manifest
+from hogli.core.manifest import REPO_ROOT, get_manifest
 
 
 def get_bin_scripts() -> set[str]:
@@ -80,7 +79,7 @@ def auto_update_manifest() -> set[str]:
     if not entries:
         return set()
 
-    manifest_file = REPO_ROOT / "hogli" / "manifest.yaml"
+    manifest_file = REPO_ROOT / "common" / "hogli" / "manifest.yaml"
     if not manifest_file.exists():
         return set()
 

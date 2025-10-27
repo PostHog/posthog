@@ -10,9 +10,8 @@ import os
 from collections import defaultdict
 
 import click
-
-from hogli.commands import BinScriptCommand, CompositeCommand, DirectCommand
-from hogli.manifest import REPO_ROOT, load_manifest
+from hogli.core.command_types import BinScriptCommand, CompositeCommand, DirectCommand
+from hogli.core.manifest import REPO_ROOT, load_manifest
 
 BIN_DIR = REPO_ROOT / "bin"
 
@@ -22,7 +21,7 @@ class CategorizedGroup(click.Group):
 
     def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         """Format commands grouped by category, git-style."""
-        from hogli.manifest import (
+        from hogli.core.manifest import (
             get_category_for_command as get_cat_for_cmd,
             get_manifest,
         )
@@ -71,7 +70,7 @@ class CategorizedGroup(click.Group):
 
 def _auto_update_manifest() -> None:
     """Automatically update manifest with missing entries."""
-    from hogli.validate import auto_update_manifest
+    from hogli.core.validate import auto_update_manifest
 
     added = auto_update_manifest()
     if added:
@@ -125,7 +124,7 @@ def quickstart() -> None:
 @cli.command(name="meta:check", help="Validate manifest against bin scripts (for CI)")
 def meta_check() -> None:
     """Validate that all bin scripts are in the manifest."""
-    from hogli.validate import find_missing_manifest_entries
+    from hogli.core.validate import find_missing_manifest_entries
 
     missing = find_missing_manifest_entries()
 
@@ -143,7 +142,7 @@ def meta_check() -> None:
 @cli.command(name="meta:concepts", help="Show services and infrastructure concepts")
 def concepts() -> None:
     """Display infrastructure concepts and services with descriptions and related commands."""
-    from hogli.manifest import get_services_for_command
+    from hogli.core.manifest import get_services_for_command
 
     manifest = load_manifest()
     services_dict = manifest.get("metadata", {}).get("services", {})
@@ -239,6 +238,12 @@ def _register_script_commands() -> None:
 
 # Register all script commands from manifest before app runs
 _register_script_commands()
+
+# Import developer commands module to register any @cli.command() decorated functions
+try:
+    import hogli.commands  # noqa: F401
+except ImportError:
+    pass  # No developer commands yet
 
 
 def main() -> None:
