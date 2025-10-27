@@ -41,6 +41,55 @@ impl DatabasePools {
             ));
         }
 
+        // Clamp min_connections to max_connections for each pool
+        // This prevents misconfiguration while allowing the service to start
+        let min_non_persons_reader_connections =
+            config
+                .min_non_persons_reader_connections
+                .min(config.max_pg_connections);
+        let min_non_persons_writer_connections =
+            config
+                .min_non_persons_writer_connections
+                .min(config.max_pg_connections);
+        let min_persons_reader_connections =
+            config.min_persons_reader_connections.min(config.max_pg_connections);
+        let min_persons_writer_connections =
+            config.min_persons_writer_connections.min(config.max_pg_connections);
+
+        // Log warnings if we had to clamp any values
+        if config.min_non_persons_reader_connections > config.max_pg_connections {
+            tracing::warn!(
+                configured = config.min_non_persons_reader_connections,
+                clamped_to = min_non_persons_reader_connections,
+                max_connections = config.max_pg_connections,
+                "MIN_NON_PERSONS_READER_CONNECTIONS exceeds MAX_PG_CONNECTIONS, clamping to max"
+            );
+        }
+        if config.min_non_persons_writer_connections > config.max_pg_connections {
+            tracing::warn!(
+                configured = config.min_non_persons_writer_connections,
+                clamped_to = min_non_persons_writer_connections,
+                max_connections = config.max_pg_connections,
+                "MIN_NON_PERSONS_WRITER_CONNECTIONS exceeds MAX_PG_CONNECTIONS, clamping to max"
+            );
+        }
+        if config.min_persons_reader_connections > config.max_pg_connections {
+            tracing::warn!(
+                configured = config.min_persons_reader_connections,
+                clamped_to = min_persons_reader_connections,
+                max_connections = config.max_pg_connections,
+                "MIN_PERSONS_READER_CONNECTIONS exceeds MAX_PG_CONNECTIONS, clamping to max"
+            );
+        }
+        if config.min_persons_writer_connections > config.max_pg_connections {
+            tracing::warn!(
+                configured = config.min_persons_writer_connections,
+                clamped_to = min_persons_writer_connections,
+                max_connections = config.max_pg_connections,
+                "MIN_PERSONS_WRITER_CONNECTIONS exceeds MAX_PG_CONNECTIONS, clamping to max"
+            );
+        }
+
         // Create base pool config (used for both readers and writers)
         let base_pool_config = PoolConfig {
             min_connections: 0, // Will be overridden per pool
@@ -58,7 +107,7 @@ impl DatabasePools {
         // Non-persons reader pool config (may allow longer queries for analytics)
         let non_persons_reader_pool_config = Self::build_pool_config(
             &base_pool_config,
-            config.min_non_persons_reader_connections,
+            min_non_persons_reader_connections,
             config.non_persons_reader_statement_timeout_ms,
         );
         info!(
@@ -70,7 +119,7 @@ impl DatabasePools {
         // Persons reader pool config (may allow longer queries for analytics)
         let persons_reader_pool_config = Self::build_pool_config(
             &base_pool_config,
-            config.min_persons_reader_connections,
+            min_persons_reader_connections,
             config.persons_reader_statement_timeout_ms,
         );
         info!(
@@ -82,14 +131,14 @@ impl DatabasePools {
         // Non-persons writer pool config (should be fast transactional operations)
         let non_persons_writer_pool_config = Self::build_pool_config(
             &base_pool_config,
-            config.min_non_persons_writer_connections,
+            min_non_persons_writer_connections,
             config.writer_statement_timeout_ms,
         );
 
         // Persons writer pool config (should be fast transactional operations)
         let persons_writer_pool_config = Self::build_pool_config(
             &base_pool_config,
-            config.min_persons_writer_connections,
+            min_persons_writer_connections,
             config.writer_statement_timeout_ms,
         );
         info!(
@@ -157,13 +206,13 @@ impl DatabasePools {
             non_persons_writer.clone()
         };
 
-        // Log pool configuration at startup
+        // Log pool configuration at startup (using clamped min_connections values)
         info!(
             max_connections = config.max_pg_connections,
-            min_non_persons_reader_connections = config.min_non_persons_reader_connections,
-            min_non_persons_writer_connections = config.min_non_persons_writer_connections,
-            min_persons_reader_connections = config.min_persons_reader_connections,
-            min_persons_writer_connections = config.min_persons_writer_connections,
+            min_non_persons_reader_connections = min_non_persons_reader_connections,
+            min_non_persons_writer_connections = min_non_persons_writer_connections,
+            min_persons_reader_connections = min_persons_reader_connections,
+            min_persons_writer_connections = min_persons_writer_connections,
             acquire_timeout_secs = config.acquire_timeout_secs,
             idle_timeout_secs = config.idle_timeout_secs,
             test_before_acquire = config.test_before_acquire.0,
@@ -228,5 +277,51 @@ mod tests {
             config.get_persons_write_database_url(),
             "postgres://posthog:posthog@localhost:5432/posthog_persons"
         );
+    }
+
+    #[tokio::test]
+    async fn test_min_connections_clamped_to_max() {
+        // Create a config with min_connections > max_connections for all pools
+        let config = Config {
+            max_pg_connections: 5,
+            min_non_persons_reader_connections: 10,
+            min_non_persons_writer_connections: 15,
+            min_persons_reader_connections: 20,
+            min_persons_writer_connections: 25,
+            ..Config::default_test_config()
+        };
+
+        // Create pools - this should clamp all min_connections to max_connections
+        let pools = super::DatabasePools::from_config(&config).await.unwrap();
+
+        // Verify that the pools were created successfully (no panic/error)
+        // Pool size() returns the current number of connections, which starts at min_connections
+        // Since we clamped to max_pg_connections (5), all pools should have 5 connections
+        assert_eq!(pools.non_persons_reader.size(), 5);
+        assert_eq!(pools.non_persons_writer.size(), 5);
+        assert_eq!(pools.persons_reader.size(), 5);
+        assert_eq!(pools.persons_writer.size(), 5);
+    }
+
+    #[tokio::test]
+    async fn test_min_connections_within_max() {
+        // Create a config with min_connections < max_connections
+        let config = Config {
+            max_pg_connections: 10,
+            min_non_persons_reader_connections: 2,
+            min_non_persons_writer_connections: 3,
+            min_persons_reader_connections: 4,
+            min_persons_writer_connections: 5,
+            ..Config::default_test_config()
+        };
+
+        // Create pools - should work without warnings
+        let pools = super::DatabasePools::from_config(&config).await.unwrap();
+
+        // Pool size() returns the current number of connections, which starts at min_connections
+        assert_eq!(pools.non_persons_reader.size(), 2);
+        assert_eq!(pools.non_persons_writer.size(), 3);
+        assert_eq!(pools.persons_reader.size(), 4);
+        assert_eq!(pools.persons_writer.size(), 5);
     }
 }
