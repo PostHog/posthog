@@ -3,5 +3,4 @@
     "compilerOptions": {
         "composite": true
     }
-    // "include": ["src", "**/*.ts", "**/*.tsx"]
 }

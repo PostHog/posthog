@@ -152,7 +152,7 @@ export abstract class LogEntryLoader<T extends TimelineItem> extends QueryLoader
         const response = await api.queryHogQL(query)
         return response.results.map((row) =>
             this.buildItem({
-                timestamp: row[0],
+                timestamp: dayjs.utc(row[0]),
                 level: row[1],
                 message: row[2],
             })
