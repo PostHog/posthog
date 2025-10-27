@@ -3090,7 +3090,7 @@
                 },
                 "results": {
                     "items": {
-                        "$ref": "#/definitions/ErrorTrackingRelationalIssue"
+                        "$ref": "#/definitions/SimilarIssue"
                     },
                     "type": "array"
                 },
@@ -11402,7 +11402,7 @@
                 },
                 "results": {
                     "items": {
-                        "$ref": "#/definitions/ErrorTrackingRelationalIssue"
+                        "$ref": "#/definitions/SimilarIssue"
                     },
                     "type": "array"
                 },
@@ -19408,7 +19408,7 @@
                         },
                         "results": {
                             "items": {
-                                "$ref": "#/definitions/ErrorTrackingRelationalIssue"
+                                "$ref": "#/definitions/SimilarIssue"
                             },
                             "type": "array"
                         },
@@ -25073,6 +25073,31 @@
                     "type": "boolean"
                 }
             },
+            "type": "object"
+        },
+        "SimilarIssue": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "first_seen": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "library": {
+                    "type": ["string", "null"]
+                },
+                "name": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name", "description", "library", "status", "first_seen"],
             "type": "object"
         },
         "SimpleIntervalType": {

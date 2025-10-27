@@ -2,7 +2,7 @@ import { ReactNode } from 'node_modules/@types/react'
 
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 
-import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
+import { SimilarIssue } from '~/queries/schema/schema-general'
 
 import { RuntimeIcon } from './RuntimeIcon'
 
@@ -11,11 +11,11 @@ export default function SimilarIssueCard({
     onClick,
     actions,
 }: {
-    issue: ErrorTrackingRelationalIssue
+    issue: SimilarIssue
     onClick: (e: React.MouseEvent<HTMLDivElement>) => void
     actions: ReactNode
 }): JSX.Element {
-    const relatedRuntime = getRuntimeFromLib(undefined)
+    const relatedRuntime = getRuntimeFromLib(issue.library)
     return (
         <div className="flex items-center justify-between px-2 py-1 border rounded bg-surface-primary">
             <div className="flex flex-col gap-0.5 min-w-0 group flex-grow cursor-pointer" onClick={onClick}>

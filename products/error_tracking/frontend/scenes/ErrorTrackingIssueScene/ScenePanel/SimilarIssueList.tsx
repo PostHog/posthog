@@ -7,7 +7,7 @@ import { LemonModalContent, LemonModalHeader } from 'lib/lemon-ui/LemonModal/Lem
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
-import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
+import { SimilarIssue } from '~/queries/schema/schema-general'
 
 import { ExceptionCard } from '../../../components/ExceptionCard'
 import { issueActionsLogic } from '../../../components/IssueActions/issueActionsLogic'
@@ -19,7 +19,7 @@ export const SimilarIssueList = (): JSX.Element => {
     const { issue, similarIssues, similarIssuesLoading } = useValues(errorTrackingIssueSceneLogic)
     const { loadSimilarIssues } = useActions(errorTrackingIssueSceneLogic)
     const { mergeIssues } = useAsyncActions(issueActionsLogic)
-    const [selectedIssue, setSelectedIssue] = useState<ErrorTrackingRelationalIssue | null>(null)
+    const [selectedIssue, setSelectedIssue] = useState<SimilarIssue | null>(null)
 
     useEffect(() => {
         loadSimilarIssues()
@@ -38,15 +38,15 @@ export const SimilarIssueList = (): JSX.Element => {
                 <Spinner />
             ) : similarIssues.length > 0 ? (
                 <div className="flex flex-col gap-1">
-                    {similarIssues.map((relatedIssue: ErrorTrackingRelationalIssue) => {
+                    {similarIssues.map((similarIssue: SimilarIssue) => {
                         return (
                             <SimilarIssueCard
-                                issue={relatedIssue}
-                                onClick={() => setSelectedIssue(relatedIssue)}
+                                issue={similarIssue}
+                                onClick={() => setSelectedIssue(similarIssue)}
                                 actions={
                                     <ButtonPrimitive
                                         size="xxs"
-                                        onClick={() => handleMerge(relatedIssue.id)}
+                                        onClick={() => handleMerge(similarIssue.id)}
                                         className="shrink-0 px-2 py-3 h-full"
                                     >
                                         Merge

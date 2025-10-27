@@ -16,6 +16,7 @@ import {
     ErrorTrackingIssue,
     ErrorTrackingIssueAggregations,
     ErrorTrackingRelationalIssue,
+    SimilarIssue,
 } from '~/queries/schema/schema-general'
 import { ActivityScope, Breadcrumb, IntegrationType } from '~/types'
 
@@ -238,13 +239,13 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             },
         ],
         similarIssues: [
-            [] as ErrorTrackingRelationalIssue[],
+            [] as SimilarIssue[],
             {
                 loadSimilarIssues: async (refresh: boolean = false) => {
                     const query = errorTrackingSimilarIssuesQuery({
                         issueId: props.id,
                         limit: 10,
-                        maxDistance: 10,
+                        maxDistance: 0.2,
                     })
                     const response = await api.query(query, {
                         refresh: refresh ? 'force_blocking' : 'blocking',

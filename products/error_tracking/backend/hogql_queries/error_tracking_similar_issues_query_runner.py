@@ -1,4 +1,6 @@
-from django.db import models
+from datetime import datetime, timedelta
+
+from django.db.models.aggregates import Max
 
 import structlog
 
@@ -8,11 +10,14 @@ from posthog.schema import (
     ErrorTrackingQueryResponse,
     ErrorTrackingSimilarIssuesQuery,
     ErrorTrackingSimilarIssuesQueryResponse,
+    HogQLQueryResponse,
+    SimilarIssue,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
@@ -40,16 +45,19 @@ class ErrorTrackingSimilarIssuesQueryRunner(AnalyticsQueryRunner[ErrorTrackingQu
         ## Validate query
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        target_fingerprints = list(
+        matched_fingerprints = list(
             ErrorTrackingIssueFingerprintV2.objects.filter(
-                team=self.team, issue_id__in=[self.query.issueId]
-            ).values_list("fingerprint", flat=True)
+                team=self.team,
+                issue_id=self.query.issueId,
+            )
+            .annotate(mversion=Max("version"))
+            .values("fingerprint")
         )
-        logger.info(target_fingerprints)
+        target_fingerprints = [fingerprint["fingerprint"] for fingerprint in matched_fingerprints]
         return parse_select(
             self.query_template,
             placeholders={
-                "fingerprint": ast.Constant(value=target_fingerprints[0]),
+                "fingerprints": ast.Constant(value=target_fingerprints),
                 "model_name": ast.Constant(value=self.model_name),
                 "rendering": ast.Constant(value=self.rendering),
                 "max_distance": ast.Constant(value=self.max_distance),
@@ -66,26 +74,79 @@ class ErrorTrackingSimilarIssuesQueryRunner(AnalyticsQueryRunner[ErrorTrackingQu
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
             )
-
-        results = self.results(query_result.results)
-
+        similar_fingerprints = [row[0] for row in query_result.results]
+        similar_issues = self.fetch_issues(similar_fingerprints).data
+        first_event_data = self.fetch_first_event_data(similar_issues)
         return ErrorTrackingSimilarIssuesQueryResponse(
-            results=results.data,
+            results=[
+                SimilarIssue(
+                    id=issue.get("id"),
+                    name=issue.get("name"),
+                    description=issue.get("description"),
+                    first_seen=issue.get("first_seen"),
+                    status=issue.get("status"),
+                    library=first_event_data.get(issue.get("id"), None),
+                )
+                for issue in similar_issues
+            ],
             timings=query_result.timings,
             hogql=query_result.hogql,
             modifiers=self.modifiers,
             **self.paginator.response_params(),
         )
 
-    def results(self, rows: list[tuple[str, float]]) -> ErrorTrackingIssueSerializer:
-        similar_fingerprints = [row[0] for row in rows]
+    def fetch_issues(self, similar_fingerprints: list[str]) -> ErrorTrackingIssueSerializer:
         issue_queryset = (
-            ErrorTrackingIssue.objects.filter(team=self.team, fingerprints__fingerprint__in=similar_fingerprints)
-            .select_related("assignment")
-            .annotate(first_seen=models.Min("fingerprints__first_seen"))
+            ErrorTrackingIssue.objects.with_first_seen()
+            .filter(team=self.team, fingerprints__fingerprint__in=similar_fingerprints)
             .distinct()
         )
         return ErrorTrackingIssueSerializer(issue_queryset, many=True)
+
+    def fetch_first_event_data(self, similar_issues) -> dict[str, str]:
+        time_points: list[datetime] = [datetime.fromisoformat(issue.get("first_seen")) for issue in similar_issues]
+        time_window = timedelta(hours=1)
+        time_conditions: list[ast.Expr] = [
+            ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["timestamp"]),
+                        right=ast.Constant(value=time_point - time_window),
+                        op=ast.CompareOperationOp.GtEq,
+                    ),
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["timestamp"]),
+                        right=ast.Constant(value=time_point + time_window),
+                        op=ast.CompareOperationOp.LtEq,
+                    ),
+                ]
+            )
+            for time_point in time_points
+        ]
+        global_time_conditions = ast.Or(exprs=time_conditions)
+        query = ast.SelectQuery(
+            select=[
+                ast.Field(chain=["properties", "$exception_issue_id"]),
+                ast.Call(name="Min", args=[ast.Field(chain=["properties", "$lib"])]),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(
+                exprs=[
+                    global_time_conditions,
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value="$exception"),
+                        op=ast.CompareOperationOp.Eq,
+                    ),
+                ],
+            ),
+            group_by=[ast.Field(chain=["properties", "$exception_issue_id"])],
+        )
+        results: HogQLQueryResponse = execute_hogql_query(query, team=self.team)
+        result_dict = {}
+        for row in results.results:
+            result_dict[row[0]] = row[1]
+        return result_dict
 
     @property
     def query_template(self):
@@ -100,14 +161,18 @@ class ErrorTrackingSimilarIssuesQueryRunner(AnalyticsQueryRunner[ErrorTrackingQu
             WHERE document_type = 'fingerprint'
             AND rendering = {rendering}
             AND model_name = {model_name}
-            AND document_id = {fingerprint}
+            AND document_id IN {fingerprints}
             AND product = 'error_tracking'
         ) as a
-        JOIN document_embeddings as b
-        ON a.document_type = b.document_type
-        AND a.rendering = b.rendering
-        AND a.model_name = b.model_name
-        AND a.document_id != b.document_id
+        CROSS JOIN (
+            SELECT document_id, document_type, rendering, model_name, embedding
+            FROM document_embeddings
+            WHERE document_type = 'fingerprint'
+            AND rendering = {rendering}
+            AND model_name = {model_name}
+            AND document_id NOT IN {fingerprints}
+            AND product = 'error_tracking'
+        ) as b
         GROUP BY fingerprint
         HAVING distance <= {max_distance}
         ORDER BY distance ASC
@@ -123,4 +188,4 @@ class ErrorTrackingSimilarIssuesQueryRunner(AnalyticsQueryRunner[ErrorTrackingQu
 
     @property
     def max_distance(self):
-        return self.query.maxDistance or 100
+        return self.query.maxDistance or 0.1

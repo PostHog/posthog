@@ -2336,8 +2336,17 @@ export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase {
 }
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
 
+export type SimilarIssue = {
+    id: string
+    name: string
+    description: string
+    library: string | null
+    status: string
+    first_seen: string
+}
+
 export interface ErrorTrackingSimilarIssuesQueryResponse extends AnalyticsQueryResponseBase {
-    results: ErrorTrackingRelationalIssue[]
+    results: SimilarIssue[]
     hasMore?: boolean
     limit?: integer
     offset?: integer
