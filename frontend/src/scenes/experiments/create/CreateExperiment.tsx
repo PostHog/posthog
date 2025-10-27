@@ -104,23 +104,30 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
                     <LemonCollapse
                         activeKey={selectedPanel ?? undefined}
                         defaultActiveKey="experiment-exposure"
-                        onChange={(key) => {
-                            setSelectedPanel(key as string | null)
-                        }}
+                        onChange={setSelectedPanel}
                         className="bg-surface-primary"
                         panels={[
                             {
                                 key: 'experiment-exposure',
                                 header: <ExposureCriteriaPanelHeader experiment={experiment} />,
                                 content: (
-                                    <ExposureCriteriaPanel experiment={experiment} onChange={setExposureCriteria} />
+                                    <ExposureCriteriaPanel
+                                        experiment={experiment}
+                                        onChange={setExposureCriteria}
+                                        onNext={() => setSelectedPanel('experiment-variants')}
+                                    />
                                 ),
                             },
                             {
                                 key: 'experiment-variants',
                                 header: <VariantsPanelHeader experiment={experiment} />,
                                 content: (
-                                    <VariantsPanel experiment={experiment} updateFeatureFlag={setFeatureFlagConfig} />
+                                    <VariantsPanel
+                                        experiment={experiment}
+                                        updateFeatureFlag={setFeatureFlagConfig}
+                                        onPrevious={() => setSelectedPanel('experiment-exposure')}
+                                        onNext={() => setSelectedPanel('experiment-metrics')}
+                                    />
                                 ),
                             },
                             {
@@ -199,6 +206,7 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
                                                 [context.type]: [...sharedMetrics[context.type], ...metrics],
                                             })
                                         }}
+                                        onPrevious={() => setSelectedPanel('experiment-variants')}
                                     />
                                 ),
                             },

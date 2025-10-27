@@ -1,5 +1,17 @@
 # posthog-cli
 
+# 0.5.7
+
+- Fix bug where files point to the same sourcemap
+
+# 0.5.6
+
+- Adding experimental support for hermes sourcemaps
+
+# 0.5.5
+
+- When running inject command multiple times, we only update chunk ids when releases are different
+
 # 0.5.4
 
 - Added no fail flag to disable non-zero exit codes on errors.

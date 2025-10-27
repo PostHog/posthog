@@ -43,6 +43,7 @@ import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestam
 import { NotebookNodeSurvey } from '../Nodes/NotebookNodeSurvey'
 import { NotebookNodeTaskCreate } from '../Nodes/NotebookNodeTaskCreate'
 import { NotebookNodeUsageMetrics } from '../Nodes/NotebookNodeUsageMetrics'
+import { NotebookNodeZendeskTickets } from '../Nodes/NotebookNodeZendeskTickets'
 import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
 import { insertionSuggestionsLogic } from '../Suggestions/insertionSuggestionsLogic'
 import { NotebookEditor } from '../types'
@@ -139,6 +140,7 @@ export function Editor(): JSX.Element {
         NotebookNodeLLMTrace,
         NotebookNodeIssues,
         NotebookNodeUsageMetrics,
+        NotebookNodeZendeskTickets,
     ]
 
     if (hasCollapsibleSections) {

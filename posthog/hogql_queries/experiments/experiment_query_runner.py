@@ -58,6 +58,7 @@ logger = structlog.get_logger(__name__)
 
 
 MAX_EXECUTION_TIME = 600
+MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 37 * 1024 * 1024 * 1024  # 37 GB
 
 
 class ExperimentQueryRunner(QueryRunner):
@@ -126,9 +127,6 @@ class ExperimentQueryRunner(QueryRunner):
         """
         Determines whether to use the new CTE-based query builder.
         """
-        if not isinstance(self.metric, ExperimentFunnelMetric | ExperimentMeanMetric):
-            return False
-
         return self.use_new_query_builder is True
 
     def _get_metrics_aggregated_per_entity_query(
@@ -467,7 +465,7 @@ class ExperimentQueryRunner(QueryRunner):
         Returns the main experiment query.
         """
         if self._should_use_new_query_builder():
-            assert isinstance(self.metric, ExperimentFunnelMetric | ExperimentMeanMetric)
+            assert isinstance(self.metric, ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric)
 
             # Get the "missing" (not directly accessible) parameters required for the builder
             exposure_config, multiple_variant_handling, filter_test_accounts = get_exposure_config_params_for_builder(
@@ -560,7 +558,11 @@ class ExperimentQueryRunner(QueryRunner):
             team=self.team,
             timings=self.timings,
             modifiers=create_default_modifiers_for_team(self.team),
-            settings=HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_TIME, allow_experimental_analyzer=True),
+            settings=HogQLGlobalSettings(
+                max_execution_time=MAX_EXECUTION_TIME,
+                allow_experimental_analyzer=True,
+                max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
+            ),
         )
 
         # Remove the $multiple variant only when using exclude handling

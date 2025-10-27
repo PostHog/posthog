@@ -39,6 +39,18 @@ class SlackDeliveryResult:
 
 
 def _block_for_asset(asset: ExportedAsset) -> dict:
+    # If asset has an exception, return an error block instead of an image
+    if asset.exception:
+        insight_name = asset.insight.name or asset.insight.derived_name if asset.insight else "Unknown insight"
+        error_text = (
+            f"❌ *{insight_name}*\n"
+            f"There was an error generating your asset: {asset.exception}\n"
+            f"_If this issue persists, please contact support._"
+        )
+
+        return {"type": "section", "text": {"type": "mrkdwn", "text": error_text}}
+
+    # Normal image block for successful assets
     image_url = asset.get_public_content_url()
     alt_text = None
     if asset.insight:
@@ -179,7 +191,7 @@ def send_slack_message_with_integration(
             slack_integration.client.chat_postMessage(channel=message_data.channel, thread_ts=thread_ts, **thread_msg)
 
 
-async def _send_slack_message_with_retry(client, max_retries: int = 2, **kwargs):
+async def _send_slack_message_with_retry(client, max_retries: int = 3, **kwargs):
     for attempt in range(max_retries):
         try:
             return await client.chat_postMessage(**kwargs)
@@ -211,9 +223,10 @@ async def send_slack_message_with_integration_async(
 ) -> SlackDeliveryResult:
     message_data = _prepare_slack_message(subscription, assets, total_asset_count, is_new_subscription)
     slack_integration = SlackIntegration(integration)
+    async_client = slack_integration.async_client
 
     message_res = await _send_slack_message_with_retry(
-        slack_integration.async_client,
+        async_client,
         channel=message_data.channel,
         blocks=message_data.blocks,
         text=message_data.title,
@@ -226,7 +239,7 @@ async def send_slack_message_with_integration_async(
         for idx, thread_msg in enumerate(message_data.thread_messages):
             try:
                 await _send_slack_message_with_retry(
-                    slack_integration.async_client,
+                    async_client,
                     channel=message_data.channel,
                     thread_ts=thread_ts,
                     **thread_msg,

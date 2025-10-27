@@ -75,7 +75,8 @@ class MongoDBSource(BaseSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
             schemas = self.get_schemas(config, team_id)
             if len(schemas) == 0:
                 return False, "No collections found in database"
-        except OperationFailure:
+        except OperationFailure as e:
+            capture_exception(e)
             return False, "MongoDB authentication failed"
         except Exception as e:
             capture_exception(e)

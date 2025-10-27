@@ -801,7 +801,7 @@ jobs:
 
     # Job just to collate the status of the matrix jobs for requiring passing status
     django_tests:
-        needs: [django, check-migrations]
+        needs: [django, check-migrations, async-migrations]
         name: Django Tests Pass
         runs-on: ubuntu-latest
         if: always()
@@ -818,6 +818,12 @@ jobs:
                   # Check migration validation - must pass for Django Tests to be green
                   if [[ "${{ needs.check-migrations.result }}" != "success" && "${{ needs.check-migrations.result }}" != "skipped" ]]; then
                     echo "Migration checks failed."
+                    exit 1
+                  fi
+
+                  # Check async migrations - must pass for Django Tests to be green
+                  if [[ "${{ needs.async-migrations.result }}" != "success" && "${{ needs.async-migrations.result }}" != "skipped" ]]; then
+                    echo "Async migrations tests failed."
                     exit 1
                   fi
 
