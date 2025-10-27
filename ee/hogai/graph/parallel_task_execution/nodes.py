@@ -100,7 +100,7 @@ class BaseTaskExecutorNode(BaseAssistantNode[StateT, PartialStateT], Generic[Sta
         # Cast to PartialStateT since we know subclasses will use compatible types
         return cast(
             PartialStateT,
-            BaseStateWithTaskResults(
+            BaseStateWithTasks(
                 task_results=task_results,
             ),
         )
