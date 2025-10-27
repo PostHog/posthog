@@ -116,7 +116,7 @@ jobs:
                   pnpm install -w -D chromatic
 
             - name: Publish to Chromatic
-              uses: chromaui/action@d7afd50124cf4f337bcd943e7f45cfa85a5e4476 # v12
+              uses: chromaui/action@bc2d84ad2b60813a67d995c5582d696104a19383 # v12
               id: publish
               env:
                   # 👇 Chromatic project token, refer to the manage page to obtain it
