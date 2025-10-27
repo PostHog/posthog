@@ -61,17 +61,16 @@ describe('EvaluationManagerService', () => {
     it('returns evaluations for a team', async () => {
         const items = await manager.getEvaluationsForTeam(teamId1)
 
-        expect(items).toHaveLength(2)
+        expect(items).toHaveLength(1)
         expect(items[0].id).toEqual(evaluations[0].id)
         expect(items[0].team_id).toEqual(teamId1)
         expect(items[0].name).toEqual('Test Evaluation team 1')
-        expect(items[1].id).toEqual(evaluations[1].id)
     })
 
     it('returns evaluations for multiple teams in batch', async () => {
         const result = await manager.getEvaluationsForTeams([teamId1, teamId2])
 
-        expect(result[teamId1]).toHaveLength(2)
+        expect(result[teamId1]).toHaveLength(1)
         expect(result[teamId2]).toHaveLength(1)
         expect(result[teamId1][0].id).toEqual(evaluations[0].id)
         expect(result[teamId2][0].id).toEqual(evaluations[2].id)
@@ -87,10 +86,8 @@ describe('EvaluationManagerService', () => {
     it('filters out disabled evaluations', async () => {
         const items = await manager.getEvaluationsForTeam(teamId1)
 
-        expect(items).toHaveLength(2)
-        const enabledItems = items.filter((item) => item.enabled)
-        expect(enabledItems).toHaveLength(1)
-        expect(enabledItems[0].id).toEqual(evaluations[0].id)
+        expect(items).toHaveLength(1)
+        expect(items[0].id).toEqual(evaluations[0].id)
     })
 
     it('filters out deleted evaluations', async () => {
@@ -107,14 +104,13 @@ describe('EvaluationManagerService', () => {
 
         const items = await manager.getEvaluationsForTeam(teamId1)
 
-        expect(items).toHaveLength(1)
-        expect(items[0].id).toEqual(evaluations[1].id)
+        expect(items).toHaveLength(0)
     })
 
     it('caches evaluations and uses cache on subsequent calls', async () => {
         // First call
         const items1 = await manager.getEvaluationsForTeam(teamId1)
-        expect(items1).toHaveLength(2)
+        expect(items1).toHaveLength(1)
 
         // Update the database without triggering reload
         await hub.db.postgres.query(
@@ -126,13 +122,13 @@ describe('EvaluationManagerService', () => {
 
         // Second call should still return cached data
         const items2 = await manager.getEvaluationsForTeam(teamId1)
-        expect(items2).toHaveLength(2)
+        expect(items2).toHaveLength(1)
         expect(items2[0].name).toEqual('Test Evaluation team 1') // Not updated yet
     })
 
     it('reloads evaluations when pubsub message received', async () => {
-        let items = await manager.getEvaluationsForTeam(teamId1)
-        expect(items).toHaveLength(2)
+        const itemsBefore = await manager.getEvaluationsForTeam(teamId1)
+        expect(itemsBefore).toHaveLength(1)
 
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
@@ -141,47 +137,40 @@ describe('EvaluationManagerService', () => {
             'testKey'
         )
 
-        // This is normally dispatched by django
         manager['onEvaluationsReloaded'](teamId1, [evaluations[0].id])
 
-        items = await manager.getEvaluationsForTeam(teamId1)
+        const itemsAfter = await manager.getEvaluationsForTeam(teamId1)
 
-        expect(items).toMatchObject([
+        expect(itemsAfter).toMatchObject([
             {
                 id: evaluations[0].id,
                 name: 'Updated Evaluation',
             },
-            {
-                id: evaluations[1].id,
-            },
         ])
     })
 
-    it('updates cache when evaluation is modified', async () => {
-        let items = await manager.getEvaluationsForTeam(teamId1)
-        expect(items[0].name).toEqual('Test Evaluation team 1')
+    it('filters out evaluation when disabled via reload', async () => {
+        const itemsBefore = await manager.getEvaluationsForTeam(teamId1)
+        expect(itemsBefore).toHaveLength(1)
 
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE llm_analytics_evaluation SET name='Modified Name', enabled=false, updated_at = NOW() WHERE id = $1`,
+            `UPDATE llm_analytics_evaluation SET enabled=false, updated_at = NOW() WHERE id = $1`,
             [evaluations[0].id],
             'testKey'
         )
 
-        // This is normally dispatched by django
         manager['onEvaluationsReloaded'](teamId1, [evaluations[0].id])
 
-        items = await manager.getEvaluationsForTeam(teamId1)
-
-        expect(items[0].name).toEqual('Modified Name')
-        expect(items[0].enabled).toEqual(false)
+        const itemsAfter = await manager.getEvaluationsForTeam(teamId1)
+        expect(itemsAfter).toHaveLength(0)
     })
 
     it('handles non-existent team IDs gracefully in batch fetch', async () => {
         const nonExistentTeamId = teamId2 + 100
         const result = await manager.getEvaluationsForTeams([teamId1, nonExistentTeamId, teamId2])
 
-        expect(result[teamId1]).toHaveLength(2)
+        expect(result[teamId1]).toHaveLength(1)
         expect(result[nonExistentTeamId]).toEqual([])
         expect(result[teamId2]).toHaveLength(1)
     })
@@ -203,7 +192,7 @@ describe('EvaluationManagerService', () => {
 
         const items = await manager.getEvaluationsForTeam(teamId1)
 
-        expect(items).toHaveLength(3)
+        expect(items).toHaveLength(2)
         const evalWithError = items.find((item) => item.name === 'Evaluation with bytecode error')
         expect(evalWithError).toBeDefined()
         expect(evalWithError!.conditions[0].bytecode_error).toEqual('Failed to compile')
