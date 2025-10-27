@@ -267,7 +267,7 @@ export function CodeEditor({
             }
         })
 
-        observer.observe(document, { childList: true, subtree: true })
+        observer.observe(document.body, { childList: true, subtree: true })
 
         // Clean up observers
         monacoDisposables.current.push({
