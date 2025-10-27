@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
 from django.conf import settings
-from django.contrib.auth import update_session_auth_hash
+from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse
@@ -45,6 +45,7 @@ from posthog.api.utils import (
     unparsed_hostname_in_allowed_url_list,
 )
 from posthog.auth import (
+    OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
     TemporaryTokenAuthentication,
@@ -52,7 +53,13 @@ from posthog.auth import (
 )
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.email import is_email_available
-from posthog.event_usage import report_user_deleted_account, report_user_updated, report_user_verified_email
+from posthog.event_usage import (
+    report_user_deleted_account,
+    report_user_logged_in,
+    report_user_updated,
+    report_user_verified_email,
+)
+from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
 from posthog.middleware import get_impersonated_session_expires_at
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
@@ -405,7 +412,7 @@ class UserViewSet(
     scope_object = "user"
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [
         IsAuthenticated,
         APIScopePermission,
@@ -487,6 +494,8 @@ class UserViewSet(
         user.save()
         report_user_verified_email(user)
 
+        login(self.request, user, backend="django.contrib.auth.backends.ModelBackend")
+        report_user_logged_in(user)
         return Response({"success": True, "token": token})
 
     @action(
@@ -543,7 +552,12 @@ class UserViewSet(
         methods=["GET", "PATCH"],
         detail=True,
         throttle_classes=[],
-        authentication_classes=[TemporaryTokenAuthentication, SessionAuthentication, PersonalAPIKeyAuthentication],
+        authentication_classes=[
+            TemporaryTokenAuthentication,
+            SessionAuthentication,
+            PersonalAPIKeyAuthentication,
+            OAuthAccessTokenAuthentication,
+        ],
     )
     def hedgehog_config(self, request, **kwargs):
         instance = self.get_object()
@@ -562,10 +576,15 @@ class UserViewSet(
     @action(methods=["GET"], detail=True)
     def two_factor_start_setup(self, request, **kwargs):
         key = random_hex(20)
-        self.request.session["django_two_factor-hex"] = key
         rawkey = unhexlify(key.encode("ascii"))
         b32key = b32encode(rawkey).decode("utf-8")
-        self.request.session["django_two_factor-qr_secret_key"] = b32key
+
+        # Concurrent requests can overwrite session saves, breaking the 2FA setup flow, but cache is atomic
+        session_cache = SessionCache(request.session)
+
+        # Store for 10 minutes (same as django-two-factor-auth setup flow)
+        session_cache.set("django_two_factor-hex", key, timeout=600, store_in_session=True)
+        session_cache.set("django_two_factor-qr_secret_key", b32key, timeout=600, store_in_session=True)
 
         # Return the secret key so the frontend can generate QR code and show it for manual entry
         return Response(
@@ -582,8 +601,16 @@ class UserViewSet(
 
     @action(methods=["POST"], detail=True)
     def two_factor_validate(self, request, **kwargs):
+        session_cache = SessionCache(request.session)
+        hex_key = session_cache.get("django_two_factor-hex")
+
+        if not hex_key:
+            raise serializers.ValidationError(
+                "2FA setup session expired. Please start setup again.", code="setup_expired"
+            )
+
         form = TOTPDeviceForm(
-            request.session["django_two_factor-hex"],
+            hex_key,
             request.user,
             data={"token": request.data["token"]},
         )
@@ -594,6 +621,9 @@ class UserViewSet(
         set_two_factor_verified_in_session(request)
 
         send_two_factor_auth_enabled_email.delay(request.user.id)
+
+        session_cache.delete("django_two_factor-hex")
+        session_cache.delete("django_two_factor-qr_secret_key")
 
         return Response({"success": True})
 

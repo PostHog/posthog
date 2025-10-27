@@ -2184,7 +2184,7 @@ class TestPrinter(BaseTest):
 
     def test_lookup_domain_type(self):
         printed = self._print(
-            "select hogql_lookupDomainType('www.google.com') as domain from events",
+            "select lookupDomainType('www.google.com') as domain from events",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert (
@@ -2200,7 +2200,7 @@ class TestPrinter(BaseTest):
 
     def test_lookup_paid_source_type(self):
         printed = self._print(
-            "select hogql_lookupPaidSourceType('google') as source from events",
+            "select lookupPaidSourceType('google') as source from events",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert (
@@ -2216,7 +2216,7 @@ class TestPrinter(BaseTest):
 
     def test_lookup_paid_medium_type(self):
         printed = self._print(
-            "select hogql_lookupPaidMediumType('social') as medium from events",
+            "select lookupPaidMediumType('social') as medium from events",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert (
@@ -2228,7 +2228,7 @@ class TestPrinter(BaseTest):
 
     def test_lookup_organic_source_type(self):
         printed = self._print(
-            "select hogql_lookupOrganicSourceType('google') as source  from events",
+            "select lookupOrganicSourceType('google') as source  from events",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert (
@@ -2244,7 +2244,7 @@ class TestPrinter(BaseTest):
 
     def test_lookup_organic_medium_type(self):
         printed = self._print(
-            "select hogql_lookupOrganicMediumType('social') as medium from events",
+            "select lookupOrganicMediumType('social') as medium from events",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert (

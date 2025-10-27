@@ -52,6 +52,12 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
 
     is_active = models.BooleanField(default=True, help_text="Whether this endpoint is available via the API")
 
+    cache_age_seconds = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Custom cache age in seconds. If not set, uses default caching. Must be between 300 and 86400 seconds.",
+    )
+
     created_by = models.ForeignKey(User, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

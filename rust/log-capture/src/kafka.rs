@@ -188,7 +188,7 @@ impl KafkaSink {
         self.producer.flush(Duration::new(30, 0))
     }
 
-    pub async fn write(&self, team_id: i32, rows: Vec<KafkaLogRow>) -> Result<(), anyhow::Error> {
+    pub async fn write(&self, token: &str, rows: Vec<KafkaLogRow>) -> Result<(), anyhow::Error> {
         let schema = Schema::parse_str(AVRO_SCHEMA)?;
         let mut writer = Writer::with_codec(
             &schema,
@@ -208,17 +208,10 @@ impl KafkaSink {
             partition: None,
             key: None::<Vec<u8>>.as_ref(),
             timestamp: None,
-            headers: Some(
-                OwnedHeaders::new()
-                    .insert(Header {
-                        key: "team_id",
-                        value: Some(&format!("{team_id}")),
-                    })
-                    .insert(Header {
-                        key: "schema.id",
-                        value: Some(&format!("{}", 1)),
-                    }),
-            ),
+            headers: Some(OwnedHeaders::new().insert(Header {
+                key: "token",
+                value: Some(&token.to_string()),
+            })),
         }) {
             Err((err, _)) => Err(anyhow!(format!("kafka error: {}", err))),
             Ok(delivery_future) => Ok(delivery_future),
