@@ -1,6 +1,7 @@
 import os
 import re
 import importlib
+import subprocess
 from datetime import datetime
 from typing import TypedDict
 
@@ -49,6 +50,7 @@ class {pascal}Source(BaseSource[Config]):
             caption=None,  # only needed if you want to inline docs
             docsUrl=None,  # TODO({git_user}): link to the docs in the website, full path including https://
             fields=cast(list[FieldType], []), # TODO({git_user}): add source config fields here
+            unreleasedSource=True,
         )
 
     def validate_credentials(self, config: Config, team_id: int) -> tuple[bool, str | None]:
@@ -143,6 +145,7 @@ class Command(BaseCommand):
         self._add_warehouse_types_enum(repo, transforms=name_transforms)
         self._add_schema_py_enum(repo, transforms=name_transforms)
         self._add_schema_general_ts_list_item(repo, transforms=name_transforms)
+        self._update_sources_init(repo, transforms=name_transforms)
 
         if self._has_pending_migrations(repo):
             self.stdout.write(
@@ -152,6 +155,11 @@ class Command(BaseCommand):
             )
         else:
             self._migrate(repo)
+
+        self._generate_source_configs(transforms=name_transforms)
+        self._update_config_references(repo, transforms=name_transforms)
+        self._schema_build(transforms=name_transforms)
+        self._format_files()
 
     def _setup_source_structure(self, repo: Repo, transforms: NameTransforms):
         sources_root = os.path.join(repo.working_dir, "posthog", "temporal", "data_imports", "sources")
@@ -224,12 +232,18 @@ class Command(BaseCommand):
         return line
 
     def _has_pending_migrations(self, repo: Repo):
-        unstaged_changes = [item.a_path for item in repo.index.diff(None)]
-        unstaged_changes += [item.b_path for item in repo.index.diff(None)]
-        staged_changes = [item.a_path for item in repo.index.diff("HEAD")]
-        staged_changes = [item.b_path for item in repo.index.diff("HEAD")]
+        unstaged_changes = [item.a_path for item in repo.index.diff(None) if item.a_path]
+        unstaged_changes += [item.b_path for item in repo.index.diff(None) if item.b_path]
+        staged_changes = [item.a_path for item in repo.index.diff("HEAD") if item.a_path]
+        staged_changes = [item.b_path for item in repo.index.diff("HEAD") if item.b_path]
         migration_file = "max_migration.txt"
-        return migration_file in unstaged_changes or migration_file in staged_changes
+        for file_path in unstaged_changes:
+            if migration_file in file_path:
+                return True
+        for file_path in staged_changes:
+            if migration_file in file_path:
+                return True
+        return False
 
     def _add_warehouse_types_enum(self, repo: Repo, transforms: NameTransforms):
         file = os.path.join(repo.working_dir, "posthog", "warehouse", "types.py")
@@ -279,6 +293,27 @@ class Command(BaseCommand):
             f.write("".join([pre, line, post]))
         self.stdout.write(self.style.SUCCESS(f"Added source entry to {file}..."))
 
+    def _update_sources_init(self, repo: Repo, transforms: NameTransforms):
+        file = os.path.join(repo.working_dir, "posthog", "temporal", "data_imports", "sources", "__init__.py")
+        assert os.path.exists(file), f"File not found {file}"
+
+        line = f"from .{transforms['snake']}.source import {transforms['pascal']}Source\n"
+        with open(file) as f:
+            content = f.read()
+        with open(file, "w") as f:
+            f.write(line + content)
+
+        val = f"{transforms['pascal']}Source"
+        regex = r"(^__all__ = \[\n)"
+        pre, post = self._split_file_by_regex(file, regex)
+        if self._entry_exists_in_contiguous_text_block(entry=val, block=post):
+            self.stdout.write(self.style.WARNING(f"Source entry already exists in {file}. Skipping..."))
+            return
+        line = self._format_file_line(f'"{val}",')
+        with open(file, "w") as f:
+            f.write("".join([pre, line, post]))
+        self.stdout.write(self.style.SUCCESS(f"Added source entry to {file}..."))
+
     def _migrate(self, repo: Repo):
         importlib.reload(types)  # reload types to include our modifications
 
@@ -298,3 +333,47 @@ class Command(BaseCommand):
 
         with open(os.path.join(migrations_dir, "max_migration.txt"), "w") as f:
             f.write(migration_name.removesuffix(".py"))
+
+    def _generate_source_configs(self, transforms: NameTransforms):
+        try:
+            subprocess.run(["pnpm", "run", "generate:source-configs"], check=True)
+            self.stdout.write(self.style.SUCCESS(f"Generated source config for {transforms['pascal']}..."))
+        except subprocess.CalledProcessError as e:
+            self.stdout.write(self.style.ERROR(f"Failed to generate source configs with error: {e}"))
+
+    def _update_config_references(self, repo: Repo, transforms: NameTransforms):
+        file = os.path.join(
+            repo.working_dir, "posthog", "temporal", "data_imports", "sources", transforms["snake"], "source.py"
+        )
+        assert os.path.exists(file), f"File {file} not found..."
+
+        with open(file) as f:
+            content = f.read()
+
+        pascal = transforms["pascal"]
+        content = content.replace(
+            "from posthog.temporal.data_imports.sources.common.config import Config",
+            f"from posthog.temporal.data_imports.sources.generated_configs import {pascal}SourceConfig",
+        )
+        new_config = f"{pascal}SourceConfig"
+        regex = r"(?<!Source)Config"
+        content = re.sub(regex, new_config, content)
+
+        with open(file, "w") as f:
+            f.write(content)
+
+        self.stdout.write(self.style.SUCCESS(f"Updated config references in {file}"))
+
+    def _schema_build(self, transforms: NameTransforms):
+        try:
+            subprocess.run(["pnpm", "run", "schema:build"], check=True)
+            self.stdout.write(self.style.SUCCESS(f"Built schema for {transforms['pascal']}..."))
+        except subprocess.CalledProcessError as e:
+            self.stdout.write(self.style.ERROR(f"Failed to build schema with error: {e}"))
+
+    def _format_files(self):
+        try:
+            subprocess.run(["ruff", "format"], check=True)
+            self.stdout.write(self.style.SUCCESS("Formatted files. Done."))
+        except subprocess.CalledProcessError as e:
+            self.stdout.write(self.style.ERROR(f"Failed to format files with error: {e}"))
