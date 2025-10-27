@@ -146,7 +146,8 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                     HAVING status = 'entered'
                 ) cmc ON bcm.team_id = cmc.team_id AND bcm.person_id = cmc.person_id
                 WHERE status != 'unchanged'
-                SETTINGS join_use_nulls = 1;
+                SETTINGS join_use_nulls = 1
+                FORMAT JSONEachRow
             """
 
             try:
@@ -158,7 +159,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                 ):
                     async with get_client(team_id=action.team_id) as client:
                         async for row in client.stream_query_as_jsonl(
-                            query + " FORMAT JSONEachRow",
+                            query,
                             query_parameters={
                                 "team_id": action.team_id,
                                 "action_id": action.id,
