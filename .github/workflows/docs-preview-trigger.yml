@@ -63,11 +63,15 @@ jobs:
 
                   if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 201 ]; then
                     DEPLOYMENT_URL=$(echo "$BODY" | jq -r '.url // empty')
+                    DEPLOYMENT_ID=$(echo "$BODY" | jq -r '.id // empty')
                     echo "✅ Successfully triggered Vercel preview build"
                     echo "trigger_status=success" >> $GITHUB_OUTPUT
                     if [ -n "$DEPLOYMENT_URL" ]; then
                       echo "   Preview URL: https://${DEPLOYMENT_URL}"
                       echo "deployment_url=https://${DEPLOYMENT_URL}" >> $GITHUB_OUTPUT
+                    fi
+                    if [ -n "$DEPLOYMENT_ID" ]; then
+                      echo "deployment_id=${DEPLOYMENT_ID}" >> $GITHUB_OUTPUT
                     fi
                   else
                     echo "❌ Failed to trigger preview build (HTTP $HTTP_CODE)"
@@ -83,6 +87,7 @@ jobs:
                       const prNumber = ${{ github.event.pull_request.number }};
                       const triggerStatus = "${{ steps.trigger-build.outputs.trigger_status }}";
                       const deploymentUrl = "${{ steps.trigger-build.outputs.deployment_url }}";
+                      const deploymentId = "${{ steps.trigger-build.outputs.deployment_id }}";
                       const commentHash = `[docs-preview]: #docs-preview-${prNumber}`;
 
                       // Delete old preview comments by finding our hash
@@ -118,12 +123,12 @@ jobs:
 
                       if (triggerStatus === 'success') {
                         const previewUrl = deploymentUrl || 'https://posthog.com';
-                        const inspectorUrl = deploymentUrl ? deploymentUrl.replace('https://', 'https://vercel.com/post-hog/posthog-com/') : '';
+                        const inspectorUrl = deploymentId ? `https://vercel.com/post-hog/posthog/${deploymentId}` : 'https://vercel.com/post-hog/posthog';
 
                         message = `${commentHash}\nDocs from this PR will be published at posthog.com\n\n` +
                                   `| Project | Deployment | Preview | Updated (UTC) |\n` +
                                   `| :--- | :----- | :------ | :------ |\n` +
-                                  `| [posthog.com](https://vercel.com/post-hog/posthog-com) | 🤷 Unknown | [Preview](${previewUrl}) | ${timestamp} |\n\n` +
+                                  `| [posthog.com](${inspectorUrl}) | 🤷 Unknown | [Preview](${previewUrl}) | ${timestamp} |\n\n` +
                                   `*Preview will be ready in ~10 minutes. Click Preview link above to access docs at \`/handbook/engineering/\`*`;
                       } else {
                         message = `${commentHash}\n⚠️ **Docs Preview Build Failed**\n\n` +
