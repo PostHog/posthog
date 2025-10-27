@@ -246,11 +246,23 @@ jobs:
               run: |
                   echo "Starting ESBuild at: $(date '+%Y-%m-%d %H:%M:%S')"
                   start_time=$(date +%s)
-                  pnpm --filter=@posthog/frontend build
-                  end_time=$(date +%s)
-                  build_duration=$((end_time - start_time))
-                  echo "ESBuild completed in: ${build_duration} seconds"
-                  echo "ESBUILD_DURATION=${build_duration}" >> $GITHUB_ENV
+
+                  # Run ESBuild with error handling
+                  if pnpm --filter=@posthog/frontend build; then
+                      end_time=$(date +%s)
+                      build_duration=$((end_time - start_time))
+                      echo "ESBuild completed successfully in: ${build_duration} seconds"
+                      echo "ESBUILD_DURATION=${build_duration}" >> $GITHUB_ENV
+                      echo "ESBUILD_SUCCESS=true" >> $GITHUB_ENV
+                  else
+                      end_time=$(date +%s)
+                      build_duration=$((end_time - start_time))
+                      echo "ESBuild failed after: ${build_duration} seconds"
+                      echo "ESBUILD_DURATION=${build_duration}" >> $GITHUB_ENV
+                      echo "ESBUILD_SUCCESS=false" >> $GITHUB_ENV
+                      echo "❌ ESBuild baseline build failed - this indicates a serious issue"
+                      exit 1
+                  fi
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
 
@@ -281,25 +293,58 @@ jobs:
               run: |
                   echo "Starting Vite build at: $(date '+%Y-%m-%d %H:%M:%S')"
                   start_time=$(date +%s)
-                  NODE_OPTIONS="--max-old-space-size=16384" POSTHOG_USE_VITE_PROD=1 pnpm --filter=@posthog/frontend build
-                  end_time=$(date +%s)
-                  build_duration=$((end_time - start_time))
-                  echo "Vite build completed in: ${build_duration} seconds"
-                  echo "VITE_DURATION=${build_duration}" >> $GITHUB_ENV
+
+                  # Run Vite build with error handling
+                  if NODE_OPTIONS="--max-old-space-size=16384" POSTHOG_USE_VITE_PROD=1 pnpm --filter=@posthog/frontend build; then
+                      end_time=$(date +%s)
+                      build_duration=$((end_time - start_time))
+                      echo "Vite build completed successfully in: ${build_duration} seconds"
+                      echo "VITE_DURATION=${build_duration}" >> $GITHUB_ENV
+                      echo "VITE_SUCCESS=true" >> $GITHUB_ENV
+                  else
+                      end_time=$(date +%s)
+                      build_duration=$((end_time - start_time))
+                      echo "Vite build failed after: ${build_duration} seconds"
+                      echo "VITE_DURATION=${build_duration}" >> $GITHUB_ENV
+                      echo "VITE_SUCCESS=false" >> $GITHUB_ENV
+                      
+                      # Create failure report
+                      echo "# ❌ Vite Build Failure Report" > build-comparison/vite-failure-report.md
+                      echo "" >> build-comparison/vite-failure-report.md
+                      echo "**Build failed at:** $(date)" >> build-comparison/vite-failure-report.md
+                      echo "**Duration:** ${build_duration} seconds" >> build-comparison/vite-failure-report.md
+                      echo "**Commit:** \`${{ github.sha }}\`" >> build-comparison/vite-failure-report.md
+                      echo "" >> build-comparison/vite-failure-report.md
+                      echo "## Troubleshooting Steps" >> build-comparison/vite-failure-report.md
+                      echo "1. Check Vite configuration in \`frontend/vite.config.ts\`" >> build-comparison/vite-failure-report.md
+                      echo "2. Verify all Vite plugins are working correctly" >> build-comparison/vite-failure-report.md
+                      echo "3. Check for Node.js polyfill issues" >> build-comparison/vite-failure-report.md
+                      echo "4. Review build logs above for specific error messages" >> build-comparison/vite-failure-report.md
+                      
+                      # Still continue to comparison but mark as failed
+                      echo "⚠️ Vite build failed - creating partial comparison report"
+                  fi
 
             - name: Collect Vite bundle stats
               run: |
                   echo "=== Vite Bundle Analysis ===" > vite-stats.txt
                   echo "Build completed at: $(date)" >> vite-stats.txt
                   echo "Build duration: ${VITE_DURATION} seconds" >> vite-stats.txt
+                  echo "Build status: ${VITE_SUCCESS}" >> vite-stats.txt
                   echo "" >> vite-stats.txt
-                  ls -la frontend/dist/ >> vite-stats.txt
-                  echo "" >> vite-stats.txt
-                  echo "File sizes:" >> vite-stats.txt
-                  du -h frontend/dist/*.js frontend/dist/*.css 2>/dev/null >> vite-stats.txt || true
-                  echo "" >> vite-stats.txt
-                  echo "Total dist size:" >> vite-stats.txt
-                  du -sh frontend/dist/ >> vite-stats.txt
+
+                  if [ "${VITE_SUCCESS}" = "true" ]; then
+                      ls -la frontend/dist/ >> vite-stats.txt
+                      echo "" >> vite-stats.txt
+                      echo "File sizes:" >> vite-stats.txt
+                      du -h frontend/dist/*.js frontend/dist/*.css 2>/dev/null >> vite-stats.txt || true
+                      echo "" >> vite-stats.txt
+                      echo "Total dist size:" >> vite-stats.txt
+                      du -sh frontend/dist/ >> vite-stats.txt
+                  else
+                      echo "Build failed - no artifacts to analyze" >> vite-stats.txt
+                      echo "Check build logs for error details" >> vite-stats.txt
+                  fi
 
             - name: Save Vite artifacts
               run: |
@@ -309,36 +354,76 @@ jobs:
 
             - name: Generate bundle comparison report
               run: |
-                  echo "# 📦 Vite vs ESBuild Build Comparison" > build-comparison/comparison-report.md
+                  # Determine overall status
+                  if [ "${VITE_SUCCESS}" = "true" ] && [ "${ESBUILD_SUCCESS}" = "true" ]; then
+                      status_emoji="✅"
+                      overall_status="Success"
+                  elif [ "${VITE_SUCCESS}" = "false" ]; then
+                      status_emoji="❌"
+                      overall_status="Vite Build Failed"
+                  elif [ "${ESBUILD_SUCCESS}" = "false" ]; then
+                      status_emoji="❌"
+                      overall_status="ESBuild Build Failed"
+                  else
+                      status_emoji="⚠️"
+                      overall_status="Unknown"
+                  fi
+
+                  echo "# ${status_emoji} Vite vs ESBuild Build Comparison" > build-comparison/comparison-report.md
                   echo "" >> build-comparison/comparison-report.md
-                  echo "Generated on: $(date)" >> build-comparison/comparison-report.md
-                  echo "Commit: \`${{ github.sha }}\`" >> build-comparison/comparison-report.md
+                  echo "**Status:** ${overall_status}" >> build-comparison/comparison-report.md
+                  echo "**Generated on:** $(date)" >> build-comparison/comparison-report.md
+                  echo "**Commit:** \`${{ github.sha }}\`" >> build-comparison/comparison-report.md
                   echo "" >> build-comparison/comparison-report.md
 
                   # Performance Summary
                   echo "## ⚡ Performance Summary" >> build-comparison/comparison-report.md
                   echo "" >> build-comparison/comparison-report.md
-                  echo "| Metric | ESBuild | Vite | Difference |" >> build-comparison/comparison-report.md
-                  echo "|--------|---------|------|------------|" >> build-comparison/comparison-report.md
 
-                  # Calculate performance difference
-                  if [ -n "${ESBUILD_DURATION}" ] && [ -n "${VITE_DURATION}" ]; then
-                      diff=$((VITE_DURATION - ESBUILD_DURATION))
-                      if [ $diff -gt 0 ]; then
-                          diff_text="+${diff}s slower"
-                      elif [ $diff -lt 0 ]; then
-                          diff_text="${diff}s faster"
-                      else
-                          diff_text="Same"
+                  if [ "${VITE_SUCCESS}" = "false" ] || [ "${ESBUILD_SUCCESS}" = "false" ]; then
+                      echo "⚠️ **Build failure detected - performance comparison not available**" >> build-comparison/comparison-report.md
+                      echo "" >> build-comparison/comparison-report.md
+                      if [ "${VITE_SUCCESS}" = "false" ]; then
+                          echo "- Vite build failed after ${VITE_DURATION}s" >> build-comparison/comparison-report.md
                       fi
-                      echo "| Build Time | ${ESBUILD_DURATION}s | ${VITE_DURATION}s | ${diff_text} |" >> build-comparison/comparison-report.md
+                      if [ "${ESBUILD_SUCCESS}" = "false" ]; then
+                          echo "- ESBuild build failed after ${ESBUILD_DURATION}s" >> build-comparison/comparison-report.md
+                      fi
+                      echo "" >> build-comparison/comparison-report.md
+                  else
+                      echo "| Metric | ESBuild | Vite | Difference | Status |" >> build-comparison/comparison-report.md
+                      echo "|--------|---------|------|------------|--------|" >> build-comparison/comparison-report.md
+                      
+                      # Calculate performance difference with regression detection
+                      if [ -n "${ESBUILD_DURATION}" ] && [ -n "${VITE_DURATION}" ]; then
+                          diff=$((VITE_DURATION - ESBUILD_DURATION))
+                          if [ $diff -gt 60 ]; then
+                              diff_text="+${diff}s slower"
+                              perf_status="🔴 Regression"
+                          elif [ $diff -gt 30 ]; then
+                              diff_text="+${diff}s slower"
+                              perf_status="🟡 Slower"
+                          elif [ $diff -gt 0 ]; then
+                              diff_text="+${diff}s slower"
+                              perf_status="🟢 Acceptable"
+                          elif [ $diff -lt 0 ]; then
+                              diff_text="${diff}s faster"
+                              perf_status="🟢 Faster"
+                          else
+                              diff_text="Same"
+                              perf_status="🟢 Same"
+                          fi
+                          echo "| Build Time | ${ESBUILD_DURATION}s | ${VITE_DURATION}s | ${diff_text} | ${perf_status} |" >> build-comparison/comparison-report.md
+                      fi
+                      
+                      # Calculate total bundle sizes
+                      if [ -d "build-comparison/esbuild" ] && [ -d "build-comparison/vite" ]; then
+                          esbuild_total=$(du -sh build-comparison/esbuild/ | cut -f1)
+                          vite_total=$(du -sh build-comparison/vite/ | cut -f1)
+                          echo "| Total Bundle Size | ${esbuild_total} | ${vite_total} | - | ℹ️ |" >> build-comparison/comparison-report.md
+                      fi
+                      echo "" >> build-comparison/comparison-report.md
                   fi
-
-                  # Calculate total bundle sizes
-                  esbuild_total=$(du -sh build-comparison/esbuild/ | cut -f1)
-                  vite_total=$(du -sh build-comparison/vite/ | cut -f1)
-                  echo "| Total Bundle Size | ${esbuild_total} | ${vite_total} | - |" >> build-comparison/comparison-report.md
-                  echo "" >> build-comparison/comparison-report.md
 
                   # Entry Points Comparison
                   echo "## 📁 Entry Points Comparison" >> build-comparison/comparison-report.md
@@ -442,6 +527,36 @@ jobs:
                       echo "✅ All entry points present in Vite build"
                   fi
 
+                  # Final status check - fail job if critical issues detected
+                  echo ""
+                  echo "Final validation:"
+
+                  critical_issues=0
+
+                  # Check for build failures
+                  if [ "${VITE_SUCCESS}" = "false" ]; then
+                      echo "❌ CRITICAL: Vite build failed"
+                      critical_issues=$((critical_issues + 1))
+                  fi
+
+                  # Check for severe performance regressions (>60s slower)
+                  if [ -n "${ESBUILD_DURATION}" ] && [ -n "${VITE_DURATION}" ]; then
+                      diff=$((VITE_DURATION - ESBUILD_DURATION))
+                      if [ $diff -gt 60 ]; then
+                          echo "❌ CRITICAL: Vite build is ${diff}s slower than ESBuild (>60s regression)"
+                          critical_issues=$((critical_issues + 1))
+                      fi
+                  fi
+
+                  if [ "${critical_issues}" -gt 0 ]; then
+                      echo ""
+                      echo "❌ CI FAILURE: ${critical_issues} critical issue(s) detected"
+                      echo "The Vite build system requires attention before it can be considered production-ready"
+                      exit 1
+                  else
+                      echo "✅ CI SUCCESS: Vite build system is working correctly"
+                  fi
+
             - name: Upload build comparison artifacts
               uses: actions/upload-artifact@v4
               with:
@@ -459,11 +574,22 @@ jobs:
                       if (fs.existsSync('build-comparison/comparison-report.md')) {
                           const report = fs.readFileSync('build-comparison/comparison-report.md', 'utf8');
                           
+                          // Check if there's a failure report
+                          let failureReport = '';
+                          if (fs.existsSync('build-comparison/vite-failure-report.md')) {
+                              failureReport = '\n\n' + fs.readFileSync('build-comparison/vite-failure-report.md', 'utf8');
+                          }
+                          
+                          // Determine if this is a failure or success
+                          const isFailure = report.includes('❌') || failureReport !== '';
+                          const emoji = isFailure ? '❌' : '✅';
+                          const title = isFailure ? 'Vite Build Test - Issues Detected' : 'Vite Build Test Results';
+                          
                           github.rest.issues.createComment({
                               issue_number: context.issue.number,
                               owner: context.repo.owner,
                               repo: context.repo.repo,
-                              body: `## 📦 Vite Build Test Results\n\n${report}\n\n*This comment was generated by the vite-build-test CI job.*`
+                              body: `## ${emoji} ${title}\n\n${report}${failureReport}\n\n*This comment was generated by the vite-build-test CI job.*`
                           });
                       }
 
