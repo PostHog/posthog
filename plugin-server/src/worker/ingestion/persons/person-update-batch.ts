@@ -75,37 +75,3 @@ export function toInternalPerson(personUpdate: PersonUpdate): InternalPerson {
         is_user_id: personUpdate.is_user_id,
     }
 }
-
-export function calculatePersonPropertyUpdate(
-    currentProperties: Properties,
-    currentPropertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-    currentPropertiesLastOperation: PropertiesLastOperation,
-    propertiesToSet: Properties,
-    propertiesToUnset: string[],
-    _timestamp: DateTime
-): PersonPropertyUpdate {
-    const result: PersonPropertyUpdate = {
-        updated: false,
-        properties: { ...currentProperties },
-        properties_last_updated_at: { ...currentPropertiesLastUpdatedAt },
-        properties_last_operation: { ...currentPropertiesLastOperation },
-    }
-
-    // Set new properties
-    Object.entries(propertiesToSet).forEach(([key, value]) => {
-        if (!(key in result.properties) || value !== result.properties[key]) {
-            result.updated = true
-            result.properties[key] = value
-        }
-    })
-
-    // Unset properties
-    propertiesToUnset.forEach((propertyKey) => {
-        if (propertyKey in result.properties) {
-            result.updated = true
-            delete result.properties[propertyKey]
-        }
-    })
-
-    return result
-}
