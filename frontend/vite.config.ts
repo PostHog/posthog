@@ -4,10 +4,11 @@ import { resolve } from 'path'
 import { defineConfig } from 'vite'
 
 import { assetCopyPlugin } from './vite-asset-plugin'
-// import { toolbarDenylistPlugin } from './vite-toolbar-plugin'
+import { hogvmTransformPlugin } from './vite-hogvm-transform-plugin'
 import { htmlGenerationPlugin } from './vite-html-plugin'
 import { polyfillPlugin } from './vite-polyfill-plugin'
 import { publicAssetsPlugin } from './vite-public-assets-plugin'
+import { toolbarDenylistPlugin } from './vite-toolbar-plugin'
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
@@ -16,6 +17,8 @@ export default defineConfig(({ mode }) => {
     return {
         plugins: [
             react(),
+            // Transform HogVM module to fix Buffer import issue
+            hogvmTransformPlugin(),
             // Handle Node.js polyfills properly
             polyfillPlugin(),
             // We delete and copy the HTML files for development
@@ -24,6 +27,8 @@ export default defineConfig(({ mode }) => {
             publicAssetsPlugin(),
             // Copy assets (WASM, RRWeb workers, public files) for production builds
             assetCopyPlugin(),
+            // Toolbar deny-list plugin to reduce bundle size
+            toolbarDenylistPlugin(),
             {
                 name: 'startup-message',
                 configureServer(server) {
