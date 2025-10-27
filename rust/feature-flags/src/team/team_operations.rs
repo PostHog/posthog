@@ -1,5 +1,6 @@
 use crate::{
     api::errors::FlagError,
+    database::get_connection_with_metrics,
     team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
 };
 use common_database::PostgresReader;
@@ -191,7 +192,8 @@ impl Team {
     }
 
     pub async fn from_pg(client: PostgresReader, token: &str) -> Result<Team, FlagError> {
-        let mut conn = client.get_connection().await?;
+        let mut conn =
+            get_connection_with_metrics(&client, "non_persons_reader", "fetch_team").await?;
 
         let query = format!("SELECT {TEAM_COLUMNS} FROM posthog_team WHERE api_token = $1");
         let row = sqlx::query_as::<_, Team>(&query)
@@ -206,7 +208,9 @@ impl Team {
         client: PostgresReader,
         token: &str,
     ) -> Result<Team, FlagError> {
-        let mut conn = client.get_connection().await?;
+        let mut conn =
+            get_connection_with_metrics(&client, "non_persons_reader", "fetch_team_by_secret")
+                .await?;
 
         let query = format!(
             "SELECT {TEAM_COLUMNS} FROM posthog_team WHERE secret_api_token = $1 OR secret_api_token_backup = $1"
@@ -386,11 +390,13 @@ mod tests {
             .expect("Failed to insert team in pg");
 
         // Manually update the team to have NULL elements in session_recording_event_trigger_config
-        let mut conn = context
-            .non_persons_reader
-            .get_connection()
-            .await
-            .expect("Failed to get connection");
+        let mut conn = get_connection_with_metrics(
+            &context.non_persons_reader,
+            "non_persons_reader",
+            "test_update_team",
+        )
+        .await
+        .expect("Failed to get connection");
 
         // Update with an array containing NULL elements: {NULL, 'valid_event', NULL, 'another_event'}
         sqlx::query(

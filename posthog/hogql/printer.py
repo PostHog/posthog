@@ -1396,21 +1396,21 @@ class _Printer(Visitor[str]):
             args = [self.visit(arg) for arg in node.args]
 
             if self.dialect == "clickhouse":
-                if node.name == "embed_text":
+                if node.name == "embedText":
                     return self.visit_constant(resolve_embed_text(self.context.team, node))
-                if node.name == "hogql_lookupDomainType":
+                elif node.name == "lookupDomainType":
                     channel_dict = get_channel_definition_dict()
                     return f"coalesce(dictGetOrNull('{channel_dict}', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
-                elif node.name == "hogql_lookupPaidSourceType":
+                elif node.name == "lookupPaidSourceType":
                     channel_dict = get_channel_definition_dict()
                     return f"coalesce(dictGetOrNull('{channel_dict}', 'type_if_paid', (coalesce({args[0]}, ''), 'source')) , dictGetOrNull('{channel_dict}', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
-                elif node.name == "hogql_lookupPaidMediumType":
+                elif node.name == "lookupPaidMediumType":
                     channel_dict = get_channel_definition_dict()
                     return f"dictGetOrNull('{channel_dict}', 'type_if_paid', (coalesce({args[0]}, ''), 'medium'))"
-                elif node.name == "hogql_lookupOrganicSourceType":
+                elif node.name == "lookupOrganicSourceType":
                     channel_dict = get_channel_definition_dict()
                     return f"coalesce(dictGetOrNull('{channel_dict}', 'type_if_organic', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
-                elif node.name == "hogql_lookupOrganicMediumType":
+                elif node.name == "lookupOrganicMediumType":
                     channel_dict = get_channel_definition_dict()
                     return f"dictGetOrNull('{channel_dict}', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
                 elif node.name == "convertCurrency":
