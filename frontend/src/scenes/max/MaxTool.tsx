@@ -45,13 +45,6 @@ export function MaxTool({
         onMaxOpen,
     })
 
-    const forcedHedeghogProfile: MinimalHedgehogConfig = {
-        use_as_profile: true,
-        color: user?.hedgehog_config?.actor_options?.color,
-        skin: user?.hedgehog_config?.actor_options?.skin,
-        accessories: user?.hedgehog_config?.actor_options?.accessories,
-    }
-
     let content: JSX.Element
     if (!definition) {
         content = <>{typeof Children === 'function' ? <Children toolAvailable={false} /> : Children}</>

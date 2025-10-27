@@ -16,7 +16,8 @@ import {
 export const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 startDevServer(__dirname)
-copyPublicFolder(path.resolve(__dirname, 'public'), path.resolve(__dirname, 'dist')
+copyPublicFolder(path.resolve(__dirname, 'public'), path.resolve(__dirname, 'dist'))
+
 copyPublicFolder(
     path.resolve(__dirname, 'node_modules', '@posthog', 'hedgehog-mode', 'assets'),
     path.resolve(__dirname, 'dist', 'hedgehog-mode')
