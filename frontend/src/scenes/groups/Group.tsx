@@ -18,6 +18,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { GroupLogicProps, groupLogic } from 'scenes/groups/groupLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
+import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { RelatedFeatureFlags } from 'scenes/persons/RelatedFeatureFlags'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
@@ -97,7 +98,7 @@ export function Group(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name={groupData.group_key}
+                name={groupDisplayId(groupData.group_key, groupData.group_properties)}
                 resourceType={{ type: 'group' }}
                 forceBackTo={{
                     name: capitalizeFirstLetter(aggregationLabel(groupTypeIndex).plural),
