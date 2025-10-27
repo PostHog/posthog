@@ -3,10 +3,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -145,8 +142,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
 
     listeners(({ actions, values }) => ({
         getPlaylistSuccess: ({ playlist }) => {
-            if (values.playlist?.derived_name !== values.derivedName) {
-                // This keeps the derived name up to date if the playlist changes
+            if (!values.playlist?.is_synthetic && values.playlist?.derived_name !== values.derivedName) {
                 actions.updatePlaylist({ derived_name: values.derivedName }, true)
             }
 
@@ -179,32 +175,20 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
         },
     })),
 
-    selectors(({ asyncActions }) => ({
+    selectors(() => ({
         breadcrumbs: [
             (s) => [s.playlist, s.featureFlags],
-            (playlist, featureFlags): Breadcrumb[] => [
-                {
-                    key: Scene.Replay,
-                    name: 'Replay',
-                    path: urls.replay(),
-                },
+            (playlist): Breadcrumb[] => [
                 {
                     key: ReplayTabs.Playlists,
                     name: 'Collections',
                     path: urls.replay(ReplayTabs.Playlists),
+                    iconType: 'session_replay',
                 },
                 {
                     key: [Scene.ReplayPlaylist, playlist?.short_id || 'new'],
                     name: playlist?.name || playlist?.derived_name || 'Unnamed',
-                    ...(!featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT] && {
-                        onRename: async (name: string) => {
-                            if (!playlist) {
-                                lemonToast.error('Cannot rename unsaved playlist')
-                                return
-                            }
-                            await asyncActions.updatePlaylist({ short_id: playlist.short_id, name })
-                        },
-                    }),
+                    iconType: 'session_replay',
                 },
             ],
         ],

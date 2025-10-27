@@ -1,6 +1,7 @@
 import { UniqueIdentifier } from '@dnd-kit/core'
-import { actions, afterMount, beforeUnmount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -8,27 +9,29 @@ import api from 'lib/api'
 
 import { demoTasks } from './demoData'
 import type { tasksLogicType } from './tasksLogicType'
-import { Task, TaskStatus, TaskUpsertProps } from './types'
+import { Task, TaskTrackerTab, TaskUpsertProps, TaskWorkflow, WorkflowStage } from './types'
 
 export const tasksLogic = kea<tasksLogicType>([
     path(['products', 'tasks', 'frontend', 'tasksLogic']),
+    connect(() => ({
+        values: [router, ['location']],
+    })),
     actions({
-        setActiveTab: (tab: 'backlog' | 'kanban' | 'settings') => ({ tab }),
-        moveTask: (taskId: string, newStatus: TaskStatus, newPosition?: number) => ({
+        setActiveTab: (tab: TaskTrackerTab) => ({ tab }),
+        moveTask: (taskId: string, newStageKey: string, newPosition?: number) => ({
             taskId,
-            newStatus,
+            newStageKey,
             newPosition,
         }),
         createTask: (task: TaskUpsertProps) => ({ task }),
         updateTask: (id: Task['id'], data: Partial<TaskUpsertProps>) => ({ id, data }),
-        scopeTask: (taskId: string) => ({ taskId }),
-        reorderTasks: (sourceIndex: number, destinationIndex: number, status: TaskStatus) => ({
+        assignTaskToWorkflow: (taskId: string, workflowId: string) => ({ taskId, workflowId }),
+        reorderTasks: (sourceIndex: number, destinationIndex: number, stageKey: string) => ({
             sourceIndex,
             destinationIndex,
-            status,
+            stageKey,
         }),
-        openTaskModal: (taskId: Task['id']) => ({ taskId }),
-        closeTaskModal: true,
+        openTaskDetail: (taskId: Task['id']) => ({ taskId }),
         openCreateModal: true,
         closeCreateModal: true,
         startPolling: true,
@@ -70,80 +73,37 @@ export const tasksLogic = kea<tasksLogicType>([
                         throw error
                     }
                 },
-                moveTask: async ({ taskId, newStatus, newPosition }) => {
-                    actions.startReordering()
-                    // Optimistic update + schedule bulk reorder to persist
-                    const currentTasks = [...values.tasks]
-                    const moved = currentTasks.find((t) => t.id === taskId)
-                    if (!moved) {
-                        actions.endReordering()
-                        return currentTasks
+                assignTaskToWorkflow: async ({ taskId, workflowId }) => {
+                    // Find the target workflow
+                    const targetWorkflow = values.allWorkflows.find((w) => w.id === workflowId)
+                    if (!targetWorkflow || !targetWorkflow.stages?.length) {
+                        console.error('Workflow not found or has no stages:', workflowId)
+                        return values.tasks
                     }
 
-                    const sourceStatus = moved.status
-                    const sourceList = currentTasks
-                        .filter((t) => t.status === sourceStatus && t.id !== taskId)
-                        .sort((a, b) => a.position - b.position)
-                    const targetList = currentTasks
-                        .filter((t) => t.status === newStatus && t.id !== taskId)
-                        .sort((a, b) => a.position - b.position)
+                    // Find the input stage (first stage by position)
+                    const inputStage = targetWorkflow.stages
+                        .filter((s) => !s.is_archived)
+                        .sort((a, b) => a.position - b.position)[0]
 
-                    const insertIndex = Math.min(Math.max(newPosition ?? targetList.length, 0), targetList.length)
+                    if (!inputStage) {
+                        console.error('No input stage found for workflow:', workflowId)
+                        return values.tasks
+                    }
 
-                    const updatedTargetList = [
-                        ...targetList.slice(0, insertIndex),
-                        { ...moved, status: newStatus },
-                        ...targetList.slice(insertIndex),
-                    ]
-
-                    // Build new tasks snapshot with reindexed positions
-                    const sourceIds = sourceList.map((t) => t.id)
-                    const targetIds = updatedTargetList.map((t) => t.id)
-                    const updatedTasks = currentTasks.map((t) => {
-                        if (t.id === taskId) {
-                            return {
-                                ...t,
-                                status: newStatus,
-                                position: targetIds.indexOf(t.id),
-                                updated_at: new Date().toISOString(),
-                            }
-                        }
-                        if (t.status === sourceStatus && sourceIds.includes(t.id)) {
-                            return { ...t, position: sourceIds.indexOf(t.id) }
-                        }
-                        if (t.status === newStatus && targetIds.includes(t.id)) {
-                            return { ...t, position: targetIds.indexOf(t.id) }
-                        }
-                        return t
-                    })
-
-                    // Persist via bulkReorder for both affected columns
-                    const columns: Record<string, string[]> = {}
-                    columns[sourceStatus] = sourceIds
-                    columns[newStatus] = targetIds
-                    api.tasks
-                        .bulkReorder(columns)
-                        .then(() => {})
-                        .catch(() => {
-                            actions.loadTasks()
-                        })
-                        .finally(() => {
-                            actions.endReordering()
-                        })
-
-                    return updatedTasks
-                },
-                scopeTask: async ({ taskId }) => {
-                    const todoTasks = values.tasks.filter((task: Task) => task.status === TaskStatus.TODO)
-                    const nextPosition = todoTasks.length
+                    // Count tasks already in this stage for positioning
+                    const stageTaskCount = values.tasks.filter(
+                        (task) => task.workflow === workflowId && task.current_stage === inputStage.id
+                    ).length
 
                     // Optimistic update
-                    const currentTasks = values.tasks.map((task) =>
-                        task.id === taskId && task.status === TaskStatus.BACKLOG
+                    const updatedTasks = values.tasks.map((task) =>
+                        task.id === taskId
                             ? {
                                   ...task,
-                                  status: TaskStatus.TODO,
-                                  position: nextPosition,
+                                  workflow: workflowId,
+                                  current_stage: inputStage.id,
+                                  position: stageTaskCount,
                                   updated_at: new Date().toISOString(),
                               }
                             : task
@@ -152,41 +112,69 @@ export const tasksLogic = kea<tasksLogicType>([
                     // Update in background
                     api.tasks
                         .update(taskId, {
-                            status: TaskStatus.TODO,
-                            position: nextPosition,
+                            workflow: workflowId,
+                            current_stage: inputStage.id,
+                            position: stageTaskCount,
+                        })
+                        .then(() => {
+                            lemonToast.success(`Task assigned to ${targetWorkflow.name}`)
+                            actions.setActiveTab('kanban')
+                            router.actions.push('/tasks')
+                            actions.loadTasks()
                         })
                         .catch(() => {
                             actions.loadTasks()
                         })
 
-                    return currentTasks
+                    return updatedTasks
                 },
-                reorderTasks: async ({ sourceIndex, destinationIndex, status }) => {
-                    const statusTasks = values.tasks
-                        .filter((task: Task) => task.status === status)
+                reorderTasks: async ({ sourceIndex, destinationIndex, stageKey }) => {
+                    const stageTasks = values.tasks
+                        .filter((task: Task) => {
+                            // For tasks with workflow, check current_stage ID matches stage ID
+                            // For tasks without workflow, they're in 'backlog'
+                            if (task.workflow && task.current_stage) {
+                                // Find stage by ID and check if key matches
+                                const stage = values.allWorkflows
+                                    .flatMap((w) => w.stages || [])
+                                    .find((s) => s.id === task.current_stage)
+                                return stage?.key === stageKey
+                            }
+                            return stageKey === 'backlog'
+                        })
                         .sort((a, b) => a.position - b.position)
 
-                    const movedTask = statusTasks[sourceIndex]
+                    const movedTask = stageTasks[sourceIndex]
                     if (!movedTask) {
                         return values.tasks
                     }
 
                     // Optimistic update - reorder locally first
-                    const reorderedStatusTasks = [...statusTasks]
-                    reorderedStatusTasks.splice(sourceIndex, 1)
-                    reorderedStatusTasks.splice(destinationIndex, 0, movedTask)
+                    const reorderedStageTasks = [...stageTasks]
+                    reorderedStageTasks.splice(sourceIndex, 1)
+                    reorderedStageTasks.splice(destinationIndex, 0, movedTask)
 
                     // Update positions for all affected items
                     const currentTasks = values.tasks.map((task) => {
-                        if (task.status === status) {
-                            const newIndex = reorderedStatusTasks.findIndex((st) => st.id === task.id)
+                        let taskInStage = false
+                        if (task.workflow && task.current_stage) {
+                            const stage = values.allWorkflows
+                                .flatMap((w) => w.stages || [])
+                                .find((s) => s.id === task.current_stage)
+                            taskInStage = stage?.key === stageKey
+                        } else {
+                            taskInStage = stageKey === 'backlog'
+                        }
+
+                        if (taskInStage) {
+                            const newIndex = reorderedStageTasks.findIndex((st) => st.id === task.id)
                             return { ...task, position: newIndex }
                         }
                         return task
                     })
 
                     // Update positions in background
-                    const positionUpdates = reorderedStatusTasks.map((task, index) => {
+                    const positionUpdates = reorderedStageTasks.map((task, index) => {
                         if (task.position !== index) {
                             return api.tasks.update(task.id, { position: index })
                         }
@@ -214,19 +202,41 @@ export const tasksLogic = kea<tasksLogicType>([
                 },
             },
         ],
+        defaultWorkflow: [
+            null as TaskWorkflow | null,
+            {
+                loadDefaultWorkflow: async () => {
+                    try {
+                        const response = await api.get('api/projects/@current/workflows/')
+                        const workflows = response.results || []
+                        return workflows.find((w: TaskWorkflow) => w.is_default) || null
+                    } catch (error) {
+                        console.error('Failed to load default workflow:', error)
+                        return null
+                    }
+                },
+            },
+        ],
+        allWorkflows: [
+            [] as TaskWorkflow[],
+            {
+                loadAllWorkflows: async () => {
+                    try {
+                        const response = await api.get('api/projects/@current/workflows/')
+                        return response.results || []
+                    } catch (error) {
+                        console.error('Failed to load workflows:', error)
+                        return []
+                    }
+                },
+            },
+        ],
     })),
     reducers({
         activeTab: [
-            'backlog' as 'backlog' | 'kanban' | 'settings',
+            'dashboard' as TaskTrackerTab,
             {
                 setActiveTab: (_, { tab }) => tab,
-            },
-        ],
-        selectedTaskId: [
-            null as string | null,
-            {
-                openTaskModal: (_, { taskId }) => taskId,
-                closeTaskModal: () => null,
             },
         ],
         isCreateModalOpen: [
@@ -252,82 +262,226 @@ export const tasksLogic = kea<tasksLogicType>([
         ],
     }),
     selectors({
-        backlogTasks: [
-            (s) => [s.tasks],
-            (tasks): Task[] =>
-                tasks.filter((task) => task.status === TaskStatus.BACKLOG).sort((a, b) => a.position - b.position),
+        workflowKanbanData: [
+            (s) => [s.tasks, s.allWorkflows],
+            (
+                tasks,
+                allWorkflows
+            ): Array<{
+                workflow: TaskWorkflow
+                stages: Array<{
+                    stage: WorkflowStage
+                    tasks: Task[]
+                }>
+            }> => {
+                return allWorkflows
+                    .map((workflow) => {
+                        // Get active stages for this workflow
+                        const workflowStages = (workflow.stages || [])
+                            .filter((stage) => !stage.is_archived)
+                            .sort((a, b) => a.position - b.position)
+
+                        // Create stage buckets for this workflow
+                        const stageBuckets = workflowStages.map((stage) => {
+                            // Find tasks for this specific stage/workflow
+                            const stageTasks = tasks
+                                .filter((task) => {
+                                    // Task must be in this workflow and this stage
+                                    return task.workflow === workflow.id && task.current_stage === stage.id
+                                })
+                                .sort((a, b) => a.position - b.position)
+
+                            return {
+                                stage,
+                                tasks: stageTasks,
+                            }
+                        })
+
+                        return {
+                            workflow,
+                            stages: stageBuckets,
+                        }
+                    })
+                    .filter((workflowData) => workflowData.stages.length > 0) // Only show workflows with stages
+            },
         ],
+
+        // Keep the old kanbanColumns for backwards compatibility (can be removed later)
         kanbanColumns: [
-            (s) => [s.tasks],
-            (tasks): Record<UniqueIdentifier, Task[]> => {
-                const buckets = tasks.reduce(
-                    (acc, task) => {
-                        acc[task.status].push(task)
-                        return acc
-                    },
-                    {
-                        [TaskStatus.BACKLOG]: [],
-                        [TaskStatus.TODO]: [],
-                        [TaskStatus.IN_PROGRESS]: [],
-                        [TaskStatus.TESTING]: [],
-                        [TaskStatus.DONE]: [],
-                    } as Record<TaskStatus, Task[]>
-                )
-                // Sort each column by position
-                ;(Object.keys(buckets) as Array<keyof typeof buckets>).forEach((k) => {
-                    buckets[k] = buckets[k].slice().sort((a, b) => a.position - b.position)
+            (s) => [s.workflowKanbanData],
+            (workflowKanbanData): Record<UniqueIdentifier, Task[]> => {
+                // Flatten all workflow stages into a single structure for legacy compatibility
+                const buckets: Record<string, Task[]> = {}
+
+                workflowKanbanData.forEach(({ stages }) => {
+                    stages.forEach(({ stage, tasks }) => {
+                        buckets[stage.key] = [...(buckets[stage.key] || []), ...tasks]
+                    })
                 })
+
                 return buckets
             },
         ],
-        selectedTask: [
-            (s) => [s.tasks, s.selectedTaskId],
-            (tasks, selectedTaskId): Task | null =>
-                selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) || null : null,
+
+        // Backlog shows ALL tasks regardless of workflow status
+        backlogTasks: [(s) => [s.tasks], (tasks): Task[] => tasks.sort((a, b) => a.position - b.position)],
+
+        // Unassigned tasks sorted by creation time (most recent first)
+        unassignedTasks: [
+            (s) => [s.tasks],
+            (tasks): Task[] =>
+                tasks
+                    .filter((task) => !task.workflow)
+                    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
+        ],
+
+        // Assigned tasks sorted by creation time (most recent first)
+        assignedTasks: [
+            (s) => [s.tasks],
+            (tasks): Task[] =>
+                tasks
+                    .filter((task) => task.workflow)
+                    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
+        ],
+        workflowStages: [
+            (s) => [s.allWorkflows],
+            (allWorkflows): WorkflowStage[] => {
+                // Collect all unique stages from all active workflows
+                const allStages = new Map<string, WorkflowStage>()
+
+                allWorkflows.forEach((workflow) => {
+                    workflow.stages?.forEach((stage) => {
+                        if (!stage.is_archived) {
+                            allStages.set(stage.key, stage)
+                        }
+                    })
+                })
+
+                // Sort stages by position and return as array
+                return Array.from(allStages.values()).sort((a, b) => a.position - b.position)
+            },
         ],
         hasActiveTasks: [
-            (s) => [s.tasks],
-            (tasks): boolean =>
-                tasks.some(
-                    (task) =>
-                        task.status === TaskStatus.IN_PROGRESS ||
-                        task.status === TaskStatus.TODO ||
-                        task.status === TaskStatus.TESTING
-                ),
+            (s) => [s.tasks, s.allWorkflows],
+            (tasks, allWorkflows): boolean =>
+                tasks.some((task) => {
+                    if (task.workflow && task.current_stage) {
+                        const stage = allWorkflows
+                            .flatMap((w) => w.stages || [])
+                            .find((s) => s.id === task.current_stage)
+                        // Task is active if it's in a stage with an agent assigned
+                        if (stage && !stage.is_archived && stage.agent) {
+                            return true
+                        }
+                    }
+                    return false
+                }),
         ],
     }),
     listeners(({ actions, values, cache }) => ({
-        startPolling: () => {
-            if (cache.pollingInterval) {
-                clearInterval(cache.pollingInterval)
+        setActiveTab: ({ tab }) => {
+            if (tab === 'kanban') {
+                actions.loadAllWorkflows()
             }
-            cache.pollingInterval = setInterval(() => {
-                if (values.hasActiveTasks) {
-                    actions.pollForUpdates()
-                } else {
-                    actions.stopPolling()
+        },
+        openTaskDetail: ({ taskId }) => {
+            router.actions.push(`/tasks/${taskId}`)
+        },
+        moveTask: async ({ taskId, newStageKey, newPosition }) => {
+            actions.startReordering()
+
+            const currentTasks = [...values.tasks]
+            const moved = currentTasks.find((t) => t.id === taskId)
+            if (!moved) {
+                actions.endReordering()
+                return
+            }
+
+            // Find the workflow and stage for the target
+            let targetWorkflow = null
+            let targetStage = null
+
+            for (const workflow of values.allWorkflows) {
+                const stage = workflow.stages?.find((s) => s.key === newStageKey)
+                if (stage) {
+                    targetWorkflow = workflow
+                    targetStage = stage
+                    break
                 }
-            }, 3000) // Poll every 3 seconds
+            }
+
+            if (!targetWorkflow || !targetStage) {
+                console.error('Cannot find workflow/stage for:', newStageKey)
+                actions.endReordering()
+                return
+            }
+
+            // Validate that task can only move within same workflow
+            if (moved.workflow && moved.workflow !== targetWorkflow.id) {
+                console.error('Task cannot be moved to different workflow')
+                actions.endReordering()
+                return
+            }
+
+            const updatedTask = {
+                ...moved,
+                workflow: targetWorkflow.id,
+                current_stage: targetStage.id,
+                position: newPosition ?? 0,
+                updated_at: new Date().toISOString(),
+            }
+
+            // Optimistically update the tasks
+            const updatedTasks = currentTasks.map((t) => (t.id === taskId ? updatedTask : t))
+            actions.loadTasksSuccess(updatedTasks)
+
+            // Persist the task update to backend
+            try {
+                await api.update(`api/projects/@current/tasks/${taskId}/`, {
+                    workflow: updatedTask.workflow,
+                    current_stage: updatedTask.current_stage,
+                    position: updatedTask.position,
+                })
+            } catch (error) {
+                console.error('Failed to move task:', error)
+                actions.loadTasks() // Reload on error
+            }
+
+            actions.endReordering()
+        },
+
+        startPolling: () => {
+            // Remove any existing polling interval
+            cache.disposables.dispose('pollingInterval')
+
+            // Add new polling interval
+            cache.disposables.add(() => {
+                const intervalId = setInterval(() => {
+                    if (values.hasActiveTasks) {
+                        actions.pollForUpdates()
+                    } else {
+                        actions.stopPolling()
+                    }
+                }, 3000) // Poll every 3 seconds
+                return () => clearInterval(intervalId)
+            }, 'pollingInterval')
         },
         stopPolling: () => {
-            if (cache.pollingInterval) {
-                clearInterval(cache.pollingInterval)
-                cache.pollingInterval = null
-            }
+            cache.disposables.dispose('pollingInterval')
         },
         loadTasksSuccess: () => {
             // Start polling when tasks are loaded if there are active tasks
-            if (values.hasActiveTasks && !cache.pollingInterval) {
+            if (values.hasActiveTasks) {
                 actions.startPolling()
-            } else if (!values.hasActiveTasks && cache.pollingInterval) {
+            } else {
                 actions.stopPolling()
             }
         },
         moveTaskSuccess: () => {
             // Check if polling should start/stop after moving a task
-            if (values.hasActiveTasks && !cache.pollingInterval) {
+            if (values.hasActiveTasks) {
                 actions.startPolling()
-            } else if (!values.hasActiveTasks && cache.pollingInterval) {
+            } else {
                 actions.stopPolling()
             }
         },
@@ -338,12 +492,47 @@ export const tasksLogic = kea<tasksLogicType>([
             }
         },
     })),
+    actionToUrl(({ values }) => {
+        const changeUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] | void => {
+            const searchParams: Record<string, string> = {}
+            searchParams['tab'] = values.activeTab
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: false }]
+        }
+
+        return {
+            setActiveTab: changeUrl,
+        }
+    }),
+    urlToAction(({ actions, values }) => ({
+        '/tasks': async (_, searchParams) => {
+            const tabInURL = searchParams['tab'] as string | undefined
+            const validTabs: TaskTrackerTab[] = ['dashboard', 'backlog', 'kanban', 'settings']
+
+            // No tab in URL, set to dashboard
+            if (!tabInURL) {
+                if (values.activeTab !== 'dashboard') {
+                    actions.setActiveTab('dashboard')
+                }
+                return
+            }
+
+            // Clean up tab from params if invalid and navigate to dashboard
+            if (!validTabs.includes(tabInURL as TaskTrackerTab)) {
+                actions.setActiveTab('dashboard')
+                const cleanParams = { ...searchParams }
+                delete cleanParams.tab
+                router.actions.push(router.values.location.pathname, cleanParams)
+                return
+            }
+
+            if (tabInURL !== values.activeTab) {
+                actions.setActiveTab(tabInURL as TaskTrackerTab)
+            }
+        },
+    })),
     afterMount(({ actions }) => {
         actions.loadTasks()
-    }),
-    beforeUnmount(({ cache }) => {
-        if (cache.pollingInterval) {
-            clearInterval(cache.pollingInterval)
-        }
+        actions.loadDefaultWorkflow()
+        actions.loadAllWorkflows()
     }),
 ])

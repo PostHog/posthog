@@ -21,7 +21,7 @@ from posthog.hogql.database.database import SerializedField, create_hogql_databa
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import FindPlaceholders
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -265,28 +265,27 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
             # Only update columns and status if the query has changed
             if "query" in validated_data:
-                if not soft_update:
-                    try:
-                        # The columns will be inferred from the query
-                        client_types = self.context["request"].data.get("types", [])
-                        if len(client_types) == 0:
-                            view.columns = view.get_columns()
-                        else:
-                            columns = {
-                                str(item[0]): {
-                                    "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
-                                    "clickhouse": item[1],
-                                    "valid": True,
-                                }
-                                for item in client_types
+                try:
+                    # The columns will be inferred from the query
+                    client_types = self.context["request"].data.get("types", [])
+                    if len(client_types) == 0:
+                        view.columns = view.get_columns()
+                    else:
+                        columns = {
+                            str(item[0]): {
+                                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
+                                "clickhouse": item[1],
+                                "valid": True,
                             }
-                            view.columns = columns
+                            for item in client_types
+                        }
+                        view.columns = columns
 
-                        view.external_tables = view.s3_tables
-                    except RecursionError:
-                        raise serializers.ValidationError("Model contains a cycle")
-                    except Exception:
-                        raise serializers.ValidationError("Failed to retrieve types for view")
+                    view.external_tables = view.s3_tables
+                except RecursionError:
+                    raise serializers.ValidationError("Model contains a cycle")
+                except Exception:
+                    raise serializers.ValidationError("Failed to retrieve types for view")
 
                 view.status = DataWarehouseSavedQuery.Status.MODIFIED
                 view.save()
@@ -351,7 +350,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             raise exceptions.ValidationError(detail="Filters and placeholder expressions are not allowed in views")
 
         try:
-            print_ast(
+            prepare_and_print_ast(
                 node=select_ast,
                 context=context,
                 dialect="clickhouse",
@@ -411,6 +410,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                     "datamodelingjob_set", queryset=DataModelingJob.objects.order_by("-last_run_at")[:1], to_attr="jobs"
                 ),
             )
+            .filter(managed_viewset__isnull=True)  # Ignore managed views for now
             .exclude(deleted=True)
             .order_by(self.ordering)
         )
@@ -484,30 +484,8 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         Undo materialization, revert back to the original view.
         (i.e. delete the materialized table and the schedule)
         """
-        saved_query = self.get_object()
-
-        with transaction.atomic():
-            saved_query.sync_frequency_interval = None
-            saved_query.last_run_at = None
-            saved_query.latest_error = None
-            saved_query.status = None
-            saved_query.is_materialized = False
-
-            # delete the materialized table reference
-            if saved_query.table is not None:
-                saved_query.table.soft_delete()
-                saved_query.table_id = None
-
-            try:
-                delete_saved_query_schedule(str(saved_query.id))
-            except Exception as e:
-                logger.exception(f"Failed to delete temporal schedule for saved query {saved_query.id}: {str(e)}")
-
-            saved_query.save()
-
-            DataWarehouseModelPath.objects.filter(
-                team=saved_query.team, path__lquery=f"*{{1,}}.{saved_query.id.hex}"
-            ).delete()
+        saved_query: DataWarehouseSavedQuery = self.get_object()
+        saved_query.revert_materialization()
 
         return response.Response(status=status.HTTP_200_OK)
 

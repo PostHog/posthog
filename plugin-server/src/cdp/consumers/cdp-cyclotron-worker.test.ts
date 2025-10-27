@@ -7,8 +7,7 @@ import { UUIDT } from '~/utils/utils'
 
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
-import { HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
-import { HOG_EXAMPLES } from '../_tests/examples'
+import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import {
     createExampleInvocation,
     createHogExecutionGlobals,
@@ -182,6 +181,7 @@ describe('CdpCyclotronWorker', () => {
                 json: () => Promise.resolve({}),
                 text: () => Promise.resolve(JSON.stringify({})),
                 headers: {},
+                dump: () => Promise.resolve(),
             } as any)
 
             const invocationId = invocation.id

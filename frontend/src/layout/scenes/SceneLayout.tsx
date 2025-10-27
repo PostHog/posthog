@@ -1,26 +1,26 @@
 import './SceneLayout.css'
 
 import { useActions, useValues } from 'kea'
-import React, { PropsWithChildren, useEffect, useRef } from 'react'
+import React, { PropsWithChildren, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IconListCheck, IconX } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label, LabelProps } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
 import { SceneConfig } from 'scenes/sceneTypes'
 
-import { SceneHeader } from './SceneHeader'
+import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
+import { SceneTabs } from './SceneTabs'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
 
 type SceneLayoutProps = {
     children: React.ReactNode
     className?: string
-    layoutConfig?: SceneConfig | null
+    sceneConfig?: SceneConfig | null
 }
 
 export function ScenePanel({ children }: { children: React.ReactNode }): JSX.Element {
@@ -38,47 +38,21 @@ export function ScenePanel({ children }: { children: React.ReactNode }): JSX.Ele
         <>
             {children &&
                 scenePanelElement &&
-                createPortal(<div className="flex flex-col gap-px">{children}</div>, scenePanelElement)}
+                createPortal(<div className="flex flex-col gap-2">{children}</div>, scenePanelElement)}
         </>
     )
 }
 
 export function ScenePanelDivider({ className }: { className?: string }): JSX.Element {
-    return <LemonDivider className={cn('-mx-2 my-2 w-[calc(100%+1rem)]', className)} />
+    return <LemonDivider className={cn('-mx-2 w-[calc(100%+1rem)]', className)} />
 }
 
-// Should be first!
-export const ScenePanelCommonActions = ({ children }: { children: React.ReactNode }): JSX.Element => {
-    return (
-        <>
-            <div
-                // This is a hack to make the meta info panel have a margin top of 0 when it's the first child of the panel
-                className={`
-                    [&+.scene-panel-meta-info]:mt-0 
-                    flex flex-col gap-2 min-h-[var(--scene-layout-header-height)] py-2 border-b border-primary -mx-2 px-2 mb-2
-                `}
-            >
-                {children}
-            </div>
-        </>
-    )
+export function ScenePanelInfoSection({ children }: { children: React.ReactNode }): JSX.Element {
+    return <div className="scene-panel-info-section pl-1 flex flex-col gap-2">{children}</div>
 }
 
-// Should be second!
-export function ScenePanelMetaInfo({ children }: { children: React.ReactNode }): JSX.Element {
-    return <div className="scene-panel-meta-info pl-1 pb-1 flex flex-col gap-2 mt-2">{children}</div>
-}
-
-// Should be third!
-export function ScenePanelActions({ children }: { children: React.ReactNode }): JSX.Element {
-    return (
-        <div className="flex flex-col gap-2 pl-1 -ml-1">
-            <Label intent="menu" className="mx-2">
-                Actions
-            </Label>
-            <div className="flex flex-col gap-px -ml-1 pl-1">{children}</div>
-        </div>
-    )
+export function ScenePanelActionsSection({ children }: { children: React.ReactNode }): JSX.Element {
+    return <div className="scene-panel-actions-section flex flex-col gap-px -ml-1 pl-1">{children}</div>
 }
 
 export function ScenePanelLabel({ children, title, ...props }: PropsWithChildren<LabelProps>): JSX.Element {
@@ -93,81 +67,58 @@ export function ScenePanelLabel({ children, title, ...props }: PropsWithChildren
 }
 8
 
-export function SceneLayout({ children, className, layoutConfig }: SceneLayoutProps): JSX.Element {
-    const {
-        registerScenePanelElement,
-        setScenePanelOpen,
-        setSceneContainerRef,
-        setForceScenePanelClosedWhenRelative,
-        setSceneLayoutConfig,
-    } = useActions(sceneLayoutLogic)
-    const { scenePanelIsPresent, scenePanelOpen, scenePanelIsRelative, sceneContainerRect } =
-        useValues(sceneLayoutLogic)
-    const sceneLayoutContainer = useRef<HTMLDivElement>(null)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
-
-    // Set container ref so we can measure the width of the scene layout in logic
-    useEffect(() => {
-        if (sceneLayoutContainer.current) {
-            setSceneContainerRef(sceneLayoutContainer)
-        }
-    }, [sceneLayoutContainer, setSceneContainerRef])
+export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.Element {
+    const { registerScenePanelElement, setScenePanelOpen, setForceScenePanelClosedWhenRelative, setSceneLayoutConfig } =
+        useActions(sceneLayoutLogic)
+    const { forceScenePanelClosedWhenRelative } = useValues(sceneLayoutLogic)
+    const { isLayoutPanelVisible, isLayoutPanelPinned } = useValues(panelLayoutLogic)
+    const { scenePanelIsPresent, scenePanelOpen, scenePanelIsRelative } = useValues(sceneLayoutLogic)
 
     // Set layout config
     useEffect(() => {
-        if (layoutConfig) {
-            setSceneLayoutConfig(layoutConfig)
+        if (sceneConfig) {
+            setSceneLayoutConfig(sceneConfig)
         }
-    }, [layoutConfig, setSceneLayoutConfig])
+    }, [sceneConfig, setSceneLayoutConfig])
 
     return (
-        <div
-            className={cn('scene-layout', className)}
-            ref={sceneLayoutContainer}
-            style={
-                {
-                    '--scene-layout-rect-right': sceneContainerRect?.right + 'px',
-                } as React.CSSProperties
-            }
-        >
+        <>
             <div
                 className={cn(
-                    'flex flex-1 flex-col pt-0 pb-16 w-full order-1 row-span-1 col-span-1 col-start-1 relative min-w-0',
+                    'col-span-2 h-[var(--scene-layout-header-height)] sticky top-0 z-[var(--z-main-nav)] flex justify-center items-start',
                     {
-                        'p-0 h-screen':
-                            layoutConfig?.layout === 'app-raw-no-header' || layoutConfig?.layout === 'app-raw',
-                        'w-[calc(100%-var(--scene-layout-panel-width))]':
-                            scenePanelIsPresent && scenePanelIsRelative && scenePanelOpen,
-                        block: layoutConfig?.layout === 'app-raw-no-header',
+                        'col-start-1 col-span-1': scenePanelIsRelative && !forceScenePanelClosedWhenRelative,
                     }
                 )}
             >
-                {layoutConfig?.layout !== 'app-raw-no-header' && (
-                    <SceneHeader className="row-span-1 col-span-1 min-w-0" />
+                <SceneTabs />
+            </div>
+
+            <div
+                className={cn(
+                    'relative p-4 bg-[var(--scene-layout-background)] min-h-[calc(100vh-var(--scene-layout-header-height))]',
+                    scenePanelIsPresent &&
+                        scenePanelIsRelative &&
+                        !forceScenePanelClosedWhenRelative &&
+                        'col-start-1 col-span-1 w-[calc(100%-var(--scene-layout-panel-width))]',
+                    sceneConfig?.layout === 'app-raw-no-header' || (sceneConfig?.layout === 'app-raw' && 'p-0'),
+                    sceneConfig?.layout === 'app-full-scene-height' &&
+                        'h-[calc(100vh-var(--scene-layout-header-height))]'
                 )}
-                <ScrollableShadows
-                    direction="vertical"
-                    className={cn(
-                        'h-[calc(100vh-var(--scene-layout-header-height))]',
-                        newSceneLayout && 'h-[calc(100vh-var(--scene-layout-header-height-with-tabs))]',
-                        layoutConfig?.layout === 'app-raw-no-header' && 'h-screen'
-                    )}
-                    innerClassName={cn(
-                        'bg-primary px-4 pb-4',
-                        (layoutConfig?.layout === 'app-raw-no-header' || layoutConfig?.layout === 'app-raw') && 'p-0'
-                    )}
-                >
-                    {children}
-                </ScrollableShadows>
+            >
+                {children}
             </div>
 
             {scenePanelIsPresent && (
                 <>
                     <div
                         className={cn(
-                            'scene-layout__content-panel order-2 fixed left-[calc(var(--scene-layout-rect-right)-var(--scene-layout-panel-width))] bg-surface-secondary flex flex-col overflow-hidden row-span-2 col-span-2 row-start-1 col-start-2 top-0 h-screen min-w-0',
+                            'scene-layout__content-panel fixed left-[calc(var(--scene-layout-rect-right)-var(--scene-layout-panel-width)+var(--scene-layout-scrollbar-width))] bg-surface-secondary flex flex-col overflow-hidden h-[calc(var(--scene-layout-rect-height)-var(--scene-layout-header-height))] top-[var(--scene-layout-header-height)] min-w-0',
                             {
                                 hidden: !scenePanelOpen,
+                                'col-start-2 col-span-1 row-start-1 row-span-2':
+                                    scenePanelIsRelative && !forceScenePanelClosedWhenRelative,
+                                'z-1': isLayoutPanelVisible && !isLayoutPanelPinned,
                             }
                         )}
                     >
@@ -199,6 +150,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                                               ? 'Force close Info & actions panel'
                                               : 'Close Info & actions panel'
                                     }
+                                    data-attr="info-actions-panel"
                                 >
                                     <IconX className="size-4" />
                                 </ButtonPrimitive>
@@ -207,7 +159,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                         <ScrollableShadows
                             direction="vertical"
                             className="h-full flex-1"
-                            innerClassName="px-2 pb-4 bg-primary"
+                            innerClassName="px-2 py-2 bg-primary"
                             styledScrollbars
                         >
                             <div ref={registerScenePanelElement} />
@@ -225,6 +177,6 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                     )}
                 </>
             )}
-        </div>
+        </>
     )
 }

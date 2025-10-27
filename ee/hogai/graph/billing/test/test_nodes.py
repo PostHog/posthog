@@ -33,7 +33,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
         self.state = AssistantState(messages=[], root_tool_call_id=self.tool_call_id)
 
     def test_run_with_no_billing_context(self):
-        with patch.object(self.node, "_get_billing_context", return_value=None):
+        with patch.object(self.node.context_manager, "get_billing_context", return_value=None):
             result = self.node.run(self.state, {})
             self.assertEqual(len(result.messages), 1)
             message = result.messages[0]
@@ -50,7 +50,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
             products=[],
         )
         with (
-            patch.object(self.node, "_get_billing_context", return_value=billing_context),
+            patch.object(self.node.context_manager, "get_billing_context", return_value=billing_context),
             patch.object(self.node, "_format_billing_context", return_value="Formatted Context"),
         ):
             result = self.node.run(self.state, {})
@@ -567,12 +567,12 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
         self.assertIn("| Feature Flag Requests | 1,000.00 | 1,500.00 | 1,200.00 |", table)
 
         # Data Pipelines should show aggregated total (only from team 84444)
-        self.assertIn("| Data Pipelines | 8,036.00 | 10,286.00 | 8,174.00 |", table)
+        self.assertIn("| Data Pipelines (deprecated) | 8,036.00 | 10,286.00 | 8,174.00 |", table)
 
         # Check that team-specific tables show clean labels
-        # Team 84444 should show "Data Pipelines" and "Events", not raw labels
+        # Team 84444 should show "Data Pipelines (deprecated)" and "Events", not raw labels
         team_84444_section = table.split("### Project 84444")[1].split("### Project 12345")[0]
-        self.assertIn("| Data Pipelines |", team_84444_section)
+        self.assertIn("| Data Pipelines (deprecated) |", team_84444_section)
         self.assertIn("| Events |", team_84444_section)
         self.assertNotIn("| 84444::", team_84444_section)  # Should not show raw labels
 

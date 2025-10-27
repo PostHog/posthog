@@ -1,10 +1,10 @@
-import crypto from 'crypto'
 import { Counter } from 'prom-client'
 import express from 'ultimate-express'
 
 import { ModifiedRequest } from '~/api/router'
-import { AppMetricType, CyclotronJobInvocationHogFunction, MinimalAppMetric } from '~/cdp/types'
+import { CyclotronJobInvocationHogFunction, MinimalAppMetric } from '~/cdp/types'
 import { defaultConfig } from '~/config/config'
+import { parseJSON } from '~/utils/json-parse'
 import { captureException } from '~/utils/posthog'
 
 import { Hub } from '../../../types'
@@ -12,6 +12,12 @@ import { logger } from '../../../utils/logger'
 import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from '../managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
+import { SesWebhookHandler } from './helpers/ses'
+import {
+    generateEmailTrackingCode,
+    generateEmailTrackingPixelUrl,
+    parseEmailTrackingCode,
+} from './helpers/tracking-code'
 import { MailjetEventType, MailjetWebhookEvent } from './types'
 
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
@@ -40,38 +46,11 @@ const emailTrackingErrorsCounter = new Counter({
     labelNames: ['error_type', 'source'],
 })
 
-export const parseEmailTrackingCode = (customId: string): { functionId: string; invocationId: string } | null => {
-    // customId  is like ph_fn_id=function-1&ph_inv_id=invocation-1
-    try {
-        const params = new URLSearchParams(customId)
-        const functionId = params.get('ph_fn_id')
-        const invocationId = params.get('ph_inv_id')
-        if (!functionId || !invocationId) {
-            return null
-        }
-        return { functionId, invocationId }
-    } catch {
-        return null
-    }
-}
-
-export const generateEmailTrackingCode = (
-    invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id'>
-): string => {
-    return `ph_fn_id=${invocation.functionId}&ph_inv_id=${invocation.id}`
-}
-
-export const generateEmailTrackingPixelUrl = (
-    invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id'>
-): string => {
-    return `${defaultConfig.CDP_EMAIL_TRACKING_URL}/public/m/pixel?${generateEmailTrackingCode(invocation)}`
-}
-
 export const generateTrackingRedirectUrl = (
     invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id'>,
     targetUrl: string
 ): string => {
-    return `${defaultConfig.CDP_EMAIL_TRACKING_URL}/public/m/redirect?${generateEmailTrackingCode(invocation)}&target=${encodeURIComponent(targetUrl)}`
+    return `${defaultConfig.CDP_EMAIL_TRACKING_URL}/public/m/redirect?ph_id=${generateEmailTrackingCode(invocation)}&target=${encodeURIComponent(targetUrl)}`
 }
 
 export const addTrackingToEmail = (html: string, invocation: CyclotronJobInvocationHogFunction): string => {
@@ -91,12 +70,16 @@ export const addTrackingToEmail = (html: string, invocation: CyclotronJobInvocat
 }
 
 export class EmailTrackingService {
+    private sesWebhookHandler: SesWebhookHandler
+
     constructor(
         private hub: Hub,
         private hogFunctionManager: HogFunctionManagerService,
         private hogFlowManager: HogFlowManagerService,
         private hogFunctionMonitoringService: HogFunctionMonitoringService
-    ) {}
+    ) {
+        this.sesWebhookHandler = new SesWebhookHandler()
+    }
 
     private async trackMetric({
         functionId,
@@ -107,7 +90,7 @@ export class EmailTrackingService {
         functionId?: string
         invocationId?: string
         metricName: MinimalAppMetric['metric_name']
-        source: 'mailjet' | 'direct'
+        source: 'mailjet' | 'direct' | 'ses'
     }): Promise<void> {
         if (!functionId || !invocationId) {
             logger.error('[EmailTrackingService] trackMetric: Invalid custom ID', {
@@ -160,39 +143,17 @@ export class EmailTrackingService {
         })
     }
 
-    public async handleMailjetWebhook(
-        req: ModifiedRequest
-    ): Promise<{ status: number; message?: string; metrics?: AppMetricType[] }> {
-        const signature = req.headers['x-mailjet-signature'] as string
-        const timestamp = req.headers['x-mailjet-timestamp'] as string
-
+    public async handleMailjetWebhook(req: ModifiedRequest): Promise<{ status: number; message?: string }> {
         const okResponse = { status: 200, message: 'OK' }
 
-        if (!signature || !timestamp || !req.rawBody) {
-            return { status: 403, message: 'Missing required headers or body' }
+        if (!req.rawBody) {
+            return { status: 403, message: 'Missing request body' }
         }
 
-        const payload = `${timestamp}.${req.rawBody.toString()}`
-        const hmac = crypto.createHmac('sha256', this.hub.MAILJET_SECRET_KEY).update(payload).digest()
-
         try {
-            const signatureBuffer = Buffer.from(signature, 'hex')
-            if (
-                hmac.length !== signatureBuffer.length ||
-                !crypto.timingSafeEqual(new Uint8Array(hmac), new Uint8Array(signatureBuffer))
-            ) {
-                emailTrackingErrorsCounter.inc({ error_type: 'invalid_signature' })
-                logger.error('[EmailService] handleWebhook: Invalid signature', {
-                    signature,
-                    timestamp,
-                    payload,
-                })
-                return { status: 403, message: 'Invalid signature' }
-            }
-
             const event = req.body as MailjetWebhookEvent
 
-            const { functionId, invocationId } = parseEmailTrackingCode(event.CustomID || '') || {}
+            const { functionId, invocationId } = parseEmailTrackingCode(event.Payload || '') || {}
             const category = EVENT_TYPE_TO_CATEGORY[event.event]
 
             if (!category) {
@@ -212,6 +173,35 @@ export class EmailTrackingService {
         } catch (error) {
             emailTrackingErrorsCounter.inc({ error_type: error.name || 'unknown' })
             logger.error('[EmailService] handleWebhook: Mailjet webhook error', { error })
+            throw error
+        }
+    }
+
+    public async handleSesWebhook(req: ModifiedRequest): Promise<{ status: number; message?: string }> {
+        if (!req.body) {
+            return { status: 403, message: 'Missing request body' }
+        }
+
+        try {
+            const { status, body, metrics } = await this.sesWebhookHandler.handleWebhook({
+                body: parseJSON(req.body),
+                headers: req.headers,
+                verifySignature: true,
+            })
+
+            for (const metric of metrics || []) {
+                await this.trackMetric({
+                    functionId: metric.functionId,
+                    invocationId: metric.invocationId,
+                    metricName: metric.metricName,
+                    source: 'ses',
+                })
+            }
+
+            return { status, message: body as string }
+        } catch (error) {
+            emailTrackingErrorsCounter.inc({ error_type: error.name || 'unknown' })
+            logger.error('[EmailService] handleWebhook: SES webhook error', { error })
             throw error
         }
     }

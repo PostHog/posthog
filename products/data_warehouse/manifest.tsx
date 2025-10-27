@@ -13,6 +13,8 @@ export const manifest: ProductManifest = {
             projectBased: true,
             defaultDocsPath: '/docs/data-warehouse',
             activityScope: 'DataWarehouse',
+            description: 'Manage your data warehouse sources and queries',
+            iconType: 'data_warehouse',
         },
     },
     routes: {
@@ -24,11 +26,12 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Data Warehouse',
-            category: 'Tools',
+            category: 'Unreleased',
             href: urls.dataWarehouse(),
             flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
             iconType: 'data_warehouse' as FileSystemIconType,
             iconColor: ['var(--color-product-data-warehouse-light)'] as FileSystemIconColor,
+            sceneKey: 'DataWarehouse',
         },
     ],
 }

@@ -2,6 +2,9 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use base64::{prelude::BASE64_STANDARD, Engine};
+use chrono::serde::ts_microseconds;
+use chrono::DateTime;
+use chrono::Utc;
 use clickhouse::Row;
 use opentelemetry_proto::tonic::{
     common::v1::{
@@ -15,29 +18,38 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use sha2::{Digest, Sha512};
 use tracing::debug;
+use uuid::Uuid;
 
 #[derive(Row, Debug, Serialize, Deserialize)]
-pub struct LogRow {
-    team_id: i32,
-    trace_id: [u8; 16],
-    span_id: [u8; 8],
-    trace_flags: u32,
-    timestamp: u64,
-    body: String,
-    message: String,
-    attributes: Vec<(String, String)>,
-    severity_text: String,
-    severity_number: i32,
-    resource_attributes: Vec<(String, String)>,
-    resource_id: String,
-    instrumentation_scope: String,
-    service_name: String,
-    event_name: String,
+pub struct KafkaLogRow {
+    pub uuid: String,
+    pub trace_id: String,
+    pub span_id: String,
+    pub trace_flags: u32,
+    #[serde(with = "ts_microseconds")]
+    pub timestamp: DateTime<Utc>,
+    #[serde(with = "ts_microseconds")]
+    pub observed_timestamp: DateTime<Utc>,
+    #[serde(with = "ts_microseconds")]
+    pub created_at: DateTime<Utc>,
+    pub body: String,
+    pub severity_text: String,
+    pub severity_number: i32,
+    pub service_name: String,
+    pub resource_attributes: HashMap<String, String>,
+    pub resource_id: String,
+    pub instrumentation_scope: String,
+    pub event_name: String,
+    pub attributes: HashMap<String, String>,
+    pub attributes_map_str: HashMap<String, String>,
+    pub attributes_map_float: HashMap<String, f64>,
+    pub attributes_map_datetime: HashMap<String, f64>,
+    pub attribute_keys: Vec<String>,
+    pub attribute_values: Vec<String>,
 }
 
-impl LogRow {
+impl KafkaLogRow {
     pub fn new(
-        team_id: i32,
         record: LogRecord,
         resource: Option<Resource>,
         scope: Option<InstrumentationScope>,
@@ -55,8 +67,6 @@ impl LogRow {
             },
             None => "".to_string(),
         };
-
-        let message = try_extract_message(&body).unwrap_or_default();
 
         let mut severity_text = normalize_severity_text(record.severity_text);
         let mut severity_number = record.severity_number;
@@ -76,7 +86,7 @@ impl LogRow {
         let resource_id = extract_resource_id(&resource);
         let resource_attributes = extract_resource_attributes(resource);
 
-        let mut attributes: Vec<(String, String)> = record
+        let mut attributes: HashMap<String, String> = record
             .attributes
             .into_iter()
             .map(|kv| {
@@ -95,8 +105,8 @@ impl LogRow {
             None => "".to_string(),
         };
 
-        let event_name = extract_string(&attributes, "event.name");
-        let service_name = extract_string(&attributes, "service.name");
+        let event_name = extract_string_from_map(&attributes, "event.name");
+        let service_name = extract_string_from_map(&attributes, "service.name");
 
         // Trace/span IDs
         let trace_id = extract_trace_id(&record.trace_id);
@@ -105,42 +115,73 @@ impl LogRow {
         // Trace flags
         let trace_flags = record.flags;
 
+        let timestamp = DateTime::<Utc>::from_timestamp_nanos(record.time_unix_nano.try_into()?);
+        let observed_timestamp = Utc::now();
+
         let log_row = Self {
-            // uuid: Uuid::now_v7(),
-            team_id,
-            trace_id,
-            span_id,
+            uuid: Uuid::now_v7().to_string(),
+            trace_id: BASE64_STANDARD.encode(trace_id),
+            span_id: BASE64_STANDARD.encode(span_id),
             trace_flags,
-            timestamp: record.time_unix_nano,
+            timestamp,
+            observed_timestamp,
+            created_at: observed_timestamp,
             body,
-            message,
-            attributes,
             severity_text,
             severity_number,
-            resource_attributes,
+            resource_attributes: resource_attributes.into_iter().collect(),
             instrumentation_scope,
             event_name,
             resource_id,
             service_name,
+            attributes: attributes.clone(),
+            attributes_map_str: attributes
+                .clone()
+                .into_iter()
+                .map(|(k, v)| (k + "__str", extract_json_string(v)))
+                .collect(),
+            attributes_map_float: attributes
+                .clone()
+                .into_iter()
+                .map(|(k, v)| (k, extract_json_float(v)))
+                .filter(|(_, v)| v.is_some())
+                .map(|(k, v)| (k + "__float", v.unwrap()))
+                .collect(),
+            attributes_map_datetime: HashMap::new(),
+            attribute_keys: attributes.keys().cloned().collect(),
+            attribute_values: attributes.values().cloned().collect(),
         };
-        debug!("log: {log_row:?}");
+        debug!("log: {:?}", log_row);
 
         Ok(log_row)
     }
 }
 
 // extract a JSON value as a string. If it's a string, strip the surrounding "quotes"
-fn extract_string(attributes: &[(String, String)], key: &str) -> String {
-    for (k, val) in attributes.iter() {
-        if k == key {
-            if let Ok(JsonValue::String(value)) = serde_json::from_str::<JsonValue>(val) {
-                return value.to_string();
-            } else {
-                return val.to_string();
-            }
+fn extract_string_from_map(attributes: &HashMap<String, String>, key: &str) -> String {
+    if let Some(value) = attributes.get(key) {
+        if let Ok(JsonValue::String(value)) = serde_json::from_str::<JsonValue>(value) {
+            value.to_string()
+        } else {
+            value.to_string()
         }
+    } else {
+        "".to_string()
     }
-    "".to_string()
+}
+
+fn extract_json_string(value: String) -> String {
+    match serde_json::from_str::<JsonValue>(&value) {
+        Ok(JsonValue::String(value)) => value,
+        _ => value,
+    }
+}
+
+fn extract_json_float(value: String) -> Option<f64> {
+    match serde_json::from_str::<JsonValue>(&value) {
+        Ok(JsonValue::Number(value)) => value.as_f64(),
+        _ => None,
+    }
 }
 
 fn extract_trace_id(input: &[u8]) -> [u8; 16] {
@@ -216,23 +257,6 @@ fn convert_severity_number_to_text(severity_number: i32) -> String {
         24 => "fatal".to_string(),
         _ => "unknown".to_string(),
     }
-}
-
-// TOOD - pull this from PG
-const MESSAGE_KEYS: [&str; 3] = ["message", "msg", "log.message"];
-
-fn try_extract_message(body: &str) -> Option<String> {
-    let Ok(value) = serde_json::from_str::<JsonValue>(body) else {
-        return None;
-    };
-
-    for key in MESSAGE_KEYS {
-        if let Some(JsonValue::String(s)) = value.get(key) {
-            return Some(s.clone());
-        }
-    }
-
-    None
 }
 
 fn extract_resource_attributes(resource: Option<Resource>) -> Vec<(String, String)> {

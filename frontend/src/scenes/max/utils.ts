@@ -1,5 +1,3 @@
-import { decodeParams, encodeParams } from 'kea-router'
-
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
 
@@ -28,7 +26,7 @@ import {
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isHogQLQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
-import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel, SidePanelTab } from '~/types'
+import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
 
 import { SuggestionGroup } from './maxLogic'
 import { MaxActionContext, MaxContextType, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
@@ -98,28 +96,6 @@ export function castAssistantQuery(
     throw new Error(`Unsupported query type: ${query?.kind}`)
 }
 
-/**
- * Generate a URL for a conversation.
- */
-export function getConversationUrl({
-    pathname,
-    search,
-    conversationId,
-    includeHash = true,
-}: {
-    pathname: string
-    search: string
-    conversationId: string
-    includeHash?: boolean
-}): string {
-    const params = decodeParams(search, '?')
-    const strParams = encodeParams({
-        ...params,
-        chat: conversationId,
-    })
-    return `${pathname}${strParams ? `?${strParams}` : ''}${includeHash ? `#panel=${SidePanelTab.Max}` : ''}`
-}
-
 export function formatConversationDate(updatedAt: string | null): string {
     if (!updatedAt) {
         return 'Some time ago'
@@ -163,6 +139,20 @@ export function formatSuggestion(suggestion: string): string {
     return `${suggestion.replace(/[<>]/g, '').replace(/…$/, '').trim()}${suggestion.endsWith('…') ? '…' : ''}`
 }
 
+export function isDeepResearchReportNotebook(
+    notebook: { category?: string | null; notebook_type?: string | null } | null | undefined
+): boolean {
+    return !!(notebook && notebook.category === 'deep_research' && notebook.notebook_type === 'report')
+}
+
+export function isDeepResearchReportCompletion(message: NotebookUpdateMessage): boolean {
+    return (
+        message.notebook_type === 'deep_research' &&
+        Array.isArray(message.conversation_notebooks) &&
+        message.conversation_notebooks.some((nb) => isDeepResearchReportNotebook(nb))
+    )
+}
+
 export function generateBurstPoints(spikeCount: number, spikiness: number): string {
     if (spikiness < 0 || spikiness > 1) {
         throw new Error('Spikiness must be between 0 and 1')
@@ -192,7 +182,9 @@ export const insightToMaxContext = (
     filtersOverride?: DashboardFilter,
     variablesOverride?: Record<string, HogQLVariable>
 ): MaxInsightContext => {
-    const source = (insight.query as any)?.source
+    // Some insights (especially revenue analytics insights) don't have an inner source so we fallback to the outer query
+    const source = (insight.query as any)?.source ?? insight.query
+
     return {
         type: MaxContextType.INSIGHT,
         id: insight.short_id!,

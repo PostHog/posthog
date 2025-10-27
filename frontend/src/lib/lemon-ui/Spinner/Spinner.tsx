@@ -32,6 +32,7 @@ export interface SpinnerProps {
     className?: string
     speed?: `${number}s` // Seconds
     captureTime?: boolean
+    size?: 'small' | 'medium' | 'large'
 }
 
 /** Smoothly animated spinner for loading states. It does not indicate progress, only that something's happening. */
@@ -40,6 +41,7 @@ export function Spinner({
     className,
     speed = '1s',
     captureTime = true,
+    size = 'small',
 }: SpinnerProps): JSX.Element {
     useTimingCapture(captureTime)
 
@@ -47,7 +49,12 @@ export function Spinner({
         <svg
             // eslint-disable-next-line react/forbid-dom-props
             style={{ '--spinner-speed': speed } as React.CSSProperties}
-            className={twMerge('LemonIcon Spinner', textColored && `Spinner--textColored`, className)}
+            className={twMerge(
+                'LemonIcon Spinner',
+                textColored && `Spinner--textColored`,
+                size && `Spinner--${size}`,
+                className
+            )}
             viewBox="0 0 48 48"
             xmlns="http://www.w3.org/2000/svg"
         >
@@ -76,7 +83,14 @@ export function SpinnerOverlay({
     mode?: 'spinning' | 'editing'
 }): JSX.Element {
     return (
-        <div className={twJoin('SpinnerOverlay', sceneLevel && 'SpinnerOverlay--scene-level')} aria-hidden={!visible}>
+        <div
+            className={twJoin(
+                'SpinnerOverlay',
+                sceneLevel && 'SpinnerOverlay--scene-level',
+                sceneLevel && 'h-[calc(100vh-var(--scene-layout-header-height))]'
+            )}
+            aria-hidden={!visible}
+        >
             {mode === 'editing' ? (
                 <IconPencil className="text-5xl text-accent z-10 drop-shadow-xl" />
             ) : (

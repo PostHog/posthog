@@ -4,6 +4,7 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { DebugCHQueries } from 'lib/components/CommandPalette/DebugCHQueries'
+import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -16,6 +17,7 @@ import { Node } from '~/queries/schema/schema-general'
 import { containsHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId, ItemMode } from '~/types'
 
+import { teamLogic } from '../teamLogic'
 import { InsightsNav } from './InsightNav/InsightsNav'
 import { insightCommandLogic } from './insightCommandLogic'
 import { insightDataLogic } from './insightDataLogic'
@@ -31,6 +33,7 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
     // insightSceneLogic
     const { insightMode, insight, filtersOverride, variablesOverride, hasOverrides, freshQuery } =
         useValues(insightSceneLogic)
+    const { currentTeamId } = useValues(teamLogic)
 
     // insightLogic
     const logic = insightLogic({
@@ -47,6 +50,13 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
     const { query, showQueryEditor, showDebugPanel } = useValues(insightDataLogic(insightProps))
     const { setQuery: setInsightQuery } = useActions(insightDataLogic(insightProps))
 
+    useFileSystemLogView({
+        type: 'insight',
+        ref: insight?.short_id,
+        enabled: Boolean(currentTeamId && insight?.short_id && insight?.saved && !accessDeniedToInsight),
+        deps: [currentTeamId, insight?.short_id, insight?.saved, accessDeniedToInsight],
+    })
+
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
     useAttachedLogic(logic, attachTo) // insightLogic(insightProps)
@@ -54,9 +64,10 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
 
     const actuallyShowQueryEditor = insightMode === ItemMode.Edit && showQueryEditor
 
-    const setQuery = (query: Node, isSourceUpdate?: boolean): void => {
-        if (!isInsightVizNode(query) || isSourceUpdate) {
-            setInsightQuery(query)
+    const setQuery = (q: Node | ((q: Node) => Node), isSourceUpdate?: boolean): void => {
+        let node = typeof q === 'function' ? (query ? q(query) : null) : q
+        if (!isInsightVizNode(node) || isSourceUpdate) {
+            setInsightQuery(node)
         }
     }
 

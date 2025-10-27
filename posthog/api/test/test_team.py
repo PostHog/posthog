@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 from freezegun import freeze_time
@@ -7,19 +7,24 @@ from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.http import HttpResponse
+from django.test import override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status, test
 from temporalio.service import RPCError
 
 from posthog.api.test.batch_exports.conftest import start_test_worker
+from posthog.api.test.test_oauth import generate_rsa_key
 from posthog.constants import AvailableFeature
-from posthog.models import ActivityLog, EarlyAccessFeature
+from posthog.models import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.dashboard import Dashboard
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.product_intent import ProductIntent
@@ -30,6 +35,8 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_instance_realm
+
+from products.early_access_features.backend.models import EarlyAccessFeature
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -177,22 +184,22 @@ def team_api_test_factory():
             get_geoip_properties_mock.return_value = {}
             response = self.client.post("/api/projects/@current/environments/", {"name": "Test World"})
             self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertDictContainsSubset({"name": "Test World", "week_start_day": None}, response.json())
+            self.assertLessEqual({"name": "Test World", "week_start_day": None}.items(), response.json().items())
 
             get_geoip_properties_mock.return_value = {"$geoip_country_code": "US"}
             response = self.client.post("/api/projects/@current/environments/", {"name": "Test US"})
             self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertDictContainsSubset({"name": "Test US", "week_start_day": 0}, response.json())
+            self.assertLessEqual({"name": "Test US", "week_start_day": 0}.items(), response.json().items())
 
             get_geoip_properties_mock.return_value = {"$geoip_country_code": "PL"}
             response = self.client.post("/api/projects/@current/environments/", {"name": "Test PL"})
             self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertDictContainsSubset({"name": "Test PL", "week_start_day": 1}, response.json())
+            self.assertLessEqual({"name": "Test PL", "week_start_day": 1}.items(), response.json().items())
 
             get_geoip_properties_mock.return_value = {"$geoip_country_code": "IR"}
             response = self.client.post("/api/projects/@current/environments/", {"name": "Test IR"})
             self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertDictContainsSubset({"name": "Test IR", "week_start_day": 0}, response.json())
+            self.assertLessEqual({"name": "Test IR", "week_start_day": 0}.items(), response.json().items())
 
         def test_cant_create_team_without_license_on_selfhosted(self):
             with self.is_cloud(False):
@@ -530,9 +537,6 @@ def team_api_test_factory():
         def test_delete_batch_exports(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
-            self.organization.available_product_features = [
-                {"key": AvailableFeature.DATA_PIPELINES, "name": AvailableFeature.DATA_PIPELINES}
-            ]
             self.organization.save()
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 
@@ -1492,16 +1496,25 @@ def team_api_test_factory():
         def test_can_complete_product_onboarding_as_member(
             self, mock_report_user_action: MagicMock, mock_report_user_action_legacy_endpoint: MagicMock
         ) -> None:
-            from ee.models import ExplicitTeamMembership
+            from ee.models.rbac.access_control import AccessControl
 
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
-            self.team.access_control = True
-            self.team.save()
-            ExplicitTeamMembership.objects.create(
+
+            # Set up new access control system - restrict project to no default access
+            AccessControl.objects.create(
                 team=self.team,
-                parent_membership=self.organization_membership,
-                level=ExplicitTeamMembership.Level.MEMBER,
+                access_level="none",
+                resource="project",
+                resource_id=str(self.team.id),
+            )
+            # Grant specific member access to this user
+            AccessControl.objects.create(
+                team=self.team,
+                access_level="member",
+                resource="project",
+                resource_id=str(self.team.id),
+                organization_member=self.organization_membership,
             )
 
             if self.client_class is EnvironmentToProjectRewriteClient:
@@ -1860,6 +1873,79 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         )
 
         response = self.client.get("/api/environments/", HTTP_AUTHORIZATION=f"Bearer {personal_api_key}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {team["id"] for team in response.json()["results"]},
+            {team_in_other_org.id},
+            "Only the team belonging to the scoped organization should be listed, the other one should be excluded",
+        )
+
+    @override_settings(
+        OAUTH2_PROVIDER={
+            **settings.OAUTH2_PROVIDER,
+            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+        }
+    )
+    def test_teams_outside_oauth_scoped_teams_causes_403(self):
+        # TODO: This should filter out the teams to the scoped teams, but it causes a 403 due to a bug in APIScopePermission for list endpoints.
+        other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
+        _, team_in_other_project = Project.objects.create_with_team(
+            organization=self.organization, initiating_user=self.user
+        )
+
+        oauth_app = OAuthApplication.objects.create(
+            name="Test OAuth App",
+            client_id="test_client_id",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+
+        access_token = OAuthAccessToken.objects.create(
+            application=oauth_app,
+            user=self.user,
+            token="pha_test_oauth_token",
+            scope="*",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[other_team_in_project.id],
+        )
+
+        response = self.client.get("/api/environments/", HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @override_settings(
+        OAUTH2_PROVIDER={
+            **settings.OAUTH2_PROVIDER,
+            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+        }
+    )
+    def test_teams_outside_oauth_scoped_organizations_not_listed(self):
+        other_org, __, team_in_other_org = Organization.objects.bootstrap(self.user)
+
+        oauth_app = OAuthApplication.objects.create(
+            name="Test OAuth App",
+            client_id="test_client_id",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+
+        access_token = OAuthAccessToken.objects.create(
+            application=oauth_app,
+            user=self.user,
+            token="pha_test_oauth_token",
+            scope="*",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_organizations=[str(other_org.id)],
+        )
+
+        response = self.client.get("/api/environments/", HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(

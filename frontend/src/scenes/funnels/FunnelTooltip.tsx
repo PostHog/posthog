@@ -9,9 +9,9 @@ import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
 import { ClickToInspectActors } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
-import { ensureTooltip } from 'scenes/insights/views/LineGraph/LineGraph'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -106,17 +106,18 @@ export function FunnelTooltip({
     )
 }
 
-export function useFunnelTooltip(showPersonsModal: boolean, chartId: string): React.RefObject<HTMLDivElement> {
+export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTMLDivElement> {
     const { insightProps } = useValues(insightLogic)
     const { breakdownFilter, querySource } = useValues(funnelDataLogic(insightProps))
     const { isTooltipShown, currentTooltip, tooltipOrigin } = useValues(funnelTooltipLogic(insightProps))
     const { aggregationLabel } = useValues(groupsModel)
 
     const vizRef = useRef<HTMLDivElement>(null)
+    const { getTooltip } = useInsightTooltip()
 
     useEffect(() => {
         const svgRect = vizRef.current?.getBoundingClientRect()
-        const [tooltipRoot, tooltipEl] = ensureTooltip(chartId)
+        const [tooltipRoot, tooltipEl] = getTooltip()
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
         const tooltipRect = tooltipEl.getBoundingClientRect()
         if (tooltipOrigin) {

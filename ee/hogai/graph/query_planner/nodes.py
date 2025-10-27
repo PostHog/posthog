@@ -27,11 +27,12 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.mixins import TaxonomyReasoningNodeMixin
-from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import dereference_schema, format_events_yaml
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import AssistantNodeName
+from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
     ACTIONS_EXPLANATION_PROMPT,
@@ -56,6 +57,10 @@ from .toolkit import (
 
 
 class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.QUERY_PLANNER
+
     def _get_dynamic_entity_tools(self):
         """Create dynamic Pydantic models with correct entity types for this team."""
         # Create Literal type with actual entity names
@@ -100,7 +105,7 @@ class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
         chain = conversation | merge_message_runs() | self._get_model(state)
 
         events_in_context = []
-        if ui_context := self._get_ui_context(state):
+        if ui_context := self.context_manager.get_ui_context(state):
             events_in_context = ui_context.events if ui_context.events else []
 
         output_message = chain.invoke(
@@ -121,7 +126,6 @@ class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
                 "trends_json_schema": dereference_schema(AssistantTrendsQuery.model_json_schema()),
                 "funnel_json_schema": dereference_schema(AssistantFunnelsQuery.model_json_schema()),
                 "retention_json_schema": dereference_schema(AssistantRetentionQuery.model_json_schema()),
-                "insight_types_prompt": ROOT_INSIGHT_DESCRIPTION_PROMPT,
             },
             config,
         )
@@ -149,8 +153,12 @@ class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
             reasoning={
                 "summary": "auto",  # Without this, there's no reasoning summaries! Only works with reasoning models
             },
+            include=["reasoning.encrypted_content"],
             team=self._team,
             user=self._user,
+            # LangChain sometimes incorrectly handles reasoning items. They fixed it in the new output version.
+            # Ref: https://forum.langchain.com/t/langgraph-openai-responses-api-400-error-web-search-call-was-provided-without-its-required-reasoning-item/1740/2
+            output_version="responses/v1",
         ).bind_tools(
             [
                 retrieve_event_properties,
@@ -241,6 +249,10 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
     the agent will terminate the conversation and return a message to the root node
     to request additional information.
     """
+
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.QUERY_PLANNER_TOOLS
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         toolkit = TaxonomyAgentToolkit(self._team)

@@ -30,7 +30,7 @@ export class TeamFilter {
             // TODO refactor
             eventDroppedCounter
                 .labels({
-                    event_type: 'session_recordings_blob_ingestion',
+                    event_type: 'session_recordings_blob_ingestion_v2',
                     drop_cause: reason,
                 })
                 .inc()
@@ -54,6 +54,12 @@ export class TeamFilter {
             dropMessage('header_token_present_team_missing_or_disabled', {
                 token: token,
             })
+            return null
+        }
+
+        const retentionPeriod = await this.teamService.getRetentionPeriodByTeamId(team.teamId)
+        if (!retentionPeriod) {
+            dropMessage('team_missing_retention_period')
             return null
         }
 

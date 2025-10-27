@@ -1,7 +1,28 @@
 # serializer version: 1
 # name: TestLifecycleQueryRunner.test_cohort_filter
   '''
-  /* cohort_calculation: */
+  /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage,
+  exception
+  FROM query_log_archive
+  WHERE lc_cohort_id = 99999
+    AND team_id = 99999
+    AND query LIKE '%cohort_calc:00000000%'
+    AND type IN ('QueryFinish',
+                 'ExceptionWhileProcessing')
+    AND event_date >= 'today'
+    AND event_time >= 'today 00:00:00'
+  ORDER BY event_time DESC
+  '''
+# ---
+# name: TestLifecycleQueryRunner.test_cohort_filter.1
+  '''
+  
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -9,91 +30,8 @@
     AND version = 0
   '''
 # ---
-# name: TestLifecycleQueryRunner.test_cohort_filter.1
-  '''
-  /* cohort_calculation: */
-  SELECT groupArray(start_of_period) AS date,
-         groupArray(counts) AS total,
-         status AS status
-  FROM
-    (SELECT if(ifNull(equals(status, 'dormant'), 0), negate(sum(counts)), negate(negate(sum(counts)))) AS counts,
-            start_of_period AS start_of_period,
-            status AS status
-     FROM
-       (SELECT periods.start_of_period AS start_of_period,
-               0 AS counts,
-               sec.status AS status
-        FROM
-          (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS start_of_period
-           FROM numbers(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(plus(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(1)))) AS numbers) AS periods
-        CROSS JOIN
-          (SELECT status
-           FROM
-             (SELECT 1) ARRAY
-           JOIN ['new', 'returning', 'resurrecting', 'dormant'] AS status) AS sec
-        ORDER BY sec.status ASC, start_of_period ASC
-        UNION ALL SELECT start_of_period AS start_of_period,
-                         count(DISTINCT actor_id) AS counts,
-                         status AS status
-        FROM
-          (SELECT min(events__person.created_at) AS created_at,
-                  arraySort(groupUniqArray(toStartOfInterval(toTimeZone(events.timestamp, 'UTC'), toIntervalDay(1)))) AS all_activity,
-                  arrayPopBack(arrayPushFront(all_activity, toStartOfInterval(created_at, toIntervalDay(1)))) AS previous_activity,
-                  arrayPopFront(arrayPushBack(all_activity, toStartOfInterval(toDateTime('1970-01-01 00:00:00', 'UTC'), toIntervalDay(1)))) AS following_activity,
-                  arrayMap((previous, current, index) -> if(ifNull(equals(previous, current), isNull(previous)
-                                                                   and isNull(current)), 'new', if(and(ifNull(equals(minus(toTimeZone(current, 'UTC'), toIntervalDay(1)), previous), isNull(minus(toTimeZone(current, 'UTC'), toIntervalDay(1)))
-                                                                                                              and isNull(previous)), ifNull(notEquals(index, 1), 1)), 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) AS initial_status,
-                  arrayMap((current, next) -> if(ifNull(equals(plus(toTimeZone(current, 'UTC'), toIntervalDay(1)), toTimeZone(next, 'UTC')), isNull(plus(toTimeZone(current, 'UTC'), toIntervalDay(1)))
-                                                        and isNull(toTimeZone(next, 'UTC'))), '', 'dormant'), all_activity, following_activity) AS dormant_status,
-                  arrayMap(x -> plus(toTimeZone(x, 'UTC'), toIntervalDay(1)), arrayFilter((current, is_dormant) -> ifNull(equals(is_dormant, 'dormant'), 0), all_activity, dormant_status)) AS dormant_periods,
-                  arrayMap(x -> 'dormant', dormant_periods) AS dormant_label,
-                  arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) AS temp_concat,
-                  arrayJoin(temp_concat) AS period_status_pairs,
-                  period_status_pairs.1 AS start_of_period,
-                  period_status_pairs.2 AS status,
-                  if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id
-           FROM events
-           LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                     person_distinct_id_overrides.distinct_id AS distinct_id
-              FROM person_distinct_id_overrides
-              WHERE equals(person_distinct_id_overrides.team_id, 99999)
-              GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-           LEFT JOIN
-             (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
-                     person.id AS id
-              FROM person
-              WHERE equals(person.team_id, 99999)
-              GROUP BY person.id
-              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-           WHERE and(equals(events.team_id, 99999), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$process_person_profile'), ''), 'null'), '^"|"$', ''), 'false'), 1), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(1))), in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT cohortpeople.person_id AS person_id
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), equals(events.event, '$pageview'))
-           GROUP BY actor_id)
-        GROUP BY start_of_period,
-                 status)
-     WHERE and(ifNull(lessOrEquals(start_of_period, toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')), toIntervalDay(1))), 0), ifNull(greaterOrEquals(start_of_period, toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'UTC')), toIntervalDay(1))), 0))
-     GROUP BY start_of_period,
-              status
-     ORDER BY start_of_period ASC)
-  GROUP BY status
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
-  '''
-# ---
 # name: TestLifecycleQueryRunner.test_cohort_filter.2
   '''
-  /* cohort_calculation: */
   SELECT groupArray(start_of_period) AS date,
          groupArray(counts) AS total,
          status AS status

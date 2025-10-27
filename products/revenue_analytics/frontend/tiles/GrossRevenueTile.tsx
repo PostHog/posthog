@@ -36,5 +36,5 @@ export const GrossRevenueTile = (): JSX.Element => {
         [query]
     )
 
-    return <Query query={query} readOnly context={context} />
+    return <Query attachTo={revenueAnalyticsLogic} query={query} readOnly context={context} />
 }

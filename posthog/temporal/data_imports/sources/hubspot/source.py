@@ -37,6 +37,8 @@ class HubspotSource(BaseSource[HubspotSourceConfig | HubspotSourceOldConfig], OA
         return SourceConfig(
             name=SchemaExternalDataSourceType.HUBSPOT,
             caption="Select an existing Hubspot account to link to PostHog or create a new connection",
+            iconPath="/static/services/hubspot.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/hubspot",
             fields=cast(
                 list[FieldType],
                 [

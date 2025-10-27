@@ -172,6 +172,12 @@ def get_themes_for_team(team: Team):
     return themes
 
 
+def get_global_themes():
+    global_themes = DataColorTheme.objects.filter(Q(team_id=None))
+    themes = DataColorThemeSerializer(global_themes, many=True).data
+    return themes
+
+
 def build_shared_app_context(team: Team, request: Request) -> dict[str, Any]:
     """
     Build app context for shared dashboards/insights similar to what render_template creates.
@@ -392,6 +398,11 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
         context = self.get_serializer_context()
         instance = self._get_sharing_configuration(context)
 
+        if context.get("recording"):
+            recording = cast(SessionRecording, context.get("recording"))
+            # Special case where we need to save the instance for recordings so that the actual record gets created
+            recording.save()
+
         check_can_edit_sharing_configuration(self, request, instance)
 
         # Create new sharing configuration and expire the old one
@@ -523,9 +534,12 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         # JWT based access (ExportedAsset)
         token = self.request.query_params.get("token")
         if token:
-            asset = asset_for_token(token)
-            if asset:
-                return asset
+            try:
+                asset = asset_for_token(token)
+                if asset:
+                    return asset
+            except ExportedAsset.DoesNotExist:
+                raise NotFound()
 
         # Path based access (SharingConfiguration only)
         access_token = self.kwargs.get("access_token", "").split(".")[0]
@@ -762,6 +776,42 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
             except Exception:
                 raise NotFound("No recording found")
+        elif (
+            isinstance(resource, ExportedAsset)
+            and resource.export_context
+            and resource.export_context.get("heatmap_url")
+        ):
+            # Handle heatmap export via export_context
+            heatmap_url = resource.export_context.get("heatmap_url")
+
+            if not heatmap_url:
+                raise NotFound("Invalid replay export - missing heatmap_url")
+
+            try:
+                # Create a JWT to access the heatmap data
+                export_access_token = ""
+                if resource.created_by and resource.created_by.id:
+                    export_access_token = encode_jwt(
+                        {"id": resource.created_by.id},
+                        timedelta(minutes=5),
+                        PosthogJwtAudience.IMPERSONATED_USER,
+                    )
+
+                asset_title = "Heatmap"
+                asset_description = f"Heatmap {heatmap_url}"
+
+                exported_data.update(
+                    {
+                        "type": "heatmap",
+                        "heatmap_url": heatmap_url,
+                        "exportToken": export_access_token,
+                        "noBorder": True,
+                        "heatmap_context": resource.export_context,
+                    }
+                )
+
+            except Exception:
+                raise NotFound("No heatmap found")
         elif isinstance(resource, SharingConfiguration) and resource.recording and not resource.recording.deleted:
             asset_title = "Session Recording"
             recording_data = SessionRecordingSerializer(resource.recording, context=context).data

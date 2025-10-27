@@ -6,21 +6,41 @@ const _commonActionFields = {
     id: z.string(),
     name: z.string(),
     description: z.string(),
-    on_error: z.enum(['continue', 'abort', 'complete', 'branch']).optional(),
+    on_error: z.enum(['continue', 'abort']).optional(),
     created_at: z.number(),
     updated_at: z.number(),
     filters: z.any(), // TODO: Correct to the right type
 }
+
+const HogFlowTriggerSchema = z.discriminatedUnion('type', [
+    z.object({
+        type: z.literal('event'),
+        filters: z.object({
+            events: z.array(z.any()).optional(),
+            properties: z.array(z.any()).optional(),
+            actions: z.array(z.any()).optional(),
+        }),
+    }),
+    z.object({
+        type: z.literal('webhook'),
+        template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+        template_id: z.string(),
+        inputs: z.record(CyclotronInputSchema),
+    }),
+    z.object({
+        type: z.literal('tracking_pixel'),
+        template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+        template_id: z.string(),
+        inputs: z.record(CyclotronInputSchema),
+    }),
+])
 
 const HogFlowActionSchema = z.discriminatedUnion('type', [
     // Trigger
     z.object({
         ..._commonActionFields,
         type: z.literal('trigger'),
-        config: z.object({
-            type: z.literal('event'),
-            filters: z.any(),
-        }),
+        config: HogFlowTriggerSchema,
         // A trigger's event filters are stored on the top-level Hogflow object
     }),
     // Branching
@@ -142,17 +162,17 @@ export const HogFlowSchema = z.object({
     version: z.number(),
     name: z.string(),
     status: z.enum(['active', 'draft', 'archived']),
-    trigger: z.object({
-        type: z.literal('event'),
-        filters: z.any(),
-    }),
+    trigger: HogFlowTriggerSchema,
+    // Optional masking config for the trigger, allows HogFlows to be rate limited per distinct ID or other property
     trigger_masking: z
         .object({
-            ttl: z.number(),
+            ttl: z.number().nullable(),
             hash: z.string(),
-            threshold: z.number(),
+            bytecode: z.array(z.union([z.string(), z.number()])),
+            threshold: z.number().nullable(),
         })
-        .optional(),
+        .optional()
+        .nullable(),
     conversion: z
         .object({
             window_minutes: z.number(),

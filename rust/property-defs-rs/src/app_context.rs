@@ -3,7 +3,7 @@ use quick_cache::sync::Cache;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::collections::HashMap;
 use time::Duration;
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::{
     api::v1::query::Manager,
@@ -52,15 +52,17 @@ impl AppContext {
         // read posthog_grouptypemappings from the new persons DB. Otherwise, we
         // fall back to the std. cloud DB pool above.
         let persons_options = PgPoolOptions::new().max_connections(config.max_pg_connections);
-        let persons_pool: Option<PgPool> = if config.database_persons_url.is_some() {
-            Some(
-                persons_options
-                    .connect(config.database_persons_url.as_ref().unwrap())
-                    .await?,
-            )
-        } else {
-            None
-        };
+        let persons_pool: Option<PgPool> =
+            if config.read_groups_from_persons_db && !config.database_persons_url.is_empty() {
+                info!("Creating persons DB connection pool (read_groups_from_persons_db=true)");
+                let pool = persons_options
+                    .connect(&config.database_persons_url)
+                    .await?;
+                info!("Successfully created persons DB connection pool");
+                Some(pool)
+            } else {
+                None
+            };
 
         let liveness: HealthRegistry = HealthRegistry::new("liveness");
         let worker_liveness = liveness

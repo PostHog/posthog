@@ -14,6 +14,17 @@ import { MatchedRecording } from '~/types'
 
 import { sessionRecordingViewedLogic } from './sessionRecordingViewedLogic'
 
+type ViewRecordingProps = {
+    sessionId: string | undefined
+    recordingStatus?: string
+    recordingDuration?: number
+    minimumDuration?: number
+    timestamp?: string | Dayjs
+    // whether to open in a modal or navigate to the replay page
+    inModal?: boolean
+    matchingEvents?: MatchedRecording[]
+}
+
 export default function ViewRecordingButton({
     sessionId,
     recordingStatus,
@@ -25,25 +36,25 @@ export default function ViewRecordingButton({
     checkIfViewed = false,
     matchingEvents,
     ...props
-}: Pick<LemonButtonProps, 'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'loading'> & {
-    sessionId: string | undefined
-    recordingStatus?: string
-    recordingDuration?: number
-    minimumDuration?: number
-    timestamp?: string | Dayjs
-    // whether to open in a modal or navigate to the replay page
-    inModal?: boolean
-    checkIfViewed?: boolean
-    label?: ReactNode
-    matchingEvents?: MatchedRecording[]
-}): JSX.Element {
-    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
+}: Pick<LemonButtonProps, 'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'loading'> &
+    ViewRecordingProps & {
+        checkIfViewed?: boolean
+        label?: ReactNode
+    }): JSX.Element {
+    const { onClick, disabledReason, warningReason, to } = useRecordingButton({
+        sessionId,
+        recordingStatus,
+        recordingDuration,
+        minimumDuration,
+        timestamp,
+        matchingEvents,
+        inModal,
+    })
+
     const { recordingViewed, recordingViewedLoading } = useValues(
         sessionRecordingViewedLogic({ sessionRecordingId: sessionId ?? '' })
     )
-    const { loadRecordingViewed, userClickedThrough } = useActions(
-        sessionRecordingViewedLogic({ sessionRecordingId: sessionId ?? '' })
-    )
+    const { loadRecordingViewed } = useActions(sessionRecordingViewedLogic({ sessionRecordingId: sessionId ?? '' }))
 
     useEffect(() => {
         if (checkIfViewed && loadRecordingViewed) {
@@ -59,20 +70,6 @@ export default function ViewRecordingButton({
             maybeUnwatchedIndicator = <UnwatchedIndicator otherViewersCount={recordingViewed?.otherViewers || 0} />
         }
     }
-    const onClick = (): void => {
-        userClickedThrough()
-        if (inModal) {
-            const fiveSecondsBeforeEvent = timestamp ? dayjs(timestamp).valueOf() - 5000 : 0
-            openSessionPlayer(
-                { id: sessionId ?? '', matching_events: matchingEvents ?? undefined },
-                Math.max(fiveSecondsBeforeEvent, 0)
-            )
-        }
-    }
-
-    const disabledReason = recordingDisabledReason(sessionId, recordingStatus)
-    const warningReason = recordingWarningReason(recordingDuration, minimumDuration)
-    const to = inModal ? undefined : urls.replaySingle(sessionId ?? '')
 
     const sideIcon = warningReason ? (
         <Tooltip title={warningReason}>
@@ -83,7 +80,14 @@ export default function ViewRecordingButton({
     )
 
     return (
-        <LemonButton disabledReason={disabledReason} to={to} onClick={onClick} sideIcon={sideIcon} {...props}>
+        <LemonButton
+            disabledReason={disabledReason}
+            to={to}
+            onClick={onClick}
+            sideIcon={sideIcon}
+            {...props}
+            targetBlank
+        >
             <div className="flex items-center gap-2 whitespace-nowrap">
                 <span>{label ? label : 'View recording'}</span>
                 {maybeUnwatchedIndicator}
@@ -127,4 +131,39 @@ const recordingWarningReason = (
         return `There is a chance this recording was not captured because the event happened earlier than the ${minimumDurationInSeconds}s minimum session duration.`
     }
     return undefined
+}
+
+export function useRecordingButton({
+    sessionId,
+    recordingStatus,
+    recordingDuration,
+    minimumDuration,
+    timestamp,
+    matchingEvents,
+    inModal,
+}: ViewRecordingProps): {
+    onClick: () => void
+    disabledReason: JSX.Element | string | null
+    warningReason: string | undefined
+    to: string | undefined
+} {
+    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
+    const { userClickedThrough } = useActions(sessionRecordingViewedLogic({ sessionRecordingId: sessionId ?? '' }))
+
+    const onClick = (): void => {
+        userClickedThrough()
+        if (inModal) {
+            const fiveSecondsBeforeEvent = timestamp ? dayjs(timestamp).valueOf() - 5000 : 0
+            openSessionPlayer(
+                { id: sessionId ?? '', matching_events: matchingEvents ?? undefined },
+                Math.max(fiveSecondsBeforeEvent, 0)
+            )
+        }
+    }
+
+    const disabledReason = recordingDisabledReason(sessionId, recordingStatus)
+    const warningReason = recordingWarningReason(recordingDuration, minimumDuration)
+    const to = inModal ? undefined : urls.replaySingle(sessionId ?? '')
+
+    return { onClick, disabledReason, warningReason, to }
 }

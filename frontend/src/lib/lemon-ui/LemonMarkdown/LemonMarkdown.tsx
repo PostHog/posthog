@@ -7,9 +7,12 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { RichContentMention } from 'lib/components/RichContentEditor/RichContentNodeMention'
+import { RichContentNodeType } from 'lib/components/RichContentEditor/types'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 
 import { Link } from '../Link'
+import remarkMentions from './mention'
 
 interface LemonMarkdownContainerProps {
     children: React.ReactNode
@@ -48,6 +51,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                     {value}
                 </CodeSnippet>
             ),
+            [RichContentNodeType.Mention]: ({ id }): JSX.Element => <RichContentMention id={id} />,
             listItem: ({ checked, children }: any): JSX.Element => {
                 // Handle task list items with LemonCheckbox
                 if (checked != null) {
@@ -75,7 +79,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
         <ReactMarkdown
             renderers={renderers}
             disallowedTypes={['html']} // Don't want to deal with the security considerations of HTML
-            plugins={[remarkGfm]}
+            plugins={[remarkGfm, remarkMentions]}
         >
             {children}
         </ReactMarkdown>

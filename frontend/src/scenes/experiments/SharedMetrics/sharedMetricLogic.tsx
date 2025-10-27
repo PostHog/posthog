@@ -99,7 +99,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
                 lemonToast.success('Shared metric created successfully')
                 actions.reportExperimentSharedMetricCreated(response as SharedMetric)
                 actions.loadSharedMetrics()
-                router.actions.push('/experiments/shared-metrics')
+                router.actions.push('/experiments?tab=shared-metrics')
             }
         },
         updateSharedMetric: async () => {
@@ -110,7 +110,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             if (response.id) {
                 lemonToast.success('Shared metric updated successfully')
                 actions.loadSharedMetrics()
-                router.actions.push('/experiments/shared-metrics')
+                router.actions.push('/experiments?tab=shared-metrics')
             }
         },
         deleteSharedMetric: async () => {
@@ -118,7 +118,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
                 await api.delete(`api/projects/@current/experiment_saved_metrics/${values.sharedMetricId}`)
                 lemonToast.success('Shared metric deleted successfully')
                 actions.loadSharedMetrics()
-                router.actions.push('/experiments/shared-metrics')
+                router.actions.push('/experiments?tab=shared-metrics')
             } catch (error) {
                 lemonToast.error('Failed to delete shared metric')
                 console.error(error)

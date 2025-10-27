@@ -1,20 +1,5 @@
-from posthog.sync import database_sync_to_async
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
-from posthog.warehouse.models.external_data_source import ExternalDataSource
-
-
-def get_external_data_source(team_id: str, external_data_source_id: str) -> ExternalDataSource:
-    return ExternalDataSource.objects.get(team_id=team_id, id=external_data_source_id)
-
-
-@database_sync_to_async
-def aget_running_job_for_schema(schema_id: str) -> ExternalDataJob | None:
-    return (
-        ExternalDataJob.objects.filter(schema_id=schema_id, status=ExternalDataJob.Status.RUNNING)
-        .order_by("-created_at")
-        .first()
-    )
 
 
 def update_external_job_status(

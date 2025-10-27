@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Literal, Optional
 
 from django.conf import settings
@@ -10,6 +10,7 @@ from dateutil import parser
 from django_deprecate_fields import deprecate_field
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
@@ -53,7 +54,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType.choices, null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str] }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -174,6 +175,13 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
         return None
 
+    @property
+    def chunk_size_override(self) -> int | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("chunk_size_override", None)
+
+        return None
+
     def set_partitioning_enabled(
         self,
         partitioning_keys: list[str],
@@ -200,6 +208,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config.pop("partitioning_keys", None)
         self.sync_type_config.pop("partition_mode", None)
         # We don't reset partition_format
+        # We don't reset chunk_size_override
 
         self.save()
 
@@ -252,14 +261,19 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     def delete_table(self):
         if self.table is not None:
-            client = get_s3_client()
-            client.delete(f"{settings.BUCKET_URL}/{self.folder_path()}", recursive=True)
+            try:
+                client = get_s3_client()
+                client.delete(f"{settings.BUCKET_URL}/{self.folder_path()}", recursive=True)
+            except Exception as e:
+                capture_exception(e)
 
             self.table.soft_delete()
             self.table_id = None
             self.last_synced_at = None
             self.status = None
             self.save()
+
+            self.update_sync_type_config_for_reset_pipeline()
 
 
 def process_incremental_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any:
@@ -270,9 +284,18 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
         return value
 
     if field_type == IncrementalFieldType.DateTime or field_type == IncrementalFieldType.Timestamp:
+        if isinstance(value, datetime):
+            return value
+
         return parser.parse(value)
 
     if field_type == IncrementalFieldType.Date:
+        if isinstance(value, datetime):
+            return value.date()
+
+        if isinstance(value, date):
+            return value
+
         return parser.parse(value).date()
 
     if field_type == IncrementalFieldType.ObjectID:
@@ -291,11 +314,6 @@ def get_schema_if_exists(schema_name: str, team_id: int, source_id: uuid.UUID) -
         .first()
     )
     return schema
-
-
-@database_sync_to_async
-def aget_schema_if_exists(schema_name: str, team_id: int, source_id: uuid.UUID) -> ExternalDataSchema | None:
-    return get_schema_if_exists(schema_name=schema_name, team_id=team_id, source_id=source_id)
 
 
 @database_sync_to_async

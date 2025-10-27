@@ -14,6 +14,8 @@ export const manifest: ProductManifest = {
             name: 'Logs',
             activityScope: 'Logs',
             layout: 'app-container',
+            iconType: 'logs',
+            description: 'Monitor and analyze your logs to understand and fix issues.',
         },
     },
     routes: {
@@ -26,12 +28,13 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Logs',
-            category: 'Tools',
+            category: 'Unreleased',
             iconType: 'logs' as FileSystemIconType,
             iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
             href: urls.logs(),
-            flag: FEATURE_FLAGS.LOGS,
+            flag: FEATURE_FLAGS.LOGS_PRE_EARLY_ACCESS,
             tags: ['alpha'],
+            sceneKey: 'Logs',
         },
     ],
 }

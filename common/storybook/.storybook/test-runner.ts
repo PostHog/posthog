@@ -69,6 +69,7 @@ const LOADER_SELECTORS = [
     '[aria-busy="true"]',
     '.SessionRecordingPlayer--buffering',
     '.Lettermark--unknown',
+    '[data-attr="loading-bar"]',
 ]
 
 const customSnapshotsDir = path.resolve(__dirname, '../../../frontend/__snapshots__')

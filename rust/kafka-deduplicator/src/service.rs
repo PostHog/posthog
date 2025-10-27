@@ -3,6 +3,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use common_kafka::config::KafkaConfig;
+use common_kafka::kafka_producer::create_kafka_producer;
 use health::{HealthHandle, HealthRegistry};
 use rdkafka::consumer::Consumer;
 use tokio::sync::oneshot;
@@ -10,14 +12,19 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
 use crate::{
+    checkpoint::config::CheckpointConfig,
+    checkpoint::export::CheckpointExporter,
+    checkpoint::s3_uploader::S3Uploader,
     checkpoint_manager::CheckpointManager,
     config::Config,
-    deduplication_processor::{DeduplicationConfig, DeduplicationProcessor},
+    deduplication_processor::{
+        DeduplicationConfig, DeduplicationProcessor, DuplicateEventProducerWrapper,
+    },
     kafka::{stateful_consumer::StatefulKafkaConsumer, ConsumerConfigBuilder},
     processor_pool::ProcessorPool,
     processor_rebalance_handler::ProcessorRebalanceHandler,
     store::DeduplicationStoreConfig,
-    store_manager::StoreManager,
+    store_manager::{CleanupTaskHandle, StoreManager},
 };
 
 /// The main Kafka Deduplicator service that encapsulates all components
@@ -26,6 +33,7 @@ pub struct KafkaDeduplicatorService {
     consumer: Option<StatefulKafkaConsumer>,
     store_manager: Arc<StoreManager>,
     checkpoint_manager: Option<CheckpointManager>,
+    cleanup_task_handle: Option<CleanupTaskHandle>,
     processor_pool_handles: Option<Vec<tokio::task::JoinHandle<()>>>,
     processor_pool_health: Option<Arc<AtomicBool>>,
     shutdown_tx: Option<oneshot::Sender<()>>,
@@ -36,8 +44,26 @@ pub struct KafkaDeduplicatorService {
 }
 
 impl KafkaDeduplicatorService {
+    /// Reset the local checkpoint directory (remove if exists, then create fresh)
+    fn reset_checkpoint_directory(checkpoint_dir: &str) -> Result<()> {
+        let path = std::path::Path::new(checkpoint_dir);
+
+        if path.exists() {
+            info!("Resetting local checkpoint directory: {checkpoint_dir}");
+            std::fs::remove_dir_all(path).with_context(|| {
+                format!("Failed to remove existing checkpoint directory: {checkpoint_dir}",)
+            })?;
+        }
+
+        std::fs::create_dir_all(path)
+            .with_context(|| format!("Failed to create checkpoint directory: {checkpoint_dir}"))?;
+
+        info!("Local checkpoint directory ready: {checkpoint_dir}");
+        Ok(())
+    }
+
     /// Create a new service from configuration
-    pub fn new(config: Config, liveness: HealthRegistry) -> Result<Self> {
+    pub async fn new(config: Config, liveness: HealthRegistry) -> Result<Self> {
         // Validate configuration
         config.validate().with_context(|| format!("Configuration validation failed for service with consumer topic '{}' and group '{}'", config.kafka_consumer_topic, config.kafka_consumer_group))?;
 
@@ -50,22 +76,58 @@ impl KafkaDeduplicatorService {
         };
 
         // Create store manager for handling concurrent store creation
-        let store_manager = Arc::new(StoreManager::new(store_config));
+        let store_manager = Arc::new(StoreManager::new(store_config.clone()));
 
-        // Create checkpoint manager with the store manager
-        let mut checkpoint_manager =
-            CheckpointManager::new(store_manager.clone(), config.flush_interval());
-        checkpoint_manager.start();
-        info!(
-            "Started checkpoint manager with flush interval: {:?}",
-            config.flush_interval()
-        );
+        // Start periodic cleanup task if max_capacity is configured
+        let cleanup_task_handle = if store_config.max_capacity > 0 {
+            let cleanup_interval = config.cleanup_interval();
+            let handle = store_manager
+                .clone()
+                .start_periodic_cleanup(cleanup_interval);
+            info!(
+                "Started periodic cleanup task with interval: {:?} for max capacity: {} bytes",
+                cleanup_interval, store_config.max_capacity
+            );
+            Some(handle)
+        } else {
+            info!("Cleanup task not started - max_capacity is unlimited (0)");
+            None
+        };
+
+        // Create checkpoint manager and inject an exporter to enable uploads
+        let checkpoint_config = CheckpointConfig {
+            checkpoint_interval: config.checkpoint_interval(),
+            checkpoint_full_upload_interval: config.checkpoint_full_upload_interval,
+            local_checkpoint_dir: config.local_checkpoint_dir.clone(),
+            s3_bucket: config.s3_bucket.clone().unwrap_or_default(),
+            s3_key_prefix: config.s3_key_prefix.clone(),
+            aws_region: config.aws_region.clone(),
+            max_concurrent_checkpoints: config.max_concurrent_checkpoints,
+            checkpoint_gate_interval: config.checkpoint_gate_interval(),
+            checkpoint_worker_shutdown_timeout: config.checkpoint_worker_shutdown_timeout(),
+            s3_timeout: config.s3_timeout(),
+        };
+
+        // Reset local checkpoint directory on startup (it's temporary storage)
+        Self::reset_checkpoint_directory(&checkpoint_config.local_checkpoint_dir)?;
+
+        // create exporter conditionally if S3 config is populated
+        let exporter = if !config.aws_region.is_empty() && config.s3_bucket.is_some() {
+            let uploader = Box::new(S3Uploader::new(checkpoint_config.clone()).await.unwrap());
+            Some(Arc::new(CheckpointExporter::new(uploader)))
+        } else {
+            None
+        };
+
+        let checkpoint_manager =
+            CheckpointManager::new(checkpoint_config, store_manager.clone(), exporter);
 
         Ok(Self {
             config,
             consumer: None,
             store_manager,
             checkpoint_manager: Some(checkpoint_manager),
+            cleanup_task_handle,
             processor_pool_handles: None,
             processor_pool_health: None,
             shutdown_tx: None,
@@ -85,6 +147,7 @@ impl KafkaDeduplicatorService {
         // Create deduplication config (store config already in store_manager)
         let dedup_config = DeduplicationConfig {
             output_topic: self.config.output_topic.clone(),
+            duplicate_events_topic: self.config.duplicate_events_topic.clone(),
             producer_config: self.config.build_producer_config(),
             store_config: DeduplicationStoreConfig {
                 path: self.config.store_path_buf(),
@@ -97,9 +160,83 @@ impl KafkaDeduplicatorService {
             flush_interval: self.config.flush_interval(),
         };
 
-        // Create a processor with the store manager
-        let processor = DeduplicationProcessor::new(dedup_config, self.store_manager.clone())
-            .with_context(|| "Failed to create deduplication processor")?;
+        // Create KafkaConfig from our Config (used for both producers)
+        let kafka_config = KafkaConfig {
+            kafka_hosts: self.config.kafka_hosts.clone(),
+            kafka_producer_linger_ms: self.config.kafka_producer_linger_ms,
+            kafka_producer_queue_mib: self.config.kafka_producer_queue_mib,
+            kafka_producer_queue_messages: self.config.kafka_producer_queue_messages,
+            kafka_message_timeout_ms: self.config.kafka_message_timeout_ms,
+            kafka_compression_codec: self.config.kafka_compression_codec.clone(),
+            kafka_tls: self.config.kafka_tls,
+        };
+
+        // Create main producer for output topic if configured
+        let main_producer = match &self.config.output_topic {
+            Some(topic) => {
+                info!("Creating Kafka producer for output topic: {}", topic);
+
+                // Create a health handle for the main producer
+                let main_producer_health = self
+                    .liveness
+                    .register(format!("main_producer_{topic}"), Duration::from_secs(30))
+                    .await;
+
+                // Create the producer using common module's function
+                let producer = create_kafka_producer(&kafka_config, main_producer_health)
+                    .await
+                    .with_context(|| {
+                        format!("Failed to create Kafka producer for output topic '{topic}'")
+                    })?;
+
+                Some(Arc::new(producer))
+            }
+            None => None,
+        };
+
+        // Create duplicate events producer if configured
+        let duplicate_producer = match &self.config.duplicate_events_topic {
+            Some(topic) => {
+                info!(
+                    "Creating Kafka producer for duplicate events topic: {}",
+                    topic
+                );
+
+                // Create a health handle for the duplicate producer
+                let duplicate_producer_health = self
+                    .liveness
+                    .register(
+                        format!("duplicate_producer_{topic}"),
+                        Duration::from_secs(30),
+                    )
+                    .await;
+
+                // Create the producer using common module's function
+                let producer = create_kafka_producer(&kafka_config, duplicate_producer_health)
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "Failed to create Kafka producer for duplicate events topic '{topic}'"
+                        )
+                    })?;
+
+                // Wrap in DuplicateEventProducerWrapper
+                Some(DuplicateEventProducerWrapper::new(
+                    topic.clone(),
+                    Arc::new(producer),
+                )?)
+            }
+            None => None,
+        };
+
+        // Create a processor with the store manager and both producers
+        let processor = DeduplicationProcessor::new(
+            dedup_config,
+            self.store_manager.clone(),
+            main_producer,
+            duplicate_producer,
+        )
+        .with_context(|| "Failed to create deduplication processor")?;
 
         // Create rebalance handler with the store manager
         let rebalance_handler =
@@ -109,6 +246,7 @@ impl KafkaDeduplicatorService {
         let consumer_config =
             ConsumerConfigBuilder::new(&self.config.kafka_hosts, &self.config.kafka_consumer_group)
                 .with_tls(self.config.kafka_tls)
+                .with_sticky_partition_assignment(self.config.pod_hostname.as_deref())
                 .offset_reset(&self.config.kafka_consumer_offset_reset)
                 .build();
 
@@ -116,8 +254,8 @@ impl KafkaDeduplicatorService {
         let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
         self.shutdown_tx = Some(shutdown_tx);
 
-        // Create processor pool with one worker per CPU
-        let num_workers = num_cpus::get();
+        // Create processor pool with configured number of workers
+        let num_workers = self.config.worker_threads;
         let (message_sender, processor_pool) = ProcessorPool::new(processor, num_workers);
 
         // Start the processor pool workers and get health status
@@ -130,6 +268,46 @@ impl KafkaDeduplicatorService {
             .liveness
             .register("processor_pool".to_string(), Duration::from_secs(30))
             .await;
+
+        // start checkpoint manager and async work loop threads, register health monitor
+        let checkpoint_health_reporter = self.checkpoint_manager.as_mut().unwrap().start();
+
+        // if health reporter is Some, this is the first time initializing
+        // the checkpoint manager, and we should start the health monitor thread
+        if checkpoint_health_reporter.is_some() {
+            let checkpoint_health_handle = self
+                .liveness
+                .register("checkpoint_manager".to_string(), Duration::from_secs(30))
+                .await;
+            let cancellation = self.health_task_cancellation.child_token();
+            let handle = tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(10));
+                loop {
+                    tokio::select! {
+                        _ = cancellation.cancelled() => {
+                            break;
+                        }
+                        _ = interval.tick() => {
+                            if checkpoint_health_reporter.as_ref().unwrap().load(Ordering::SeqCst) {
+                                checkpoint_health_handle.report_healthy().await;
+                            } else {
+                                // Explicitly report unhealthy when a worker dies
+                                checkpoint_health_handle.report_status(health::ComponentStatus::Unhealthy).await;
+                                error!("Checkpoint manager is unhealthy - checkpoint and/or cleanup loops died");
+                            }
+                        }
+                    }
+                }
+            });
+            self.health_task_handles.push(handle);
+        }
+
+        info!(
+            "Started checkpoint manager (export enabled = {:?}, checkpoint interval = {:?}, checkpoint_cleanup interval = {:?})",
+            self.checkpoint_manager.as_ref().unwrap().export_enabled(),
+            self.config.checkpoint_interval(),
+            self.config.checkpoint_cleanup_interval(),
+        );
 
         // Spawn task to report processor pool health
         let pool_health_reporter = pool_health.clone();
@@ -374,43 +552,15 @@ impl KafkaDeduplicatorService {
             let _ = shutdown_tx.send(());
         }
 
+        // Stop cleanup task if running
+        if let Some(handle) = self.cleanup_task_handle.take() {
+            info!("Stopping cleanup task...");
+            handle.stop().await;
+        }
+
         // Give some time for graceful shutdown
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
         Ok(())
-    }
-}
-
-/// Builder for easier service configuration in tests
-pub struct ServiceBuilder {
-    config: Config,
-    liveness: HealthRegistry,
-}
-
-impl ServiceBuilder {
-    pub fn new(config: Config) -> Self {
-        Self {
-            config,
-            liveness: HealthRegistry::new("test_liveness"),
-        }
-    }
-
-    pub fn with_output_topic(mut self, topic: String) -> Self {
-        self.config.output_topic = Some(topic);
-        self
-    }
-
-    pub fn with_store_path(mut self, path: String) -> Self {
-        self.config.store_path = path;
-        self
-    }
-
-    pub fn with_liveness(mut self, liveness: HealthRegistry) -> Self {
-        self.liveness = liveness;
-        self
-    }
-
-    pub fn build(self) -> Result<KafkaDeduplicatorService> {
-        KafkaDeduplicatorService::new(self.config, self.liveness)
     }
 }

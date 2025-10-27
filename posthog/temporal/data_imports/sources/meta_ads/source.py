@@ -54,6 +54,7 @@ class MetaAdsSource(BaseSource[MetaAdsSourceConfig]):
             name=SchemaExternalDataSourceType.META_ADS,
             label="Meta Ads",
             caption="Ensure you have granted PostHog access to your Meta Ads account, learn how to do this in the [documentation](https://posthog.com/docs/cdp/sources/meta-ads).",
+            iconPath="/static/services/meta-ads.png",
             fields=cast(
                 list[FieldType],
                 [
@@ -73,4 +74,5 @@ class MetaAdsSource(BaseSource[MetaAdsSourceConfig]):
                 ],
             ),
             betaSource=True,
+            featureFlag="meta-ads-dwh",
         )

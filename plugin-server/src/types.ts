@@ -4,7 +4,6 @@ import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { VM } from 'vm2'
-import { z } from 'zod'
 
 import {
     Element,
@@ -51,12 +50,7 @@ export { Element } from '@posthog/plugin-scaffold' // Re-export Element from sca
 
 type Brand<K, T> = K & { __brand: T }
 
-export enum LogLevel {
-    Debug = 'debug',
-    Info = 'info',
-    Warn = 'warn',
-    Error = 'error',
-}
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
 export enum KafkaSecurityProtocol {
     Plaintext = 'PLAINTEXT',
@@ -75,8 +69,6 @@ export enum PluginServerMode {
     ingestion_v2 = 'ingestion-v2',
     local_cdp = 'local-cdp',
     async_webhooks = 'async-webhooks',
-    recordings_blob_ingestion = 'recordings-blob-ingestion',
-    recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
     recordings_blob_ingestion_v2 = 'recordings-blob-ingestion-v2',
     recordings_blob_ingestion_v2_overflow = 'recordings-blob-ingestion-v2-overflow',
     cdp_processed_events = 'cdp-processed-events',
@@ -84,9 +76,13 @@ export enum PluginServerMode {
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     cdp_behavioural_events = 'cdp-behavioural-events',
+    cdp_cohort_membership = 'cdp-cohort-membership',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
+    cdp_cyclotron_worker_delay = 'cdp-cyclotron-worker-delay',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
+    evaluation_scheduler = 'evaluation-scheduler',
+    ingestion_logs = 'ingestion-logs',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -199,6 +195,13 @@ export type CdpConfig = {
     CDP_REDIS_HOST: string
     CDP_REDIS_PORT: number
     CDP_REDIS_PASSWORD: string
+
+    // Heap dump configuration
+    HEAP_DUMP_ENABLED: boolean
+    HEAP_DUMP_S3_BUCKET: string
+    HEAP_DUMP_S3_PREFIX: string
+    HEAP_DUMP_S3_ENDPOINT: string
+    HEAP_DUMP_S3_REGION: string
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
     CDP_FETCH_RETRIES: number
@@ -226,6 +229,14 @@ export type IngestionConsumerConfig = {
     INGESTION_CONSUMER_TESTING_TOPIC: string
 }
 
+export type LogsIngestionConsumerConfig = {
+    LOGS_INGESTION_CONSUMER_GROUP_ID: string
+    LOGS_INGESTION_CONSUMER_CONSUME_TOPIC: string
+    LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC: string
+    LOGS_INGESTION_CONSUMER_DLQ_TOPIC: string
+    LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: string
+}
+
 /**
  * The mode of db batch writes to use for person batch writing
  * NO_ASSERT: No assertions are made, we write the latest value in memory to the DB (no locks)
@@ -234,7 +245,7 @@ export type IngestionConsumerConfig = {
 export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
 export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
 
-export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig {
+export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig, LogsIngestionConsumerConfig {
     INSTRUMENT_THREAD_PERFORMANCE: boolean
     OTEL_EXPORTER_OTLP_ENDPOINT: string
     OTEL_SDK_DISABLED: boolean
@@ -274,6 +285,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     DATABASE_URL: string // Postgres database URL
     DATABASE_READONLY_URL: string // Optional read-only replica to the main Postgres database
     PERSONS_DATABASE_URL: string // Optional read-write Postgres database for persons
+    BEHAVIORAL_COHORTS_DATABASE_URL: string // Optional read-write Postgres database for behavioral cohorts
     PERSONS_READONLY_DATABASE_URL: string // Optional read-only replica to the persons Postgres database
     PERSONS_MIGRATION_DATABASE_URL: string // Read-write Postgres database for persons during dual write/migration
     PERSONS_MIGRATION_READONLY_DATABASE_URL: string // Optional read-only replica to the persons Postgres database during dual write/migration
@@ -284,9 +296,9 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     POSTHOG_DB_PASSWORD: string
     POSTHOG_POSTGRES_HOST: string
     POSTHOG_POSTGRES_PORT: number
-    POSTGRES_COUNTERS_HOST: string
-    POSTGRES_COUNTERS_USER: string
-    POSTGRES_COUNTERS_PASSWORD: string
+    POSTGRES_BEHAVIORAL_COHORTS_HOST: string
+    POSTGRES_BEHAVIORAL_COHORTS_USER: string
+    POSTGRES_BEHAVIORAL_COHORTS_PASSWORD: string
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
     CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     // Redis url pretty much only used locally / self hosted
@@ -294,12 +306,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     // Redis params for the ingestion services
     INGESTION_REDIS_HOST: string
     INGESTION_REDIS_PORT: number
-    // Deduplication redis params
-    DEDUPLICATION_REDIS_HOST: string
-    DEDUPLICATION_REDIS_PORT: number
-    DEDUPLICATION_REDIS_PASSWORD: string
-    DEDUPLICATION_REDIS_PREFIX: string
-    DEDUPLICATION_TTL_SECONDS: number
     // Redis params for the core posthog (django+celery) services
     POSTHOG_REDIS_PASSWORD: string
     POSTHOG_REDIS_HOST: string
@@ -311,6 +317,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CONSUMER_BATCH_SIZE: number // Primarily for kafka consumers the batch size to use
     CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: number // Primarily for kafka consumers the max heartbeat interval to use after which it will be considered unhealthy
     CONSUMER_LOOP_STALL_THRESHOLD_MS: number // Threshold in ms after which the consumer loop is considered stalled
+    CONSUMER_LOG_STATS_LEVEL: LogLevel // Log level for consumer statistics
     CONSUMER_LOOP_BASED_HEALTH_CHECK: boolean // Use consumer loop monitoring for health checks instead of heartbeats
     CONSUMER_MAX_BACKGROUND_TASKS: number
     CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: boolean
@@ -344,6 +351,11 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
     HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails
     SITE_URL: string
+    TEMPORAL_HOST: string
+    TEMPORAL_NAMESPACE: string
+    TEMPORAL_CLIENT_ROOT_CA: string | undefined
+    TEMPORAL_CLIENT_CERT: string | undefined
+    TEMPORAL_CLIENT_KEY: string | undefined
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
@@ -365,6 +377,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CLOUD_DEPLOYMENT: string | null
     EXTERNAL_REQUEST_TIMEOUT_MS: number
     EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: number
+    EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: number
+    EXTERNAL_REQUEST_CONNECTIONS: number
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
     SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: string
     RELOAD_PLUGIN_JITTER_MAX_MS: number
@@ -376,6 +390,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
     LAZY_LOADER_DEFAULT_BUFFER_MS: number
+    LAZY_LOADER_MAX_SIZE: number
     CAPTURE_INTERNAL_URL: string
 
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
@@ -424,6 +439,9 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     COOKIELESS_REDIS_HOST: string
     COOKIELESS_REDIS_PORT: number
 
+    // Timestamp comparison logging (0.0 = disabled, 1.0 = 100% sampling)
+    TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: number
+
     SESSION_RECORDING_MAX_BATCH_SIZE_KB: number
     SESSION_RECORDING_MAX_BATCH_AGE_MS: number
     SESSION_RECORDING_V2_S3_BUCKET: string
@@ -436,6 +454,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: string
     SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: string
     SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: number
+    SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: number
 
     // New: switchover flag for v2 session recording metadata
     SESSION_RECORDING_V2_METADATA_SWITCHOVER: string
@@ -453,9 +472,27 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
     USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: boolean
 
-    // Messaging
+    // Workflows
     MAILJET_PUBLIC_KEY: string
     MAILJET_SECRET_KEY: string
+
+    // SES
+    SES_ENDPOINT: string
+    SES_ACCESS_KEY_ID: string
+    SES_SECRET_ACCESS_KEY: string
+    SES_REGION: string
+
+    // Heap dump configuration
+    HEAP_DUMP_ENABLED: boolean
+    HEAP_DUMP_S3_BUCKET: string
+    HEAP_DUMP_S3_PREFIX: string
+    HEAP_DUMP_S3_ENDPOINT: string
+    HEAP_DUMP_S3_REGION: string
+
+    // Pod termination
+    POD_TERMINATION_ENABLED: boolean
+    POD_TERMINATION_BASE_TIMEOUT_MINUTES: number
+    POD_TERMINATION_JITTER_MINUTES: number
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -512,9 +549,8 @@ export interface PluginServerCapabilities {
     // and the shouldSetupPluginInServer() test accordingly.
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
+    logsIngestion?: boolean
     processAsyncWebhooksHandlers?: boolean
-    sessionRecordingBlobIngestion?: boolean
-    sessionRecordingBlobOverflowIngestion?: boolean
     sessionRecordingBlobIngestionV2?: boolean
     sessionRecordingBlobIngestionV2Overflow?: boolean
     cdpProcessedEvents?: boolean
@@ -523,9 +559,12 @@ export interface PluginServerCapabilities {
     cdpLegacyOnEvent?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
+    cdpCyclotronWorkerDelay?: boolean
     cdpBehaviouralEvents?: boolean
+    cdpCohortMembership?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
+    evaluationScheduler?: boolean
 }
 
 export interface EnqueuedPluginJob {
@@ -856,22 +895,6 @@ export interface RawClickHouseEvent extends BaseEvent {
     group4_created_at?: ClickHouseTimestamp
     person_mode: PersonMode
 }
-
-export type KafkaConsumerBreadcrumb = {
-    topic: string
-    offset: string | number
-    partition: number
-    processed_at: string
-    consumer_id: string
-}
-
-export const KafkaConsumerBreadcrumbSchema = z.object({
-    topic: z.string(),
-    offset: z.union([z.string(), z.number()]),
-    partition: z.number(),
-    processed_at: z.string(),
-    consumer_id: z.string(),
-})
 
 export interface RawKafkaEvent extends RawClickHouseEvent {
     /**
@@ -1344,15 +1367,25 @@ export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
     token?: string
 }
 
+export interface EventHeaders {
+    token?: string
+    distinct_id?: string
+    timestamp?: string
+    event?: string
+    uuid?: string
+    force_disable_person_processing: boolean
+}
+
 export interface IncomingEvent {
-    message: Message
     event: PipelineEvent
+    headers?: EventHeaders
 }
 
 export interface IncomingEventWithTeam {
     message: Message
     event: PipelineEvent
     team: Team
+    headers: EventHeaders
 }
 
 export type RedisPool = GenericPool<Redis>

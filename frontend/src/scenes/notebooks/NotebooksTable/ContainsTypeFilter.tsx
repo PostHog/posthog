@@ -28,6 +28,11 @@ export const fromNodeTypeToLabel: Omit<
     [NotebookNodeType.ReplayTimestamp]: 'Session recording comments',
     [NotebookNodeType.Cohort]: 'Cohorts',
     [NotebookNodeType.Group]: 'Groups',
+    [NotebookNodeType.TaskCreate]: 'Task suggestions',
+    [NotebookNodeType.LLMTrace]: 'LLM traces',
+    [NotebookNodeType.Issues]: 'Issues',
+    [NotebookNodeType.UsageMetrics]: 'Usage metrics',
+    [NotebookNodeType.ZendeskTickets]: 'Zendesk tickets',
 }
 
 export function ContainsTypeFilters({

@@ -56,6 +56,11 @@ export enum NotebookNodeType {
     Map = 'ph-map',
     Embed = 'ph-embed',
     Latex = 'ph-latex',
+    TaskCreate = 'ph-task-create',
+    LLMTrace = 'ph-llm-trace',
+    Issues = 'ph-issues',
+    UsageMetrics = 'ph-usage-metrics',
+    ZendeskTickets = 'ph-zendesk-tickets',
 }
 
 export type NotebookNodeResource = {

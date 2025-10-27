@@ -28,7 +28,7 @@ import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { hexToRGBA } from 'lib/utils'
-import { ensureTooltip } from 'scenes/insights/views/LineGraph/LineGraph'
+import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 
 import { ChartSettings, GoalLine, YAxisSettings } from '~/queries/schema/schema-general'
 import { ChartDisplayType, GraphType } from '~/types'
@@ -121,7 +121,7 @@ export const LineGraph = ({
     className,
 }: LineGraphProps): JSX.Element => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
-    const chartId = useRef(`linegraph-dataviz-${Math.random().toString(36).substring(2, 11)}`)
+    const { getTooltip } = useInsightTooltip()
     const { ref: containerRef, height } = useResizeObserver()
     const colors = getGraphColors()
 
@@ -352,7 +352,7 @@ export const LineGraph = ({
                             return
                         }
 
-                        const [tooltipRoot, tooltipEl] = ensureTooltip(chartId.current)
+                        const [tooltipRoot, tooltipEl] = getTooltip()
                         if (tooltip.opacity === 0) {
                             tooltipEl.style.opacity = '0'
                             return

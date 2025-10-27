@@ -1,7 +1,7 @@
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
-from posthog.api import data_color_theme, hog_flow, metalytics, my_notifications, project
+from posthog.api import data_color_theme, hog_flow, llm_gateway, metalytics, my_notifications, project
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
@@ -13,6 +13,7 @@ from posthog.warehouse.api import (
     data_warehouse,
     external_data_schema,
     external_data_source,
+    managed_viewset,
     modeling,
     query_tab_state,
     saved_query,
@@ -25,12 +26,32 @@ from posthog.warehouse.api.lineage import LineageViewSet
 import products.logs.backend.api as logs
 import products.links.backend.api as link
 import products.tasks.backend.api as tasks
+import products.endpoints.backend.api as endpoints
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
-from products.llm_analytics.backend.api import DatasetItemViewSet, DatasetViewSet, LLMProxyViewSet
-from products.messaging.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
+from products.error_tracking.backend.api import (
+    ErrorTrackingAssignmentRuleViewSet,
+    ErrorTrackingExternalReferenceViewSet,
+    ErrorTrackingFingerprintViewSet,
+    ErrorTrackingGroupingRuleViewSet,
+    ErrorTrackingIssueViewSet,
+    ErrorTrackingReleaseViewSet,
+    ErrorTrackingStackFrameViewSet,
+    ErrorTrackingSuppressionRuleViewSet,
+    ErrorTrackingSymbolSetViewSet,
+    GitProviderFileLinksViewSet,
+)
+from products.llm_analytics.backend.api import (
+    DatasetItemViewSet,
+    DatasetViewSet,
+    EvaluationRunViewSet,
+    EvaluationViewSet,
+    LLMProxyViewSet,
+)
+from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
+from products.workflows.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 
 from ee.api.vercel import vercel_installation, vercel_product, vercel_resource
 
@@ -39,7 +60,7 @@ from ..session_recordings.session_recording_api import SessionRecordingViewSet
 from ..session_recordings.session_recording_playlist_api import SessionRecordingPlaylistViewSet
 from ..taxonomy import property_definition_api
 from . import (
-    activity_log,
+    advanced_activity_logs,
     alert,
     annotation,
     app_metrics,
@@ -48,8 +69,8 @@ from . import (
     comments,
     dead_letter_queue,
     debug_ch_queries,
-    error_tracking,
     event_definition,
+    event_schema,
     exports,
     feature_flag,
     flag_value,
@@ -61,7 +82,6 @@ from . import (
     instance_settings,
     instance_status,
     integration,
-    notebook,
     organization,
     organization_domain,
     organization_feature_flag,
@@ -73,6 +93,7 @@ from . import (
     proxy_record,
     query,
     scheduled_change,
+    schema_property_group,
     search,
     sharing,
     survey,
@@ -179,8 +200,14 @@ register_grandfathered_environment_nested_viewset(
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["project_id"])
 projects_router.register(
     r"activity_log",
-    activity_log.ActivityLogViewSet,
+    advanced_activity_logs.ActivityLogViewSet,
     "project_activity_log",
+    ["project_id"],
+)
+projects_router.register(
+    r"advanced_activity_logs",
+    advanced_activity_logs.AdvancedActivityLogsViewSet,
+    "project_advanced_activity_logs",
     ["project_id"],
 )
 projects_router.register(
@@ -202,7 +229,16 @@ project_features_router = projects_router.register(
     ["project_id"],
 )
 
-register_grandfathered_environment_nested_viewset(r"tasks", tasks.TaskViewSet, "environment_tasks", ["team_id"])
+# Tasks endpoints
+project_tasks_router = projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
+project_tasks_router.register(r"runs", tasks.TaskRunViewSet, "project_task_runs", ["team_id", "task_id"])
+
+# Agents endpoints
+projects_router.register(r"agents", tasks.AgentDefinitionViewSet, "project_agents", ["team_id"])
+
+# Workflows endpoints
+projects_router.register(r"llm_gateway", llm_gateway.http.LLMGatewayViewSet, "project_llm_gateway", ["team_id"])
+
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
 projects_router.register(
     r"dashboard_templates",
@@ -330,6 +366,18 @@ projects_router.register(
     "project_property_definitions",
     ["project_id"],
 )
+projects_router.register(
+    r"schema_property_groups",
+    schema_property_group.SchemaPropertyGroupViewSet,
+    "project_schema_property_groups",
+    ["project_id"],
+)
+projects_router.register(
+    r"event_schemas",
+    event_schema.EventSchemaViewSet,
+    "project_event_schemas",
+    ["project_id"],
+)
 
 projects_router.register(r"uploaded_media", uploaded_media.MediaViewSet, "project_media", ["project_id"])
 
@@ -390,6 +438,12 @@ environments_router.register(
     r"warehouse_saved_query_drafts",
     saved_query_draft.DataWarehouseSavedQueryDraftViewSet,
     "environment_warehouse_saved_query_drafts",
+    ["team_id"],
+)
+environments_router.register(
+    r"managed_viewsets",
+    managed_viewset.DataWarehouseManagedViewSetViewSet,
+    "environment_managed_viewsets",
     ["team_id"],
 )
 
@@ -461,6 +515,7 @@ organizations_router.register(
 router.register(r"login", authentication.LoginViewSet, "login")
 router.register(r"login/token", authentication.TwoFactorViewSet, "login_token")
 router.register(r"login/precheck", authentication.LoginPrecheckViewSet, "login_precheck")
+router.register(r"login/email-mfa", authentication.EmailMFAViewSet, "login_email_mfa")
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 router.register(r"users", user.UserViewSet, "users")
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
@@ -512,7 +567,6 @@ register_grandfathered_environment_nested_viewset(
     "environment_session_recording_playlist",
     ["team_id"],
 )
-
 
 register_grandfathered_environment_nested_viewset(r"heatmaps", HeatmapViewSet, "environment_heatmaps", ["team_id"])
 register_grandfathered_environment_nested_viewset(r"sessions", SessionViewSet, "environment_sessions", ["team_id"])
@@ -570,7 +624,6 @@ else:
     register_grandfathered_environment_nested_viewset(r"persons", PersonViewSet, "environment_persons", ["team_id"])
     router.register(r"person", LegacyPersonViewSet, "persons")
 
-
 environment_dashboards_router.register(
     r"sharing",
     sharing.SharingConfigurationViewSet,
@@ -625,64 +678,78 @@ legacy_project_session_recordings_router.register(
 
 projects_router.register(
     r"notebooks",
-    notebook.NotebookViewSet,
+    NotebookViewSet,
     "project_notebooks",
     ["project_id"],
 )
 
 environments_router.register(
     r"error_tracking/releases",
-    error_tracking.ErrorTrackingReleaseViewSet,
+    ErrorTrackingReleaseViewSet,
     "project_error_tracking_release",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/symbol_sets",
-    error_tracking.ErrorTrackingSymbolSetViewSet,
+    ErrorTrackingSymbolSetViewSet,
     "project_error_tracking_symbol_set",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/assignment_rules",
-    error_tracking.ErrorTrackingAssignmentRuleViewSet,
+    ErrorTrackingAssignmentRuleViewSet,
     "project_error_tracking_assignment_rule",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/grouping_rules",
-    error_tracking.ErrorTrackingGroupingRuleViewSet,
+    ErrorTrackingGroupingRuleViewSet,
     "project_error_tracking_grouping_rule",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/suppression_rules",
-    error_tracking.ErrorTrackingSuppressionRuleViewSet,
+    ErrorTrackingSuppressionRuleViewSet,
     "project_error_tracking_suppression_rule",
     ["team_id"],
 )
 
 environments_router.register(
+    r"error_tracking/fingerprints",
+    ErrorTrackingFingerprintViewSet,
+    "project_error_tracking_fingerprint",
+    ["team_id"],
+)
+
+environments_router.register(
     r"error_tracking/issues",
-    error_tracking.ErrorTrackingIssueViewSet,
+    ErrorTrackingIssueViewSet,
     "project_error_tracking_issue",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/external_references",
-    error_tracking.ErrorTrackingExternalReferenceViewSet,
+    ErrorTrackingExternalReferenceViewSet,
     "project_error_tracking_external_references",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/stack_frames",
-    error_tracking.ErrorTrackingStackFrameViewSet,
+    ErrorTrackingStackFrameViewSet,
     "project_error_tracking_stack_frames",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"error_tracking/git-provider-file-links",
+    GitProviderFileLinksViewSet,
+    "project_error_tracking_git_provider_file_links",
     ["team_id"],
 )
 
@@ -799,6 +866,10 @@ environments_router.register(
 # Logs endpoints
 register_grandfathered_environment_nested_viewset(r"logs", logs.LogsViewSet, "environment_logs", ["team_id"])
 
+register_grandfathered_environment_nested_viewset(
+    r"endpoints", endpoints.EndpointViewSet, "environment_endpoints", ["team_id"]
+)
+
 environments_router.register(
     r"user_interviews",
     UserInterviewViewSet,
@@ -827,16 +898,30 @@ projects_router.register(
     ["project_id"],
 )
 
-environments_router.register(
+register_grandfathered_environment_nested_viewset(
     r"datasets",
     DatasetViewSet,
     "environment_datasets",
     ["team_id"],
 )
 
-environments_router.register(
+register_grandfathered_environment_nested_viewset(
     r"dataset_items",
     DatasetItemViewSet,
     "environment_dataset_items",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"evaluations",
+    EvaluationViewSet,
+    "environment_evaluations",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"evaluation_runs",
+    EvaluationRunViewSet,
+    "environment_evaluation_runs",
     ["team_id"],
 )

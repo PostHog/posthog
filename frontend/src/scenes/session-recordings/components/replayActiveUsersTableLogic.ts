@@ -52,7 +52,7 @@ export const replayActiveUsersTableLogic = kea<replayActiveUsersTableLogicType>(
                   -- that this replaces, so it's at least no worse 🙈
                   AND event IN ('$pageview', '$screen', '$autocapture', '$feature_flag_called', '$pageleave', '$identify', '$web_vitals', '$set', 'Application Opened', 'Application Backgrounded')
                   -- exclude anonymous users since we don't care if user "anonymous" watched a gajillion recordings
-                  AND properties.$process_person_profile != false
+                  AND (properties.$process_person_profile = true or properties.$is_identified = true)
                 GROUP BY $session_id
             )
             -- now we can count the distinct sessions per person

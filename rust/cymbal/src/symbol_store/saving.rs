@@ -9,7 +9,7 @@ use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::{
-    error::{Error, FrameError, UnhandledError},
+    error::{FrameError, ResolveError, UnhandledError},
     metric_consts::{
         FRAME_RESOLUTION_RESULTS_DELETED, SAVED_SYMBOL_SET_ERROR_RETURNED, SAVED_SYMBOL_SET_LOADED,
         SAVE_SYMBOL_SET, SYMBOL_SET_DB_FETCHES, SYMBOL_SET_DB_HITS, SYMBOL_SET_DB_MISSES,
@@ -153,7 +153,7 @@ impl<F> Saving<F> {
 #[async_trait]
 impl<F> Fetcher for Saving<F>
 where
-    F: Fetcher<Fetched = Vec<u8>, Err = Error>,
+    F: Fetcher<Fetched = Vec<u8>, Err = ResolveError>,
     F::Ref: ToString + Send,
 {
     type Ref = F::Ref;
@@ -200,7 +200,7 @@ where
                 // case, there is no saved data).
                 let error = serde_json::from_str(&record.failure_reason.unwrap())
                     .map_err(UnhandledError::from)?;
-                return Err(Error::ResolutionError(error));
+                return Err(ResolveError::ResolutionError(error));
             }
             info!("Found stale symbol set error for {}", set_ref);
             // We last tried to get the symbol set more than a day ago, so we should try again
@@ -220,10 +220,10 @@ where
                     set_ref,
                 })
             }
-            Err(Error::ResolutionError(e)) => {
+            Err(ResolveError::ResolutionError(e)) => {
                 // But if we failed to get any data, we save that fact
                 self.save_no_data(team_id, set_ref, &e).await?;
-                return Err(Error::ResolutionError(e));
+                return Err(ResolveError::ResolutionError(e));
             }
             Err(e) => Err(e), // If some non-resolution error occurred, we just bail out
         }
@@ -233,7 +233,7 @@ where
 #[async_trait]
 impl<F> Parser for Saving<F>
 where
-    F: Parser<Source = Vec<u8>, Err = Error>,
+    F: Parser<Source = Vec<u8>, Err = ResolveError>,
     F::Set: Send,
 {
     type Source = Saveable;
@@ -251,11 +251,11 @@ where
                 }
                 return Ok(s);
             }
-            Err(Error::ResolutionError(e)) => {
+            Err(ResolveError::ResolutionError(e)) => {
                 info!("Failed to parse symbol set data for {}", data.set_ref);
                 // We save the no-data case here, to prevent us from fetching again for day
                 self.save_no_data(data.team_id, data.set_ref, &e).await?;
-                return Err(Error::ResolutionError(e));
+                return Err(ResolveError::ResolutionError(e));
             }
             Err(e) => return Err(e),
         }

@@ -17,6 +17,9 @@ import {
     ErrorTrackingQuery,
     EventsNode,
     EventsQuery,
+    ExperimentFunnelsQuery,
+    ExperimentMetric,
+    ExperimentTrendsQuery,
     FunnelsQuery,
     GoalLine,
     GroupsQuery,
@@ -31,6 +34,7 @@ import {
     InsightQueryNode,
     InsightVizNode,
     LifecycleQuery,
+    MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
     MathType,
     Node,
@@ -205,6 +209,12 @@ export function isMarketingAnalyticsTableQuery(
     return node?.kind === NodeKind.MarketingAnalyticsTableQuery
 }
 
+export function isMarketingAnalyticsAggregatedQuery(
+    node?: Record<string, any> | null
+): node is MarketingAnalyticsAggregatedQuery {
+    return node?.kind === NodeKind.MarketingAnalyticsAggregatedQuery
+}
+
 export function isTracesQuery(node?: Record<string, any> | null): node is TracesQuery {
     return node?.kind === NodeKind.TracesQuery
 }
@@ -235,6 +245,12 @@ export function isRevenueExampleDataWarehouseTablesQuery(
 
 export function isErrorTrackingQuery(node?: Record<string, any> | null): node is ErrorTrackingQuery {
     return node?.kind === NodeKind.ErrorTrackingQuery
+}
+
+export function isExperimentMetric(
+    metric: ExperimentMetric | ExperimentFunnelsQuery | ExperimentTrendsQuery
+): metric is ExperimentMetric {
+    return metric.kind === NodeKind.ExperimentMetric
 }
 
 export function isErrorTrackingIssueCorrelationQuery(

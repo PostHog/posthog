@@ -1,11 +1,11 @@
 import { useActions } from 'kea'
 import { useState } from 'react'
 
-import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import { ORIGIN_PRODUCT_LABELS } from '../constants'
 import { tasksLogic } from '../tasksLogic'
-import { OriginProduct, TaskStatus, TaskUpsertProps } from '../types'
+import { OriginProduct, TaskUpsertProps } from '../types'
 import { RepositoryConfig, RepositorySelector } from './RepositorySelector'
 
 interface TaskCreateModalProps {
@@ -14,9 +14,7 @@ interface TaskCreateModalProps {
 }
 
 interface TaskFormData {
-    title: string
     description: string
-    status: TaskStatus
     origin_product: OriginProduct
     repositoryConfig: RepositoryConfig
 }
@@ -25,9 +23,7 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
     const { createTask } = useActions(tasksLogic)
 
     const [formData, setFormData] = useState<TaskFormData>({
-        title: '',
         description: '',
-        status: TaskStatus.BACKLOG,
         origin_product: OriginProduct.USER_CREATED,
         repositoryConfig: {
             integrationId: undefined,
@@ -41,9 +37,7 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
 
     const resetForm = (): void => {
         setFormData({
-            title: '',
             description: '',
-            status: TaskStatus.BACKLOG,
             origin_product: OriginProduct.USER_CREATED,
             repositoryConfig: {
                 integrationId: undefined,
@@ -56,10 +50,6 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
     const handleSubmit = async (): Promise<void> => {
         // Validate form
         const newErrors: Record<string, string> = {}
-
-        if (!formData.title.trim()) {
-            newErrors.title = 'Title is required'
-        }
 
         if (!formData.description.trim()) {
             newErrors.description = 'Description is required'
@@ -91,9 +81,7 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
         try {
             // Convert repository config to API format
             const taskData: TaskUpsertProps = {
-                title: formData.title,
                 description: formData.description,
-                status: formData.status,
                 origin_product: formData.origin_product,
                 repository_config: {
                     organization: formData.repositoryConfig.organization || '',
@@ -151,43 +139,17 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
                 {/* Basic Information */}
                 <div className="space-y-4">
                     <div>
-                        <label className="block text-sm font-medium mb-2">Title *</label>
-                        <LemonInput
-                            value={formData.title}
-                            onChange={(value) => setFormData({ ...formData, title: value })}
-                            placeholder="Enter task title..."
-                            status={errors.title ? 'danger' : undefined}
-                        />
-                        {errors.title && <p className="text-danger text-xs mt-1">{errors.title}</p>}
-                    </div>
-
-                    <div>
                         <label className="block text-sm font-medium mb-2">Description *</label>
                         <LemonTextArea
                             value={formData.description}
                             onChange={(value) => setFormData({ ...formData, description: value })}
-                            placeholder="Describe the task in detail..."
+                            placeholder="Describe the task in detail... (A title will be auto-generated)"
                             rows={4}
                         />
                         {errors.description && <p className="text-danger text-xs mt-1">{errors.description}</p>}
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium mb-2">Status</label>
-                            <LemonSelect
-                                value={formData.status}
-                                onChange={(value) => setFormData({ ...formData, status: value })}
-                                options={[
-                                    { value: TaskStatus.BACKLOG, label: 'Backlog' },
-                                    { value: TaskStatus.TODO, label: 'To Do' },
-                                    { value: TaskStatus.IN_PROGRESS, label: 'In Progress' },
-                                    { value: TaskStatus.TESTING, label: 'Testing' },
-                                    { value: TaskStatus.DONE, label: 'Done' },
-                                ]}
-                            />
-                        </div>
-
+                    <div>
                         <div>
                             <label className="block text-sm font-medium mb-2">Origin</label>
                             <LemonSelect

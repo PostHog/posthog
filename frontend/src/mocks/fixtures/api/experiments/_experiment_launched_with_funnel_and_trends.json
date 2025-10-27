@@ -214,5 +214,6 @@
             },
             "uuid": "cbdd02f8-4a27-4017-a8d8-5f989b304ada"
         }
-    ]
+    ],
+    "user_access_level": "editor"
 }

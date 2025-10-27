@@ -30,13 +30,17 @@ from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer, SimpleExternalDataSchemaSerializer
 from posthog.warehouse.data_load.service import (
     cancel_external_data_workflow,
-    delete_data_import_folder,
     delete_external_data_schedule,
     is_any_external_data_schema_paused,
     sync_external_data_job_workflow,
     trigger_external_data_source_workflow,
 )
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from posthog.warehouse.models import (
+    DataWarehouseManagedViewSet,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 from posthog.warehouse.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from posthog.warehouse.types import ExternalDataSourceType
 
@@ -59,6 +63,7 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
             "id",
             "created_at",
             "created_by",
+            "finished_at",
             "status",
             "schema",
             "rows_synced",
@@ -69,6 +74,7 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
             "id",
             "created_at",
             "created_by",
+            "finished_at",
             "status",
             "schema",
             "rows_synced",
@@ -142,7 +148,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         representation = super().to_representation(instance)
 
         # non-sensitive fields
-        whitelisted_keys = {
+        job_inputs_allowed_keys = {
             # stripe
             "stripe_account_id",
             # sql
@@ -154,27 +160,40 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "ssh_tunnel",
             "using_ssl",
             # vitally
-            "payload",
-            "prefix",
-            "regionsubdomain",
-            "source_type",
+            "region"
             # chargebee
             "site_name",
             # zendesk
             "subdomain",
             "email_address",
             # hubspot
-            "redirect_uri",
+            "hubspot_integration_id",
             # snowflake
             "account_id",
             "warehouse",
             "role",
             # bigquery
             "dataset_id",
-            "project_id",
-            "client_email",
-            "token_uri",
-            "temporary-dataset",
+            "temporary_dataset",
+            "dataset_project"
+            # google ads
+            "customer_id",
+            "google_ads_integration_id",
+            "is_mcc_account",
+            # google sheets
+            "spreadsheet_url",
+            # linkedin ads
+            "linkedin_ads_integration_id",
+            # meta ads
+            "meta_ads_integration_id",
+            # reddit ads
+            "reddit_integration_id",
+            # salesforce
+            "salesforce_integration_id",
+            # shopify
+            "shopify_store_id",
+            # temporal
+            "namespace",
         }
         job_inputs = representation.get("job_inputs", {})
         if isinstance(job_inputs, dict):
@@ -198,7 +217,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
 
             # Remove sensitive fields
             for key in list(job_inputs.keys()):  # Use list() to avoid modifying dict during iteration
-                if key not in whitelisted_keys:
+                if key not in job_inputs_allowed_keys:
                     job_inputs.pop(key, None)
 
         return representation
@@ -411,15 +430,16 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             incremental_field = schema.get("incremental_field")
             incremental_field_type = schema.get("incremental_field_type")
             sync_time_of_day = schema.get("sync_time_of_day")
+            should_sync = schema.get("should_sync", False)
 
-            if requires_incremental_fields and incremental_field is None:
+            if should_sync and requires_incremental_fields and incremental_field is None:
                 new_source_model.delete()
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Incremental schemas given do not have an incremental field set"},
                 )
 
-            if requires_incremental_fields and incremental_field_type is None:
+            if should_sync and requires_incremental_fields and incremental_field_type is None:
                 new_source_model.delete()
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
@@ -430,7 +450,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 name=schema.get("name"),
                 team=self.team,
                 source=new_source_model,
-                should_sync=schema.get("should_sync"),
+                should_sync=should_sync,
                 sync_type=sync_type,
                 sync_time_of_day=sync_time_of_day,
                 sync_type_config=(
@@ -443,7 +463,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 ),
             )
 
-            if schema.get("should_sync"):
+            if should_sync:
                 active_schemas.append(schema_model)
 
         try:
@@ -452,6 +472,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except Exception as e:
             # Log error but don't fail because the source model was already created
             logger.exception("Could not trigger external data job", exc_info=e)
+
+        if new_source_model.revenue_analytics_config_safe.enabled:
+            managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
+                team=self.team,
+                kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+            )
+            managed_viewset.sync_views()
 
         return Response(status=status.HTTP_201_CREATED, data={"id": new_source_model.pk})
 
@@ -484,22 +511,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         for schema in (
             ExternalDataSchema.objects.exclude(deleted=True)
-            .filter(team_id=self.team_id, source_id=instance.id, should_sync=True)
+            .filter(team_id=self.team_id, source_id=instance.id)
+            .select_related("table")
             .all()
         ):
-            try:
-                delete_data_import_folder(schema.folder_path())
-            except Exception as e:
-                logger.exception(f"Could not clean up data import folder: {schema.folder_path()}", exc_info=e)
-                pass
+            # Delete temporal schedule
             delete_external_data_schedule(str(schema.id))
 
+            # Delete data from S3 if it exists
+            schema.delete_table()
+            # Soft delete postgres models
+            schema.soft_delete()
+
+        # Delete the old source schedule if it still exists
         delete_external_data_schedule(str(instance.id))
 
-        for schema in instance.schemas.all():
-            if schema.table:
-                schema.table.soft_delete()
-            schema.soft_delete()
+        # Soft delete the source model
         instance.soft_delete()
 
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -641,6 +668,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         config_serializer = ExternalDataSourceRevenueAnalyticsConfigSerializer(config, data=request.data, partial=True)
         config_serializer.is_valid(raise_exception=True)
         config_serializer.save()
+
+        if config.enabled:
+            managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
+                team=self.team,
+                kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+            )
+            managed_viewset.sync_views()
+        else:
+            try:
+                managed_viewset = DataWarehouseManagedViewSet.objects.get(
+                    team=self.team,
+                    kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+                )
+                managed_viewset.delete_with_views()
+
+            except DataWarehouseManagedViewSet.DoesNotExist:
+                pass
 
         # Return the full external data source with updated config
         source_serializer = self.get_serializer(external_data_source, context=self.get_serializer_context())

@@ -15,12 +15,13 @@ from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from posthog.schema import PersonsOnEventsMode, RecordingsQuery
 
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Person
@@ -28,19 +29,19 @@ from posthog.session_recordings.queries.session_recording_list_from_query import
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 
-from ee.clickhouse.materialized_columns.columns import materialize
+from ee.clickhouse.materialized_columns.columns import get_materialized_columns, materialize
 
 
 # The HogQL pair of TestClickhouseSessionRecordingsListFromSessionReplay can be renamed when delete the old one
 @freeze_time("2021-01-01T13:46:23")
 class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def _print_query(self, query: SelectQuery) -> str:
-        return print_ast(
+        return prepare_and_print_ast(
             query,
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             "clickhouse",
             pretty=True,
-        )
+        )[0]
 
     def tearDown(self) -> None:
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
@@ -199,6 +200,16 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
         if materialize_person_props:
             materialize("events", "email", table_column="person_properties")
             materialize("person", "email")
+
+            @retry(wait=wait_exponential(multiplier=0.5, min=0.5, max=5), stop=stop_after_attempt(10))
+            def wait_for_materialized_columns():
+                events_col = get_materialized_columns("events").get(("email", "person_properties"))
+                person_col = get_materialized_columns("person").get(("email", "properties"))
+                if not events_col or not person_col:
+                    raise ValueError("Materialized columns not ready yet")
+                return events_col, person_col
+
+            wait_for_materialized_columns()
 
         with self.settings(
             PERSON_ON_EVENTS_OVERRIDE=poe1_enabled,

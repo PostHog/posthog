@@ -3,7 +3,7 @@
 import json
 import datetime as dt
 from time import sleep
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, cast
 
 from django.conf import settings
 from django.core import exceptions
@@ -52,12 +52,12 @@ class MatrixManager:
         first_name: str,
         organization_name: str,
         *,
-        password: Optional[str] = None,
+        password: str | None = None,
         is_staff: bool = False,
         email_collision_handling: Literal["log_in", "disambiguate"] = "log_in",
     ) -> tuple[Organization, Team, User]:
         """If there's an email collision in signup in the demo environment, we treat it as a login."""
-        existing_user: Optional[User] = User.objects.filter(email=email).first()
+        existing_user: User | None = User.objects.filter(email=email).first()
         if existing_user is None or email_collision_handling == "disambiguate":
             if existing_user is not None:
                 print(f"User {email} already exists, trying to find a unique email...")
@@ -87,6 +87,7 @@ class MatrixManager:
                     first_name,
                     OrganizationMembership.Level.ADMIN,
                     is_staff=is_staff,
+                    theme_mode="system",
                 )
                 team = self.create_team(organization)
             self.run_on_team(team, new_user)
@@ -165,7 +166,7 @@ class MatrixManager:
             group_type_index += self.matrix.group_type_index_offset  # Adjust
             bulk_group_type_mappings.append(
                 GroupTypeMapping(
-                    team=data_team,
+                    team_id=data_team.id,
                     project_id=data_team.project_id,
                     group_type_index=group_type_index,
                     group_type=group_type,
@@ -319,6 +320,11 @@ class MatrixManager:
         if subject.past_events:
             from posthog.models.person.util import create_person, create_person_distinct_id
 
+            # Ensure snapshot is taken before accessing properties_at_now
+            # This handles cases where simulation didn't reach 'now' for this person
+            if not hasattr(subject, "properties_at_now"):
+                subject.take_snapshot_at_now()
+
             create_person(
                 uuid=str(subject.in_posthog_id),
                 team_id=team.pk,
@@ -327,7 +333,8 @@ class MatrixManager:
             )
             self._persons_created += 1
             self._person_distinct_ids_created += len(subject.distinct_ids_at_now)
-            for distinct_id in subject.distinct_ids_at_now:
+            # Sort distinct_ids for deterministic iteration order
+            for distinct_id in sorted(subject.distinct_ids_at_now):
                 create_person_distinct_id(
                     team_id=team.pk,
                     distinct_id=str(distinct_id),
@@ -379,7 +386,8 @@ class MatrixManager:
     def _sleep_until_person_data_in_clickhouse(self, team_id: int):
         from posthog.models.person.sql import GET_PERSON_COUNT_FOR_TEAM, GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM
 
-        for _ in range(120):
+        MAX_WAIT_ITERATIONS = 240  # 240 * 0.5s = 120 seconds (increased from 60s for CI reliability)
+        for i in range(MAX_WAIT_ITERATIONS):
             person_count: int = sync_execute(GET_PERSON_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]
             person_distinct_id_count: int = sync_execute(GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM, {"team_id": team_id})[
                 0
@@ -391,7 +399,7 @@ class MatrixManager:
             if persons_ready and person_distinct_ids_ready:
                 if self.print_steps:
                     print(
-                        "Source person data fully loaded into ClickHouse. "
+                        f"Source person data fully loaded into ClickHouse after {i * 0.5:.1f}s. "
                         f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}.\n"
                         "Setting up project..."
                     )
@@ -401,9 +409,18 @@ class MatrixManager:
                     "Waiting for person data to land in ClickHouse... "
                     f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}."
                 )
+            elif i % 20 == 0 and i > 0:
+                print(
+                    f"Still waiting for ClickHouse sync... {i * 0.5:.0f}s elapsed. "
+                    f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}."
+                )
             sleep(0.5)
         else:
-            raise TimeoutError("Person data did not land in ClickHouse in time.")
+            raise TimeoutError(
+                f"Person data did not land in ClickHouse after {MAX_WAIT_ITERATIONS * 0.5}s. "
+                f"Expected {self._persons_created} persons and {self._person_distinct_ids_created} distinct IDs, "
+                f"got {person_count} persons and {person_distinct_id_count} distinct IDs."
+            )
 
     @classmethod
     def _is_demo_data_pre_saved(cls) -> bool:

@@ -62,6 +62,8 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSourceType, list[str]] = {
         "401 Client Error: Unauthorized for url: https://api.stripe.com",
         "403 Client Error: Forbidden for url: https://api.stripe.com",
         "Expired API Key provided",
+        "Invalid API Key provided",
+        "PermissionError",
     ],
     ExternalDataSourceType.POSTGRES: [
         "NoSuchTableError",
@@ -87,7 +89,11 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSourceType, list[str]] = {
         "OperationalError: connection failed: connection to server at",
         "password authentication failed connection",
     ],
-    ExternalDataSourceType.ZENDESK: ["404 Client Error: Not Found for url", "403 Client Error: Forbidden for url"],
+    ExternalDataSourceType.ZENDESK: [
+        "404 Client Error: Not Found for url",
+        "403 Client Error: Forbidden for url",
+        "401 Client Error",
+    ],
     ExternalDataSourceType.MYSQL: [
         "Can't connect to MySQL server on",
         "No primary key defined for table",
@@ -95,6 +101,7 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSourceType, list[str]] = {
         "sqlstate 42S02",  # Table not found error
         "ProgrammingError: (1146",  # Table not found error
         "OperationalError: (1356",  # View not found error
+        "Bad handshake",
     ],
     ExternalDataSourceType.SALESFORCE: [
         "400 Client Error: Bad Request for url",
@@ -108,13 +115,25 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSourceType, list[str]] = {
         "MFA authentication is required",
     ],
     ExternalDataSourceType.CHARGEBEE: ["403 Client Error: Forbidden for url", "Unauthorized for url"],
-    ExternalDataSourceType.HUBSPOT: ["missing or invalid refresh token"],
-    ExternalDataSourceType.GOOGLEADS: ["PERMISSION_DENIED", "UNAUTHENTICATED", "ACCESS_TOKEN_SCOPE_INSUFFICIENT"],
+    ExternalDataSourceType.HUBSPOT: ["missing or invalid refresh token", "missing or unknown hub id"],
+    ExternalDataSourceType.GOOGLEADS: [
+        "PERMISSION_DENIED",
+        "UNAUTHENTICATED",
+        "ACCESS_TOKEN_SCOPE_INSUFFICIENT",
+        "Account has been deleted",
+    ],
     ExternalDataSourceType.METAADS: [
         "Failed to refresh token for Meta Ads integration. Please re-authorize the integration."
     ],
-    ExternalDataSourceType.MONGODB: ["The DNS query name does not exist"],
+    ExternalDataSourceType.MONGODB: ["The DNS query name does not exist", "authentication failed"],
     ExternalDataSourceType.MSSQL: ["Adaptive Server connection failed", "Login failed for user"],
+    ExternalDataSourceType.GOOGLESHEETS: [
+        "the header row in the worksheet contains duplicates",
+        "can't be found",
+        "SpreadsheetNotFound",
+    ],
+    ExternalDataSourceType.LINKEDINADS: ["REVOKED_ACCESS_TOKEN"],
+    ExternalDataSourceType.REDDITADS: ["401 Client Error", "404 Client Error"],
 }
 
 
@@ -210,7 +229,7 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
             raw_error=inputs.latest_error or inputs.internal_error,
         )
 
-        logger.debug(f"User friendly error: {latest_error}")
+        logger.exception(latest_error)
     except Exception:
         latest_error = inputs.latest_error
 
@@ -339,9 +358,9 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )
 
             timeout_params = (
-                {"start_to_close_timeout": dt.timedelta(weeks=1), "retry_policy": RetryPolicy(maximum_attempts=3)}
+                {"start_to_close_timeout": dt.timedelta(weeks=1), "retry_policy": RetryPolicy(maximum_attempts=9)}
                 if incremental
-                else {"start_to_close_timeout": dt.timedelta(hours=24), "retry_policy": RetryPolicy(maximum_attempts=1)}
+                else {"start_to_close_timeout": dt.timedelta(hours=24), "retry_policy": RetryPolicy(maximum_attempts=3)}
             )
 
             await workflow.execute_activity(
@@ -361,7 +380,9 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
             await workflow.execute_activity(
                 calculate_table_size_activity,
-                CalculateTableSizeActivityInputs(team_id=inputs.team_id, schema_id=str(inputs.external_data_schema_id)),
+                CalculateTableSizeActivityInputs(
+                    team_id=inputs.team_id, schema_id=str(inputs.external_data_schema_id), job_id=job_id
+                ),
                 start_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )

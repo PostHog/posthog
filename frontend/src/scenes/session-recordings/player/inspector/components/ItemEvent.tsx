@@ -1,7 +1,7 @@
 import './ImagePreview.scss'
 
-import { IconShare, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonMenu, Link } from '@posthog/lemon-ui'
+import { IconShare } from '@posthog/icons'
+import { LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
 
 import { ErrorDisplay, idFrom } from 'lib/components/Errors/ErrorDisplay'
 import { getExceptionAttributes } from 'lib/components/Errors/utils'
@@ -11,10 +11,9 @@ import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { autoCaptureEventToDescription, capitalizeFirstLetter, isString } from 'lib/utils'
 import { AutocapturePreviewImage } from 'lib/utils/autocapture-previews'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
@@ -91,7 +90,7 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
         ) : null
 
     return (
-        <div data-attr="item-event" className="font-light w-full">
+        <div data-attr="item-event" className="font-light w-full @container">
             <div className="flex flex-row w-full justify-between gap-2 items-center px-2 py-1 text-xs cursor-pointer">
                 <div className="truncate">
                     <PropertyKeyInfo
@@ -114,93 +113,61 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
     )
 }
 
-export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
+export function ItemEventMenu({ item }: ItemEventProps): JSX.Element {
     const insightUrl = insightUrlForEvent(item.data)
-
     // Get trace ID for linking to LLM trace view
     const traceId = item.data.properties.$ai_trace_id
     const traceParams = item.data.id && item.data.event !== '$ai_trace' ? { event: item.data.id } : {}
     const traceUrl = traceId ? urls.llmAnalyticsTrace(traceId, traceParams) : null
 
     return (
+        <LemonMenu
+            items={[
+                {
+                    label: 'View event in the activity feed',
+                    icon: <IconOpenInNew />,
+                    to: urls.currentProject(urls.event(String(item.data.id), item.data.timestamp)),
+                    targetBlank: true,
+                },
+                item.data.event === '$exception' && '$exception_issue_id' in item.data.properties
+                    ? {
+                          label: 'View issue in Error Tracking',
+                          icon: <IconOpenInNew />,
+                          to: urls.errorTrackingIssue(
+                              item.data.properties.$exception_issue_id,
+                              item.data.properties.$exception_fingerprint
+                          ),
+                          targetBlank: true,
+                      }
+                    : null,
+                insightUrl
+                    ? {
+                          label: 'Try out in Insights',
+                          icon: <IconOpenInNew />,
+                          to: insightUrl,
+                          targetBlank: true,
+                      }
+                    : null,
+                traceUrl
+                    ? {
+                          label: 'View LLM Trace',
+                          icon: <IconOpenInNew />,
+                          to: traceUrl,
+                          targetBlank: true,
+                      }
+                    : null,
+            ]}
+            buttonSize="xsmall"
+        >
+            <LemonButton size="xsmall" icon={<IconShare />} className="recordings-event-share-actions" />
+        </LemonMenu>
+    )
+}
+
+export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
+    return (
         <div data-attr="item-event" className="font-light w-full">
             <div className="px-2 py-1 text-xs border-t">
-                <div className="flex justify-end gap-2">
-                    {item.data.event === '$exception' && '$exception_issue_id' in item.data.properties ? (
-                        <LemonButton
-                            targetBlank
-                            sideIcon={<IconOpenInNew />}
-                            data-attr="replay-inspector-issue-link"
-                            to={urls.errorTrackingIssue(
-                                item.data.properties.$exception_issue_id,
-                                item.data.properties.$exception_fingerprint
-                            )}
-                            size="xsmall"
-                        >
-                            View issue
-                        </LemonButton>
-                    ) : null}
-                    <LemonMenu
-                        items={[
-                            {
-                                label: 'Copy link to event',
-                                icon: <IconLink />,
-                                onClick: () => {
-                                    void copyToClipboard(
-                                        urls.absolute(
-                                            urls.currentProject(urls.event(String(item.data.id), item.data.timestamp))
-                                        ),
-                                        'link to event'
-                                    )
-                                },
-                            },
-                            item.data.event === '$exception' && '$exception_issue_id' in item.data.properties
-                                ? {
-                                      label: 'Copy link to issue',
-                                      icon: <IconWarning />,
-                                      onClick: () => {
-                                          void copyToClipboard(
-                                              urls.absolute(
-                                                  urls.currentProject(
-                                                      urls.errorTrackingIssue(
-                                                          item.data.properties.$exception_issue_id,
-                                                          item.data.properties.$exception_fingerprint
-                                                      )
-                                                  )
-                                              ),
-                                              'issue link'
-                                          )
-                                      },
-                                  }
-                                : null,
-                            insightUrl
-                                ? {
-                                      label: 'Try out in Insights',
-                                      icon: <IconOpenInNew />,
-                                      to: insightUrl,
-                                      targetBlank: true,
-                                  }
-                                : null,
-                            traceUrl
-                                ? {
-                                      label: 'View LLM Trace',
-                                      icon: <IconLink />,
-                                      to: traceUrl,
-                                      targetBlank: true,
-                                  }
-                                : null,
-                        ]}
-                        buttonSize="xsmall"
-                    >
-                        <div className="recordings-event-share-actions">
-                            <LemonButton size="xsmall" icon={<IconShare />}>
-                                Share
-                            </LemonButton>
-                        </div>
-                    </LemonMenu>
-                </div>
-                <LemonDivider dashed />
-
                 {item.data.fullyLoaded ? (
                     <EventPropertyTabs
                         size="small"

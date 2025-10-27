@@ -1,6 +1,4 @@
 import re
-import uuid
-from concurrent.futures import ThreadPoolExecutor
 
 from django.core.cache import cache
 from django.http import JsonResponse, StreamingHttpResponse
@@ -35,7 +33,7 @@ from posthog.api.services.query import process_query_model
 from posthog.api.utils import action, is_insight_actors_options_query, is_insight_actors_query, is_insight_query
 from posthog.clickhouse.client.execute_async import cancel_query, get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
@@ -43,6 +41,7 @@ from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filter
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 from posthog.models.user import User
+from posthog.models.utils import uuid7
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
@@ -52,17 +51,10 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
     HogQLQueryThrottle,
 )
+from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.schema_migrations.upgrade import upgrade
 
 from common.hogvm.python.utils import HogVMException
-
-# Create a dedicated thread pool for query processing
-# Setting max_workers to ensure we don't overwhelm the system
-# while still allowing concurrent queries
-QUERY_EXECUTOR = ThreadPoolExecutor(
-    max_workers=50,  # 50 should be enough to have 200 simultaneous queries across clickhouse
-    thread_name_prefix="query_processor",
-)
 
 
 def _process_query_request(
@@ -77,7 +69,7 @@ def _process_query_request(
     if request_data.variables_override is not None:
         query = apply_dashboard_variables(query, request_data.variables_override, team)
 
-    query_id = client_query_id or uuid.uuid4().hex
+    query_id = client_query_id or uuid7().hex
     execution_mode = execution_mode_from_refresh(request_data.refresh)
 
     if request_data.async_:  # TODO: Legacy async, use "refresh=async" instead
@@ -87,7 +79,12 @@ def _process_query_request(
         # Here in query endpoint we always want to calculate if the cache is stale
         execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
-    tag_queries(query=query.model_dump())
+    qt = get_query_tags()
+    if request_data.name:
+        qt.request_name = request_data.name
+    elif hasattr(request_data.query, "name") and isinstance(request_data.query.name, str):
+        qt.request_name = request_data.query.name
+    qt.query = query.model_dump()
 
     return query, query_id, execution_mode
 
@@ -173,6 +170,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return Response(result, status=response_status)
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
+        except UserAccessControlError as e:
+            raise ValidationError(str(e))
         except ResolutionError as e:
             raise ValidationError(str(e))
         except ConcurrencyLimitExceeded as c:

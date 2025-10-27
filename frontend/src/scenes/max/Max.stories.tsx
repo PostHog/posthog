@@ -77,10 +77,10 @@ const meta: Meta = {
 }
 export default meta
 
-const Template = ({ className, ...props }: MaxInstanceProps & { className?: string }): JSX.Element => {
+const Template = ({ className, ...props }: Omit<MaxInstanceProps, 'tabId'> & { className?: string }): JSX.Element => {
     return (
         <div className={twMerge('relative flex flex-col h-fit', className)}>
-            <MaxInstance {...props} />
+            <MaxInstance tabId="storybook" {...props} />
         </div>
     )
 }
@@ -118,8 +118,10 @@ WelcomeFeaturePreviewAutoEnrolled.parameters = {
 }
 
 export const Thread: StoryFn = () => {
-    const { setConversationId } = useActions(maxLogic)
-    const { askMax } = useActions(maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null }))
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const { askMax } = useActions(
+        maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    )
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
     useEffect(() => {
@@ -145,8 +147,8 @@ export const EmptyThreadLoading: StoryFn = () => {
         },
     })
 
-    const { setConversationId } = useActions(maxLogic)
-    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
     const { askMax } = useActions(threadLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
@@ -178,8 +180,8 @@ export const GenerationFailureThread: StoryFn = () => {
         },
     })
 
-    const { setConversationId } = useActions(maxLogic)
-    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
     const { askMax, setMessageStatus } = useActions(threadLogic)
     const { threadRaw, threadLoading } = useValues(threadLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
@@ -212,8 +214,8 @@ export const ThreadWithFailedGeneration: StoryFn = () => {
         },
     })
 
-    const { setConversationId } = useActions(maxLogic)
-    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
     const { askMax } = useActions(threadLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
@@ -242,8 +244,8 @@ export const ThreadWithRateLimit: StoryFn = () => {
         },
     })
 
-    const { setConversationId } = useActions(maxLogic)
-    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
     const { askMax } = useActions(threadLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
@@ -272,8 +274,8 @@ export const ThreadWithRateLimitNoRetryAfter: StoryFn = () => {
         },
     })
 
-    const { setConversationId } = useActions(maxLogic)
-    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
     const { askMax } = useActions(threadLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
@@ -300,8 +302,8 @@ export const ThreadWithForm: StoryFn = () => {
         },
     })
 
-    const { setConversationId } = useActions(maxLogic)
-    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
     const { askMax } = useActions(threadLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
@@ -328,7 +330,7 @@ export const ThreadWithConversationLoading: StoryFn = () => {
         },
     })
 
-    const { setConversationId } = useActions(maxLogic)
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
 
     useEffect(() => {
         setConversationId(CONVERSATION_ID)
@@ -349,7 +351,7 @@ export const ThreadWithEmptyConversation: StoryFn = () => {
         },
     })
 
-    const { setConversationId } = useActions(maxLogic)
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
 
     useEffect(() => {
         setConversationId('empty')
@@ -366,7 +368,7 @@ export const ThreadWithInProgressConversation: StoryFn = () => {
         },
     })
 
-    const { setConversationId } = useActions(maxLogic)
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
 
     useEffect(() => {
         setConversationId('in_progress')
@@ -402,7 +404,7 @@ export const ChatHistory: StoryFn = () => {
         },
     })
 
-    const { toggleConversationHistory } = useActions(maxLogic)
+    const { toggleConversationHistory } = useActions(maxLogic({ tabId: 'storybook' }))
 
     useEffect(() => {
         toggleConversationHistory(true)
@@ -423,7 +425,7 @@ export const ChatHistoryEmpty: StoryFn = () => {
         },
     })
 
-    const { toggleConversationHistory } = useActions(maxLogic)
+    const { toggleConversationHistory } = useActions(maxLogic({ tabId: 'storybook' }))
 
     useEffect(() => {
         toggleConversationHistory(true)
@@ -444,7 +446,7 @@ export const ChatHistoryLoading: StoryFn = () => {
         },
     })
 
-    const { toggleConversationHistory } = useActions(maxLogic)
+    const { toggleConversationHistory } = useActions(maxLogic({ tabId: 'storybook' }))
 
     useEffect(() => {
         toggleConversationHistory(true)
@@ -459,7 +461,7 @@ ChatHistoryLoading.parameters = {
 }
 
 export const ThreadWithOpenedSuggestionsMobile: StoryFn = () => {
-    const { setActiveGroup } = useActions(maxLogic)
+    const { setActiveGroup } = useActions(maxLogic({ tabId: 'storybook' }))
 
     useEffect(() => {
         // The largest group is the set up group
@@ -480,7 +482,7 @@ ThreadWithOpenedSuggestionsMobile.parameters = {
 }
 
 export const ThreadWithOpenedSuggestions: StoryFn = () => {
-    const { setActiveGroup } = useActions(maxLogic)
+    const { setActiveGroup } = useActions(maxLogic({ tabId: 'storybook' }))
 
     useEffect(() => {
         // The largest group is the set up group
@@ -548,9 +550,9 @@ export const ThreadScrollsToBottomOnNewMessages: StoryFn = () => {
         },
     })
 
-    const { conversation } = useValues(maxLogic)
-    const { setConversationId } = useActions(maxLogic)
-    const logic = maxThreadLogic({ conversationId: 'poem', conversation })
+    const { conversation } = useValues(maxLogic({ tabId: 'storybook' }))
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const logic = maxThreadLogic({ conversationId: 'poem', conversation, tabId: 'storybook' })
     const { threadRaw } = useValues(logic)
     const { askMax } = useActions(logic)
 
@@ -600,8 +602,8 @@ export const ChatWithUIContext: StoryFn = () => {
 
     const { contextEvents } = useValues(maxContextLogic)
     const { addOrUpdateContextEvent } = useActions(maxContextLogic)
-    const { setConversationId } = useActions(maxLogic)
-    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
     const { askMax } = useActions(threadLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
@@ -744,8 +746,8 @@ export const NotebookUpdateComponent: StoryFn = () => {
         },
     })
 
-    const { setConversationId } = useActions(maxLogic)
-    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
     const { askMax } = useActions(threadLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
@@ -801,7 +803,10 @@ export const PlanningComponent: StoryFn = () => {
                             'event: conversation',
                             `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
                             'event: message',
-                            `data: ${JSON.stringify({ ...humanMessage, content: 'Create a comprehensive analysis plan' })}`,
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Create a comprehensive analysis plan',
+                            })}`,
                             'event: message',
                             `data: ${JSON.stringify(planningMessage)}`,
                         ])
@@ -810,8 +815,8 @@ export const PlanningComponent: StoryFn = () => {
         },
     })
 
-    const { setConversationId } = useActions(maxLogic)
-    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
     const { askMax } = useActions(threadLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
@@ -840,12 +845,14 @@ export const TaskExecutionComponent: StoryFn = () => {
                 description: 'Loading user data',
                 prompt: 'Fetching last 30 days of user activity',
                 status: TaskExecutionStatus.Completed,
+                task_type: 'create_insight',
             },
             {
                 id: 'task_2',
                 description: 'Analyzing engagement patterns',
                 prompt: 'Identifying peak usage times and user segments',
                 status: TaskExecutionStatus.Completed,
+                task_type: 'create_insight',
             },
             {
                 id: 'task_3',
@@ -853,18 +860,21 @@ export const TaskExecutionComponent: StoryFn = () => {
                 prompt: 'Processing funnel metrics across key paths',
                 status: TaskExecutionStatus.InProgress,
                 progress_text: 'Exploring data',
+                task_type: 'create_insight',
             },
             {
                 id: 'task_4',
                 description: 'Building visualizations',
                 prompt: 'Creating charts and graphs for insights',
                 status: TaskExecutionStatus.Pending,
+                task_type: 'create_insight',
             },
             {
                 id: 'task_5',
                 description: 'Generating report',
                 prompt: 'Compiling findings into readable format',
                 status: TaskExecutionStatus.Pending,
+                task_type: 'create_insight',
             },
         ],
     }
@@ -887,8 +897,8 @@ export const TaskExecutionComponent: StoryFn = () => {
         },
     })
 
-    const { setConversationId } = useActions(maxLogic)
-    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
     const { askMax } = useActions(threadLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
@@ -917,30 +927,35 @@ export const TaskExecutionWithFailure: StoryFn = () => {
                 description: 'Loading user data',
                 prompt: 'Fetching last 30 days of user activity',
                 status: TaskExecutionStatus.Completed,
+                task_type: 'create_insight',
             },
             {
                 id: 'task_2',
                 description: 'Analyzing engagement patterns',
                 prompt: 'Identifying peak usage times and user segments',
                 status: TaskExecutionStatus.Completed,
+                task_type: 'create_insight',
             },
             {
                 id: 'task_3',
                 description: 'Calculating conversion rates',
                 prompt: 'Processing funnel metrics across key paths',
                 status: TaskExecutionStatus.Failed,
+                task_type: 'create_insight',
             },
             {
                 id: 'task_4',
                 description: 'Building visualizations',
                 prompt: 'Creating charts and graphs for insights',
                 status: TaskExecutionStatus.Pending,
+                task_type: 'create_insight',
             },
             {
                 id: 'task_5',
                 description: 'Generating report',
                 prompt: 'Compiling findings into readable format',
                 status: TaskExecutionStatus.Pending,
+                task_type: 'create_insight',
             },
         ],
     }
@@ -954,7 +969,10 @@ export const TaskExecutionWithFailure: StoryFn = () => {
                             'event: conversation',
                             `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
                             'event: message',
-                            `data: ${JSON.stringify({ ...humanMessage, content: 'Execute analysis with some failures' })}`,
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Execute analysis with some failures',
+                            })}`,
                             'event: message',
                             `data: ${JSON.stringify(taskExecutionMessage)}`,
                         ])
@@ -963,8 +981,8 @@ export const TaskExecutionWithFailure: StoryFn = () => {
         },
     })
 
-    const { setConversationId } = useActions(maxLogic)
-    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
     const { askMax } = useActions(threadLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
@@ -1057,7 +1075,10 @@ export const MultiVisualizationInThread: StoryFn = () => {
                             'event: conversation',
                             `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
                             'event: message',
-                            `data: ${JSON.stringify({ ...humanMsg, content: 'Analyze our product metrics comprehensively' })}`,
+                            `data: ${JSON.stringify({
+                                ...humanMsg,
+                                content: 'Analyze our product metrics comprehensively',
+                            })}`,
                             'event: message',
                             `data: ${JSON.stringify(multiVizMessage)}`,
                         ])
@@ -1067,8 +1088,8 @@ export const MultiVisualizationInThread: StoryFn = () => {
         },
     })
 
-    const { setConversationId } = useActions(maxLogic)
-    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
     const { askMax } = useActions(threadLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 

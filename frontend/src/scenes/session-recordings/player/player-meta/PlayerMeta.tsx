@@ -5,6 +5,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSelect, LemonSelectOption, Link } from '@posthog/lemon-ui'
 
+import { Logo } from 'lib/brand/Logo'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -13,7 +14,6 @@ import { isObject } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { PlayerMetaLinks } from 'scenes/session-recordings/player/player-meta/PlayerMetaLinks'
-import { PlayerMetaTopSettings } from 'scenes/session-recordings/player/player-meta/PlayerMetaTopSettings'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import {
     SessionRecordingPlayerMode,
@@ -22,7 +22,6 @@ import {
 import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
-import { Logo } from '~/toolbar/assets/Logo'
 
 import { PlayerPersonMeta } from './PlayerPersonMeta'
 import { playerMetaLogic } from './playerMetaLogic'
@@ -70,6 +69,7 @@ function URLOrScreen({ url }: { url: unknown }): JSX.Element | null {
                         explicitValue={urlToUse}
                         iconStyle={{ color: 'var(--color-text-secondary)' }}
                         selectable={true}
+                        data-attr="player-meta-copy-url"
                     />
                 </span>
                 {isValidUrl ? (
@@ -83,32 +83,6 @@ function URLOrScreen({ url }: { url: unknown }): JSX.Element | null {
                 )}
             </span>
         </span>
-    )
-}
-
-export function ResolutionView({ size }: { size?: PlayerMetaBreakpoints }): JSX.Element {
-    const { logicProps } = useValues(sessionRecordingPlayerLogic)
-
-    const { resolutionDisplay, scaleDisplay, loading } = useValues(playerMetaLogic(logicProps))
-
-    return loading ? (
-        <LemonSkeleton className="w-1/3 h-4" />
-    ) : (
-        <Tooltip
-            placement="bottom"
-            title={
-                <>
-                    The resolution of the page as it was captured was <b>{resolutionDisplay}</b>
-                    <br />
-                    You are viewing the replay at <b>{scaleDisplay}</b> of the original size
-                </>
-            }
-        >
-            <span className="text-secondary text-xs flex flex-row items-center gap-x-1">
-                {size === 'normal' && <span>{resolutionDisplay}</span>}
-                <span>({scaleDisplay})</span>
-            </span>
-        </Tooltip>
     )
 }
 
@@ -146,7 +120,6 @@ export function PlayerMeta(): JSX.Element {
                             </Link>
                         </Tooltip>
                     ) : null}
-                    <ResolutionView />
                 </div>
             </div>
         )
@@ -176,7 +149,7 @@ export function PlayerMeta(): JSX.Element {
         <DraggableToNotebook href={urls.replaySingle(logicProps.sessionRecordingId)} onlyWithModifierKey>
             <div
                 ref={ref}
-                className={clsx('PlayerMeta', {
+                className={clsx('PlayerMeta relative', {
                     'PlayerMeta--fullscreen': isFullScreen,
                 })}
             >
@@ -191,6 +164,7 @@ export function PlayerMeta(): JSX.Element {
                                 value={trackedWindow}
                                 disabledReason={windowIds.length <= 1 ? "There's only one window" : undefined}
                                 onSelect={(value) => setTrackedWindow(value)}
+                                data-attr="player-meta-window-select"
                             />
 
                             <URLOrScreen url={currentURL} />
@@ -206,10 +180,8 @@ export function PlayerMeta(): JSX.Element {
                     )}
                     <div className={clsx('flex-1', size === 'small' ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
                     {!isCinemaMode && <PlayerMetaLinks size={size} />}
-                    {!isCinemaMode && <ResolutionView size={size} />}
                     <PlayerPersonMeta />
                 </div>
-                {!isCinemaMode && <PlayerMetaTopSettings size={size} />}
             </div>
         </DraggableToNotebook>
     )

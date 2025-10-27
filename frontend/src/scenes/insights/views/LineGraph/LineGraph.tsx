@@ -8,7 +8,6 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
-import { Root, createRoot } from 'react-dom/client'
 
 import {
     ActiveElement,
@@ -38,6 +37,7 @@ import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtil
 import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -50,102 +50,6 @@ import { groupsModel } from '~/models/groupsModel'
 import { GoalLine, TrendsFilter } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
-
-const tooltipInstances = new Map<
-    string,
-    { root: Root; element: HTMLElement; isMouseOver: boolean; hideTimeout: NodeJS.Timeout | null }
->()
-
-export function ensureTooltip(chartId: string): [Root, HTMLElement] {
-    let instance = tooltipInstances.get(chartId)
-
-    if (!instance) {
-        const tooltipEl = document.createElement('div')
-        tooltipEl.id = `InsightTooltipWrapper-${chartId}`
-        tooltipEl.classList.add('InsightTooltipWrapper')
-        document.body.appendChild(tooltipEl)
-
-        const root = createRoot(tooltipEl)
-
-        instance = {
-            root,
-            element: tooltipEl,
-            isMouseOver: false,
-            hideTimeout: null,
-        }
-
-        tooltipInstances.set(chartId, instance)
-
-        // Add mouse tracking for this specific tooltip
-        tooltipEl.addEventListener(
-            'mouseenter',
-            () => {
-                instance!.isMouseOver = true
-                if (instance!.hideTimeout) {
-                    clearTimeout(instance!.hideTimeout)
-                    instance!.hideTimeout = null
-                }
-            },
-            { passive: true }
-        )
-
-        tooltipEl.addEventListener(
-            'mouseleave',
-            () => {
-                instance!.isMouseOver = false
-                instance!.hideTimeout = setTimeout(() => {
-                    if (!instance!.isMouseOver) {
-                        instance!.element.classList.add('opacity-0', 'invisible')
-                    }
-                }, 100)
-            },
-            { passive: true }
-        )
-    }
-
-    return [instance.root, instance.element]
-}
-
-export function hideTooltip(chartId?: string): void {
-    if (!chartId) {
-        // Fallback to old behavior - hide all tooltips
-        tooltipInstances.forEach((instance) => {
-            instance.element.style.opacity = '0'
-        })
-        return
-    }
-
-    const instance = tooltipInstances.get(chartId)
-    if (!instance) {
-        return
-    }
-
-    if (instance.hideTimeout) {
-        clearTimeout(instance.hideTimeout)
-        instance.hideTimeout = null
-    }
-
-    if (instance.isMouseOver) {
-        return
-    }
-
-    instance.hideTimeout = setTimeout(() => {
-        if (!instance.isMouseOver) {
-            instance.element.classList.add('opacity-0', 'invisible')
-        }
-    }, 100)
-}
-
-export function cleanupTooltip(chartId: string): void {
-    const instance = tooltipInstances.get(chartId)
-    if (instance) {
-        if (instance.hideTimeout) {
-            clearTimeout(instance.hideTimeout)
-        }
-        instance.element.remove()
-        tooltipInstances.delete(chartId)
-    }
-}
 
 function truncateString(str: string, num: number): string {
     if (str.length > num) {
@@ -328,6 +232,7 @@ export interface LineGraphProps {
     goalLines?: GoalLine[]
     isStacked?: boolean
     showTrendLines?: boolean
+    ignoreActionsInSeriesLabels?: boolean
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -371,6 +276,7 @@ export function LineGraph_({
     goalLines: _goalLines,
     isStacked = true,
     showTrendLines = false,
+    ignoreActionsInSeriesLabels = false,
 }: LineGraphProps): JSX.Element {
     const originalDatasets = _datasets
     let datasets = _datasets
@@ -389,8 +295,7 @@ export function LineGraph_({
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [lineChart, setLineChart] = useState<Chart<ChartType, any, string>>()
 
-    // Generate unique chart ID based on insight ID and data attributes
-    const chartId = useRef(`chart-${insight.id || 'new'}-${Math.random().toString(36).substring(2, 11)}`)
+    const { hideTooltip, getTooltip } = useInsightTooltip()
 
     // Relying on useResizeObserver instead of Chart's onResize because the latter was not reliable
     const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: canvasRef })
@@ -414,7 +319,7 @@ export function LineGraph_({
             return
         }
 
-        const handleScrollEnd = (): void => hideTooltip(chartId.current)
+        const handleScrollEnd = (): void => hideTooltip()
 
         // Scroll events happen on the main element due to overflow-y: scroll
         // but we need to make sure it exists before adding the event listener,
@@ -429,14 +334,7 @@ export function LineGraph_({
                 main.removeEventListener('scrollend', handleScrollEnd)
             }
         }
-    }, [hideTooltipOnScroll])
-
-    // Remove tooltip element on unmount
-    useOnMountEffect(() => {
-        return () => {
-            cleanupTooltip(chartId.current)
-        }
-    })
+    }, [hideTooltipOnScroll, hideTooltip])
 
     // Add event listeners to canvas
     useOnMountEffect(() => {
@@ -488,7 +386,8 @@ export function LineGraph_({
         if (isBackgroundBasedGraphType) {
             backgroundColor = mainColor
         } else if (isArea) {
-            backgroundColor = hexToRGBA(mainColor, 0.5)
+            const alpha = isPercentStackView ? 1 : 0.5
+            backgroundColor = hexToRGBA(mainColor, alpha)
         }
 
         let adjustedData = dataset.data
@@ -783,10 +682,10 @@ export function LineGraph_({
                             return
                         }
 
-                        const [tooltipRoot, tooltipEl] = ensureTooltip(chartId.current)
+                        const [tooltipRoot, tooltipEl] = getTooltip()
                         if (tooltip.opacity === 0) {
                             // Use the new hide logic that respects mouse hover
-                            hideTooltip(chartId.current)
+                            hideTooltip()
                             return
                         }
 
@@ -1088,11 +987,19 @@ export function LineGraph_({
                                     d.compareLabels?.[i],
                                 ]
                             } else if (d.breakdownLabels?.[i]) {
-                                labelDescriptors = [d.actions?.[i]?.name, d.breakdownLabels[i], d.compareLabels?.[i]]
+                                labelDescriptors = [
+                                    ignoreActionsInSeriesLabels ? null : d.actions?.[i]?.name,
+                                    d.breakdownLabels[i],
+                                    d.compareLabels?.[i],
+                                ]
                             } else if (d.labels?.[i]) {
                                 labelDescriptors = [d.labels[i], d.compareLabels?.[i]]
                             } else {
-                                labelDescriptors = [d.actions?.[i]?.name, d.breakdownLabels?.[i], d.compareLabels?.[i]]
+                                labelDescriptors = [
+                                    ignoreActionsInSeriesLabels ? null : d.actions?.[i]?.name,
+                                    d.breakdownLabels?.[i],
+                                    d.compareLabels?.[i],
+                                ]
                             }
                             return labelDescriptors.filter((l) => !!l).join(' - ')
                         },

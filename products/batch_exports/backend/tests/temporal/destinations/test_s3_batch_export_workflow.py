@@ -50,10 +50,8 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
 )
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue
-from products.batch_exports.backend.tests.temporal.utils import (
-    get_record_batch_from_queue,
-    mocked_start_batch_export_run,
-)
+from products.batch_exports.backend.tests.temporal.utils.records import get_record_batch_from_queue
+from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -170,7 +168,10 @@ async def minio_client(bucket_name):
 
 async def assert_files_in_s3(s3_compatible_client, bucket_name, key_prefix, file_format, compression, json_columns):
     """Assert that there are files in S3 under key_prefix and return the combined contents, and the keys of files found."""
-    expected_file_extension = FILE_FORMAT_EXTENSIONS[file_format]
+    if file_format == "Arrow":
+        expected_file_extension = "arrow"
+    else:
+        expected_file_extension = FILE_FORMAT_EXTENSIONS[file_format]
     if compression is not None:
         expected_file_extension = f"{expected_file_extension}.{COMPRESSION_EXTENSIONS[compression]}"
 
@@ -190,6 +191,10 @@ async def assert_files_in_s3(s3_compatible_client, bucket_name, key_prefix, file
         if file_format == "Parquet":
             s3_data.extend(await read_parquet_from_s3(bucket_name, key, json_columns))
 
+        elif file_format == "Arrow":
+            s3_object = await s3_compatible_client.get_object(Bucket=bucket_name, Key=key)
+            data = await s3_object["Body"].read()
+            s3_data.extend(data)
         elif file_format == "JSONLines":
             s3_object = await s3_compatible_client.get_object(Bucket=bucket_name, Key=key)
             data = await s3_object["Body"].read()
@@ -1754,6 +1759,15 @@ base_inputs = {"bucket_name": "test", "region": "test", "team_id": 1}
         ),
         (
             S3InsertInputs(
+                prefix="invalid-format-spec-{data_interval_start:hour}",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                **base_inputs,  # type: ignore
+            ),
+            "invalid-format-spec-{data_interval_start:hour}/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
+        ),
+        (
+            S3InsertInputs(
                 prefix="",
                 data_interval_start="2023-01-01 00:00:00",
                 data_interval_end="2023-01-01 01:00:00",
@@ -1932,5 +1946,13 @@ base_inputs = {"bucket_name": "test", "region": "test", "team_id": 1}
 )
 def test_get_s3_key(inputs, expected):
     """Test the get_s3_key function renders the expected S3 key given inputs."""
-    result = get_s3_key(inputs)
+    result = get_s3_key(
+        inputs.prefix,
+        inputs.data_interval_start,
+        inputs.data_interval_end,
+        inputs.batch_export_model,
+        inputs.file_format,
+        inputs.compression,
+        use_new_file_naming_scheme=inputs.max_file_size_mb is not None,
+    )
     assert result == expected

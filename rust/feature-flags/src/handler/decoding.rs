@@ -9,10 +9,27 @@ use crate::{
 use axum::http::{header::CONTENT_TYPE, HeaderMap};
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
+use common_compression;
 use common_metrics::inc;
-use flate2::read::GzDecoder;
 use percent_encoding::percent_decode;
-use std::io::Read;
+
+/// Lightweight token extraction for rate limiting.
+/// Tries to extract the token without full request deserialization.
+/// Falls back to None if extraction fails (caller should use IP).
+pub fn extract_token(body: &Bytes) -> Option<String> {
+    // Try to parse just the token field from JSON body
+    // This is much faster than full decode_request()
+    serde_json::from_slice::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| {
+            v.get("token")
+                .or_else(|| v.get("api_key"))
+                .or_else(|| v.get("$token"))
+                .and_then(|t| t.as_str())
+                .filter(|s| !s.is_empty())
+                .map(String::from)
+        })
+}
 
 pub fn decode_request(
     headers: &HeaderMap,
@@ -92,13 +109,12 @@ fn decode_body(
 }
 
 fn decompress_gzip(compressed: Bytes) -> Result<Bytes, FlagError> {
-    let mut decoder = GzDecoder::new(&compressed[..]);
-    let mut decompressed = Vec::new();
-    decoder.read_to_end(&mut decompressed).map_err(|e| {
-        tracing::warn!("gzip decompression failed: {}", e);
-        FlagError::RequestDecodingError(format!("gzip decompression failed: {e}"))
-    })?;
-    Ok(Bytes::from(decompressed))
+    common_compression::decompress_gzip(&compressed)
+        .map(Bytes::from)
+        .map_err(|e| {
+            tracing::warn!("gzip decompression failed: {}", e);
+            FlagError::RequestDecodingError(format!("gzip decompression failed: {e}"))
+        })
 }
 
 fn decode_base64(body: Bytes) -> Result<Bytes, FlagError> {
@@ -247,14 +263,8 @@ mod tests {
     use super::*;
     use crate::api::types::{Compression, FlagsQueryParams};
     use axum::http::HeaderMap;
-    use flate2::write::GzEncoder;
-    use flate2::Compression as FlateCompression;
-    use std::io::Write;
-
     fn create_gzipped_json(json_data: &str) -> Bytes {
-        let mut encoder = GzEncoder::new(Vec::new(), FlateCompression::default());
-        encoder.write_all(json_data.as_bytes()).unwrap();
-        let compressed = encoder.finish().unwrap();
+        let compressed = common_compression::compress_gzip(json_data.as_bytes()).unwrap();
         Bytes::from(compressed)
     }
 
@@ -351,5 +361,75 @@ mod tests {
         let request = result.unwrap();
         assert_eq!(request.distinct_id, Some("user".to_string()));
         assert_eq!(request.token, Some("test".to_string()));
+    }
+
+    #[test]
+    fn test_extract_token_with_token_field() {
+        let json_data = r#"{"token": "test_token_123", "distinct_id": "user"}"#;
+        let body = Bytes::from(json_data);
+
+        let token = extract_token(&body);
+        assert_eq!(token, Some("test_token_123".to_string()));
+    }
+
+    #[test]
+    fn test_extract_token_with_api_key_field() {
+        let json_data = r#"{"api_key": "phc_test123", "distinct_id": "user"}"#;
+        let body = Bytes::from(json_data);
+
+        let token = extract_token(&body);
+        assert_eq!(token, Some("phc_test123".to_string()));
+    }
+
+    #[test]
+    fn test_extract_token_with_dollar_token_field() {
+        let json_data = r#"{"$token": "test_token", "distinct_id": "user"}"#;
+        let body = Bytes::from(json_data);
+
+        let token = extract_token(&body);
+        assert_eq!(token, Some("test_token".to_string()));
+    }
+
+    #[test]
+    fn test_extract_token_prefers_token_over_api_key() {
+        let json_data = r#"{"token": "token_value", "api_key": "api_key_value"}"#;
+        let body = Bytes::from(json_data);
+
+        let token = extract_token(&body);
+        assert_eq!(token, Some("token_value".to_string()));
+    }
+
+    #[test]
+    fn test_extract_token_with_empty_token() {
+        let json_data = r#"{"token": "", "distinct_id": "user"}"#;
+        let body = Bytes::from(json_data);
+
+        let token = extract_token(&body);
+        assert_eq!(token, None);
+    }
+
+    #[test]
+    fn test_extract_token_with_no_token_field() {
+        let json_data = r#"{"distinct_id": "user", "properties": {}}"#;
+        let body = Bytes::from(json_data);
+
+        let token = extract_token(&body);
+        assert_eq!(token, None);
+    }
+
+    #[test]
+    fn test_extract_token_with_invalid_json() {
+        let body = Bytes::from("not valid json {{{");
+
+        let token = extract_token(&body);
+        assert_eq!(token, None);
+    }
+
+    #[test]
+    fn test_extract_token_with_empty_body() {
+        let body = Bytes::from("");
+
+        let token = extract_token(&body);
+        assert_eq!(token, None);
     }
 }

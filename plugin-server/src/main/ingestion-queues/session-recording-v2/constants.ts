@@ -12,12 +12,11 @@ export const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 90_000
 // Re-export kafka topics constants
 export { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS, KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW }
 
-export const ValidRetentionPeriods = ['legacy', '30d', '90d', '1y', '5y'] as const
+export const ValidRetentionPeriods = ['30d', '90d', '1y', '5y'] as const
 
 export const RetentionPeriodToDaysMap: { [key in RetentionPeriod]: number | null } = {
     '30d': 30,
     '90d': 90,
     '1y': 365,
     '5y': 1825,
-    legacy: null,
 }

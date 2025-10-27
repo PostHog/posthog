@@ -4,12 +4,20 @@ import { AlertType } from 'lib/components/Alerts/types'
 import { INSIGHT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { DashboardFilter, HogQLFilters, HogQLVariable, Node, NodeKind } from '~/queries/schema/schema-general'
+import {
+    DashboardFilter,
+    HogQLFilters,
+    HogQLVariable,
+    Node,
+    NodeKind,
+    TileFilters,
+} from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 
 import {
     DashboardType,
     FileSystemIconColor,
+    InsightSceneSource,
     InsightShortId,
     InsightType,
     ProductManifest,
@@ -23,10 +31,12 @@ export const manifest: ProductManifest = {
             type,
             dashboardId,
             query,
+            sceneSource,
         }: {
             type?: InsightType
             dashboardId?: DashboardType['id'] | null
             query?: Node
+            sceneSource?: InsightSceneSource
         } = {}): string => {
             // Redirect HogQL queries to SQL editor
             if (isHogQLQuery(query)) {
@@ -41,6 +51,7 @@ export const manifest: ProductManifest = {
             return combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
                 ...(type ? { insight: type } : {}),
                 ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
+                ...(sceneSource ? { sceneSource } : {}),
             }).url
         },
         insightNewHogQL: ({ query, filters }: { query: string; filters?: HogQLFilters }): string =>
@@ -55,12 +66,14 @@ export const manifest: ProductManifest = {
             id: InsightShortId,
             dashboardId?: number,
             variablesOverride?: Record<string, HogQLVariable>,
-            filtersOverride?: DashboardFilter
+            filtersOverride?: DashboardFilter,
+            tileFiltersOverride?: TileFilters
         ): string => {
             const params = [
                 { param: 'dashboard', value: dashboardId },
                 { param: 'variables_override', value: variablesOverride },
                 { param: 'filters_override', value: filtersOverride },
+                { param: 'tile_filters_override', value: tileFiltersOverride },
             ]
                 .filter((n) => Boolean(n.value))
                 .map((n) => `${n.param}=${encodeURIComponent(JSON.stringify(n.value))}`)
@@ -92,7 +105,7 @@ export const manifest: ProductManifest = {
             path: `Insight/Trends`,
             type: 'insight',
             href: urls.insightNew({ type: InsightType.TRENDS }),
-            iconType: 'insight_trend',
+            iconType: 'insight/trends',
             iconColor: ['var(--color-insight-trends-light)'] as FileSystemIconColor,
             visualOrder: INSIGHT_VISUAL_ORDER.trends,
         },
@@ -100,7 +113,7 @@ export const manifest: ProductManifest = {
             path: `Insight/Funnel`,
             type: 'insight',
             href: urls.insightNew({ type: InsightType.FUNNELS }),
-            iconType: 'insight_funnel',
+            iconType: 'insight/funnels',
             iconColor: ['var(--color-insight-funnel-light)'] as FileSystemIconColor,
             visualOrder: INSIGHT_VISUAL_ORDER.funnel,
         },
@@ -108,7 +121,7 @@ export const manifest: ProductManifest = {
             path: `Insight/Retention`,
             type: 'insight',
             href: urls.insightNew({ type: InsightType.RETENTION }),
-            iconType: 'insight_retention',
+            iconType: 'insight/retention',
             iconColor: ['var(--color-insight-retention-light)'] as FileSystemIconColor,
             visualOrder: INSIGHT_VISUAL_ORDER.retention,
         },
@@ -116,7 +129,7 @@ export const manifest: ProductManifest = {
             path: `Insight/User paths`,
             type: 'insight',
             href: urls.insightNew({ type: InsightType.PATHS }),
-            iconType: 'insight_user_path',
+            iconType: 'insight/paths',
             iconColor: ['var(--color-insight-user-paths-light)', 'var(--color-user-paths-dark)'] as FileSystemIconColor,
             visualOrder: INSIGHT_VISUAL_ORDER.paths,
         },
@@ -124,7 +137,7 @@ export const manifest: ProductManifest = {
             path: `Insight/Stickiness`,
             type: 'insight',
             href: urls.insightNew({ type: InsightType.STICKINESS }),
-            iconType: 'insight_stickiness',
+            iconType: 'insight/stickiness',
             iconColor: ['var(--color-insight-stickiness-light)'] as FileSystemIconColor,
             visualOrder: INSIGHT_VISUAL_ORDER.stickiness,
         },
@@ -132,7 +145,7 @@ export const manifest: ProductManifest = {
             path: `Insight/Lifecycle`,
             type: 'insight',
             href: urls.insightNew({ type: InsightType.LIFECYCLE }),
-            iconType: 'insight_lifecycle',
+            iconType: 'insight/lifecycle',
             iconColor: ['var(--color-insight-lifecycle-light)'] as FileSystemIconColor,
             visualOrder: INSIGHT_VISUAL_ORDER.lifecycle,
         },
@@ -145,6 +158,7 @@ export const manifest: ProductManifest = {
             href: urls.insights(),
             iconType: 'product_analytics',
             iconColor: ['var(--color-product-product-analytics-light)'] as FileSystemIconColor,
+            sceneKey: 'SavedInsights',
         },
     ],
 }

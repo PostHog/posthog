@@ -3,8 +3,10 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+use aws_config::{BehaviorVersion, Region};
 use common_kafka::config::{ConsumerConfig, KafkaConfig};
 use envconfig::Envconfig;
+use tracing::{info, warn};
 
 // TODO - I'm just too lazy to pipe this all the way through the resolve call stack
 pub static FRAME_CONTEXT_LINES: AtomicUsize = AtomicUsize::new(15);
@@ -37,11 +39,17 @@ pub struct Config {
     #[envconfig(default = "clickhouse_ingestion_warnings")]
     pub ingestion_warnings_topic: String,
 
+    #[envconfig(default = "document_embeddings_input")]
+    pub embedding_worker_topic: String,
+
     #[envconfig(nested = true)]
     pub consumer: ConsumerConfig,
 
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub database_url: String,
+
+    #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
+    pub persons_url: String,
 
     // Rust service connect directly to postgres, not via pgbouncer, so we keep this low
     #[envconfig(default = "4")]
@@ -171,4 +179,35 @@ fn default_maxmind_db_path() -> PathBuf {
         .unwrap()
         .join("share")
         .join("GeoLite2-City.mmdb")
+}
+
+pub async fn get_aws_config(config: &Config) -> aws_sdk_s3::Config {
+    // If we have a role ARN and token file, which are added to the container due to the SA annotation we use in prod
+    if std::env::var("AWS_ROLE_ARN").is_ok() && std::env::var("AWS_WEB_IDENTITY_TOKEN_FILE").is_ok()
+    {
+        info!("AWS role and token file detected, config loaded from environment variables");
+        // Use default aws config loading behaviour, which should pick up the role-based credentials. We
+        // assume region and endpoint will be properly set due to SA annotation. Behaviour version will
+        // be latest due to config crate feature flag
+        aws_sdk_s3::config::Builder::from(&aws_config::load_from_env().await)
+            .force_path_style(config.object_storage_force_path_style)
+            .build()
+    } else {
+        warn!("Falling back to building config from explicit environment variables");
+        // Fall back to building our config from the explicit environment variables we use in local dev
+        let env_credentials = aws_sdk_s3::config::Credentials::new(
+            &config.object_storage_access_key_id,
+            &config.object_storage_secret_access_key,
+            None,
+            None,
+            "environment",
+        );
+        aws_sdk_s3::config::Builder::new()
+            .region(Region::new(config.object_storage_region.clone()))
+            .endpoint_url(&config.object_storage_endpoint)
+            .credentials_provider(env_credentials)
+            .behavior_version(BehaviorVersion::latest())
+            .force_path_style(config.object_storage_force_path_style)
+            .build()
+    }
 }

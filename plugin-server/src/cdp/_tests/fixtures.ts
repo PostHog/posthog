@@ -7,7 +7,9 @@ import { insertRow } from '~/tests/helpers/sql'
 import { ClickHousePerson, ClickHouseTimestamp, ProjectId, RawClickHouseEvent, Team } from '../../types'
 import { PostgresRouter } from '../../utils/db/postgres'
 import { UUIDT } from '../../utils/utils'
+import { CohortMembershipChange } from '../consumers/cdp-cohort-membership.consumer'
 import { CdpInternalEvent } from '../schema'
+import { compileHog } from '../templates/compiler'
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobQueueKind,
@@ -175,6 +177,9 @@ export const insertHogFunctionTemplate = async (
     const template = createHogFunctionTemplate({
         ...hogFunctionTemplate,
     })
+    if (template.code_language === 'hog') {
+        template.bytecode = await compileHog(template.code)
+    }
 
     const res = await insertRow(postgres, 'posthog_hogfunctiontemplate', {
         id: randomUUID(),
@@ -281,4 +286,56 @@ export const createExampleInvocation = (
         queue,
         queuePriority: 0,
     }
+}
+
+// Cohort Membership Test Helpers
+export const createCohortMembershipEvent = (
+    overrides: Partial<CohortMembershipChange> = {}
+): CohortMembershipChange => {
+    return {
+        personId: new UUIDT().toString(),
+        cohortId: 1,
+        teamId: 1,
+        cohort_membership_changed: 'entered',
+        ...overrides,
+    }
+}
+
+export const createCohortMembershipEvents = (events: Partial<CohortMembershipChange>[]): CohortMembershipChange[] => {
+    return events.map((event) => createCohortMembershipEvent(event))
+}
+
+export interface CohortMembershipRecord {
+    team_id: number
+    cohort_id: number
+    person_id: string
+    in_cohort: boolean
+    last_updated?: Date
+}
+
+export const insertCohortMembership = async (
+    db: PostgresRouter,
+    membership: Partial<CohortMembershipRecord>
+): Promise<CohortMembershipRecord> => {
+    const record: CohortMembershipRecord = {
+        team_id: 1,
+        cohort_id: 1,
+        person_id: new UUIDT().toString(),
+        in_cohort: true,
+        ...membership,
+    }
+
+    // insertRow now automatically determines the correct database based on table name
+    return await insertRow(db, 'cohort_membership', record)
+}
+
+export const insertCohortMemberships = async (
+    db: PostgresRouter,
+    memberships: Partial<CohortMembershipRecord>[]
+): Promise<CohortMembershipRecord[]> => {
+    const results = []
+    for (const membership of memberships) {
+        results.push(await insertCohortMembership(db, membership))
+    }
+    return results
 }

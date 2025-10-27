@@ -34,6 +34,7 @@ INSERT INTO sharded_session_replay_events (
     block_urls,
     block_first_timestamps,
     block_last_timestamps,
+    retention_period_days,
     _timestamp
 )
 SELECT
@@ -56,6 +57,7 @@ SELECT
     %(block_urls)s,
     %(block_first_timestamps)s,
     %(block_last_timestamps)s,
+    %(retention_period_days)s,
     %(_timestamp)s
 """
 

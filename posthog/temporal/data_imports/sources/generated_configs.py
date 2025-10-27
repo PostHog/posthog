@@ -30,6 +30,12 @@ class BigQueryTemporaryDatasetConfig(config.Config):
 
 
 @config.config
+class GoogleAdsIsMccAccountConfig(config.Config):
+    mcc_client_id: str
+    enabled: bool = config.value(converter=config.str_to_bool, default=False)
+
+
+@config.config
 class SnowflakeAuthTypeConfig(config.Config):
     user: str
     password: str
@@ -74,6 +80,7 @@ class DoItSourceConfig(config.Config):
 class GoogleAdsSourceConfig(config.Config):
     customer_id: str
     google_ads_integration_id: int = config.value(converter=config.str_to_int)
+    is_mcc_account: GoogleAdsIsMccAccountConfig | None = None
 
 
 @config.config
@@ -160,7 +167,8 @@ class PostgresSourceConfig(config.Config):
 
 @config.config
 class RedditAdsSourceConfig(config.Config):
-    pass
+    account_id: str
+    reddit_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
@@ -176,6 +184,12 @@ class RevenueCatSourceConfig(config.Config):
 @config.config
 class SalesforceSourceConfig(config.Config):
     salesforce_integration_id: int = config.value(converter=config.str_to_int)
+
+
+@config.config
+class ShopifySourceConfig(config.Config):
+    shopify_store_id: str
+    shopify_access_token: str
 
 
 @config.config
@@ -203,6 +217,12 @@ class TemporalIOSourceConfig(config.Config):
     client_certificate: str
     client_private_key: str
     encryption_key: str | None = None
+
+
+@config.config
+class TikTokAdsSourceConfig(config.Config):
+    advertiser_id: str
+    tiktok_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
@@ -241,9 +261,11 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.REDSHIFT: RedshiftSourceConfig,
         ExternalDataSourceType.REVENUECAT: RevenueCatSourceConfig,
         ExternalDataSourceType.SALESFORCE: SalesforceSourceConfig,
+        ExternalDataSourceType.SHOPIFY: ShopifySourceConfig,
         ExternalDataSourceType.SNOWFLAKE: SnowflakeSourceConfig,
         ExternalDataSourceType.STRIPE: StripeSourceConfig,
         ExternalDataSourceType.TEMPORALIO: TemporalIOSourceConfig,
+        ExternalDataSourceType.TIKTOKADS: TikTokAdsSourceConfig,
         ExternalDataSourceType.VITALLY: VitallySourceConfig,
         ExternalDataSourceType.ZENDESK: ZendeskSourceConfig,
     }[source]

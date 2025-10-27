@@ -1,9 +1,10 @@
-import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { BindLogic, BuiltLogic, LogicWrapper, useActions, useMountedLogic, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconGraph } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonSegmentedButtonOption } from '@posthog/lemon-ui'
 
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -33,28 +34,33 @@ const MODE_OPTIONS: LemonSegmentedButtonOption<'mrr' | 'arr'>[] = [
 ]
 
 let uniqueNode = 0
+
 export function RevenueAnalyticsMRRNode(props: {
     query: RevenueAnalyticsMRRQuery
     cachedResults?: AnyResponseType
     context: QueryContext
+    attachTo?: LogicWrapper | BuiltLogic
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `RevenueAnalyticsMRR.${uniqueNode++}`)
 
+    const dataNodeLogicProps = {
+        query: props.query,
+        key,
+        cachedResults: props.cachedResults,
+        loadPriority,
+        onData,
+        dataNodeCollectionId: dataNodeCollectionId ?? key,
+    }
+
+    useAttachedLogic(insightLogic(props.context.insightProps ?? {}), props.attachTo)
+    useAttachedLogic(insightVizDataLogic(props.context.insightProps ?? {}), props.attachTo)
+    useAttachedLogic(dataNodeLogic(dataNodeLogicProps), props.attachTo)
+
     return (
         <BindLogic logic={insightLogic} props={props.context.insightProps ?? {}}>
             <BindLogic logic={insightVizDataLogic} props={props.context.insightProps ?? {}}>
-                <BindLogic
-                    logic={dataNodeLogic}
-                    props={{
-                        query: props.query,
-                        key,
-                        cachedResults: props.cachedResults,
-                        loadPriority,
-                        onData,
-                        dataNodeCollectionId: dataNodeCollectionId ?? key,
-                    }}
-                >
+                <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                     <Tile context={props.context} />
                 </BindLogic>
 

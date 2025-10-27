@@ -1,12 +1,14 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -15,11 +17,12 @@ import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 import { isAnyPropertyFilters } from '~/queries/schema-guards'
-import { DataTableNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { DataTableNode, LLMTrace, NodeKind, TraceQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import {
     AnyPropertyFilter,
     BaseMathType,
+    Breadcrumb,
     ChartDisplayType,
     EventDefinitionType,
     HogQLMathType,
@@ -37,6 +40,20 @@ const INITIAL_DASHBOARD_DATE_FROM = '-7d' as string | null
 const INITIAL_EVENTS_DATE_FROM = '-1d' as string | null
 const INITIAL_DATE_TO = null as string | null
 
+export function getDefaultGenerationsColumns(showInputOutput: boolean): string[] {
+    return [
+        'uuid',
+        'properties.$ai_trace_id',
+        ...(showInputOutput ? ['properties.$ai_input[-1]', 'properties.$ai_output_choices'] : []),
+        'person',
+        "f'{properties.$ai_model}' -- Model",
+        "f'{round(toFloat(properties.$ai_latency), 2)} s' -- Latency",
+        "f'{properties.$ai_input_tokens} → {properties.$ai_output_tokens} (∑ {toInt(properties.$ai_input_tokens) + toInt(properties.$ai_output_tokens)})' -- Token usage",
+        "f'${round(toFloat(properties.$ai_total_cost_usd), 6)}' -- Total cost",
+        'timestamp',
+    ]
+}
+
 export interface QueryTile {
     title: string
     description?: string
@@ -45,6 +62,11 @@ export interface QueryTile {
     layout?: {
         className?: string
     }
+}
+
+export interface LLMAnalyticsLogicProps {
+    personId?: string
+    tabId?: string
 }
 
 /**
@@ -62,7 +84,8 @@ function getDayDateRange(day: string): { date_from: string; date_to: string } {
 
 export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'llmAnalyticsLogic']),
-
+    props({} as LLMAnalyticsLogicProps),
+    key((props: LLMAnalyticsLogicProps) => props?.personId || 'llmAnalyticsScene'),
     connect(() => ({ values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']] })),
 
     actions({
@@ -75,6 +98,9 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         setTracesQuery: (query: DataTableNode) => ({ query }),
         refreshAllDashboardItems: true,
         setRefreshStatus: (tileId: string, loading?: boolean) => ({ tileId, loading }),
+        toggleGenerationExpanded: (uuid: string, traceId: string) => ({ uuid, traceId }),
+        setLoadedTrace: (traceId: string, trace: LLMTrace) => ({ traceId, trace }),
+        clearExpandedGenerations: true,
     }),
 
     reducers({
@@ -150,6 +176,39 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 setRefreshStatus: (state, { loading }) => (!loading ? new Date() : state),
             },
         ],
+
+        expandedGenerationIds: [
+            new Set<string>() as Set<string>,
+            {
+                toggleGenerationExpanded: (state, { uuid }) => {
+                    const newSet = new Set(state)
+                    if (newSet.has(uuid)) {
+                        newSet.delete(uuid)
+                    } else {
+                        newSet.add(uuid)
+                    }
+                    return newSet
+                },
+                clearExpandedGenerations: () => new Set<string>(),
+                setDates: () => new Set<string>(),
+                setPropertyFilters: () => new Set<string>(),
+                setShouldFilterTestAccounts: () => new Set<string>(),
+            },
+        ],
+
+        loadedTraces: [
+            {} as Record<string, LLMTrace>,
+            {
+                setLoadedTrace: (state, { traceId, trace }) => ({
+                    ...state,
+                    [traceId]: trace,
+                }),
+                clearExpandedGenerations: () => ({}),
+                setDates: () => ({}),
+                setPropertyFilters: () => ({}),
+                setShouldFilterTestAccounts: () => ({}),
+            },
+        ],
     }),
 
     loaders({
@@ -172,6 +231,35 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         },
     }),
 
+    listeners(({ actions, values }) => ({
+        toggleGenerationExpanded: async ({ uuid, traceId }) => {
+            // Only load if expanding and not already loaded
+            if (values.expandedGenerationIds.has(uuid) && !values.loadedTraces[traceId]) {
+                // Build TraceQuery with date range from current filters
+                const dateFrom = values.dateFilter.dateFrom || '-7d'
+                const dateTo = values.dateFilter.dateTo || undefined
+
+                const traceQuery: TraceQuery = {
+                    kind: NodeKind.TraceQuery,
+                    traceId,
+                    dateRange: {
+                        date_from: dateFrom,
+                        date_to: dateTo,
+                    },
+                }
+
+                try {
+                    const response = await api.query(traceQuery)
+                    if (response.results && response.results.length > 0) {
+                        actions.setLoadedTrace(traceId, response.results[0])
+                    }
+                } catch (error) {
+                    console.error('Failed to load trace:', error)
+                }
+            }
+        },
+    })),
+
     selectors({
         activeTab: [
             (s) => [s.sceneKey],
@@ -186,6 +274,8 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     return 'playground'
                 } else if (sceneKey === 'llmAnalyticsDatasets') {
                     return 'datasets'
+                } else if (sceneKey === 'llmAnalyticsEvaluations') {
+                    return 'evaluations'
                 }
                 return 'dashboard'
             },
@@ -591,6 +681,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 s.dateFilter,
                 s.shouldFilterTestAccounts,
                 s.propertyFilters,
+                (_, props) => props.personId,
                 groupsModel.selectors.groupsTaxonomicTypes,
                 featureFlagLogic.selectors.featureFlags,
             ],
@@ -598,6 +689,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 dateFilter,
                 shouldFilterTestAccounts,
                 propertyFilters,
+                personId,
                 groupsTaxonomicTypes,
                 featureFlags
             ): DataTableNode => ({
@@ -610,6 +702,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     },
                     filterTestAccounts: shouldFilterTestAccounts ?? false,
                     properties: propertyFilters,
+                    ...(personId ? { personId } : {}),
                 },
                 columns: [
                     'id',
@@ -663,19 +756,9 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 kind: NodeKind.DataTableNode,
                 source: {
                     kind: NodeKind.EventsQuery,
-                    select: generationsColumns || [
-                        'uuid',
-                        'properties.$ai_trace_id',
-                        ...(featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]
-                            ? ['properties.$ai_input[-1]', 'properties.$ai_output_choices']
-                            : []),
-                        'person',
-                        "f'{properties.$ai_model}' -- Model",
-                        "f'{round(toFloat(properties.$ai_latency), 2)} s' -- Latency",
-                        "f'{properties.$ai_input_tokens} → {properties.$ai_output_tokens} (∑ {toInt(properties.$ai_input_tokens) + toInt(properties.$ai_output_tokens)})' -- Token usage",
-                        "f'${round(toFloat(properties.$ai_total_cost_usd), 6)}' -- Total cost",
-                        'timestamp',
-                    ],
+                    select:
+                        generationsColumns ||
+                        getDefaultGenerationsColumns(!!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]),
                     orderBy: ['timestamp DESC'],
                     after: dateFilter.dateFrom || undefined,
                     before: dateFilter.dateTo || undefined,
@@ -719,7 +802,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     min(timestamp) as first_seen,
                     max(timestamp) as last_seen
                 FROM (
-                    SELECT 
+                    SELECT
                         distinct_id,
                         timestamp,
                         JSONExtractRaw(properties, '$ai_trace_id') as ai_trace_id,
@@ -765,11 +848,22 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
             (s) => [s.refreshStatus],
             (refreshStatus) => Object.values(refreshStatus).some((status) => status.loading),
         ],
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => {
+                return [
+                    {
+                        key: 'llm_analytics',
+                        name: 'LLM Analytics',
+                        iconType: 'llm_analytics',
+                    },
+                ]
+            },
+        ],
     }),
 
-    urlToAction(({ actions, values }) => {
+    tabAwareUrlToAction(({ actions, values }) => {
         function applySearchParams({ filters, date_from, date_to, filter_test_accounts }: Record<string, any>): void {
-            // Normal parameter handling
             const parsedFilters = isAnyPropertyFilters(filters) ? filters : []
             if (!objectsEqual(parsedFilters, values.propertyFilters)) {
                 actions.setPropertyFilters(parsedFilters)
@@ -797,7 +891,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         }
     }),
 
-    actionToUrl(() => ({
+    tabAwareActionToUrl(() => ({
         setPropertyFilters: ({ propertyFilters }) => [
             router.values.location.pathname,
             {

@@ -1,9 +1,15 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, kea, key, path, props, reducers } from 'kea'
 
 import type { exceptionCardLogicType } from './exceptionCardLogicType'
 
+export type ExceptionCardLogicProps = {
+    issueId: string
+}
+
 export const exceptionCardLogic = kea<exceptionCardLogicType>([
-    path(() => ['scenes', 'error-tracking', 'exceptionCardLogic']),
+    path((key) => ['products', 'error_tracking', 'ExceptionCard', key]),
+    key((props) => props.issueId),
+    props({} as ExceptionCardLogicProps),
 
     actions({
         setShowJSONProperties: (showJSON: boolean) => ({ showJSON }),

@@ -4,26 +4,20 @@ import { useState } from 'react'
 import { IconFilter } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { cn } from 'lib/utils/css-classes'
+import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 
 export interface FilterBarProps {
     top?: React.ReactNode
     left?: React.ReactNode
     right?: React.ReactNode
+    className?: string
 }
 
-export const FilterBar = ({ top, left, right }: FilterBarProps): JSX.Element => {
+export const FilterBar = ({ top, left, right, className }: FilterBarProps): JSX.Element => {
     const [expanded, setExpanded] = useState(false)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     return (
-        <div
-            className={cn(
-                'sticky z-20 bg-primary border-b py-2 top-[var(--breadcrumbs-height-compact)] space-y-2',
-                newSceneLayout && 'top-0 -mx-4 px-4'
-            )}
-        >
+        <SceneStickyBar className={className}>
             {top}
 
             <div className="flex flex-col md:flex-row md:justify-between gap-2">
@@ -55,7 +49,7 @@ export const FilterBar = ({ top, left, right }: FilterBarProps): JSX.Element => 
                     <FoldableFilters>{right}</FoldableFilters>
                 </div>
             </div>
-        </div>
+        </SceneStickyBar>
     )
 }
 

@@ -11,13 +11,10 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { asDisplay } from 'scenes/persons/person-utils'
-import { pipelineNodeLogic } from 'scenes/pipeline/pipelineNodeLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -49,11 +46,10 @@ import {
     HogFunctionTypeType,
     HogWatcherState,
     PersonType,
-    PipelineNodeTab,
-    PipelineStage,
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
+    TeamType,
 } from '~/types'
 
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
@@ -62,6 +58,7 @@ import type { hogFunctionConfigurationLogicType } from './hogFunctionConfigurati
 export interface HogFunctionConfigurationLogicProps {
     logicKey?: string
     templateId?: string | null
+    subTemplateId?: string | null
     id?: string | null
 }
 
@@ -96,41 +93,43 @@ export const TYPES_WITH_GLOBALS: HogFunctionTypeType[] = ['transformation', 'des
 export const TYPES_WITH_REAL_EVENTS: HogFunctionTypeType[] = ['destination', 'site_destination', 'transformation']
 export const TYPES_WITH_VOLUME_WARNING: HogFunctionTypeType[] = ['destination', 'site_destination']
 
-export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
-    function sanitizeInputs(data: HogFunctionMappingType): Record<string, CyclotronJobInputType> {
-        const sanitizedInputs: Record<string, CyclotronJobInputType> = {}
-        data.inputs_schema?.forEach((inputSchema) => {
-            const templatingEnabled = inputSchema.templating ?? true
-            const input = data.inputs?.[inputSchema.key]
-            const secret = input?.secret
-            let value = input?.value
+export function sanitizeInputs(
+    data: Pick<HogFunctionMappingType, 'inputs_schema' | 'inputs'>
+): Record<string, CyclotronJobInputType> {
+    const sanitizedInputs: Record<string, CyclotronJobInputType> = {}
+    data.inputs_schema?.forEach((inputSchema) => {
+        const templatingEnabled = inputSchema.templating ?? true
+        const input = data.inputs?.[inputSchema.key]
+        const secret = input?.secret
+        let value = input?.value
 
-            if (secret) {
-                // If set this means we haven't changed the value
-                sanitizedInputs[inputSchema.key] = {
-                    value: '********', // Don't send the actual value
-                    secret: true,
-                }
-                return
-            }
-
-            if (inputSchema.type === 'json' && typeof value === 'string') {
-                try {
-                    value = JSON.parse(value)
-                } catch {
-                    // Ignore
-                }
-            }
-
+        if (secret) {
+            // If set this means we haven't changed the value
             sanitizedInputs[inputSchema.key] = {
-                value: value,
-                templating: templatingEnabled ? (input?.templating ?? 'hog') : undefined,
+                value: '********', // Don't send the actual value
+                secret: true,
             }
-        })
+            return
+        }
 
-        return sanitizedInputs
-    }
+        if (inputSchema.type === 'json' && typeof value === 'string') {
+            try {
+                value = JSON.parse(value)
+            } catch {
+                // Ignore
+            }
+        }
 
+        sanitizedInputs[inputSchema.key] = {
+            value: value,
+            templating: templatingEnabled ? (input?.templating ?? 'hog') : undefined,
+        }
+    })
+
+    return sanitizedInputs
+}
+
+export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
     const filters = data.filters ?? {}
     filters.source = filters.source ?? 'events'
 
@@ -283,11 +282,14 @@ export function mightDropEvents(code: string): boolean {
 export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicType>([
     path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
     props({} as HogFunctionConfigurationLogicProps),
-    key(({ id, templateId, logicKey }: HogFunctionConfigurationLogicProps) => {
-        const baseKey = id ?? templateId ?? 'new'
+    key(({ id, templateId, subTemplateId, logicKey }: HogFunctionConfigurationLogicProps) => {
+        let baseKey = id ?? templateId ?? 'new'
+        if (subTemplateId) {
+            baseKey = `${subTemplateId}_${baseKey}`
+        }
         return logicKey ? `${logicKey}_${baseKey}` : baseKey
     }),
-    connect(({ id }: HogFunctionConfigurationLogicProps) => ({
+    connect(() => ({
         values: [
             projectLogic,
             ['currentProjectId', 'currentProject'],
@@ -295,10 +297,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             ['groupTypes'],
             userLogic,
             ['hasAvailableFeature'],
-            featureFlagLogic,
-            ['featureFlags'],
+            teamLogic,
+            ['currentTeam'],
         ],
-        actions: [pipelineNodeLogic({ id: `hog-${id}`, stage: PipelineStage.Destination }), ['setBreadcrumbTitle']],
     })),
     actions({
         setShowSource: (showSource: boolean) => ({ showSource }),
@@ -661,11 +662,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 // Only sent on create
                 payload.template_id = props.templateId || values.hogFunction?.template?.id
 
-                if (!values.hasAddon && values.type !== 'transformation') {
-                    // Remove the source field if the user doesn't have the addon (except for transformations)
-                    delete payload.hog
-                }
-
                 if (!props.id || props.id === 'new') {
                     const type = values.type
                     const typeFolder =
@@ -688,27 +684,23 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (s) => [s.configuration, s.hogFunction],
             (configuration, hogFunction) => configuration?.type ?? hogFunction?.type ?? 'loading',
         ],
-        hasAddon: [
-            (s) => [s.hasAvailableFeature, s.featureFlags],
-            (hasAvailableFeature, featureFlags) => {
-                // Simple hack - we always turn the addon on if the new pricing is enabled
-                // Once we have fully rolled it out we can just completely remove all addon related code
-                return (
-                    hasAvailableFeature(AvailableFeature.DATA_PIPELINES) ||
-                    !!featureFlags[FEATURE_FLAGS.CDP_NEW_PRICING]
-                )
-            },
-        ],
         hasGroupsAddon: [
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => {
                 return hasAvailableFeature(AvailableFeature.GROUP_ANALYTICS)
             },
         ],
-        showPaygate: [
-            (s) => [s.template, s.hasAddon],
-            (template, hasAddon) => {
-                return template && !template.free && !hasAddon
+        teamHasCohortFilters: [
+            (s) => [s.currentTeam, s.configuration],
+            (currentTeam: TeamType | null, configuration: HogFunctionConfigurationType | null) => {
+                // Only show warning if filter_test_accounts is enabled AND team has cohort filters
+                const hasFilterTestAccountsEnabled = configuration?.filters?.filter_test_accounts === true
+                const teamHasCohorts =
+                    currentTeam?.test_account_filters?.some(
+                        (filter: AnyPropertyFilter) => filter.type === PropertyFilterType.Cohort
+                    ) || false
+
+                return hasFilterTestAccountsEnabled && teamHasCohorts
             },
         ],
         useMapping: [
@@ -1165,11 +1157,18 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         canEditSource: [
             (s) => [s.type, s.template, s.hogFunction],
             (type, template, hogFunction) => {
-                return (
-                    ['site_destination', 'site_app', 'source_webhook', 'transformation'].includes(type) ||
-                    (type === 'destination' &&
-                        (template?.code_language || hogFunction?.template?.code_language) === 'hog')
-                )
+                const codeLanguage = template?.code_language || hogFunction?.template?.code_language
+
+                if (type === 'site_app' || type === 'site_destination') {
+                    return true
+                }
+
+                // Only allow editing if code language is 'hog'
+                if (codeLanguage && codeLanguage !== 'hog') {
+                    return false
+                }
+
+                return ['source_webhook', 'transformation', 'destination'].includes(type)
             },
         ],
 
@@ -1177,6 +1176,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (s) => [s.type],
             (type) => {
                 return ['destination', 'internal_destination', 'transformation'].includes(type)
+            },
+        ],
+
+        isLegacyPlugin: [
+            (s) => [s.template, s.hogFunction],
+            (template, hogFunction) => {
+                return (template?.id || hogFunction?.template?.id)?.startsWith('plugin-')
             },
         ],
     })),
@@ -1221,11 +1227,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         loadTemplateSuccess: () => actions.resetForm(),
         loadHogFunctionSuccess: () => {
             actions.resetForm()
-            actions.setBreadcrumbTitle(values.hogFunction?.name ?? 'Unnamed')
         },
         upsertHogFunctionSuccess: () => {
             actions.resetForm()
-            actions.setBreadcrumbTitle(values.hogFunction?.name ?? 'Unnamed')
         },
 
         upsertHogFunctionFailure: ({ errorObject }) => {
@@ -1431,15 +1435,16 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }
             }
 
-            const possibleMenuIds: string[] = [PipelineNodeTab.Configuration, PipelineNodeTab.Testing]
-            if (
-                !(
-                    possibleMenuIds.includes(newRoute[newRoute.length - 1]) &&
-                    possibleMenuIds.includes(oldRoute[newRoute.length - 1])
-                )
-            ) {
-                return true
-            }
+            // TODO: Fix this!!
+            // const possibleMenuIds: string[] = [PipelineNodeTab.Configuration, PipelineNodeTab.Testing]
+            // if (
+            //     !(
+            //         possibleMenuIds.includes(newRoute[newRoute.length - 1]) &&
+            //         possibleMenuIds.includes(oldRoute[newRoute.length - 1])
+            //     )
+            // ) {
+            //     return true
+            // }
 
             return false
         },

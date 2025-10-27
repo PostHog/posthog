@@ -23,7 +23,16 @@ class BigQueryAdapter(MarketingSourceAdapter[ExternalConfig]):
     - source_type: Should be 'BigQuery'
     """
 
+    @classmethod
+    def get_source_identifier_mapping(cls) -> dict[str, list[str]]:
+        """
+        BigQuery is user-configured, so we don't normalize sources.
+        Return empty dict to indicate no source normalization needed.
+        """
+        return {}
+
     def get_source_type(self) -> str:
+        """Return unique identifier for this source type"""
         return "BigQuery"
 
     def validate(self) -> ValidationResult:
@@ -59,6 +68,7 @@ class BigQueryAdapter(MarketingSourceAdapter[ExternalConfig]):
             return ast.Constant(value=UNKNOWN_CAMPAIGN)
 
     def _get_source_name_field(self) -> ast.Expr:
+        """Override to use user-configured source field or fallback to unknown"""
         if self.config.source_map.source:
             return ast.Call(name="toString", args=[ast.Field(chain=[self.config.source_map.source])])
         else:
@@ -84,6 +94,18 @@ class BigQueryAdapter(MarketingSourceAdapter[ExternalConfig]):
             inner_expr = ast.Constant(value=0)
         else:
             inner_expr = ast.Field(chain=[clicks_field])
+
+        coalesce = ast.Call(name="coalesce", args=[inner_expr, ast.Constant(value=0)])
+        return ast.Call(name="toFloat", args=[coalesce])
+
+    def _get_reported_conversion_field(self) -> ast.Expr:
+        reported_conversion_field = self.config.source_map.reported_conversion
+
+        inner_expr: ast.Expr
+        if reported_conversion_field is None:
+            inner_expr = ast.Constant(value=0)
+        else:
+            inner_expr = ast.Field(chain=[reported_conversion_field])
 
         coalesce = ast.Call(name="coalesce", args=[inner_expr, ast.Constant(value=0)])
         return ast.Call(name="toFloat", args=[coalesce])

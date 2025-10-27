@@ -24,11 +24,13 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
 import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -53,6 +55,8 @@ import {
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
+    AccessControlLevel,
+    ActivityScope,
     Breadcrumb,
     BreakdownAttributionType,
     BreakdownType,
@@ -121,6 +125,7 @@ const NEW_EXPERIMENT: Experiment = {
     exposure_criteria: {
         filterTestAccounts: true,
     },
+    user_access_level: AccessControlLevel.Editor,
 }
 
 export const DEFAULT_MDE = 30
@@ -330,6 +335,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentSharedMetricAssigned',
                 'reportExperimentDashboardCreated',
                 'reportExperimentMetricTimeout',
+                'reportExperimentTimeseriesViewed',
+                'reportExperimentTimeseriesRecalculated',
             ],
             teamLogic,
             ['addProductIntent'],
@@ -343,6 +350,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'closeSecondaryMetricModal',
                 'openPrimarySharedMetricModal',
                 'openSecondarySharedMetricModal',
+                'openStopExperimentModal',
                 'closeStopExperimentModal',
                 'closeShipVariantModal',
                 'openReleaseConditionsModal',
@@ -353,6 +361,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setExperimentMissing: true,
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         createExperiment: (draft?: boolean, folder?: string | null) => ({ draft, folder }),
+        setCreateExperimentLoading: (loading: boolean) => ({ loading }),
         setExperimentType: (type?: string) => ({ type }),
         addVariant: true,
         removeVariant: (idx: number) => ({ idx }),
@@ -519,7 +528,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                 feature_flag_variants: [
                                     ...updatedRolloutPercentageVariants,
                                     {
-                                        key: `test_group_${state.parameters.feature_flag_variants.length}`,
+                                        key: `test-${state.parameters.feature_flag_variants.length}`,
                                         rollout_percentage: newRolloutPercentages[newRolloutPercentages.length - 1],
                                     },
                                 ],
@@ -826,9 +835,16 @@ export const experimentLogic = kea<experimentLogicType>([
                 setFeatureFlagValidationError: (_, { error }) => error,
             },
         ],
+        createExperimentLoading: [
+            false,
+            {
+                setCreateExperimentLoading: (_, { loading }) => loading,
+            },
+        ],
     }),
     listeners(({ values, actions, props }) => ({
         createExperiment: async ({ draft, folder }) => {
+            actions.setCreateExperimentLoading(true)
             const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
 
             actions.touchExperimentField('name')
@@ -838,6 +854,7 @@ export const experimentLogic = kea<experimentLogicType>([
             )
 
             if (hasFormErrors(values.experimentErrors)) {
+                actions.setCreateExperimentLoading(false)
                 return
             }
 
@@ -845,6 +862,7 @@ export const experimentLogic = kea<experimentLogicType>([
             // Terminate if the insight did not manage to load in time
             if (!minimumDetectableEffect) {
                 eventUsageLogic.actions.reportExperimentInsightLoadFailed()
+                actions.setCreateExperimentLoading(false)
                 return lemonToast.error(
                     'Failed to load insight. Experiment cannot be saved without this value. Try changing the experiment goal.'
                 )
@@ -884,6 +902,15 @@ export const experimentLogic = kea<experimentLogicType>([
                         return
                     }
                 } else {
+                    // Make experiment eligible for timeseries
+                    const statsConfig = {
+                        ...values.experiment?.stats_config,
+                        ...(values.featureFlags[FEATURE_FLAGS.EXPERIMENT_TIMESERIES] && { timeseries: true }),
+                        ...(values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_USE_NEW_QUERY_BUILDER] && {
+                            use_new_query_builder: true,
+                        }),
+                    }
+
                     response = await api.create(`api/projects/${values.currentProjectId}/experiments`, {
                         ...values.experiment,
                         parameters:
@@ -902,6 +929,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                 : values.experiment?.parameters,
                         ...(!draft && { start_date: dayjs() }),
                         ...(typeof folder === 'string' ? { _create_in_folder: folder } : {}),
+                        stats_config: statsConfig,
                     })
 
                     if (response) {
@@ -917,6 +945,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to create experiment')
+                actions.setCreateExperimentLoading(false)
                 return
             }
 
@@ -934,6 +963,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     },
                 })
             }
+            actions.setCreateExperimentLoading(false)
         },
         setExperimentType: async ({ type }) => {
             actions.setExperiment({ type: type })
@@ -1054,8 +1084,9 @@ export const experimentLogic = kea<experimentLogicType>([
             if (payload.shouldStopExperiment && !values.isExperimentStopped) {
                 actions.endExperiment()
             }
-            actions.loadExperiment()
             actions.reportExperimentVariantShipped(values.experiment)
+
+            actions.openStopExperimentModal()
         },
         shipVariantFailure: ({ error }) => {
             lemonToast.error(error)
@@ -1509,27 +1540,32 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.experiment, s.experimentId, s.featureFlags],
-            (experiment, experimentId, featureFlags): Breadcrumb[] => {
-                const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+            (s) => [s.experiment, s.experimentId],
+            (experiment, experimentId): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.Experiments,
-                        name: 'Experiments',
+                        name: sceneConfigurations[Scene.Experiments].name || 'Experiments',
                         path: urls.experiments(),
+                        iconType: sceneConfigurations[Scene.Experiments].iconType || 'default_icon_type',
                     },
                     {
                         key: [Scene.Experiment, experimentId],
-                        name: experiment?.name || '',
-                        ...(!newSceneLayout && {
-                            onRename: async (name: string) => {
-                                // :KLUDGE: work around a type error when using asyncActions accessed via a callback passed to selectors()
-                                const logic = experimentLogic({ experimentId })
-                                await logic.asyncActions.updateExperiment({ name })
-                            },
-                        }),
+                        name: experiment?.name || 'New Experiment',
+                        iconType: sceneConfigurations[Scene.Experiment].iconType || 'default_icon_type',
                     },
                 ]
+            },
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.experimentId],
+            (experimentId: Experiment['id']): SidePanelSceneContext | null => {
+                return experimentId && experimentId !== 'new'
+                    ? {
+                          activity_scope: ActivityScope.EXPERIMENT,
+                          activity_item_id: `${experimentId}`,
+                      }
+                    : null
             },
         ],
         projectTreeRef: [

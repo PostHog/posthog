@@ -10,6 +10,7 @@ import {
     IconExpand,
     IconEye,
     IconHide,
+    IconNotebook,
     IconRefresh,
     IconThumbsDown,
     IconThumbsDownFilled,
@@ -25,7 +26,6 @@ import {
     LemonDialog,
     LemonInput,
     LemonSkeleton,
-    ProfilePicture,
     Tooltip,
 } from '@posthog/lemon-ui'
 
@@ -35,9 +35,7 @@ import {
     SeriesSummary,
 } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
-import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { supportLogic } from 'lib/components/Support/supportLogic'
+import { NotFound } from 'lib/components/NotFound'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { pluralize } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -62,10 +60,11 @@ import {
     TaskExecutionMessage,
     TaskExecutionStatus,
     VisualizationItem,
+    VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
-import { ProductKey } from '~/types'
+import { InsightShortId } from '~/types'
 
 import { ContextSummary } from './Context'
 import { MarkdownMessage } from './MarkdownMessage'
@@ -77,6 +76,7 @@ import {
     castAssistantQuery,
     isAssistantMessage,
     isAssistantToolCallMessage,
+    isDeepResearchReportCompletion,
     isFailureMessage,
     isHumanMessage,
     isMultiVisualizationMessage,
@@ -89,12 +89,12 @@ import {
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped } = useValues(maxThreadLogic)
+    const { threadGrouped, streamingActive } = useValues(maxThreadLogic)
 
     return (
         <div
             className={twMerge(
-                '@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-1.5 grow',
+                '@container/thread flex flex-col items-stretch w-full max-w-180 self-center gap-1.5 grow mx-auto',
                 className
             )}
         >
@@ -115,20 +115,13 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                         key={`${conversationId}-${index}`}
                         messages={group}
                         isFinal={index === threadGrouped.length - 1}
+                        streamingActive={streamingActive}
                     />
                 ))
             ) : (
                 conversationId && (
                     <div className="flex flex-1 items-center justify-center">
-                        <ProductIntroduction
-                            isEmpty
-                            productName="Max"
-                            productKey={ProductKey.MAX}
-                            thingName="message"
-                            titleOverride="Start chatting with Max"
-                            description="Max is an AI product analyst in PostHog that answers data questions, gets things done in UI, and provides insights from PostHog's documentation."
-                            docsURL="https://posthog.com/docs/data/max-ai"
-                        />
+                        <NotFound object="conversation" className="m-0" />
                     </div>
                 )
             )}
@@ -161,28 +154,16 @@ function MessageGroupContainer({
 interface MessageGroupProps {
     messages: ThreadMessage[]
     isFinal: boolean
+    streamingActive: boolean
 }
 
-function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): JSX.Element {
-    const { user } = useValues(userLogic)
-    const { minimalHedgehogConfig } = useValues(hedgehogModeLogic)
+function MessageGroup({ messages, isFinal: isFinalGroup, streamingActive }: MessageGroupProps): JSX.Element {
     const { editInsightToolRegistered } = useValues(maxGlobalLogic)
 
     const groupType = messages[0].type === 'human' ? 'human' : 'ai'
 
     return (
         <MessageGroupContainer groupType={groupType}>
-            <Tooltip title={groupType === 'human' ? 'You' : 'Max'}>
-                <ProfilePicture
-                    user={
-                        groupType === 'human'
-                            ? { ...user, hedgehog_config: undefined }
-                            : { hedgehog_config: minimalHedgehogConfig }
-                    }
-                    size="lg"
-                    className="hidden @md/thread:flex mt-1 border"
-                />
-            </Tooltip>
             <div
                 className={clsx(
                     'flex flex-col gap-1.5 min-w-0 w-full',
@@ -262,11 +243,24 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                         return (
                             <MessageTemplate key={key} type="ai">
                                 <div className="flex items-center gap-2">
-                                    <img
-                                        src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
-                                        className="size-7 -m-1" // At the "native" size-6 (24px), the icons are a tad too small
-                                    />
-                                    <span className="font-medium">{message.content}…</span>
+                                    {messageIndex < messages.length - 1 ? (
+                                        <IconCheck className="size-4 m-0.5 animate-[scale-in_0.3s_ease-out]" />
+                                    ) : streamingActive ? (
+                                        <img
+                                            src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
+                                            className="size-7 -m-1" // At the "native" size-6 (24px), the icons are a tad too small
+                                        />
+                                    ) : (
+                                        <IconX className="size-4 m-0.5" />
+                                    )}
+                                    <span className="font-medium">
+                                        {message.content}…
+                                        {messageIndex < messages.length - 1
+                                            ? ' Done.'
+                                            : !streamingActive
+                                              ? ' Canceled.'
+                                              : ''}
+                                    </span>
                                 </div>
                                 {message.substeps?.map((substep, substepIndex) => (
                                     <MarkdownMessage
@@ -320,11 +314,12 @@ interface MessageTemplateProps {
     action?: React.ReactNode
     className?: string
     boxClassName?: string
-    children: React.ReactNode
+    children?: React.ReactNode
+    header?: React.ReactNode
 }
 
 const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(function MessageTemplate(
-    { type, children, className, boxClassName, action },
+    { type, children, className, boxClassName, action, header },
     ref
 ) {
     return (
@@ -336,15 +331,18 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
             )}
             ref={ref}
         >
-            <div
-                className={twMerge(
-                    'max-w-full border py-2 px-3 rounded-lg bg-surface-primary',
-                    type === 'human' && 'font-medium',
-                    boxClassName
-                )}
-            >
-                {children}
-            </div>
+            {header}
+            {children && (
+                <div
+                    className={twMerge(
+                        'max-w-full border py-2 px-3 rounded-lg bg-surface-primary',
+                        type === 'human' && 'font-medium',
+                        boxClassName
+                    )}
+                >
+                    {children}
+                </div>
+            )}
             {action}
         </div>
     )
@@ -396,10 +394,14 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
             ref={ref}
             action={action}
         >
-            <MarkdownMessage
-                content={message.content || '*Max has failed to generate an answer. Please try again.*'}
-                id={message.id || 'error'}
-            />
+            {message.content ? (
+                <MarkdownMessage content={message.content} id={message.id || 'in-progress'} />
+            ) : (
+                <MarkdownMessage
+                    content={message.content || '*Max has failed to generate an answer. Please try again.*'}
+                    id={message.id || 'error'}
+                />
+            )}
         </MessageTemplate>
     )
 })
@@ -435,10 +437,77 @@ interface NotebookUpdateAnswerProps {
 }
 
 function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Element {
-    const handleOpenNotebook = (): void => {
-        openNotebook(message.notebook_id, NotebookTarget.Scene)
+    const handleOpenNotebook = (notebookId?: string): void => {
+        openNotebook(notebookId || message.notebook_id, NotebookTarget.Scene)
     }
 
+    // Only show the full notebook list if this is the final report message from deep research
+    const isReportCompletion = isDeepResearchReportCompletion(message)
+
+    const NOTEBOOK_TYPE_DISPLAY_NAMES: Record<string, string> = {
+        planning: 'Planning',
+        report: 'Final Report',
+    }
+
+    const NOTEBOOK_TYPE_DESCRIPTIONS: Record<string, string> = {
+        planning: 'Initial research plan and objectives',
+        report: 'Comprehensive analysis and findings',
+    }
+
+    if (isReportCompletion && message.conversation_notebooks) {
+        return (
+            <MessageTemplate type="ai">
+                <div className="bg-bg-light border border-border rounded-lg p-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                        <IconCheck className="text-success size-4" />
+                        <h4 className="text-sm font-semibold m-0">Deep Research Complete</h4>
+                    </div>
+
+                    <div className="space-y-2">
+                        <p className="text-xs text-muted mb-3">
+                            Your research has been completed. Each notebook contains detailed analysis:
+                        </p>
+
+                        {message.conversation_notebooks.map((notebook) => {
+                            const typeKey = (notebook.notebook_type ??
+                                'general') as keyof typeof NOTEBOOK_TYPE_DISPLAY_NAMES
+                            const displayName = NOTEBOOK_TYPE_DISPLAY_NAMES[typeKey] || notebook.notebook_type
+                            const description = NOTEBOOK_TYPE_DESCRIPTIONS[typeKey] || 'Research documentation'
+
+                            return (
+                                <div
+                                    key={notebook.notebook_id}
+                                    className="flex items-center justify-between p-3 bg-bg-3000 rounded border border-border-light"
+                                >
+                                    <div className="flex items-start gap-3">
+                                        <IconNotebook className="size-4 text-primary-alt mt-0.5" />
+                                        <div>
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-medium text-sm">
+                                                    {notebook.title || `${displayName} Notebook`}
+                                                </span>
+                                            </div>
+                                            <div className="text-xs text-muted">{description}</div>
+                                        </div>
+                                    </div>
+                                    <LemonButton
+                                        onClick={() => handleOpenNotebook(notebook.notebook_id)}
+                                        size="xsmall"
+                                        type="primary"
+                                        icon={<IconOpenInNew />}
+                                    >
+                                        Open
+                                    </LemonButton>
+                                </div>
+                            )
+                        })}
+                    </div>
+                </div>
+            </MessageTemplate>
+        )
+    }
+
+    // Default single notebook update message
     return (
         <MessageTemplate type="ai">
             <div className="flex items-center justify-between gap-2">
@@ -446,7 +515,7 @@ function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Eleme
                     <IconCheck className="text-success size-4" />
                     <span>A notebook has been updated</span>
                 </div>
-                <LemonButton onClick={handleOpenNotebook} size="xsmall" type="primary" icon={<IconOpenInNew />}>
+                <LemonButton onClick={() => handleOpenNotebook()} size="xsmall" type="primary" icon={<IconOpenInNew />}>
                     Open notebook
                 </LemonButton>
             </div>
@@ -520,10 +589,7 @@ function TaskExecutionAnswer({ message }: TaskExecutionAnswerProps): JSX.Element
                                     <IconCheck className="text-success size-3.5" />
                                 )}
                                 {task.status === TaskExecutionStatus.InProgress && (
-                                    <img
-                                        src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
-                                        className="size-7 -m-1" // At the "native" size-6 (24px), the icons are a tad too small
-                                    />
+                                    <div className="size-3 rounded-full bg-border animate-pulse" />
                                 )}
                                 {task.status === TaskExecutionStatus.Pending && (
                                     <div className="size-3 rounded-full bg-border" />
@@ -673,7 +739,7 @@ function InsightSuggestionButton({ tabId }: { tabId: string }): JSX.Element {
                     }}
                     sideIcon={previousQuery ? <IconX /> : <IconRefresh />}
                     size="xsmall"
-                    tooltip={previousQuery ? "Reject Max's changes" : "Reapply Max's changes"}
+                    tooltip={previousQuery ? 'Reject changes' : 'Reapply changes'}
                 />
             )}
         </>
@@ -685,7 +751,7 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
     status,
     isEditingInsight,
 }: {
-    message: VisualizationItem
+    message: VisualizationMessage
     status?: MessageStatus
     isEditingInsight: boolean
 }): JSX.Element | null {
@@ -729,11 +795,14 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                               )}
                               {!isEditingInsight && (
                                   <LemonButton
-                                      to={urls.insightNew({ query })}
+                                      to={
+                                          message.short_id
+                                              ? urls.insightView(message.short_id as InsightShortId)
+                                              : urls.insightNew({ query })
+                                      }
                                       icon={<IconOpenInNew />}
                                       size="xsmall"
-                                      targetBlank
-                                      tooltip="Open as new insight"
+                                      tooltip={message.short_id ? 'Open insight' : 'Open as new insight'}
                                   />
                               )}
                               <LemonButton
@@ -924,7 +993,6 @@ function RetriableFailureActions(): JSX.Element {
 function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
     const { traceId } = useValues(maxThreadLogic)
     const { retryLastMessage } = useActions(maxThreadLogic)
-    const { submitZendeskTicket } = useActions(supportLogic)
     const { user } = useValues(userLogic)
 
     const [rating, setRating] = useState<'good' | 'bad' | null>(null)
@@ -943,24 +1011,11 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
     }
 
     function submitFeedback(): void {
-        if (!feedback || !traceId || !user) {
+        if (!feedback || !traceId) {
             return // Input is empty
         }
         posthog.captureTraceFeedback(traceId, feedback)
         setFeedbackInputStatus('submitted')
-        // Also create a support ticket for thumbs down feedback, for the support hero to see
-        submitZendeskTicket({
-            name: user.first_name,
-            email: user.email,
-            kind: 'feedback',
-            target_area: 'max-ai',
-            severity_level: 'medium',
-            message: [
-                feedback,
-                '\nℹ️ This ticket was created automatically when a user gave thumbs down feedback to Max AI.',
-                `Trace: https://us.posthog.com/project/2/llm-analytics/traces/${traceId}`,
-            ].join('\n'),
-        })
     }
 
     return (
