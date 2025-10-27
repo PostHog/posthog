@@ -80,8 +80,9 @@ jobs:
                       const prNumber = ${{ github.event.pull_request.number }};
                       const triggerStatus = "${{ steps.trigger-build.outputs.trigger_status }}";
                       const deploymentUrl = "${{ steps.trigger-build.outputs.deployment_url }}";
+                      const commentHash = `[docs-preview]: #docs-preview-${prNumber}`;
 
-                      // Delete old preview comments
+                      // Delete old preview comments by finding our hash
                       const comments = await github.rest.issues.listComments({
                         owner: context.repo.owner,
                         repo: context.repo.repo,
@@ -89,8 +90,7 @@ jobs:
                       });
 
                       for (const comment of comments.data) {
-                        if (comment.user.login === 'github-actions[bot]' &&
-                            (comment.body.includes('Docs Preview') || comment.body.includes('Docs Preview Build'))) {
+                        if (comment.user.login === 'github-actions[bot]' && comment.body.includes('[docs-preview]:')) {
                           await github.rest.issues.deleteComment({
                             owner: context.repo.owner,
                             repo: context.repo.repo,
@@ -99,16 +99,32 @@ jobs:
                         }
                       }
 
+                      // Format timestamp like Vercel (UTC)
+                      const now = new Date();
+                      const timestamp = now.toLocaleString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit',
+                        hour12: true,
+                        timeZone: 'UTC'
+                      });
+
                       let message = '';
 
                       if (triggerStatus === 'success') {
-                        const baseUrl = deploymentUrl || 'https://posthog.com';
-                        message = '## Docs Preview\n\n' +
-                                  'Preview: ' + baseUrl + '\n\n' +
-                                  '*Preview will be ready in ~2 minutes*';
+                        const previewUrl = deploymentUrl || 'https://posthog.com';
+                        const inspectorUrl = deploymentUrl ? deploymentUrl.replace('https://', 'https://vercel.com/post-hog/posthog-com/') : '';
+
+                        message = `${commentHash}\nThe latest updates on your projects. Learn more about [Vercel for GitHub](https://vercel.link/github-learn-more).\n\n` +
+                                  `| Project | Deployment | Preview | Updated (UTC) |\n` +
+                                  `| :--- | :----- | :------ | :------ |\n` +
+                                  `| [posthog.com](https://vercel.com/post-hog/posthog-com) | ![Building](https://vercel.com/static/status/building.svg) Building | [Preview](${previewUrl}) | ${timestamp} |\n\n` +
+                                  `*Preview will be ready in ~2 minutes. Click Preview link above to access docs at \`/handbook/engineering/\`*`;
                       } else {
-                        message = '## Docs Preview Build Failed\n\n' +
-                                  'Preview build could not be triggered. Check the GitHub Action logs for details.';
+                        message = `${commentHash}\n⚠️ **Docs Preview Build Failed**\n\n` +
+                                  `Preview build could not be triggered. Check the [GitHub Action logs](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) for details.`;
                       }
 
                       github.rest.issues.createComment({
