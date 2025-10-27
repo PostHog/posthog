@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -20,6 +21,22 @@ import { NEW_EXPERIMENT } from '../constants'
 import { generateFeatureFlagKey } from './VariantsPanelCreateFeatureFlag'
 import type { createExperimentLogicType } from './createExperimentLogicType'
 import { variantsPanelLogic } from './variantsPanelLogic'
+import { validateVariants } from './variantsPanelValidation'
+
+const validateExperiment = (
+    experiment: Experiment,
+    featureFlagKeyValidation: { valid: boolean; error: string | null } | null
+): boolean => {
+    const validExperimentName = experiment.name !== null && experiment.name.trim().length > 0
+
+    const variantsValidation = validateVariants({
+        flagKey: experiment.feature_flag_key,
+        variants: experiment.parameters.feature_flag_variants,
+        featureFlagKeyValidation,
+    })
+
+    return validExperimentName && !variantsValidation.hasErrors
+}
 
 /**
  * TODO: we need to give new/linked feature flag the same treatment as shared metrics.
@@ -34,10 +51,15 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
     key((props) => props.experiment?.id || 'create-experiment'),
     path((key) => ['scenes', 'experiments', 'create', 'createExperimentLogic', key]),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], variantsPanelLogic, ['featureFlagKeyDirty']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            variantsPanelLogic,
+            ['featureFlagKeyDirty', 'featureFlagKeyValidation'],
+        ],
         actions: [
             eventUsageLogic,
-            ['reportExperimentCreated'],
+            ['reportExperimentCreated', 'reportExperimentUpdated'],
             featureFlagsLogic,
             ['updateFlag'],
             teamLogic,
@@ -70,7 +92,6 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             }
         }) => ({ config }),
         createExperiment: () => ({}),
-        createExperimentSuccess: true,
         setSharedMetrics: (sharedMetrics: { primary: ExperimentMetric[]; secondary: ExperimentMetric[] }) => ({
             sharedMetrics,
         }),
@@ -106,22 +127,47 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             },
         ],
         sharedMetrics: [
-            { primary: [], secondary: [] } as { primary: ExperimentMetric[]; secondary: ExperimentMetric[] },
+            (() => {
+                if (!props.experiment?.saved_metrics) {
+                    return { primary: [], secondary: [] }
+                }
+
+                const primary = props.experiment.saved_metrics
+                    .filter((sm) => sm.metadata.type === 'primary')
+                    .map((sm) => ({
+                        ...sm.query,
+                        name: sm.name,
+                        sharedMetricId: sm.saved_metric,
+                        isSharedMetric: true,
+                    }))
+
+                const secondary = props.experiment.saved_metrics
+                    .filter((sm) => sm.metadata.type === 'secondary')
+                    .map((sm) => ({
+                        ...sm.query,
+                        name: sm.name,
+                        sharedMetricId: sm.saved_metric,
+                        isSharedMetric: true,
+                    }))
+
+                return { primary, secondary }
+            })() as { primary: ExperimentMetric[]; secondary: ExperimentMetric[] },
             {
                 setSharedMetrics: (_, { sharedMetrics }) => sharedMetrics,
             },
         ],
     })),
     selectors(() => ({
-        isValidDraft: [
-            (s) => [s.experiment],
-            (experiment: Experiment) => {
-                const hasStartDate = experiment.start_date !== null
-                const hasFeatureFlagKey = experiment.feature_flag_key !== null
-
-                return hasStartDate && hasFeatureFlagKey
-            },
+        canSubmitExperiment: [
+            (s) => [s.experiment, s.featureFlagKeyValidation],
+            (experiment: Experiment, featureFlagKeyValidation: { valid: boolean; error: string | null } | null) =>
+                validateExperiment(experiment, featureFlagKeyValidation),
         ],
+        isEditMode: [
+            (s) => [s.experiment],
+            (experiment: Experiment) => experiment.id !== 'new' && experiment.id !== null,
+        ],
+        isCreateMode: [(s) => [s.isEditMode], (isEditMode: boolean) => !isEditMode],
     })),
     listeners(({ values, actions }) => ({
         setExperiment: () => {},
@@ -135,37 +181,85 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             }
         },
         createExperiment: async () => {
-            const response = (await api.create(`api/projects/@current/experiments`, values.experiment)) as Experiment
+            if (!values.canSubmitExperiment) {
+                lemonToast.error('Experiment is not valid')
+                return
+            }
+
+            const isEditMode = values.isEditMode
+
+            // Make experiment eligible for timeseries
+            const statsConfig = {
+                ...values.experiment?.stats_config,
+                ...(values.featureFlags[FEATURE_FLAGS.EXPERIMENT_TIMESERIES] && { timeseries: true }),
+                ...(values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_USE_NEW_QUERY_BUILDER] && {
+                    use_new_query_builder: true,
+                }),
+            }
+
+            const savedMetrics = [
+                ...values.sharedMetrics.primary.map((metric) => ({
+                    id: metric.sharedMetricId!,
+                    metadata: {
+                        type: 'primary' as const,
+                    },
+                })),
+                ...values.sharedMetrics.secondary.map((metric) => ({
+                    id: metric.sharedMetricId!,
+                    metadata: {
+                        type: 'secondary' as const,
+                    },
+                })),
+            ]
+
+            const experimentPayload: Experiment = {
+                ...values.experiment,
+                stats_config: statsConfig,
+                saved_metrics_ids: savedMetrics,
+            }
+
+            let response: Experiment
+
+            if (isEditMode) {
+                // Update existing experiment
+                response = (await api.update(
+                    `api/projects/@current/experiments/${values.experiment.id}`,
+                    experimentPayload
+                )) as Experiment
+            } else {
+                // Create new experiment
+                response = (await api.create(`api/projects/@current/experiments`, experimentPayload)) as Experiment
+            }
 
             if (response.id) {
-                // Report analytics
-                actions.reportExperimentCreated(response)
-                actions.addProductIntent({
-                    product_type: ProductKey.EXPERIMENTS,
-                    intent_context: ProductIntentContext.EXPERIMENT_CREATED,
-                })
-
-                // Signal successful creation (triggers Hogfetti in component)
-                actions.createExperimentSuccess()
-
                 // Refresh tree navigation
                 refreshTreeItem('experiment', String(response.id))
                 if (response.feature_flag?.id) {
                     refreshTreeItem('feature_flag', String(response.feature_flag.id))
                 }
 
-                // Show success toast
-                lemonToast.success('Experiment created successfully!', {
-                    button: {
-                        label: 'View it',
-                        action: () => {
-                            router.actions.push(urls.experiment(response.id))
-                        },
-                    },
-                })
+                if (isEditMode) {
+                    // Update flow
+                    // Report analytics
+                    actions.reportExperimentUpdated(response)
+                    // Show success toast
+                    lemonToast.success('Experiment updated successfully!')
+                } else {
+                    // Create flow
+                    // Report analytics
+                    actions.reportExperimentCreated(response)
+                    // Add product intent
+                    actions.addProductIntent({
+                        product_type: ProductKey.EXPERIMENTS,
+                        intent_context: ProductIntentContext.EXPERIMENT_CREATED,
+                    })
 
-                // Reset form for next experiment (clear persisted state)
-                actions.resetExperiment()
+                    // Show success toast
+                    lemonToast.success('Experiment created successfully!')
+
+                    // Reset form for next experiment (clear persisted state)
+                    actions.resetExperiment()
+                }
 
                 // Navigate to experiment page
                 router.actions.push(urls.experiment(response.id))
