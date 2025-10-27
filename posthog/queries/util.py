@@ -94,10 +94,10 @@ def format_ch_timestamp(timestamp: datetime, convert_to_timezone: Optional[str] 
 
 
 @cache_for(timedelta(seconds=2))
-def get_earliest_timestamp(team_id: int, since: str = EARLIEST_TIMESTAMP) -> datetime:
+def get_earliest_timestamp(team_id: int) -> datetime:
     results = insight_sync_execute(
         GET_EARLIEST_TIMESTAMP_SQL,
-        {"team_id": team_id, "earliest_timestamp": since},
+        {"team_id": team_id, "earliest_timestamp": EARLIEST_TIMESTAMP},
         query_type="get_earliest_timestamp",
         team_id=team_id,
     )
