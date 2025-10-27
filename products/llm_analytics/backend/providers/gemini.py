@@ -7,8 +7,9 @@ from django.conf import settings
 
 import posthoganalytics
 from anthropic.types import MessageParam
+from google.genai import Client as DefaultClient
 from google.genai.errors import APIError
-from google.genai.types import Blob, Content, GenerateContentConfig, Part
+from google.genai.types import Blob, Content, GenerateContentConfig, Part, VideoMetadata
 from posthoganalytics.ai.gemini import genai
 
 from products.llm_analytics.backend.providers.formatters.gemini_formatter import convert_anthropic_messages_to_gemini
@@ -159,14 +160,22 @@ class GeminiProvider:
             yield f"data: {json.dumps({'type': 'error', 'error': f'Unexpected error'})}\n\n"
             return
 
-    def understand_video(
-        self, video_bytes: bytes, mime_type: str, prompt: str, trace_id: str | None = None
+    async def understand_video(
+        self,
+        video_bytes: bytes,
+        mime_type: str,
+        prompt: str,
+        start_offset_s: int | None = None,
+        end_offset_s: int | None = None,
+        trace_id: str | None = None,
     ) -> str | None:
         """
         Understand a video and return a summary using the provided prompt
         https://ai.google.dev/gemini-api/docs/video-understanding
         """
         self.validate_model(self.model_id)
+        # Workaroud to make async working, as PostHog wrapper doesn't support async yet
+        client = DefaultClient(api_key=self.get_api_key())
         if mime_type not in GeminiConfig.SUPPORTED_VIDEO_MIME_TYPES:
             logger.exception(f"Video bytes for understanding video are not in a supported MIME type: {mime_type}")
             return None
@@ -177,15 +186,21 @@ class GeminiProvider:
             logger.exception(f"Video bytes for understanding video are too large")
             return None
         try:
-            response = self.client.models.generate_content(
+            video_part_config = {"inline_data": Blob(data=video_bytes, mime_type=mime_type)}
+            video_metadata_config = {}
+            if start_offset_s:
+                video_metadata_config["start_offset"] = f"{start_offset_s}s"
+            if end_offset_s:
+                video_metadata_config["end_offset"] = f"{end_offset_s}s"
+            if video_metadata_config:
+                video_part_config["video_metadata"] = VideoMetadata(**video_metadata_config)
+            video_part = Part(**video_part_config)
+            prompt_part = Part(text=prompt)
+            contents = Content(parts=[video_part, prompt_part])
+            response = await client.aio.models.generate_content(
                 model=self.model_id,
-                contents=Content(
-                    parts=[
-                        Part(inline_data=Blob(data=video_bytes, mime_type=mime_type)),
-                        Part(text=prompt),
-                    ]
-                ),
-                posthog_trace_id=trace_id or str(uuid.uuid4()),
+                contents=contents,
+                # TODO: Add trace ID, when PostHog wrapper supports async
             )
             return response.text
         except APIError as e:
