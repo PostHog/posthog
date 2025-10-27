@@ -116,6 +116,7 @@ def process_query_model(
     insight_id: Optional[int] = None,
     dashboard_id: Optional[int] = None,
     is_query_service: bool = False,
+    cache_age_seconds: Optional[int] = None,
 ) -> dict | BaseModel:
     result: dict | BaseModel
 
@@ -135,6 +136,7 @@ def process_query_model(
                 insight_id=insight_id,
                 dashboard_id=dashboard_id,
                 is_query_service=is_query_service,
+                cache_age_seconds=cache_age_seconds,
             )
         elif execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
             # Caching is handled by query runners, so in this case we can only return a cache miss
@@ -197,6 +199,7 @@ def process_query_model(
             query_id=query_id,
             insight_id=insight_id,
             dashboard_id=dashboard_id,
+            cache_age_seconds=cache_age_seconds,
         )
 
     return result
