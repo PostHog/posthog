@@ -4,6 +4,7 @@ import { match } from 'ts-pattern'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { SelectableCard } from '~/scenes/experiments/components/SelectableCard'
 import type { Experiment, FeatureFlagType, MultivariateFlagVariant } from '~/types'
@@ -34,6 +35,7 @@ export function VariantsPanel({ experiment, updateFeatureFlag, onPrevious, onNex
     const { openSelectExistingFeatureFlagModal, closeSelectExistingFeatureFlagModal } = useActions(
         selectExistingFeatureFlagModalLogic
     )
+    const { reportExperimentFeatureFlagSelected } = useActions(eventUsageLogic)
 
     return (
         <>
@@ -80,6 +82,7 @@ export function VariantsPanel({ experiment, updateFeatureFlag, onPrevious, onNex
             <SelectExistingFeatureFlagModal
                 onClose={() => closeSelectExistingFeatureFlagModal()}
                 onSelect={(flag: FeatureFlagType) => {
+                    reportExperimentFeatureFlagSelected(flag.key)
                     setLinkedFeatureFlag(flag)
                     // Update experiment with linked flag's key and variants
                     updateFeatureFlag({
