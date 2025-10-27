@@ -64,10 +64,12 @@ async def get_realtime_cohort_calculation_count_activity(
 ) -> RealtimeCohortCalculationCountResult:
     """Get the total count of actions with bytecode."""
 
-    # Only get actions that are not deleted and have bytecode
-    queryset = Action.objects.filter(deleted=False, bytecode__isnull=False)
+    @database_sync_to_async
+    def get_action_count():
+        # Only get actions that are not deleted and have bytecode
+        return Action.objects.filter(deleted=False, bytecode__isnull=False).count()
 
-    count = await database_sync_to_async(queryset.count)()
+    count = await get_action_count()
     return RealtimeCohortCalculationCountResult(count=count)
 
 
