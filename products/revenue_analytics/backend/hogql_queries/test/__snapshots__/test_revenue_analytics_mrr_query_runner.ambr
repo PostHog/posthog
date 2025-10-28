@@ -3112,202 +3112,6 @@
                         revenue_analytics_revenue_item.timestamp AS timestamp,
                         revenue_analytics_revenue_item.amount AS amount
                  FROM
-                   (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
-                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.invoice_item_id AS invoice_item_id,
-                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.source_label AS source_label,
-                           toTimeZone(`revenue_analytics.events.purchase.revenue_item_events_revenue_view`.timestamp, 'UTC') AS timestamp,
-                           toTimeZone(`revenue_analytics.events.purchase.revenue_item_events_revenue_view`.created_at, 'UTC') AS created_at,
-                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.is_recurring AS is_recurring,
-                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.product_id AS product_id,
-                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.customer_id AS customer_id,
-                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.group_0_key AS group_0_key,
-                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.group_1_key AS group_1_key,
-                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.group_2_key AS group_2_key,
-                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.group_3_key AS group_3_key,
-                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.group_4_key AS group_4_key,
-                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.invoice_id AS invoice_id,
-                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.subscription_id AS subscription_id,
-                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.session_id AS session_id,
-                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.event_name AS event_name,
-                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.coupon AS coupon,
-                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.coupon_id AS coupon_id,
-                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.original_currency AS original_currency,
-                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.original_amount AS original_amount,
-                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
-                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency_aware_divider AS currency_aware_divider,
-                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency_aware_amount AS currency_aware_amount,
-                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency AS currency,
-                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.amount AS amount
-                    FROM
-                      (SELECT toString(events.uuid) AS id,
-                              toString(events.uuid) AS invoice_item_id,
-                              'revenue_analytics.events.purchase' AS source_label,
-                              toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                              timestamp AS created_at,
-                              isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '')) AS is_recurring,
-                              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id,
-                              toString(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS customer_id,
-                              events.`$group_0` AS group_0_key,
-                              events.`$group_1` AS group_1_key,
-                              events.`$group_2` AS group_2_key,
-                              events.`$group_3` AS group_3_key,
-                              events.`$group_4` AS group_4_key,
-                              NULL AS invoice_id,
-                              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
-                              toString(events.`$session_id`) AS session_id,
-                              events.event AS event_name,
-                              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'coupon'), ''), 'null'), '^"|"$', '') AS coupon,
-                              coupon AS coupon_id,
-                              upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')) AS original_currency,
-                              accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)') AS original_amount,
-                              1 AS enable_currency_aware_divider,
-                              if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
-                              divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
-                              'GBP' AS currency,
-                              if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                       FROM events
-                       LEFT OUTER JOIN
-                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                                 person_distinct_id_overrides.distinct_id AS distinct_id
-                          FROM person_distinct_id_overrides
-                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                          GROUP BY person_distinct_id_overrides.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                       WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
-                       ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.revenue_item_events_revenue_view`
-                    UNION ALL SELECT NULL AS id,
-                                     NULL AS invoice_item_id,
-                                     subscription.source_label AS source_label,
-                                     toTimeZone(subscription.ended_at, 'UTC') AS timestamp,
-                                     timestamp AS created_at,
-                                     1 AS is_recurring,
-                                     subscription.product_id AS product_id,
-                                     subscription.customer_id AS customer_id,
-                                     NULL AS group_0_key,
-                                     NULL AS group_1_key,
-                                     NULL AS group_2_key,
-                                     NULL AS group_3_key,
-                                     NULL AS group_4_key,
-                                     NULL AS invoice_id,
-                                     subscription.id AS subscription_id,
-                                     NULL AS session_id,
-                                     NULL AS event_name,
-                                     NULL AS coupon,
-                                     NULL AS coupon_id,
-                                     NULL AS original_currency,
-                                     accurateCastOrNull(0, 'Decimal64(10)') AS original_amount,
-                                     0 AS enable_currency_aware_divider,
-                                     accurateCastOrNull(0, 'Decimal64(10)') AS currency_aware_divider,
-                                     accurateCastOrNull(0, 'Decimal64(10)') AS currency_aware_amount,
-                                     NULL AS currency,
-                                     accurateCastOrNull(0, 'Decimal64(10)') AS amount
-                    FROM
-                      (SELECT subscription_id AS id,
-                              'revenue_analytics.events.purchase' AS source_label,
-                              NULL AS plan_id,
-                              product_id AS product_id,
-                              toString(person_id) AS customer_id,
-                              NULL AS status,
-                              min_timestamp AS started_at,
-                              if(ifNull(greater(max_timestamp_plus_dropoff_days, today()), 0), NULL, max_timestamp) AS ended_at,
-                              NULL AS metadata
-                       FROM
-                         (SELECT events__person.id AS person_id,
-                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
-                                 min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
-                                 min(toTimeZone(events.timestamp, 'UTC')) AS min_timestamp,
-                                 max(toTimeZone(events.timestamp, 'UTC')) AS max_timestamp,
-                                 addDays(max_timestamp, 45.0) AS max_timestamp_plus_dropoff_days
-                          FROM events
-                          LEFT OUTER JOIN
-                            (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                                    person_distinct_id_overrides.distinct_id AS distinct_id
-                             FROM person_distinct_id_overrides
-                             WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                             GROUP BY person_distinct_id_overrides.distinct_id
-                             HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                          INNER JOIN
-                            (SELECT person.id AS id
-                             FROM person
-                             WHERE equals(person.team_id, 99999)
-                             GROUP BY person.id
-                             HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE equals(events.team_id, 99999)
-                          GROUP BY subscription_id,
-                                   person_id)
-                       ORDER BY started_at DESC) AS subscription
-                    WHERE and(ifNull(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
-                 WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.is_recurring, 1), 0))) AS subquery
-              GROUP BY breakdown_by,
-                       customer_id,
-                       subscription_id,
-                       day) AS grouped_by_day
-           GROUP BY breakdown_by,
-                    customer_id,
-                    subscription_id) AS map_query) AS mrr_per_day_subquery
-     WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-                     and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), ifNull(equals(mrr_per_day_subquery.row_number, 1), 0))
-     ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
-  WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))), 0))
-  GROUP BY breakdown_by, date
-  ORDER BY date ASC, total DESC,
-                     breakdown_by ASC
-  LIMIT 10000
-  UNION ALL
-  SELECT breakdown_by AS breakdown_by,
-         date AS date,
-         sum(amount) AS total,
-         sum(new_amount) AS new,
-         sum(expansion_amount) AS expansion,
-         sum(contraction_amount) AS contraction,
-         sum(churn_amount) AS churn
-  FROM
-    (SELECT mrr_per_day_subquery.breakdown_by AS breakdown_by,
-            mrr_per_day_subquery.customer_id AS customer_id,
-            mrr_per_day_subquery.subscription_id AS subscription_id,
-            mrr_per_day_subquery.date AS date,
-            mrr_per_day_subquery.amount AS amount,
-            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                                                 mrr_per_day_subquery.customer_id,
-                                                                                                                                 mrr_per_day_subquery.subscription_id
-                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
-     FROM
-       (SELECT map_query.breakdown_by AS breakdown_by,
-               map_query.customer_id AS customer_id,
-               map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
-               ROW_NUMBER() OVER (PARTITION BY breakdown_by,
-                                               customer_id,
-                                               subscription_id
-                                  ORDER BY date DESC) AS row_number,
-                                 toString(date) AS date_string,
-                                 if(mapContains(map_query.amount_map, date_string), map_query.amount_map[date_string], NULL) AS date_amount,
-                                 nullIf(maxIf(date, mapContains(map_query.amount_map, date_string)) OVER (PARTITION BY breakdown_by, customer_id, subscription_id
-                                                                                                          ORDER BY date ASC ROWS UNBOUNDED PRECEDING), toDateOrNull('1970-01-01')) AS date_amount_changed,
-                                 multiIf(isNull(date_amount_changed), 0, ifNull(greater(dateDiff('day', date_amount_changed, date), 45), 0), 0, coalesce(last_value(date_amount) OVER (PARTITION BY breakdown_by, customer_id, subscription_id
-                                                                                                                                                                                       ORDER BY date ASC ROWS UNBOUNDED PRECEDING), 0)) AS amount
-        FROM
-          (SELECT grouped_by_day.breakdown_by AS breakdown_by,
-                  grouped_by_day.customer_id AS customer_id,
-                  grouped_by_day.subscription_id AS subscription_id,
-                  ifNull(mapFromArrays(groupArray(toString(grouped_by_day.day)), groupArray(toNullable(grouped_by_day.amount))), map('', toNullable(accurateCastOrNull(0, 'Decimal64(10)')))) AS amount_map
-           FROM
-             (SELECT subquery.breakdown_by AS breakdown_by,
-                     subquery.customer_id AS customer_id,
-                     nullIf(subquery.subscription_id, '') AS subscription_id,
-                     toStartOfDay(subquery.timestamp) AS day,
-                     sum(subquery.amount) AS amount
-              FROM
-                (SELECT revenue_analytics_revenue_item.source_label AS breakdown_by,
-                        revenue_analytics_revenue_item.customer_id AS customer_id,
-                        revenue_analytics_revenue_item.subscription_id AS subscription_id,
-                        revenue_analytics_revenue_item.timestamp AS timestamp,
-                        revenue_analytics_revenue_item.amount AS amount
-                 FROM
                    (SELECT `stripe.posthog_test.revenue_item_revenue_view`.id AS id,
                            `stripe.posthog_test.revenue_item_revenue_view`.invoice_item_id AS invoice_item_id,
                            `stripe.posthog_test.revenue_item_revenue_view`.source_label AS source_label,
@@ -3448,6 +3252,202 @@
                               parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC') AS ended_at,
                               posthog_test_stripe_subscription.metadata AS metadata
                        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions/posthog_test_stripe_subscription/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `plan` String, `status` String, `created` DateTime, `customer` String, `ended_at` DateTime, `metadata` String') AS posthog_test_stripe_subscription) AS subscription
+                    WHERE and(ifNull(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
+                 WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.is_recurring, 1), 0))) AS subquery
+              GROUP BY breakdown_by,
+                       customer_id,
+                       subscription_id,
+                       day) AS grouped_by_day
+           GROUP BY breakdown_by,
+                    customer_id,
+                    subscription_id) AS map_query) AS mrr_per_day_subquery
+     WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
+                     and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), ifNull(equals(mrr_per_day_subquery.row_number, 1), 0))
+     ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
+  WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))), 0))
+  GROUP BY breakdown_by, date
+  ORDER BY date ASC, total DESC,
+                     breakdown_by ASC
+  LIMIT 10000
+  UNION ALL
+  SELECT breakdown_by AS breakdown_by,
+         date AS date,
+         sum(amount) AS total,
+         sum(new_amount) AS new,
+         sum(expansion_amount) AS expansion,
+         sum(contraction_amount) AS contraction,
+         sum(churn_amount) AS churn
+  FROM
+    (SELECT mrr_per_day_subquery.breakdown_by AS breakdown_by,
+            mrr_per_day_subquery.customer_id AS customer_id,
+            mrr_per_day_subquery.subscription_id AS subscription_id,
+            mrr_per_day_subquery.date AS date,
+            mrr_per_day_subquery.amount AS amount,
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+     FROM
+       (SELECT map_query.breakdown_by AS breakdown_by,
+               map_query.customer_id AS customer_id,
+               map_query.subscription_id AS subscription_id,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
+               ROW_NUMBER() OVER (PARTITION BY breakdown_by,
+                                               customer_id,
+                                               subscription_id
+                                  ORDER BY date DESC) AS row_number,
+                                 toString(date) AS date_string,
+                                 if(mapContains(map_query.amount_map, date_string), map_query.amount_map[date_string], NULL) AS date_amount,
+                                 nullIf(maxIf(date, mapContains(map_query.amount_map, date_string)) OVER (PARTITION BY breakdown_by, customer_id, subscription_id
+                                                                                                          ORDER BY date ASC ROWS UNBOUNDED PRECEDING), toDateOrNull('1970-01-01')) AS date_amount_changed,
+                                 multiIf(isNull(date_amount_changed), 0, ifNull(greater(dateDiff('day', date_amount_changed, date), 45), 0), 0, coalesce(last_value(date_amount) OVER (PARTITION BY breakdown_by, customer_id, subscription_id
+                                                                                                                                                                                       ORDER BY date ASC ROWS UNBOUNDED PRECEDING), 0)) AS amount
+        FROM
+          (SELECT grouped_by_day.breakdown_by AS breakdown_by,
+                  grouped_by_day.customer_id AS customer_id,
+                  grouped_by_day.subscription_id AS subscription_id,
+                  ifNull(mapFromArrays(groupArray(toString(grouped_by_day.day)), groupArray(toNullable(grouped_by_day.amount))), map('', toNullable(accurateCastOrNull(0, 'Decimal64(10)')))) AS amount_map
+           FROM
+             (SELECT subquery.breakdown_by AS breakdown_by,
+                     subquery.customer_id AS customer_id,
+                     nullIf(subquery.subscription_id, '') AS subscription_id,
+                     toStartOfDay(subquery.timestamp) AS day,
+                     sum(subquery.amount) AS amount
+              FROM
+                (SELECT revenue_analytics_revenue_item.source_label AS breakdown_by,
+                        revenue_analytics_revenue_item.customer_id AS customer_id,
+                        revenue_analytics_revenue_item.subscription_id AS subscription_id,
+                        revenue_analytics_revenue_item.timestamp AS timestamp,
+                        revenue_analytics_revenue_item.amount AS amount
+                 FROM
+                   (SELECT `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.id AS id,
+                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.invoice_item_id AS invoice_item_id,
+                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.source_label AS source_label,
+                           toTimeZone(`revenue_analytics.events.purchase.revenue_item_events_revenue_view`.timestamp, 'UTC') AS timestamp,
+                           toTimeZone(`revenue_analytics.events.purchase.revenue_item_events_revenue_view`.created_at, 'UTC') AS created_at,
+                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.is_recurring AS is_recurring,
+                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.product_id AS product_id,
+                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.customer_id AS customer_id,
+                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.group_0_key AS group_0_key,
+                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.group_1_key AS group_1_key,
+                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.group_2_key AS group_2_key,
+                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.group_3_key AS group_3_key,
+                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.group_4_key AS group_4_key,
+                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.invoice_id AS invoice_id,
+                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.subscription_id AS subscription_id,
+                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.session_id AS session_id,
+                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.event_name AS event_name,
+                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.coupon AS coupon,
+                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.coupon_id AS coupon_id,
+                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.original_currency AS original_currency,
+                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.original_amount AS original_amount,
+                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
+                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency_aware_divider AS currency_aware_divider,
+                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency_aware_amount AS currency_aware_amount,
+                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.currency AS currency,
+                           `revenue_analytics.events.purchase.revenue_item_events_revenue_view`.amount AS amount
+                    FROM
+                      (SELECT toString(events.uuid) AS id,
+                              toString(events.uuid) AS invoice_item_id,
+                              'revenue_analytics.events.purchase' AS source_label,
+                              toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                              timestamp AS created_at,
+                              isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '')) AS is_recurring,
+                              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id,
+                              toString(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS customer_id,
+                              events.`$group_0` AS group_0_key,
+                              events.`$group_1` AS group_1_key,
+                              events.`$group_2` AS group_2_key,
+                              events.`$group_3` AS group_3_key,
+                              events.`$group_4` AS group_4_key,
+                              NULL AS invoice_id,
+                              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
+                              toString(events.`$session_id`) AS session_id,
+                              events.event AS event_name,
+                              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'coupon'), ''), 'null'), '^"|"$', '') AS coupon,
+                              coupon AS coupon_id,
+                              upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')) AS original_currency,
+                              accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)') AS original_amount,
+                              1 AS enable_currency_aware_divider,
+                              if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
+                              divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
+                              'GBP' AS currency,
+                              if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
+                       FROM events
+                       LEFT OUTER JOIN
+                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                                 person_distinct_id_overrides.distinct_id AS distinct_id
+                          FROM person_distinct_id_overrides
+                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                          GROUP BY person_distinct_id_overrides.distinct_id
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
+                       ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.revenue_item_events_revenue_view`
+                    UNION ALL SELECT NULL AS id,
+                                     NULL AS invoice_item_id,
+                                     subscription.source_label AS source_label,
+                                     toTimeZone(subscription.ended_at, 'UTC') AS timestamp,
+                                     timestamp AS created_at,
+                                     1 AS is_recurring,
+                                     subscription.product_id AS product_id,
+                                     subscription.customer_id AS customer_id,
+                                     NULL AS group_0_key,
+                                     NULL AS group_1_key,
+                                     NULL AS group_2_key,
+                                     NULL AS group_3_key,
+                                     NULL AS group_4_key,
+                                     NULL AS invoice_id,
+                                     subscription.id AS subscription_id,
+                                     NULL AS session_id,
+                                     NULL AS event_name,
+                                     NULL AS coupon,
+                                     NULL AS coupon_id,
+                                     NULL AS original_currency,
+                                     accurateCastOrNull(0, 'Decimal64(10)') AS original_amount,
+                                     0 AS enable_currency_aware_divider,
+                                     accurateCastOrNull(0, 'Decimal64(10)') AS currency_aware_divider,
+                                     accurateCastOrNull(0, 'Decimal64(10)') AS currency_aware_amount,
+                                     NULL AS currency,
+                                     accurateCastOrNull(0, 'Decimal64(10)') AS amount
+                    FROM
+                      (SELECT subscription_id AS id,
+                              'revenue_analytics.events.purchase' AS source_label,
+                              NULL AS plan_id,
+                              product_id AS product_id,
+                              toString(person_id) AS customer_id,
+                              NULL AS status,
+                              min_timestamp AS started_at,
+                              if(ifNull(greater(max_timestamp_plus_dropoff_days, today()), 0), NULL, max_timestamp) AS ended_at,
+                              NULL AS metadata
+                       FROM
+                         (SELECT events__person.id AS person_id,
+                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
+                                 min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
+                                 min(toTimeZone(events.timestamp, 'UTC')) AS min_timestamp,
+                                 max(toTimeZone(events.timestamp, 'UTC')) AS max_timestamp,
+                                 addDays(max_timestamp, 45.0) AS max_timestamp_plus_dropoff_days
+                          FROM events
+                          LEFT OUTER JOIN
+                            (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                                    person_distinct_id_overrides.distinct_id AS distinct_id
+                             FROM person_distinct_id_overrides
+                             WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                             GROUP BY person_distinct_id_overrides.distinct_id
+                             HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                          INNER JOIN
+                            (SELECT person.id AS id
+                             FROM person
+                             WHERE equals(person.team_id, 99999)
+                             GROUP BY person.id
+                             HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                          WHERE equals(events.team_id, 99999)
+                          GROUP BY subscription_id,
+                                   person_id)
+                       ORDER BY started_at DESC) AS subscription
                     WHERE and(ifNull(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
                  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.is_recurring, 1), 0))) AS subquery
               GROUP BY breakdown_by,
