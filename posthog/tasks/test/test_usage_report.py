@@ -1571,7 +1571,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             self._setup_teams()
 
             source = ExternalDataSource.objects.create(
-                team=self.analytics_team,
+                team_id=3,
                 source_id="source_id",
                 connection_id="connection_id",
                 status=ExternalDataSource.Status.COMPLETED,
@@ -1643,7 +1643,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
 
         with freeze_time("2025-11-07T01:00:00Z"):
             source_3 = ExternalDataSource.objects.create(
-                team=self.analytics_team,
+                team_id=3,
                 source_id="source_id",
                 connection_id="connection_id",
                 status=ExternalDataSource.Status.COMPLETED,
@@ -1709,7 +1709,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             self._setup_teams()
 
             source = ExternalDataSource.objects.create(
-                team=self.analytics_team,
+                team_id=3,
                 source_id="source_id",
                 connection_id="connection_id",
                 status=ExternalDataSource.Status.COMPLETED,
@@ -1771,7 +1771,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         self._setup_teams()
 
         source = ExternalDataSource.objects.create(
-            team=self.analytics_team,
+            team_id=3,
             source_id="source_id",
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
@@ -1830,7 +1830,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
 
         # Free historical rows
         free_source = ExternalDataSource.objects.create(
-            team=self.analytics_team,
+            team_id=3,
             source_id="source_id",
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
@@ -1849,7 +1849,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
 
         # Non-free-historical rows
         non_free_source = ExternalDataSource.objects.create(
-            team=self.analytics_team,
+            team_id=3,
             source_id="source_id",
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
@@ -1900,7 +1900,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         self._setup_teams()
 
         source = ExternalDataSource.objects.create(
-            team=self.analytics_team,
+            team_id=3,
             source_id="source_id",
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
