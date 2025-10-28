@@ -28,6 +28,9 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         inputs: z.record(CyclotronInputSchema),
     }),
     z.object({
+        type: z.literal('manual'),
+    }),
+    z.object({
         type: z.literal('tracking_pixel'),
         template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
         template_id: z.string(),
