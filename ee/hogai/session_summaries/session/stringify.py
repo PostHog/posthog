@@ -118,7 +118,6 @@ class SingleSessionSummaryStringifier(SessionSummaryEventStringifier):
         return template.render(context)
 
     def _find_session_id(self) -> str:
-        for event in self.summary["key_actions"][0]["events"]:
-            return event["session_id"]
-        else:
-            raise ValueError("Session ID not found in any of the key actions")
+        if self.summary["key_actions"] and self.summary["key_actions"][0]["events"]:
+            return self.summary["key_actions"][0]["events"][0]["session_id"]
+        raise ValueError("Session ID not found in the first key action")
