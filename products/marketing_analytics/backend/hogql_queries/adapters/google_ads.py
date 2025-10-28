@@ -78,7 +78,6 @@ class GoogleAdsAdapter(MarketingSourceAdapter[GoogleAdsConfig]):
 
     def _get_cost_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        campaign_table_name = self.config.campaign_table.name
         base_currency = self.context.base_currency
 
         # Get cost in micros and convert to standard units
@@ -90,10 +89,10 @@ class GoogleAdsAdapter(MarketingSourceAdapter[GoogleAdsConfig]):
 
         # Check if currency column exists in campaign table
         try:
-            columns = getattr(self.config.campaign_table, "columns", None)
+            columns = getattr(self.config.stats_table, "columns", None)
             if columns and hasattr(columns, "__contains__") and "customer_currency_code" in columns:
                 # Convert each row's cost, then sum
-                currency_field = ast.Field(chain=[campaign_table_name, "customer_currency_code"])
+                currency_field = ast.Field(chain=[stats_table_name, "customer_currency_code"])
                 convert_currency = ast.Call(
                     name="convertCurrency", args=[currency_field, ast.Constant(value=base_currency), cost_float]
                 )
@@ -102,8 +101,12 @@ class GoogleAdsAdapter(MarketingSourceAdapter[GoogleAdsConfig]):
         except (TypeError, AttributeError, KeyError):
             pass
 
-        # Currency column doesn't exist, return cost without conversion
-        return ast.Call(name="SUM", args=[cost_float])
+        # Currency column doesn't exist, treat as USD because it's google default and convert into base currency
+        sum_cost = ast.Call(name="SUM", args=[cost_float])
+        convert_from_usd = ast.Call(
+            name="convertCurrency", args=[ast.Constant(value="USD"), ast.Constant(value=base_currency), sum_cost]
+        )
+        return ast.Call(name="toFloat", args=[convert_from_usd])
 
     def _get_from(self) -> ast.JoinExpr:
         """Build FROM and JOIN clauses"""
