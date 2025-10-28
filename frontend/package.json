@@ -64,6 +64,7 @@
         "@monaco-editor/react": "4.6.0",
         "@posthog/ee": "workspace:*",
         "@posthog/esbuilder": "workspace:*",
+        "@posthog/hedgehog-mode": "^0.0.41",
         "@posthog/hogvm": "workspace:*",
         "@posthog/icons": "*",
         "@posthog/plugin-scaffold": "^1.4.4",
