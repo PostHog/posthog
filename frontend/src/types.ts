@@ -243,7 +243,6 @@ export enum ProductKey {
     MAX = 'max',
     LINKS = 'links',
     ENDPOINTS = 'endpoints',
-    LLM_ANALYTICS = 'llm_analytics',
 }
 
 type ProductKeyUnion = `${ProductKey}`
