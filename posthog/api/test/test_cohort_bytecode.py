@@ -123,7 +123,7 @@ class TestCohortBytecode(APIBaseTest):
         self.assertFalse(cohort_filters.realtimeSupported)
 
     def test_cohort_database_persistence_of_bytecode_data(self):
-        """Test that bytecode and conditionHash are persisted to database in filters JSON"""
+        """Test that bytecode and conditionHash are persisted to database in compiled_bytecode array"""
 
         filters_data = {
             "properties": {
@@ -153,27 +153,39 @@ class TestCohortBytecode(APIBaseTest):
         # Verify realtime_supported flag is set
         self.assertTrue(cohort.realtime_supported)
 
-        # Verify bytecode data is stored in filters JSON
+        # Verify filters JSON is clean (no embedded bytecode)
         filters = cohort.filters
         self.assertIsNotNone(filters)
-
         filter_values = filters["properties"]["values"]
 
-        # Check person filter has bytecode
+        # Filters should NOT have embedded bytecode anymore
         person_filter = filter_values[0]
-        self.assertIn("bytecode", person_filter)
-        self.assertIn("conditionHash", person_filter)
-        self.assertIsInstance(person_filter["bytecode"], list)
-        self.assertIsInstance(person_filter["conditionHash"], str)
-        self.assertEqual(len(person_filter["conditionHash"]), 16)
+        self.assertNotIn("bytecode", person_filter)
+        self.assertNotIn("conditionHash", person_filter)
 
-        # Check realtime filter has bytecode
         realtime_filter = filter_values[1]
-        self.assertIn("bytecode", realtime_filter)
-        self.assertIn("conditionHash", realtime_filter)
-        self.assertIsInstance(realtime_filter["bytecode"], list)
-        self.assertIsInstance(realtime_filter["conditionHash"], str)
-        self.assertEqual(len(realtime_filter["conditionHash"]), 16)
+        self.assertNotIn("bytecode", realtime_filter)
+        self.assertNotIn("conditionHash", realtime_filter)
+
+        # Verify bytecode data is stored in compiled_bytecode array
+        compiled_bytecode = cohort.compiled_bytecode
+        self.assertIsNotNone(compiled_bytecode)
+        self.assertIsInstance(compiled_bytecode, list)
+        self.assertEqual(len(compiled_bytecode), 2)  # Should have 2 bytecode entries
+
+        # Check that each compiled bytecode entry has the expected structure
+        for bytecode_entry in compiled_bytecode:
+            self.assertIn("filter_path", bytecode_entry)
+            self.assertIn("bytecode", bytecode_entry)
+            self.assertIn("conditionHash", bytecode_entry)
+            self.assertIsInstance(bytecode_entry["bytecode"], list)
+            self.assertIsInstance(bytecode_entry["conditionHash"], str)
+            self.assertEqual(len(bytecode_entry["conditionHash"]), 16)
+
+        # Verify filter paths point to the correct filters
+        filter_paths = [entry["filter_path"] for entry in compiled_bytecode]
+        self.assertIn("properties.values[0]", filter_paths)  # person filter
+        self.assertIn("properties.values[1]", filter_paths)  # realtime filter
 
     def test_realtime_filter_with_temporal_parameters_stores_all_data(self):
         """Test that realtime filters store temporal params in JSON but only simple event matching in bytecode"""
@@ -223,14 +235,28 @@ class TestCohortBytecode(APIBaseTest):
         self.assertEqual(stored_filter["operator_value"], 3)
         self.assertEqual(stored_filter["operator"], "gte")
 
-        # Verify bytecode exists but is simple (ignores temporal logic)
-        self.assertIn("bytecode", stored_filter)
-        self.assertIn("conditionHash", stored_filter)
+        # Verify bytecode is NOT embedded in filters anymore
+        self.assertNotIn("bytecode", stored_filter)
+        self.assertNotIn("conditionHash", stored_filter)
+
+        # Verify bytecode exists in compiled_bytecode array and is simple (ignores temporal logic)
+        compiled_bytecode = cohort.compiled_bytecode
+        self.assertIsNotNone(compiled_bytecode)
+        self.assertIsInstance(compiled_bytecode, list)
+        self.assertEqual(len(compiled_bytecode), 1)  # Should have 1 bytecode entry
+
+        bytecode_entry = compiled_bytecode[0]
+        self.assertIn("filter_path", bytecode_entry)
+        self.assertIn("bytecode", bytecode_entry)
+        self.assertIn("conditionHash", bytecode_entry)
+        self.assertEqual(bytecode_entry["filter_path"], "properties.values[0]")
 
         # The bytecode should be for simple event matching only
         # (temporal logic is ignored in realtime bytecode generation)
-        self.assertIsInstance(stored_filter["bytecode"], list)
-        self.assertGreater(len(stored_filter["bytecode"]), 0)
+        self.assertIsInstance(bytecode_entry["bytecode"], list)
+        self.assertGreater(len(bytecode_entry["bytecode"]), 0)
+        self.assertIsInstance(bytecode_entry["conditionHash"], str)
+        self.assertEqual(len(bytecode_entry["conditionHash"]), 16)
 
     def test_complex_cohort_with_mixed_realtime_and_person_filters(self):
         """
@@ -295,50 +321,59 @@ class TestCohortBytecode(APIBaseTest):
         filters = cohort.filters["properties"]["values"]
         self.assertEqual(len(filters), 4)  # Should have 4 filters
 
-        # Check Filter 1: Realtime filter with temporal params + bytecode
+        # Check Filter 1: Realtime filter with temporal params preserved (no embedded bytecode)
         realtime_filter_1 = filters[0]
         self.assertEqual(realtime_filter_1["type"], "realtime")
         self.assertEqual(realtime_filter_1["key"], "purchase_completed")
         self.assertEqual(realtime_filter_1["time_value"], 30)
         self.assertEqual(realtime_filter_1["operator_value"], 3)
-        self.assertIn("bytecode", realtime_filter_1)
-        self.assertIn("conditionHash", realtime_filter_1)
+        self.assertNotIn("bytecode", realtime_filter_1)
+        self.assertNotIn("conditionHash", realtime_filter_1)
 
-        # Check Filter 2: Person filter with bytecode
+        # Check Filter 2: Person filter (no embedded bytecode)
         person_filter_1 = filters[1]
         self.assertEqual(person_filter_1["type"], "person")
         self.assertEqual(person_filter_1["key"], "email")
         self.assertEqual(person_filter_1["value"], "@posthog.com")
-        self.assertIn("bytecode", person_filter_1)
-        self.assertIn("conditionHash", person_filter_1)
+        self.assertNotIn("bytecode", person_filter_1)
+        self.assertNotIn("conditionHash", person_filter_1)
 
-        # Check Filter 3: Negated realtime filter
+        # Check Filter 3: Negated realtime filter (no embedded bytecode)
         realtime_filter_2 = filters[2]
         self.assertEqual(realtime_filter_2["type"], "realtime")
         self.assertEqual(realtime_filter_2["key"], "churn_event")
         self.assertEqual(realtime_filter_2["time_value"], 14)
         self.assertTrue(realtime_filter_2["negation"])
-        self.assertIn("bytecode", realtime_filter_2)
-        self.assertIn("conditionHash", realtime_filter_2)
+        self.assertNotIn("bytecode", realtime_filter_2)
+        self.assertNotIn("conditionHash", realtime_filter_2)
 
-        # Check Filter 4: Person property is_set
+        # Check Filter 4: Person property is_set (no embedded bytecode)
         person_filter_2 = filters[3]
         self.assertEqual(person_filter_2["type"], "person")
         self.assertEqual(person_filter_2["key"], "firstName")
         self.assertEqual(person_filter_2["operator"], "is_set")
-        self.assertIn("bytecode", person_filter_2)
-        self.assertIn("conditionHash", person_filter_2)
+        self.assertNotIn("bytecode", person_filter_2)
+        self.assertNotIn("conditionHash", person_filter_2)
 
-        # Verify all filters have valid bytecode and condition hashes
-        def check_filter_bytecode(filter_obj):
-            if "bytecode" in filter_obj:
-                self.assertIsInstance(filter_obj["bytecode"], list)
-                self.assertGreater(len(filter_obj["bytecode"]), 0)
-                self.assertIsInstance(filter_obj["conditionHash"], str)
-                self.assertEqual(len(filter_obj["conditionHash"]), 16)
+        # Verify bytecode data is stored in compiled_bytecode array
+        compiled_bytecode = cohort.compiled_bytecode
+        self.assertIsNotNone(compiled_bytecode)
+        self.assertIsInstance(compiled_bytecode, list)
+        self.assertEqual(len(compiled_bytecode), 4)  # Should have 4 bytecode entries
 
-        # Check all filters recursively
-        check_filter_bytecode(realtime_filter_1)
-        check_filter_bytecode(person_filter_1)
-        check_filter_bytecode(realtime_filter_2)
-        check_filter_bytecode(person_filter_2)
+        # Verify all filters have valid bytecode and condition hashes in compiled_bytecode array
+        for bytecode_entry in compiled_bytecode:
+            self.assertIn("filter_path", bytecode_entry)
+            self.assertIn("bytecode", bytecode_entry)
+            self.assertIn("conditionHash", bytecode_entry)
+            self.assertIsInstance(bytecode_entry["bytecode"], list)
+            self.assertGreater(len(bytecode_entry["bytecode"]), 0)
+            self.assertIsInstance(bytecode_entry["conditionHash"], str)
+            self.assertEqual(len(bytecode_entry["conditionHash"]), 16)
+
+        # Verify filter paths point to the correct filters
+        filter_paths = [entry["filter_path"] for entry in compiled_bytecode]
+        self.assertIn("properties.values[0]", filter_paths)  # realtime filter 1
+        self.assertIn("properties.values[1]", filter_paths)  # person filter 1
+        self.assertIn("properties.values[2]", filter_paths)  # realtime filter 2
+        self.assertIn("properties.values[3]", filter_paths)  # person filter 2

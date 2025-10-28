@@ -90,14 +90,14 @@ from posthog.renderers import SafeJSONRenderer
 from posthog.utils import format_query_params_absolute_url
 
 
-def extract_bytecode_from_filters(filters_dict: dict, team: Team) -> tuple[dict, bool]:
+def extract_bytecode_from_filters(filters_dict: dict, team: Team) -> tuple[dict, bool, list | None]:
     """
-    Extract bytecode and conditionHash from validated filters and add them to the filters dict.
-    Returns (updated_filters_dict, realtime_supported)
+    Extract bytecode from validated filters into a separate compiled_bytecode array.
+    Returns (clean_filters_dict, realtime_supported, compiled_bytecode_array)
     """
     try:
         if not filters_dict:
-            return filters_dict, False
+            return filters_dict, False, None
 
         # Validate the filters with team context to generate bytecode
         validated_filters = CohortFilters.model_validate(
@@ -107,54 +107,75 @@ def extract_bytecode_from_filters(filters_dict: dict, team: Team) -> tuple[dict,
         # Extract the realtime support flag
         realtime_supported = validated_filters.realtimeSupported
 
-        # Add bytecode data to the original filters dict
-        updated_filters = _add_bytecode_to_filters_dict(filters_dict, validated_filters.properties)
+        # Extract compiled bytecode to separate array
+        compiled_bytecode = []
+        clean_filters = _extract_bytecode_to_array(filters_dict, validated_filters.properties, compiled_bytecode)
 
-        return updated_filters, realtime_supported
+        return clean_filters, realtime_supported, compiled_bytecode if compiled_bytecode else None
 
     except Exception as e:
         logger.warning(f"Failed to extract bytecode from filters: {e}")
-        return filters_dict, False
+        return filters_dict, False, None
 
 
-def _add_bytecode_to_filters_dict(original_dict: dict, validated_group) -> dict:
-    """Recursively add bytecode and conditionHash to the original filters dict."""
+def _extract_bytecode_to_array(
+    original_dict: dict, validated_group, compiled_bytecode: list, filter_path: str = ""
+) -> dict:
+    """
+    Recursively extract bytecode and conditionHash from validated filters into compiled_bytecode array.
+    Returns clean filters dict without bytecode embedded.
+    """
     result = dict(original_dict)
 
     if "properties" in result and "values" in result["properties"]:
         result["properties"] = dict(result["properties"])
-        result["properties"]["values"] = _add_bytecode_to_values_list(
-            result["properties"]["values"], validated_group.values
+        result["properties"]["values"] = _extract_bytecode_from_values_list(
+            result["properties"]["values"], validated_group.values, compiled_bytecode, filter_path
         )
 
     return result
 
 
-def _add_bytecode_to_values_list(original_values: list, validated_values: list) -> list:
-    """Add bytecode data to a list of filter values."""
-    updated_values = []
+def _extract_bytecode_from_values_list(
+    original_values: list, validated_values: list, compiled_bytecode: list, filter_path: str
+) -> list:
+    """Extract bytecode data from filter values into compiled_bytecode array, returning clean filter values."""
+    clean_values = []
 
     for i, original_value in enumerate(original_values):
-        updated_value = dict(original_value)
+        current_path = f"{filter_path}.values[{i}]" if filter_path else f"properties.values[{i}]"
 
         if i < len(validated_values):
             validated_value = validated_values[i]
 
             # If it's a nested group, recurse
             if hasattr(validated_value, "values"):
-                updated_value["values"] = _add_bytecode_to_values_list(
-                    original_value.get("values", []), validated_value.values
+                clean_value = dict(original_value)
+                clean_value["values"] = _extract_bytecode_from_values_list(
+                    original_value.get("values", []), validated_value.values, compiled_bytecode, current_path
                 )
+                clean_values.append(clean_value)
             else:
-                # It's a filter - add bytecode data if available
+                # It's a filter - extract bytecode to compiled_bytecode array and build clean filter
                 if hasattr(validated_value, "bytecode") and validated_value.bytecode:
-                    updated_value["bytecode"] = validated_value.bytecode
-                if hasattr(validated_value, "conditionHash") and validated_value.conditionHash:
-                    updated_value["conditionHash"] = validated_value.conditionHash
+                    compiled_bytecode.append(
+                        {
+                            "filter_path": current_path,
+                            "bytecode": validated_value.bytecode,
+                            "conditionHash": getattr(validated_value, "conditionHash", None),
+                        }
+                    )
 
-        updated_values.append(updated_value)
+                # Create clean filter from original data (without bytecode/conditionHash)
+                clean_value = {
+                    k: v for k, v in original_value.items() if k not in ["bytecode", "conditionHash", "bytecode_error"]
+                }
+                clean_values.append(clean_value)
+        else:
+            # No corresponding validated value, just copy original
+            clean_values.append(dict(original_value))
 
-    return updated_values
+    return clean_values
 
 
 def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list[Any] | None, str | None, str | None]:
@@ -433,6 +454,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "is_static",
             "cohort_type",
             "realtime_supported",
+            "compiled_bytecode",
             "experiment_set",
             "_create_in_folder",
             "_create_static_person_ids",
@@ -446,6 +468,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "errors_calculating",
             "count",
             "realtime_supported",
+            "compiled_bytecode",
             "experiment_set",
         ]
 
@@ -518,9 +541,12 @@ class CohortSerializer(serializers.ModelSerializer):
         # Process bytecode for filters if present
         if validated_data.get("filters"):
             team = Team.objects.get(id=self.context["team_id"])
-            updated_filters, realtime_supported = extract_bytecode_from_filters(validated_data["filters"], team)
-            validated_data["filters"] = updated_filters
+            clean_filters, realtime_supported, compiled_bytecode = extract_bytecode_from_filters(
+                validated_data["filters"], team
+            )
+            validated_data["filters"] = clean_filters
             validated_data["realtime_supported"] = realtime_supported
+            validated_data["compiled_bytecode"] = compiled_bytecode
 
         person_ids = validated_data.pop("_create_static_person_ids", None)
         cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
@@ -813,12 +839,16 @@ class CohortSerializer(serializers.ModelSerializer):
         if "filters" in validated_data:
             filters = validated_data["filters"]
             if filters:
-                updated_filters, realtime_supported = extract_bytecode_from_filters(filters, cohort.team)
-                cohort.filters = updated_filters
+                clean_filters, realtime_supported, compiled_bytecode = extract_bytecode_from_filters(
+                    filters, cohort.team
+                )
+                cohort.filters = clean_filters
                 cohort.realtime_supported = realtime_supported
+                cohort.compiled_bytecode = compiled_bytecode
             else:
                 cohort.filters = filters
                 cohort.realtime_supported = None
+                cohort.compiled_bytecode = None
 
         # Set realtime_supported if provided directly
         if "realtime_supported" in validated_data:
