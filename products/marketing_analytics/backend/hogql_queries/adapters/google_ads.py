@@ -82,9 +82,9 @@ class GoogleAdsAdapter(MarketingSourceAdapter[GoogleAdsConfig]):
         base_currency = self.context.base_currency
 
         # Get cost in micros and convert to standard units
-        sum = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "metrics_cost_micros"])])
+        cost_micros = ast.Field(chain=[stats_table_name, "metrics_cost_micros"])
         cost_standard = ast.ArithmeticOperation(
-            left=sum, op=ast.ArithmeticOperationOp.Div, right=ast.Constant(value=1000000)
+            left=cost_micros, op=ast.ArithmeticOperationOp.Div, right=ast.Constant(value=1000000)
         )
         cost_float = ast.Call(name="toFloat", args=[cost_standard])
 
@@ -92,21 +92,18 @@ class GoogleAdsAdapter(MarketingSourceAdapter[GoogleAdsConfig]):
         try:
             columns = getattr(self.config.campaign_table, "columns", None)
             if columns and hasattr(columns, "__contains__") and "customer_currency_code" in columns:
-                # Get currency field from campaign table (use any() since all rows in a campaign have same currency)
-                currency_field = ast.Call(
-                    name="any", args=[ast.Field(chain=[campaign_table_name, "customer_currency_code"])]
-                )
-
-                # Apply currency conversion
+                # Convert each row's cost, then sum
+                currency_field = ast.Field(chain=[campaign_table_name, "customer_currency_code"])
                 convert_currency = ast.Call(
                     name="convertCurrency", args=[currency_field, ast.Constant(value=base_currency), cost_float]
                 )
-                return ast.Call(name="toFloat", args=[convert_currency])
+                convert_to_float = ast.Call(name="toFloat", args=[convert_currency])
+                return ast.Call(name="SUM", args=[convert_to_float])
         except (TypeError, AttributeError, KeyError):
             pass
 
         # Currency column doesn't exist, return cost without conversion
-        return cost_float
+        return ast.Call(name="SUM", args=[cost_float])
 
     def _get_from(self) -> ast.JoinExpr:
         """Build FROM and JOIN clauses"""
