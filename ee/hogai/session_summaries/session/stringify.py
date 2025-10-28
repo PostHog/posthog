@@ -90,9 +90,8 @@ class SingleSessionSummaryStringifier(SessionSummaryEventStringifier):
         for outcome in self.summary["segment_outcomes"]:
             if outcome["segment_index"] == segment_id:
                 return outcome
-        else:
-            # Each segment should have at least one outcome
-            raise ValueError(f"Segment outcome not found for segment_id {segment_id}")
+        # Each segment should have at least one outcome
+        raise ValueError(f"Segment outcome not found for segment_id {segment_id}")
 
     def _stringify_segment(self, segment: dict[str, Any]) -> str:
         template = Template(SEGMENT_STRING_FORMAT)
