@@ -325,8 +325,8 @@ COPY --from=frontend-build --chown=posthog:posthog /code/frontend/dist /code/fro
 # Copy the GeoLite2-City database from the fetch-geoip-db stage.
 COPY --from=fetch-geoip-db --chown=posthog:posthog /code/share/GeoLite2-City.mmdb /code/share/GeoLite2-City.mmdb
 
-# Add in the Gunicorn config, custom bin files and Django deps.
-COPY --chown=posthog:posthog gunicorn.config.py ./
+# Add in the Granian config, custom bin files and Django deps.
+COPY --chown=posthog:posthog granian.config.py ./
 COPY --chown=posthog:posthog ./bin ./bin/
 COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
