@@ -1630,17 +1630,17 @@ def surveys(request: Request):
             ),
         )
 
-    if settings.SURVEYS_API_USE_REMOTE_CONFIG_TOKENS and token in settings.SURVEYS_API_USE_REMOTE_CONFIG_TOKENS:
+    if settings.SURVEYS_API_USE_REMOTE_CONFIG_TOKENS and (
+        settings.SURVEYS_API_USE_REMOTE_CONFIG_TOKENS == "*" or token in settings.SURVEYS_API_USE_REMOTE_CONFIG_TOKENS
+    ):
         try:
             config = RemoteConfig.get_config_via_token(token, request=request)
             COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="found").inc()
             surveys = config.get("surveys")
             response = {
                 "surveys": [] if surveys is False else surveys,
+                "survey_config": config.get("survey_config", None),
             }
-
-            if config.get("survey_config", None):
-                response["survey_config"] = config["survey_config"]
 
             return cors_response(request, JsonResponse(response))
 
