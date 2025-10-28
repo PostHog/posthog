@@ -238,46 +238,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        setPropertyFilters: ({ propertyFilters }) => {
-            if (propertyFilters && propertyFilters.length > 0) {
-                const aiSessionFilter = propertyFilters.find((f) => f.key === '$ai_session_id')
-
-                if (aiSessionFilter) {
-                    actions.addProductIntent({
-                        product_type: ProductKey.LLM_ANALYTICS,
-                        intent_context: ProductIntentContext.LLM_ANALYTICS_AI_SESSION_VIEWED,
-                        metadata: {
-                            ai_session_id: Array.isArray(aiSessionFilter.value)
-                                ? aiSessionFilter.value[0]
-                                : aiSessionFilter.value,
-                        },
-                    })
-                }
-
-                actions.addProductIntent({
-                    product_type: ProductKey.LLM_ANALYTICS,
-                    intent_context: ProductIntentContext.LLM_ANALYTICS_FILTERS_APPLIED,
-                    metadata: {
-                        filter_count: propertyFilters.length,
-                        filter_types: propertyFilters.map((f) => f.type),
-                    },
-                })
-            }
-        },
-
         toggleGenerationExpanded: async ({ uuid, traceId }) => {
-            // Track product intent when user expands a generation
-            if (values.expandedGenerationIds.has(uuid)) {
-                actions.addProductIntent({
-                    product_type: ProductKey.LLM_ANALYTICS,
-                    intent_context: ProductIntentContext.LLM_ANALYTICS_GENERATION_VIEWED,
-                    metadata: {
-                        event_id: uuid,
-                        trace_id: traceId,
-                    },
-                })
-            }
-
             // Only load if expanding and not already loaded
             if (values.expandedGenerationIds.has(uuid) && !values.loadedTraces[traceId]) {
                 // Build TraceQuery with date range from current filters
@@ -928,21 +889,15 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         }
 
         return {
-            [urls.llmAnalyticsDashboard()]: (_, searchParams) => applySearchParams(searchParams),
-            [urls.llmAnalyticsGenerations()]: (_, searchParams) => {
+            [urls.llmAnalyticsDashboard()]: (_, searchParams) => {
                 applySearchParams(searchParams)
                 actions.addProductIntent({
                     product_type: ProductKey.LLM_ANALYTICS,
-                    intent_context: ProductIntentContext.LLM_ANALYTICS_GENERATIONS_VIEWED,
+                    intent_context: ProductIntentContext.LLM_ANALYTICS_VIEWED,
                 })
             },
-            [urls.llmAnalyticsTraces()]: (_, searchParams) => {
-                applySearchParams(searchParams)
-                actions.addProductIntent({
-                    product_type: ProductKey.LLM_ANALYTICS,
-                    intent_context: ProductIntentContext.LLM_ANALYTICS_TRACES_VIEWED,
-                })
-            },
+            [urls.llmAnalyticsGenerations()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmAnalyticsTraces()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsUsers()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsPlayground()]: (_, searchParams) => applySearchParams(searchParams),
         }
@@ -975,12 +930,6 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
 
     afterMount(({ actions }) => {
         actions.loadAIEventDefinition()
-
-        // Track product intent when user views LLM Analytics
-        actions.addProductIntent({
-            product_type: ProductKey.LLM_ANALYTICS,
-            intent_context: ProductIntentContext.LLM_ANALYTICS_VIEWED,
-        })
     }),
 
     listeners(({ actions, values }) => ({

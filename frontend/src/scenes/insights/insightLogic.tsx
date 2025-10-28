@@ -13,7 +13,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isEmptyObject, isObject, objectsEqual } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { ProductIntentContext, detectPropertiesInQuery } from 'lib/utils/product-intents'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -41,7 +40,6 @@ import {
     InsightLogicProps,
     InsightShortId,
     ItemMode,
-    ProductKey,
     QueryBasedInsightModel,
     SetInsightOptions,
 } from '~/types'
@@ -541,21 +539,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         },
         saveInsightSuccess: async () => {
             activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.CreateFirstInsight)
-
-            // Track LLM Analytics product intent if insight uses AI properties/events
-            if (values.query) {
-                const detection = detectPropertiesInQuery(values.query, '$ai_')
-                if (detection.found) {
-                    actions.addProductIntent({
-                        product_type: ProductKey.LLM_ANALYTICS,
-                        intent_context: ProductIntentContext.LLM_ANALYTICS_AI_PROPERTY_INSIGHT_CREATED,
-                        metadata: {
-                            ai_properties: detection.properties,
-                            ai_events: detection.events,
-                        },
-                    })
-                }
-            }
         },
         saveAs: async ({ redirectToViewMode, persist, folder }) => {
             LemonDialog.openForm({

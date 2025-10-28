@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
@@ -7,11 +7,9 @@ import api, { CountedPaginatedResponse } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
 import { objectsEqual } from '~/lib/utils'
-import { ProductIntentContext } from '~/lib/utils/product-intents'
 import { sceneLogic } from '~/scenes/sceneLogic'
-import { teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
-import { Breadcrumb, Dataset, DatasetItem, ProductKey } from '~/types'
+import { Breadcrumb, Dataset, DatasetItem } from '~/types'
 
 import { truncateValue } from '../utils'
 import type { llmAnalyticsDatasetLogicType } from './llmAnalyticsDatasetLogicType'
@@ -57,9 +55,6 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
     props({ datasetId: 'new' } as DatasetLogicProps),
 
     key(({ datasetId }) => `dataset-${datasetId}`),
-    connect({
-        actions: [teamLogic, ['addProductIntent']],
-    }),
 
     actions({
         setDataset: (dataset: Dataset | DatasetFormValues) => ({ dataset }),
@@ -200,16 +195,6 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                             metadata: coerceJsonToObject(formValues.metadata),
                         })
                         lemonToast.success('Dataset created successfully')
-
-                        actions.addProductIntent({
-                            product_type: ProductKey.LLM_ANALYTICS,
-                            intent_context: ProductIntentContext.LLM_ANALYTICS_DATASET_CREATED,
-                            metadata: {
-                                dataset_id: savedDataset.id,
-                                dataset_name: savedDataset.name,
-                            },
-                        })
-
                         router.actions.replace(urls.llmAnalyticsDataset(savedDataset.id))
                     } else {
                         savedDataset = await api.datasets.update(props.datasetId, {

@@ -170,24 +170,6 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
 
         return self.team.ingested_event
 
-    def has_activated_llm_analytics(self) -> bool:
-        """LLM Analytics is activated when user has viewed at least 5 traces."""
-        intent = ProductIntent.objects.filter(
-            team=self.team,
-            product_type="llm_analytics",
-        ).first()
-
-        if not intent:
-            return False
-
-        contexts = intent.contexts or {}
-        traces_viewed = contexts.get("llm_analytics_trace_viewed", 0)
-        # TODO:andrewm4894 Consider stricter activation criteria like:
-        # evaluations_created = contexts.get("llm_analytics_evaluation_created", 0)
-        # datasets_created = contexts.get("llm_analytics_dataset_created", 0)
-        # return traces_viewed >= 5 and (evaluations_created >= 1 or datasets_created >= 1)
-        return traces_viewed >= 5
-
     def check_and_update_activation(self, skip_reporting: bool = False) -> bool:
         # If the intent is already activated, we don't need to check again
         if self.activated_at:
@@ -205,7 +187,6 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
             "error_tracking": self.has_activated_error_tracking,
             "product_analytics": self.has_activated_product_analytics,
             "surveys": self.has_activated_surveys,
-            "llm_analytics": self.has_activated_llm_analytics,
         }
 
         if self.product_type in activation_checks and activation_checks[self.product_type]():

@@ -29,18 +29,7 @@ export enum ProductIntentContext {
 
     // LLM Analytics
     LLM_ANALYTICS_VIEWED = 'llm_analytics_viewed',
-    LLM_ANALYTICS_TRACES_VIEWED = 'llm_analytics_traces_viewed',
-    LLM_ANALYTICS_TRACE_VIEWED = 'llm_analytics_trace_viewed',
-    LLM_ANALYTICS_GENERATIONS_VIEWED = 'llm_analytics_generations_viewed',
-    LLM_ANALYTICS_GENERATION_VIEWED = 'llm_analytics_generation_viewed',
-    LLM_ANALYTICS_FILTERS_APPLIED = 'llm_analytics_filters_applied',
-    LLM_ANALYTICS_EVALUATION_CREATED = 'llm_analytics_evaluation_created',
-    LLM_ANALYTICS_DATASET_CREATED = 'llm_analytics_dataset_created',
-    LLM_ANALYTICS_PLAYGROUND_PROMPT_SENT = 'llm_analytics_playground_prompt_sent',
-    LLM_ANALYTICS_TRACE_VIEW_REPLAY = 'llm_analytics_trace_view_replay',
     LLM_ANALYTICS_DOCS_VIEWED = 'llm_analytics_docs_viewed',
-    LLM_ANALYTICS_AI_PROPERTY_INSIGHT_CREATED = 'llm_analytics_ai_property_insight_created',
-    LLM_ANALYTICS_AI_SESSION_VIEWED = 'llm_analytics_ai_session_viewed',
 
     /*
     Cross Sells
@@ -119,40 +108,4 @@ export function addProductIntentForCrossSell(properties: ProductCrossSellPropert
             type: 'cross_sell',
         },
     })
-}
-
-/**
- * Detects if a query uses any properties or events containing the specified search term.
- * Returns metadata about what was found.
- */
-export function detectPropertiesInQuery(
-    query: Record<string, any>,
-    searchTerm: string
-): { found: boolean; properties: string[]; events: string[] } {
-    const queryString = JSON.stringify(query)
-    const properties = new Set<string>()
-    const events = new Set<string>()
-
-    // Escape special regex characters in the search term
-    const escapedTerm = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-
-    // Find properties containing the search term (handles both "key":"value" and "key": "value")
-    const propertyRegex = new RegExp(`"key"\\s*:\\s*"([^"]*${escapedTerm}[^"]*)"`, 'g')
-    let propertyMatch
-    while ((propertyMatch = propertyRegex.exec(queryString)) !== null) {
-        properties.add(propertyMatch[1])
-    }
-
-    // Find events containing the search term (handles both "event":"value" and "event": "value")
-    const eventRegex = new RegExp(`"event"\\s*:\\s*"([^"]*${escapedTerm}[^"]*)"`, 'g')
-    let eventMatch
-    while ((eventMatch = eventRegex.exec(queryString)) !== null) {
-        events.add(eventMatch[1])
-    }
-
-    return {
-        found: properties.size > 0 || events.size > 0,
-        properties: Array.from(properties),
-        events: Array.from(events),
-    }
 }

@@ -1,19 +1,13 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { ProductKey } from '~/types'
 
 import type { llmEvaluationsLogicType } from './llmEvaluationsLogicType'
 import { EvaluationConfig } from './types'
 
 export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
     path(['products', 'llm_analytics', 'evaluations', 'llmEvaluationsLogic']),
-    connect({
-        actions: [teamLogic, ['addProductIntent']],
-    }),
 
     actions({
         loadEvaluations: true,
@@ -88,18 +82,6 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
             } catch (error) {
                 console.error('Failed to create evaluation:', error)
             }
-        },
-
-        createEvaluationSuccess: ({ evaluation }) => {
-            actions.addProductIntent({
-                product_type: ProductKey.LLM_ANALYTICS,
-                intent_context: ProductIntentContext.LLM_ANALYTICS_EVALUATION_CREATED,
-                metadata: {
-                    evaluation_id: evaluation.id,
-                    evaluation_name: evaluation.name,
-                    enabled: evaluation.enabled,
-                },
-            })
         },
 
         updateEvaluation: async ({ id, evaluation }) => {

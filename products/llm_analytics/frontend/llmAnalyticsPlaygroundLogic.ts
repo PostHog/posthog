@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -7,11 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { uuid } from 'lib/utils'
 import { isObject } from 'lib/utils'
-import { ProductIntentContext } from 'lib/utils/product-intents'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-
-import { ProductKey } from '~/types'
 
 import type { llmAnalyticsPlaygroundLogicType } from './llmAnalyticsPlaygroundLogicType'
 import { normalizeRole } from './utils'
@@ -123,9 +119,6 @@ function matchClosestModel(targetModel: string, availableModels: ModelOption[]):
 
 export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'llmAnalyticsPlaygroundLogic']),
-    connect({
-        actions: [teamLogic, ['addProductIntent']],
-    }),
 
     actions({
         setModel: (model: string) => ({ model }),
@@ -337,17 +330,6 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 actions.finalizeAssistantMessage()
                 return
             }
-
-            actions.addProductIntent({
-                product_type: ProductKey.LLM_ANALYTICS,
-                intent_context: ProductIntentContext.LLM_ANALYTICS_PLAYGROUND_PROMPT_SENT,
-                metadata: {
-                    model: requestModel,
-                    message_count: messagesToSend.length,
-                    has_tools: !!values.tools,
-                    has_system_prompt: !!requestSystemPrompt,
-                },
-            })
 
             let responseUsage: ComparisonItem['usage'] = {}
             let ttftMs: number | null = null
