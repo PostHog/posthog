@@ -154,6 +154,7 @@ export const TECHNOLOGY = {
     UI: [
         'IconPassword',
         'IconToggle',
+        'IconToggleOff',
         'IconLoading',
         'IconSpinner',
         'IconBrightness',

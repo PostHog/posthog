@@ -15,7 +15,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.event_usage import report_user_action
 from posthog.utils import get_instance_region
 
-from .database.database import create_hogql_database, serialize_database
+from .database.database import Database
 from .query import create_default_modifiers_for_team
 
 if TYPE_CHECKING:
@@ -115,14 +115,14 @@ class PromptUnclear(Exception):
 
 
 def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, team: "Team", user: "User") -> str:
-    database = create_hogql_database(team=team)
+    database = Database.create_for(team=team)
     context = HogQLContext(
         team_id=team.pk,
         enable_select_queries=True,
         database=database,
         modifiers=create_default_modifiers_for_team(team),
     )
-    serialized_database = serialize_database(context)
+    serialized_database = database.serialize(context)
     schema_description = "\n\n".join(
         (
             f"Table {table_name} with fields:\n"
