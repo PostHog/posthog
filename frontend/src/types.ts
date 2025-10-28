@@ -4835,6 +4835,50 @@ export interface DataModelingJob {
     workflow_run_id: string
 }
 
+export type WarehouseConnectionProvider = 'bigquery' | 'snowflake' | 'redshift' | 'databricks'
+export type WarehouseConnectionMode = 'sync' | 'direct' | 'hybrid'
+
+export interface WarehouseConnection {
+    id: string
+    name: string
+    provider: WarehouseConnectionProvider
+    mode: WarehouseConnectionMode
+    is_active: boolean
+    created_at: string
+    updated_at: string
+    last_tested_at: string | null
+    last_test_status: boolean
+    last_test_error: string | null
+    connection_status: 'healthy' | 'unhealthy'
+}
+
+export interface WarehouseConnectionCreatePayload {
+    name: string
+    provider: WarehouseConnectionProvider
+    credentials: Record<string, any>
+    mode: WarehouseConnectionMode
+    config?: Record<string, any>
+}
+
+export interface WarehouseTableSchema {
+    name: string
+    columns: WarehouseColumnSchema[]
+    row_count: number | null
+    size_bytes: number | null
+}
+
+export interface WarehouseColumnSchema {
+    name: string
+    type: string
+    nullable: boolean
+}
+
+export interface WarehouseQueryCost {
+    estimated_bytes: number
+    estimated_cost_usd: number
+    warning_message: string | null
+}
+
 export interface SimpleExternalDataSourceSchema {
     id: string
     name: string

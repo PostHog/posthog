@@ -1093,6 +1093,15 @@ export class ApiRequest {
         return this.dataWarehouseTables(teamId).addPathComponent(id)
     }
 
+    // # Warehouse connections
+    public warehouseConnections(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('warehouse_connections')
+    }
+
+    public warehouseConnection(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.warehouseConnections(teamId).addPathComponent(id)
+    }
+
     // # Warehouse view
     public dataWarehouseSavedQueries(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('warehouse_saved_queries')
