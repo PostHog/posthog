@@ -494,9 +494,6 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         ).exclude(deleted=True):
             join.soft_delete()
 
-        if instance.table is not None:
-            instance.table.soft_delete()
-
         instance.revert_materialization()
         instance.soft_delete()
 
