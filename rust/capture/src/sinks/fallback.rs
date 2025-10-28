@@ -184,6 +184,7 @@ mod tests {
                 sent_at: None,
                 token: "test_token".to_string(),
                 is_cookieless_mode: false,
+                historical_migration: false,
             },
             metadata: ProcessedEventMetadata {
                 data_type: DataType::AnalyticsMain,
@@ -223,6 +224,7 @@ mod tests {
                 sent_at: None,
                 token: "test_token".to_string(),
                 is_cookieless_mode: false,
+                historical_migration: false,
             },
             metadata: ProcessedEventMetadata {
                 data_type: DataType::AnalyticsMain,

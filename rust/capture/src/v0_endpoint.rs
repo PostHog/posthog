@@ -476,6 +476,7 @@ pub fn process_single_event(
         is_cookieless_mode: event
             .extract_is_cookieless_mode()
             .ok_or(CaptureError::InvalidCookielessMode)?,
+        historical_migration: context.historical_migration,
     };
 
     // if this event was historical but not assigned to the right topic
@@ -674,6 +675,7 @@ pub async fn process_replay_events<'a>(
         sent_at: context.sent_at,
         token: context.token.clone(),
         is_cookieless_mode,
+        historical_migration: context.historical_migration,
     };
 
     sink.send(ProcessedEvent { metadata, event }).await
@@ -827,5 +829,51 @@ mod tests {
             .unwrap()
             .with_timezone(&Utc);
         assert_eq!(processed.metadata.computed_timestamp, Some(expected));
+    }
+
+    #[test]
+    fn test_process_single_event_with_historical_migration_false() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        let mut context = create_test_context(now, None);
+        context.historical_migration = false;
+
+        let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
+
+        let historical_cfg = router::HistoricalConfig::new(false, 1, None);
+        let result = process_single_event(&event, historical_cfg, &context);
+
+        assert!(result.is_ok());
+        let processed = result.unwrap();
+
+        // Should have historical_migration=false in the event payload
+        assert_eq!(processed.event.historical_migration, false);
+        // Should be routed to AnalyticsMain
+        assert_eq!(processed.metadata.data_type, DataType::AnalyticsMain);
+    }
+
+    #[test]
+    fn test_process_single_event_with_historical_migration_true() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        let mut context = create_test_context(now, None);
+        context.historical_migration = true;
+
+        let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
+
+        let historical_cfg = router::HistoricalConfig::new(false, 1, None);
+        let result = process_single_event(&event, historical_cfg, &context);
+
+        assert!(result.is_ok());
+        let processed = result.unwrap();
+
+        // Should have historical_migration=true in the event payload
+        assert_eq!(processed.event.historical_migration, true);
+        // Should be routed to AnalyticsHistorical
+        assert_eq!(processed.metadata.data_type, DataType::AnalyticsHistorical);
     }
 }

@@ -74,6 +74,7 @@ pub struct CapturedEventHeaders {
     pub event: Option<String>,
     pub uuid: Option<String>,
     pub force_disable_person_processing: Option<bool>,
+    pub historical_migration: Option<bool>,
 }
 
 impl CapturedEventHeaders {
@@ -86,6 +87,9 @@ impl From<CapturedEventHeaders> for OwnedHeaders {
     fn from(headers: CapturedEventHeaders) -> Self {
         let fdpp_str = headers
             .force_disable_person_processing
+            .map(|b| b.to_string());
+        let historical_migration_str = headers
+            .historical_migration
             .map(|b| b.to_string());
         OwnedHeaders::new()
             .insert(Header {
@@ -112,6 +116,10 @@ impl From<CapturedEventHeaders> for OwnedHeaders {
                 key: "force_disable_person_processing",
                 value: fdpp_str.as_deref(),
             })
+            .insert(Header {
+                key: "historical_migration",
+                value: historical_migration_str.as_deref(),
+            })
     }
 }
 
@@ -135,6 +143,9 @@ impl From<OwnedHeaders> for CapturedEventHeaders {
             force_disable_person_processing: headers_map
                 .get("force_disable_person_processing")
                 .and_then(|v| v.parse::<bool>().ok()),
+            historical_migration: headers_map
+                .get("historical_migration")
+                .and_then(|v| v.parse::<bool>().ok()),
         }
     }
 }
@@ -157,6 +168,8 @@ pub struct CapturedEvent {
     pub token: String,
     #[serde(skip_serializing_if = "<&bool>::not", default)]
     pub is_cookieless_mode: bool,
+    #[serde(skip_serializing_if = "<&bool>::not", default)]
+    pub historical_migration: bool,
 }
 
 // Used when we want to bypass token checks when emitting events from rust
@@ -342,5 +355,75 @@ impl CapturedEvent {
     pub fn get_sent_at_as_rfc3339(&self) -> Option<String> {
         self.sent_at
             .map(|sa| sa.format(&Rfc3339).expect("is a valid datetime"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json;
+
+    #[test]
+    fn test_captured_event_serialization_with_historical_migration_true() {
+        let event = CapturedEvent {
+            uuid: Uuid::nil(),
+            distinct_id: "test_user".to_string(),
+            ip: "127.0.0.1".to_string(),
+            data: r#"{"event":"test_event"}"#.to_string(),
+            now: "2023-01-01T12:00:00Z".to_string(),
+            sent_at: None,
+            token: "test_token".to_string(),
+            is_cookieless_mode: false,
+            historical_migration: true,
+        };
+
+        let serialized = serde_json::to_string(&event).expect("Failed to serialize");
+        assert!(serialized.contains("\"historical_migration\":true"));
+
+        // Deserialize and verify
+        let deserialized: CapturedEvent =
+            serde_json::from_str(&serialized).expect("Failed to deserialize");
+        assert_eq!(deserialized.historical_migration, true);
+    }
+
+    #[test]
+    fn test_captured_event_serialization_with_historical_migration_false() {
+        let event = CapturedEvent {
+            uuid: Uuid::nil(),
+            distinct_id: "test_user".to_string(),
+            ip: "127.0.0.1".to_string(),
+            data: r#"{"event":"test_event"}"#.to_string(),
+            now: "2023-01-01T12:00:00Z".to_string(),
+            sent_at: None,
+            token: "test_token".to_string(),
+            is_cookieless_mode: false,
+            historical_migration: false,
+        };
+
+        let serialized = serde_json::to_string(&event).expect("Failed to serialize");
+        // Should not be in JSON when false (skip_serializing_if)
+        assert!(!serialized.contains("historical_migration"));
+
+        // Deserialize and verify - should default to false
+        let deserialized: CapturedEvent =
+            serde_json::from_str(&serialized).expect("Failed to deserialize");
+        assert_eq!(deserialized.historical_migration, false);
+    }
+
+    #[test]
+    fn test_captured_event_deserialization_without_historical_migration() {
+        let json = r#"{
+            "uuid": "00000000-0000-0000-0000-000000000000",
+            "distinct_id": "test_user",
+            "ip": "127.0.0.1",
+            "data": "{\"event\":\"test_event\"}",
+            "now": "2023-01-01T12:00:00Z",
+            "token": "test_token"
+        }"#;
+
+        let deserialized: CapturedEvent =
+            serde_json::from_str(json).expect("Failed to deserialize");
+        // Should default to false when not present
+        assert_eq!(deserialized.historical_migration, false);
     }
 }

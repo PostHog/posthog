@@ -268,6 +268,7 @@ fn build_kafka_event(
         sent_at: parsed.sent_at,
         token: token.to_string(),
         is_cookieless_mode: false,
+        historical_migration: false,
     };
 
     // Create metadata
