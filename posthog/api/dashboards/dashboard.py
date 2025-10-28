@@ -636,10 +636,9 @@ class DashboardsViewSet(
         if self.request.user.is_authenticated:
             queryset = queryset.alias(
                 recent_dashboard_views=FilteredRelation(
-                    "team__filesystemviewlog",
+                    "team__filesystemviewlog",  # team_id condition comes from "team__"
                     condition=(
                         Q(team__filesystemviewlog__user_id=self.request.user.id)
-                        & Q(team__filesystemviewlog__team_id=F("team_id"))
                         & Q(team__filesystemviewlog__type="dashboard")
                         & Q(team__filesystemviewlog__ref=Cast(F("id"), output_field=CharField()))
                     ),

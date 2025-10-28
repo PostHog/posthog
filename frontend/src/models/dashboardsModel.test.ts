@@ -106,6 +106,24 @@ describe('the dashboards model', () => {
                 .toMatchValues({
                     nameSortedDashboards: [
                         {
+                            id: 11,
+                            last_viewed_at: '2024-04-30T12:00:00Z',
+                            name: 'Pinned Earlier',
+                            pinned: true,
+                        },
+                        {
+                            id: 9,
+                            last_viewed_at: '2024-05-02T12:00:00Z',
+                            name: 'Pinned Later',
+                            pinned: true,
+                        },
+                        {
+                            id: 10,
+                            last_viewed_at: null,
+                            name: 'Pinned Never',
+                            pinned: true,
+                        },
+                        {
                             id: 5,
                             name: 'Dashboard: 112',
                         },
@@ -116,21 +134,6 @@ describe('the dashboards model', () => {
                         {
                             id: 3,
                             name: 'Dashboard: 789',
-                        },
-                        {
-                            id: 11,
-                            name: 'Pinned Earlier',
-                            pinned: true,
-                        },
-                        {
-                            id: 9,
-                            name: 'Pinned Later',
-                            pinned: true,
-                        },
-                        {
-                            id: 10,
-                            name: 'Pinned Never',
-                            pinned: true,
                         },
                         {
                             id: 8,
