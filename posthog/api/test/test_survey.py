@@ -3081,6 +3081,10 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
             assert len(surveys) == 2
 
     def test_list_surveys_uses_remote_config(self):
+        # TODO: Currently RemoteConfig uses this to decide whether to return surveys or not
+        # We should check this matches the api endpoint logic
+        self.team.surveys_opt_in = True
+        self.team.save()
         survey = Survey.objects.create(
             team=self.team,
             created_by=self.user,
@@ -3091,12 +3095,19 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
         survey.save()
         self.client.logout()
 
-        with self.assertNumQueries(0):
-            with self.settings(SURVEYS_API_USE_REMOTE_CONFIG_TOKENS=[self.team.api_token]):
+        with self.settings(SURVEYS_API_USE_REMOTE_CONFIG_TOKENS=[self.team.api_token]):
+            with self.assertNumQueries(7):  # First time builds the remote config
                 response = self._get_surveys(token=self.team.api_token)
                 assert response.status_code == status.HTTP_200_OK
                 surveys = response.json()["surveys"]
-                assert len(surveys) == 0
+                assert len(surveys) == 1
+                assert surveys[0]["id"] == str(survey.id)
+
+            # Second request should be hypercached so needs no DB queries at all!
+            with self.assertNumQueries(0):
+                response = self._get_surveys(token=self.team.api_token)
+                assert response.status_code == status.HTTP_200_OK
+                assert len(response.json()["surveys"]) == 1
 
 
 class TestSurveyAPITokens(PersonalAPIKeysBaseTest, APIBaseTest):

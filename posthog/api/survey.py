@@ -1636,7 +1636,7 @@ def surveys(request: Request):
             COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="found").inc()
             surveys = config.get("surveys")
             response = {
-                "surveys": surveys,
+                "surveys": [] if surveys is False else surveys,
             }
 
             if config.get("survey_config", None):
