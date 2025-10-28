@@ -286,7 +286,7 @@ impl RawRequest {
             s
         };
         metrics::histogram!("capture_full_payload_size", "oversize" => "false")
-            .record(payload.as_bytes().len() as f64);
+            .record(payload.len() as f64);
 
         // TODO: test removing legacy special casing against /i/v0/e/ and /batch/ using mirror deploy
         if path_is_legacy_endpoint(&path) {
