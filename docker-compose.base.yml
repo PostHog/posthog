@@ -113,10 +113,11 @@ services:
         # Note: please keep the default version in sync across
         #       `posthog` and the `charts-clickhouse` repos
         #
-        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:25.6.9.98}
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:25.6.13.41}
         restart: on-failure
         environment:
             CLICKHOUSE_SKIP_USER_SETUP: 1
+            KAFKA_HOSTS: 'kafka:9092'
 
     zookeeper:
         image: zookeeper:3.7.0
@@ -255,12 +256,12 @@ services:
         restart: on-failure
         environment:
             BIND_HOST: '0.0.0.0'
-            BIND_PORT: '3308'
+            BIND_PORT: '4318'
             RUST_LOG: info,rdkafka=warn
             RUST_BACKTRACE: '1'
             KAFKA_HOSTS: kafka:9092
             JWT_SECRET: '<randomly generated secret key>'
-            KAFKA_TOPIC: logs_avro
+            KAFKA_TOPIC: logs_ingestion
         networks:
             - otel_network
             - default

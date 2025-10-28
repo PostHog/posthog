@@ -3,6 +3,7 @@ import React from 'react'
 
 import { IconArrowLeft, IconChevronLeft, IconClockRewind, IconExternal, IconPlus, IconSidePanel } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -63,7 +64,7 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
                         onClick={() => closeSidePanel()}
                         sideIcon={<IconArrowLeft />}
                     >
-                        Get him in here
+                        Move it here
                     </LemonButton>
                 </div>
             </SceneContent>
@@ -133,8 +134,20 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                     ) : (
                         /** Must be the last child and be a direct descendant of the scrollable element */
                         <ThreadAutoScroller>
+                            {conversation?.has_unsupported_content && (
+                                <div className="px-4 pt-4">
+                                    <LemonBanner type="warning">
+                                        <div className="flex items-center justify-between gap-4">
+                                            <span>This thread contains content that is no longer supported.</span>
+                                            <LemonButton type="primary" onClick={() => startNewConversation()}>
+                                                Start a new thread
+                                            </LemonButton>
+                                        </div>
+                                    </LemonBanner>
+                                </div>
+                            )}
                             <Thread className="p-3" />
-                            <SidebarQuestionInput isSticky />
+                            {!conversation?.has_unsupported_content && <SidebarQuestionInput isSticky />}
                         </ThreadAutoScroller>
                     )}
                 </div>

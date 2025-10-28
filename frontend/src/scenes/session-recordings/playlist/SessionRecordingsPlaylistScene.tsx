@@ -11,6 +11,7 @@ import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyt
 import { ScenePin } from 'lib/components/Scenes/ScenePin'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { dayjs } from 'lib/dayjs'
+import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -95,6 +96,13 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
             is_synthetic: playlist.is_synthetic,
         })
     }, [playlist, playlistLoading])
+
+    useFileSystemLogView({
+        type: 'session_recording_playlist',
+        ref: playlist?.short_id,
+        enabled: Boolean(playlist?.short_id && !playlistLoading && !playlist?.is_synthetic),
+        deps: [playlist?.short_id, playlistLoading, playlist?.is_synthetic],
+    })
 
     if (playlistLoading) {
         return <PlaylistSceneLoadingSkeleton />
