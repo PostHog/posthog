@@ -72,9 +72,11 @@ def _get_event_earliest_timestamp_query(team: Team, node: Union[EventsNode, Acti
         )
 
     return ast.SelectQuery(
-        select=[ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])],
+        select=[ast.Field(chain=["timestamp"])],
         select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
         where=ast.And(exprs=where_exprs),
+        order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="ASC")],
+        limit=ast.Constant(value=1),
     )
 
 
