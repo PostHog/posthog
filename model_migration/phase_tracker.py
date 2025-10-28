@@ -175,6 +175,11 @@ class PhaseTracker:
         phase.error = None  # Clear any previous error
 
         self.state.current_phase = phase_id
+
+        # If overall status was failed, reset to in_progress when retrying
+        if self.state.status == "failed":
+            self.state.status = "in_progress"
+
         self.save()
 
     def complete_phase(

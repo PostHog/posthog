@@ -24,6 +24,7 @@ To skip Phase 7 reorganization, add to moves.yml:
 
 import sys
 import argparse
+import re
 import subprocess
 from pathlib import Path
 
@@ -66,6 +67,47 @@ def run_command(cmd: list[str], description: str, check=True) -> subprocess.Comp
         raise RuntimeError(f"Command failed with exit code {result.returncode}")
 
     return result
+
+
+def add_to_products_apps(target_base: str, class_name: str) -> bool:
+    """
+    Add app config to PRODUCTS_APPS in settings/web.py.
+
+    Args:
+        target_base: Module path like "products.data_warehouse.backend"
+        class_name: AppConfig class name like "DataWarehouseConfig"
+
+    Returns:
+        True if successfully added or already present, False otherwise
+    """
+    settings_path = Path("posthog/settings/web.py")
+    if not settings_path.exists():
+        print(f"⚠️  Settings file not found at {settings_path}")
+        return False
+
+    content = settings_path.read_text()
+
+    app_config_path = f'"{target_base}.apps.{class_name}"'
+    if app_config_path in content:
+        print(f"✓ {app_config_path} already in PRODUCTS_APPS")
+        return True
+
+    # Add to PRODUCTS_APPS list
+    pattern = r"(PRODUCTS_APPS = \[)(.*?)(\])"
+
+    def replacement(match):
+        apps_content = match.group(2)
+        return f"{match.group(1)}{apps_content}    {app_config_path},\n{match.group(3)}"
+
+    new_content = re.sub(pattern, replacement, content, flags=re.DOTALL)
+
+    if new_content != content:
+        settings_path.write_text(new_content)
+        print(f"✓ Added {app_config_path} to PRODUCTS_APPS")
+        return True
+    else:
+        print(f"⚠️  Could not add {app_config_path} to PRODUCTS_APPS")
+        return False
 
 
 def phase_1_prepare_structure(config: dict, tracker: PhaseTracker) -> None:
@@ -136,10 +178,13 @@ class {class_name}(AppConfig):
         operations.append(f"Created {apps_file}")
         print(f"✓ Created {apps_file}")
 
-    # TODO: Add to INSTALLED_APPS in posthog/settings/web.py
-    # This requires parsing and modifying Python, which we'll do manually for now
-    print("\n⚠ Manual step required:")
-    print(f"  Add '{target_base}.apps.{class_name}' to PRODUCTS_APPS in posthog/settings/web.py")
+    # Add to INSTALLED_APPS in posthog/settings/web.py
+    print("\n▶ Adding app to PRODUCTS_APPS...")
+    if add_to_products_apps(target_base, class_name):
+        operations.append(f"Added {target_base}.apps.{class_name} to PRODUCTS_APPS")
+    else:
+        print("\n⚠ Manual step required:")
+        print(f"  Add '{target_base}.apps.{class_name}' to PRODUCTS_APPS in posthog/settings/web.py")
 
     tracker.complete_phase(1, operations=operations)
     print("\n✓ Phase 1 completed")

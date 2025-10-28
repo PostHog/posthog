@@ -150,7 +150,8 @@ class ImportRewriter(cst.CSTTransformer):
         if isinstance(stmt.names, cst.ImportStar):
             # Rewrite module path but keep star import
             new_mod = update_module_path(abs_module, self.module_moves)
-            if new_mod != abs_module or level > 0:
+            # Only convert to absolute if the module path changed (module was moved)
+            if new_mod != abs_module:
                 new_stmt = stmt.with_changes(
                     module=cst.parse_expression(new_mod) if new_mod else None,
                     relative=[],
@@ -223,7 +224,8 @@ class ImportRewriter(cst.CSTTransformer):
 
         # 2) Regular module path rewrite (no re-exports involved)
         new_mod = update_module_path(abs_module, self.module_moves)
-        if new_mod != abs_module or level > 0:
+        # Only convert to absolute if the module path changed (module was moved)
+        if new_mod != abs_module:
             # Clean up aliases - create new ones without trailing commas
             clean_aliases = []
             for alias in import_aliases:
