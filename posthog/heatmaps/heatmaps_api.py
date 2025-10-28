@@ -24,7 +24,7 @@ from posthog.api.utils import action
 from posthog.auth import TemporaryTokenAuthentication
 from posthog.heatmaps.heatmaps_utils import DEFAULT_TARGET_WIDTHS, is_url_allowed
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, log_activity
+from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.heatmap_saved import HeatmapSaved
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.tasks.heatmap_screenshot import generate_heatmap_screenshot
@@ -495,8 +495,8 @@ class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
         )
 
         log_activity(
-            organization_id=cast(User, request.user).organization_id
-            if hasattr(request.user, "organization_id")
+            organization_id=cast(User, request.user).current_organization_id
+            if hasattr(request.user, "current_organization_id")
             else None,
             team_id=self.team.id,
             user=cast(User, request.user),
@@ -520,38 +520,19 @@ class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
         obj = self.get_object()
         serializer = HeatmapSavedRequestSerializer(obj, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        before = {
-            "name": obj.name,
-            "url": obj.url,
-            "data_url": obj.data_url,
-            "target_widths": obj.target_widths,
-            "type": obj.type,
-            "deleted": obj.deleted,
-        }
         updated = serializer.save()
 
         try:
-            after = {
-                "name": updated.name,
-                "url": updated.url,
-                "data_url": updated.data_url,
-                "target_widths": updated.target_widths,
-                "type": updated.type,
-                "deleted": updated.deleted,
-            }
-            changes = dict_changes_between("HeatmapSaved", before, after)
             log_activity(
-                organization_id=cast(User, request.user).organization_id
-                if hasattr(request.user, "organization_id")
+                organization_id=cast(User, request.user).current_organization_id
+                if hasattr(request.user, "current_organization_id")
                 else None,
                 team_id=self.team.id,
                 user=cast(User, request.user),
                 item_id=updated.short_id or str(updated.id),
                 scope="Heatmap",
                 activity="updated",
-                detail=Detail(
-                    name=updated.name or updated.url, short_id=updated.short_id, type=updated.type, changes=changes
-                ),
+                detail=Detail(name=updated.name or updated.url, short_id=updated.short_id, type=updated.type),
                 was_impersonated=getattr(request, "was_impersonated", False),
             )
         except Exception:
