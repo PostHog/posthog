@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { ReactNode, useEffect, useRef } from 'react'
 
-import { IconArrowRight, IconEllipsis, IconInfo, IconSparkles } from '@posthog/icons'
+import { IconArrowRight, IconEllipsis, IconExternal, IconInfo, IconSparkles } from '@posthog/icons'
 import { LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -19,6 +19,7 @@ import {
 import { Label } from 'lib/ui/Label/Label'
 import { ListBox, ListBoxGroupHandle, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { NewTabTreeDataItem, newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
 import { urls } from 'scenes/urls'
@@ -26,6 +27,7 @@ import { urls } from 'scenes/urls'
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
+import { groupsModel } from '~/models/groupsModel'
 import { SidePanelTab } from '~/types'
 
 import { NoResultsFound } from './NoResultsFound'
@@ -37,6 +39,7 @@ export const getCategoryDisplayName = (category: string): string => {
         'data-management': 'Data management',
         recents: 'Recents',
         persons: 'Persons',
+        groups: 'Groups',
         eventDefinitions: 'Events',
         propertyDefinitions: 'Properties',
         askAI: 'Posthog AI',
@@ -128,6 +131,7 @@ function Category({
         newTabSceneDataInclude,
     } = useValues(newTabSceneLogic({ tabId }))
     const { showMoreInSection } = useActions(newTabSceneLogic({ tabId }))
+    const { groupTypes } = useValues(groupsModel)
 
     return (
         <>
@@ -151,7 +155,7 @@ function Category({
                         {category === 'recents' && isSearching && <Spinner size="small" />}
                         {/* Show "No results found" tag for other categories when empty and include is NOT 'all' */}
                         {newTabSceneData &&
-                            !['persons', 'eventDefinitions', 'propertyDefinitions'].includes(category) &&
+                            !['persons', 'groups', 'eventDefinitions', 'propertyDefinitions'].includes(category) &&
                             typedItems.length === 0 &&
                             !newTabSceneDataInclude.includes('all') && (
                                 <LemonTag className="text-xs text-tertiary" size="small">
@@ -186,6 +190,25 @@ function Category({
                                     (item.record as { last_viewed_at?: string | null } | undefined)?.last_viewed_at ??
                                     null
 
+                                const record = item.record as
+                                    | ({
+                                          groupNoun?: string
+                                          groupDisplayName?: string
+                                      } & Record<string, any>)
+                                    | undefined
+
+                                const groupNoun =
+                                    item.category === 'groups' ? record?.groupNoun || item.name.split(':')[0] : null
+                                const groupDisplayName =
+                                    item.category === 'groups'
+                                        ? typeof item.displayName === 'string'
+                                            ? item.displayName
+                                            : item.name.split(':').slice(1).join(':').trim()
+                                        : null
+
+                                const highlightText = (text: string): ReactNode =>
+                                    search ? <SearchHighlightMultiple string={text} substring={search} /> : text
+
                                 return (
                                     // If we have filtered results set virtual focus to first item
                                     <ButtonGroupPrimitive key={item.id} className="group w-full border-0">
@@ -209,16 +232,38 @@ function Category({
                                                     >
                                                         <span className="text-sm">{item.icon ?? item.name[0]}</span>
                                                         <span className="flex min-w-0 items-center gap-2">
-                                                            <span className="text-sm truncate text-primary">
-                                                                {search ? (
-                                                                    <SearchHighlightMultiple
-                                                                        string={item.name}
-                                                                        substring={search}
-                                                                    />
-                                                                ) : (
-                                                                    item.displayName || item.name
-                                                                )}
-                                                            </span>
+                                                            {groupNoun ? (
+                                                                <>
+                                                                    <span className="text-sm truncate text-primary">
+                                                                        {highlightText(
+                                                                            groupDisplayName &&
+                                                                                groupDisplayName.length > 0
+                                                                                ? groupDisplayName
+                                                                                : item.name
+                                                                        )}
+                                                                    </span>
+                                                                    <LemonTag
+                                                                        size="small"
+                                                                        type="muted"
+                                                                        className="shrink-0"
+                                                                    >
+                                                                        {highlightText(
+                                                                            capitalizeFirstLetter(groupNoun.trim())
+                                                                        )}
+                                                                    </LemonTag>
+                                                                </>
+                                                            ) : (
+                                                                <span className="text-sm truncate text-primary">
+                                                                    {search ? (
+                                                                        <SearchHighlightMultiple
+                                                                            string={item.name}
+                                                                            substring={search}
+                                                                        />
+                                                                    ) : (
+                                                                        item.displayName || item.name
+                                                                    )}
+                                                                </span>
+                                                            )}
                                                             {lastViewedAt ? (
                                                                 <span className="text-xs text-muted whitespace-nowrap">
                                                                     {formatRelativeTimeShort(lastViewedAt)}
@@ -319,7 +364,7 @@ function Category({
                                             className: 'w-full text-tertiary data-[focused=true]:text-primary',
                                         }}
                                     >
-                                        <IconArrowRight /> See all persons
+                                        <IconExternal /> See all persons
                                     </Link>
                                 </ListBox.Item>
                             )}
@@ -332,7 +377,20 @@ function Category({
                                             className: 'w-full text-tertiary data-[focused=true]:text-primary',
                                         }}
                                     >
-                                        <IconArrowRight /> See all events
+                                        <IconExternal /> See all events
+                                    </Link>
+                                </ListBox.Item>
+                            )}
+                            {category === 'groups' && groupTypes.size > 0 && (
+                                <ListBox.Item asChild>
+                                    <Link
+                                        to={urls.groups(Array.from(groupTypes.keys())[0])}
+                                        buttonProps={{
+                                            size: 'sm',
+                                            className: 'w-full text-tertiary data-[focused=true]:text-primary',
+                                        }}
+                                    >
+                                        <IconExternal /> See all groups
                                     </Link>
                                 </ListBox.Item>
                             )}
@@ -345,7 +403,7 @@ function Category({
                                             className: 'w-full text-tertiary data-[focused=true]:text-primary',
                                         }}
                                     >
-                                        <IconArrowRight /> See all properties
+                                        <IconExternal /> See all properties
                                     </Link>
                                 </ListBox.Item>
                             )}

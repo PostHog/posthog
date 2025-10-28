@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import { IconApps, IconArrowRight, IconDatabase, IconHogQL, IconPerson, IconSparkles } from '@posthog/icons'
+import { IconApps, IconArrowRight, IconDatabase, IconHogQL, IconPeople, IconPerson, IconSparkles } from '@posthog/icons'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -10,6 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { urls } from 'scenes/urls'
 
 import {
@@ -23,8 +24,9 @@ import {
 import { SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { TreeDataItem } from '~/lib/lemon-ui/LemonTree/LemonTree'
+import { groupsModel } from '~/models/groupsModel'
 import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
-import { EventDefinition, PersonType, PropertyDefinition } from '~/types'
+import { EventDefinition, Group, GroupTypeIndex, PersonType, PropertyDefinition } from '~/types'
 
 import { SearchInputCommand } from './components/SearchInput'
 import type { newTabSceneLogicType } from './newTabSceneLogicType'
@@ -36,6 +38,7 @@ export type NEW_TAB_CATEGORY_ITEMS =
     | 'data-management'
     | 'recents'
     | 'persons'
+    | 'groups'
     | 'eventDefinitions'
     | 'propertyDefinitions'
     | 'askAI'
@@ -47,6 +50,7 @@ export type NEW_TAB_COMMANDS =
     | 'data-management'
     | 'recents'
     | 'persons'
+    | 'groups'
     | 'eventDefinitions'
     | 'propertyDefinitions'
     | 'askAI'
@@ -58,6 +62,7 @@ export const NEW_TAB_COMMANDS_ITEMS: SearchInputCommand<NEW_TAB_COMMANDS>[] = [
     { value: 'data-management', displayName: 'Data management' },
     { value: 'recents', displayName: 'Recents files' },
     { value: 'persons', displayName: 'Persons' },
+    { value: 'groups', displayName: 'Groups' },
     { value: 'eventDefinitions', displayName: 'Events' },
     { value: 'propertyDefinitions', displayName: 'Properties' },
     { value: 'askAI', displayName: 'Posthog AI' },
@@ -77,6 +82,7 @@ export interface NewTabCategoryItem {
 }
 
 const PAGINATION_LIMIT = 10
+const GROUP_SEARCH_LIMIT = 5
 
 function getIconForFileSystemItem(fs: FileSystemImport): JSX.Element {
     // If the item has a direct icon property, use it with color wrapper
@@ -96,7 +102,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
     path(['scenes', 'new-tab', 'newTabSceneLogic']),
     props({} as { tabId?: string }),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], groupsModel, ['groupTypes', 'aggregationLabel']],
     })),
     key((props) => props.tabId || 'default'),
     actions({
@@ -109,6 +115,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         debouncedPersonSearch: (searchTerm: string) => ({ searchTerm }),
         debouncedEventDefinitionSearch: (searchTerm: string) => ({ searchTerm }),
         debouncedPropertyDefinitionSearch: (searchTerm: string) => ({ searchTerm }),
+        debouncedGroupSearch: (searchTerm: string) => ({ searchTerm }),
         setNewTabSceneDataInclude: (include: NEW_TAB_COMMANDS[]) => ({ include }),
         toggleNewTabSceneDataInclude: (item: NEW_TAB_COMMANDS) => ({ item }),
         triggerSearchForIncludedItems: true,
@@ -116,6 +123,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         showMoreInSection: (section: string) => ({ section }),
         resetSectionLimits: true,
         askAI: (searchTerm: string) => ({ searchTerm }),
+        loadInitialGroups: true,
     }),
     loaders(({ values }) => ({
         recents: [
@@ -237,6 +245,70 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 },
             },
         ],
+        groupSearchResults: [
+            {} as Partial<Record<GroupTypeIndex, Group[]>>,
+            {
+                loadGroupSearchResults: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
+                    const trimmed = searchTerm.trim()
+                    if (trimmed === '') {
+                        return {}
+                    }
+
+                    const groupTypesList = Array.from(values.groupTypes.values())
+                    if (groupTypesList.length === 0) {
+                        return {}
+                    }
+
+                    await breakpoint(200)
+
+                    const responses = await Promise.all(
+                        groupTypesList.map((groupType) =>
+                            api.groups.list({
+                                group_type_index: groupType.group_type_index,
+                                search: trimmed,
+                                limit: GROUP_SEARCH_LIMIT,
+                            })
+                        )
+                    )
+
+                    breakpoint()
+
+                    return Object.fromEntries(
+                        responses.map((response, index) => [
+                            groupTypesList[index].group_type_index,
+                            response.results.slice(0, GROUP_SEARCH_LIMIT),
+                        ])
+                    ) as Record<GroupTypeIndex, Group[]>
+                },
+                loadInitialGroups: async (_, breakpoint) => {
+                    const groupTypesList = Array.from(values.groupTypes.values())
+                    if (groupTypesList.length === 0) {
+                        return {}
+                    }
+
+                    await breakpoint(200)
+
+                    const responses = await Promise.all(
+                        groupTypesList.map((groupType) =>
+                            api.groups.list({
+                                group_type_index: groupType.group_type_index,
+                                search: '',
+                                limit: GROUP_SEARCH_LIMIT,
+                            })
+                        )
+                    )
+
+                    breakpoint()
+
+                    return Object.fromEntries(
+                        responses.map((response, index) => [
+                            groupTypesList[index].group_type_index,
+                            response.results.slice(0, GROUP_SEARCH_LIMIT),
+                        ])
+                    ) as Record<GroupTypeIndex, Group[]>
+                },
+            },
+        ],
     })),
     reducers({
         search: [
@@ -303,6 +375,15 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 loadPropertyDefinitionSearchResultsFailure: () => false,
             },
         ],
+        groupSearchPending: [
+            false,
+            {
+                debouncedGroupSearch: () => true,
+                loadGroupSearchResults: () => false,
+                loadGroupSearchResultsSuccess: () => false,
+                loadGroupSearchResultsFailure: () => false,
+            },
+        ],
         rawSelectedIndex: [
             0,
             {
@@ -360,6 +441,10 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         label: 'Persons',
                     })
                     categories.push({
+                        key: 'groups',
+                        label: 'Groups',
+                    })
+                    categories.push({
                         key: 'eventDefinitions',
                         label: 'Events',
                     })
@@ -384,6 +469,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 s.eventDefinitionSearchPending,
                 s.propertyDefinitionSearchResultsLoading,
                 s.propertyDefinitionSearchPending,
+                s.groupSearchResultsLoading,
+                s.groupSearchPending,
                 s.search,
             ],
             (
@@ -394,6 +481,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 eventDefinitionSearchPending: boolean,
                 propertyDefinitionSearchResultsLoading: boolean,
                 propertyDefinitionSearchPending: boolean,
+                groupSearchResultsLoading: boolean,
+                groupSearchPending: boolean,
                 search: string
             ): boolean =>
                 (recentsLoading ||
@@ -402,7 +491,9 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     eventDefinitionSearchResultsLoading ||
                     eventDefinitionSearchPending ||
                     propertyDefinitionSearchResultsLoading ||
-                    propertyDefinitionSearchPending) &&
+                    propertyDefinitionSearchPending ||
+                    groupSearchResultsLoading ||
+                    groupSearchPending) &&
                 search.trim() !== '',
         ],
         projectTreeSearchItems: [
@@ -490,6 +581,39 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     }
                     return item
                 })
+                return items
+            },
+        ],
+        groupSearchItems: [
+            (s) => [s.groupSearchResults, s.aggregationLabel],
+            (groupSearchResults: Record<GroupTypeIndex, Group[]>, aggregationLabel): NewTabTreeDataItem[] => {
+                const items: NewTabTreeDataItem[] = []
+                for (const [groupTypeIndexString, groups] of Object.entries(groupSearchResults)) {
+                    const groupTypeIndex = parseInt(groupTypeIndexString, 10) as GroupTypeIndex
+                    const noun = aggregationLabel(groupTypeIndex).singular
+                    groups.forEach((group) => {
+                        const display = groupDisplayId(group.group_key, group.group_properties || {})
+                        const href = urls.group(groupTypeIndex, group.group_key)
+                        items.push({
+                            id: `group-${groupTypeIndex}-${group.group_key}`,
+                            name: `${noun}: ${display}`,
+                            displayName: display,
+                            category: 'groups' as NEW_TAB_CATEGORY_ITEMS,
+                            href,
+                            icon: <IconPeople />,
+                            record: {
+                                type: 'group',
+                                path: `${noun}: ${display}`,
+                                href,
+                                groupTypeIndex,
+                                groupKey: group.group_key,
+                                groupNoun: noun,
+                                groupDisplayName: display,
+                            },
+                        })
+                    })
+                }
+
                 return items
             },
         ],
@@ -691,6 +815,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 s.search,
                 s.newTabSceneDataInclude,
                 s.personSearchItems,
+                s.groupSearchItems,
                 s.eventDefinitionSearchItems,
                 s.propertyDefinitionSearchItems,
                 s.aiSearchItems,
@@ -702,6 +827,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 search: string,
                 newTabSceneDataInclude: NEW_TAB_COMMANDS[],
                 personSearchItems: NewTabTreeDataItem[],
+                groupSearchItems: NewTabTreeDataItem[],
                 eventDefinitionSearchItems: NewTabTreeDataItem[],
                 propertyDefinitionSearchItems: NewTabTreeDataItem[],
                 aiSearchItems: NewTabTreeDataItem[],
@@ -738,6 +864,10 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 if (showAll || newTabSceneDataInclude.includes('persons')) {
                     const limit = getSectionItemLimit('persons')
                     grouped['persons'] = personSearchItems.slice(0, limit)
+                }
+                if (showAll || newTabSceneDataInclude.includes('groups')) {
+                    const limit = getSectionItemLimit('groups')
+                    grouped['groups'] = groupSearchItems.slice(0, limit)
                 }
                 // Add event definitions section if filter is enabled
                 if (showAll || newTabSceneDataInclude.includes('eventDefinitions')) {
@@ -797,6 +927,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 s.search,
                 s.newTabSceneDataInclude,
                 s.personSearchItems,
+                s.groupSearchItems,
                 s.eventDefinitionSearchItems,
                 s.propertyDefinitionSearchItems,
                 s.aiSearchItems,
@@ -807,6 +938,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 search: string,
                 newTabSceneDataInclude: NEW_TAB_COMMANDS[],
                 personSearchItems: NewTabTreeDataItem[],
+                groupSearchItems: NewTabTreeDataItem[],
                 eventDefinitionSearchItems: NewTabTreeDataItem[],
                 propertyDefinitionSearchItems: NewTabTreeDataItem[],
                 aiSearchItems: NewTabTreeDataItem[],
@@ -841,6 +973,9 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 // Add persons section if filter is enabled
                 if (showAll || newTabSceneDataInclude.includes('persons')) {
                     fullCounts['persons'] = personSearchItems.length
+                }
+                if (showAll || newTabSceneDataInclude.includes('groups')) {
+                    fullCounts['groups'] = groupSearchItems.length
                 }
                 // Add event definitions section if filter is enabled
                 if (showAll || newTabSceneDataInclude.includes('eventDefinitions')) {
@@ -910,6 +1045,9 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 if (showAll || newTabSceneDataInclude.includes('persons')) {
                     orderedSections.push('persons')
                 }
+                if (showAll || newTabSceneDataInclude.includes('groups')) {
+                    orderedSections.push('groups')
+                }
                 if (showAll || newTabSceneDataInclude.includes('eventDefinitions')) {
                     orderedSections.push('eventDefinitions')
                 }
@@ -978,13 +1116,15 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                 // Expand 'all' to include all data types
                 const itemsToProcess = values.newTabSceneDataInclude.includes('all')
-                    ? ['persons', 'eventDefinitions', 'propertyDefinitions', 'askAI']
+                    ? ['persons', 'groups', 'eventDefinitions', 'propertyDefinitions', 'askAI']
                     : values.newTabSceneDataInclude
 
                 itemsToProcess.forEach((item) => {
                     if (searchTerm !== '') {
                         if (item === 'persons') {
                             actions.debouncedPersonSearch(searchTerm)
+                        } else if (item === 'groups') {
+                            actions.debouncedGroupSearch(searchTerm)
                         } else if (item === 'eventDefinitions') {
                             actions.debouncedEventDefinitionSearch(searchTerm)
                         } else if (item === 'propertyDefinitions') {
@@ -994,6 +1134,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         // Load initial data when no search term
                         if (item === 'persons') {
                             actions.loadInitialPersons({})
+                        } else if (item === 'groups') {
+                            actions.loadInitialGroups()
                         } else if (item === 'eventDefinitions') {
                             actions.loadInitialEventDefinitions({})
                         } else if (item === 'propertyDefinitions') {
@@ -1023,13 +1165,15 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                 // Expand 'all' to include all data types
                 const itemsToProcess = values.newTabSceneDataInclude.includes('all')
-                    ? ['persons', 'eventDefinitions', 'propertyDefinitions', 'askAI']
+                    ? ['persons', 'groups', 'eventDefinitions', 'propertyDefinitions', 'askAI']
                     : values.newTabSceneDataInclude
 
                 itemsToProcess.forEach((item) => {
                     if (searchTerm !== '') {
                         if (item === 'persons') {
                             actions.debouncedPersonSearch(searchTerm)
+                        } else if (item === 'groups') {
+                            actions.debouncedGroupSearch(searchTerm)
                         } else if (item === 'eventDefinitions') {
                             actions.debouncedEventDefinitionSearch(searchTerm)
                         } else if (item === 'propertyDefinitions') {
@@ -1039,6 +1183,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         // Load initial data when no search term
                         if (item === 'persons') {
                             actions.loadInitialPersons({})
+                        } else if (item === 'groups') {
+                            actions.loadInitialGroups()
                         } else if (item === 'eventDefinitions') {
                             actions.loadInitialEventDefinitions({})
                         } else if (item === 'propertyDefinitions') {
@@ -1067,6 +1213,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         actions.loadEventDefinitionSearchResultsSuccess([])
                     } else if (item === 'propertyDefinitions') {
                         actions.loadPropertyDefinitionSearchResultsSuccess([])
+                    } else if (item === 'groups') {
+                        actions.loadGroupSearchResultsSuccess({})
                     }
                 }
             }
@@ -1124,6 +1272,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 console.error('Property definition search failed:', error)
                 actions.loadPropertyDefinitionSearchResultsFailure(error as string)
             }
+        },
+        debouncedGroupSearch: async ({ searchTerm }, breakpoint) => {
+            await breakpoint(300)
+
+            actions.loadGroupSearchResults({ searchTerm })
         },
     })),
     tabAwareActionToUrl(({ values }) => ({
@@ -1198,12 +1351,14 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     if (searchTerm !== '') {
                         // Expand 'all' to include all data types
                         const itemsToProcess = values.newTabSceneDataInclude.includes('all')
-                            ? ['persons', 'eventDefinitions', 'propertyDefinitions']
+                            ? ['persons', 'groups', 'eventDefinitions', 'propertyDefinitions']
                             : values.newTabSceneDataInclude
 
                         itemsToProcess.forEach((item) => {
                             if (item === 'persons') {
                                 actions.debouncedPersonSearch(searchTerm)
+                            } else if (item === 'groups') {
+                                actions.debouncedGroupSearch(searchTerm)
                             } else if (item === 'eventDefinitions') {
                                 actions.debouncedEventDefinitionSearch(searchTerm)
                             } else if (item === 'propertyDefinitions') {
@@ -1231,6 +1386,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                               'data-management',
                               'recents',
                               'persons',
+                              'groups',
                               'eventDefinitions',
                               'propertyDefinitions',
                               'askAI',
@@ -1249,7 +1405,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                 // Expand 'all' to include all data types
                 const itemsToProcess = includeFromUrl.includes('all')
-                    ? ['persons', 'eventDefinitions', 'propertyDefinitions', 'askAI']
+                    ? ['persons', 'groups', 'eventDefinitions', 'propertyDefinitions', 'askAI']
                     : includeFromUrl
 
                 itemsToProcess.forEach((item) => {
@@ -1257,6 +1413,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         // If there's a search term, trigger search for data items only
                         if (item === 'persons') {
                             actions.debouncedPersonSearch(searchTerm)
+                        } else if (item === 'groups') {
+                            actions.debouncedGroupSearch(searchTerm)
                         } else if (item === 'eventDefinitions') {
                             actions.debouncedEventDefinitionSearch(searchTerm)
                         } else if (item === 'propertyDefinitions') {
@@ -1267,6 +1425,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         // Load initial data when no search term for data items only
                         if (item === 'persons') {
                             actions.loadInitialPersons({})
+                        } else if (item === 'groups') {
+                            actions.loadInitialGroups()
                         } else if (item === 'eventDefinitions') {
                             actions.loadInitialEventDefinitions({})
                         } else if (item === 'propertyDefinitions') {
@@ -1298,6 +1458,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
         if (newTabSceneData && values.newTabSceneDataInclude.includes('all')) {
             actions.loadInitialPersons({})
+            actions.loadInitialGroups()
             actions.loadInitialEventDefinitions({})
             actions.loadInitialPropertyDefinitions({})
         }

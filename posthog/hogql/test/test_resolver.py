@@ -11,7 +11,7 @@ from django.test import override_settings
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     ExpressionField,
@@ -49,7 +49,7 @@ class TestResolver(BaseTest):
         )[0]
 
     def setUp(self):
-        self.database = create_hogql_database(team=self.team)
+        self.database = Database.create_for(team=self.team)
         self.context = HogQLContext(database=self.database, team_id=self.team.pk, enable_select_queries=True)
 
     @pytest.mark.usefixtures("unittest_snapshot")
