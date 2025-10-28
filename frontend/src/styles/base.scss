@@ -1085,6 +1085,13 @@
         }
     }
 
+    a:focus-visible,
+    button:focus-visible,
+    a[data-focused='true'],
+    button[data-focused='true'] {
+        outline: 2px solid var(--color-accent);
+    }
+
     body {
         font-size: 14px;
         font-weight: 400;

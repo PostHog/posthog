@@ -330,7 +330,7 @@ class Resolver(CloningVisitor):
             if table_alias in scope.tables:
                 raise QueryError(f'Already have joined a table called "{table_alias}". Can\'t redefine.')
 
-            database_table = self.database.get_table_by_chain(table_name_chain)
+            database_table = self.database.get_table(table_name_chain)  # type: ignore
 
             if isinstance(database_table, SavedQuery):
                 self.current_view_depth += 1
@@ -513,9 +513,9 @@ class Resolver(CloningVisitor):
 
             if node.name == "sparkline":
                 return self.visit(sparkline(node=node, args=node.args))
-            if node.name == "recording_button":
+            if node.name == "recordingButton":
                 return self.visit(recording_button(node=node, args=node.args))
-            if node.name == "explain_csp_report":
+            if node.name == "explainCSPReport":
                 return self.visit(explain_csp_report(node=node, args=node.args))
             if node.name == "matchesAction":
                 events_alias, _ = self._get_events_table_current_scope()

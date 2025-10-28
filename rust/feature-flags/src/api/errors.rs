@@ -69,6 +69,20 @@ pub enum FlagError {
     DatabaseUnavailable,
     #[error("Database error: {0}")]
     DatabaseError(sqlx::Error, Option<String>),
+    /// Timeout error with optional type classification.
+    ///
+    /// Valid timeout types include:
+    /// - `"query_canceled"` - Statement timeout (PostgreSQL SQLSTATE 57014)
+    /// - `"lock_not_available"` - Lock timeout (PostgreSQL SQLSTATE 55P03)
+    /// - `"idle_in_transaction_timeout"` - Idle transaction timeout (PostgreSQL SQLSTATE 25P03)
+    /// - `"pool_timeout"` - Connection pool acquisition timeout
+    /// - `"io_timeout"` - Network/socket timeout
+    /// - `"protocol_timeout"` - PostgreSQL protocol timeout
+    /// - `"client_timeout"` - Client-side tokio::timeout wrapper
+    /// - `"redis_timeout"` - Redis operation timeout
+    /// - `"cache_timeout"` - Cache operation timeout
+    /// - `"database_timeout"` - Generic database timeout (fallback when SQLSTATE unavailable)
+    /// - `None` - Timeout occurred but specific type unknown
     #[error("Timed out while fetching data")]
     TimeoutError(Option<String>),
     #[error("No group type mappings")]
@@ -136,7 +150,15 @@ impl IntoResponse for FlagError {
                 ClientFacingError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
                 ClientFacingError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg),
                 ClientFacingError::BillingLimit => (StatusCode::PAYMENT_REQUIRED, "Billing limit reached. Please upgrade your plan.".to_string()),
-                ClientFacingError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded. Please reduce your request frequency and try again later.".to_string()),
+                ClientFacingError::RateLimited => {
+                    let response = AuthenticationErrorResponse {
+                        error_type: "validation_error".to_string(),
+                        code: "rate_limit_exceeded".to_string(),
+                        detail: "Rate limit exceeded".to_string(),
+                        attr: None,
+                    };
+                    return (StatusCode::TOO_MANY_REQUESTS, Json(response)).into_response();
+                },
                 ClientFacingError::ServiceUnavailable => (StatusCode::SERVICE_UNAVAILABLE, "Service is currently unavailable. Please try again later.".to_string()),
             },
             FlagError::Internal(msg) => {

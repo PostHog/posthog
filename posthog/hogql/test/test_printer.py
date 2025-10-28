@@ -1151,7 +1151,7 @@ class TestPrinter(BaseTest):
             self._select("select 1 from events"),
             f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
-        self._assert_select_error("select 1 from other", 'Unknown table "other".')
+        self._assert_select_error("select 1 from other", "Unknown table `other`.")
 
     def test_select_from_placeholder(self):
         self.assertEqual(
@@ -1480,7 +1480,7 @@ class TestPrinter(BaseTest):
             enable_select_queries=True,
             database=Database(None, WeekStartDay.SUNDAY),
         )
-        context.database.events.fields["test_date"] = DateDatabaseField(name="test_date")  # type: ignore
+        context.database.get_table("events").fields["test_date"] = DateDatabaseField(name="test_date")  # type: ignore
 
         self.assertEqual(
             self._select(
@@ -1850,9 +1850,62 @@ class TestPrinter(BaseTest):
             sql,
         )
 
+    @patch("posthog.hogql.printer.get_materialized_column_for_property")
+    def test_ai_session_id_optimizations(self, mock_get_mat_col):
+        """Test that $ai_session_id gets special treatment for bloom filter index optimization"""
+
+        from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
+
+        mock_mat_col = MaterializedColumn(
+            name="mat_$ai_session_id",
+            details=MaterializedColumnDetails(
+                table_column="properties", property_name="$ai_session_id", is_disabled=False
+            ),
+            is_nullable=True,
+        )
+
+        # Basic equality comparison - no ifNull wrapping
+        mock_get_mat_col.return_value = mock_mat_col
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+
+        sql = self._select("SELECT * FROM events WHERE properties.$ai_session_id = 'session123'", context)
+
+        # Should generate: equals(mat_$ai_session_id, 'session123') without ifNull wrapper
+        # Check that the WHERE clause contains the direct equals check for $ai_session_id
+        self.assertIn("equals(events.`mat_$ai_session_id`, %(hogql_val_4)s)", sql)
+        # Verify the equals for $ai_session_id is NOT wrapped in ifNull (it appears directly in WHERE clause)
+        self.assertIn("WHERE and(equals(events.team_id,", sql)
+        self.assertIn("equals(events.`mat_$ai_session_id`, %(hogql_val_4)s))", sql)
+
+        # Verify the placeholder value (it's hogql_val_4 due to other parameters in the query)
+        self.assertEqual(context.values["hogql_val_4"], "session123")
+
+        # With materialized column - no nullIf wrapping
+        context = HogQLContext(team_id=self.team.pk)
+        sql = self._expr("properties.$ai_session_id", context)
+
+        # Should be: events.mat_$ai_session_id
+        # NOT: nullIf(nullIf(events.mat_$ai_session_id, ''), 'null')
+        self.assertEqual(sql.strip(), "events.`mat_$ai_session_id`")
+        self.assertNotIn("nullIf", sql)
+
+        # IN operations - no ifNull wrapping
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        sql = self._select("SELECT * FROM events WHERE properties.$ai_session_id IN ('session1', 'session2')", context)
+
+        # Should generate clean IN without ifNull wrapper
+        self.assertIn("in(events.`mat_$ai_session_id`, tuple(%(hogql_val_4)s, %(hogql_val_5)s))", sql)
+        self.assertNotIn("ifNull(in", sql)
+
+        # Verify the placeholder values
+        self.assertEqual(context.values["hogql_val_4"], "session1")
+        self.assertEqual(context.values["hogql_val_5"], "session2")
+
     def test_field_nullable_like(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
-        context.database.events.fields["nullable_field"] = StringDatabaseField(name="nullable_field", nullable=True)  # type: ignore
+        context.database.get_table("events").fields["nullable_field"] = StringDatabaseField(  # type: ignore
+            name="nullable_field", nullable=True
+        )
         generated_sql_statements1 = self._select(
             "SELECT "
             "nullable_field like 'a' as a, "
@@ -1866,7 +1919,9 @@ class TestPrinter(BaseTest):
         )
 
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
-        context.database.events.fields["nullable_field"] = StringDatabaseField(name="nullable_field", nullable=True)  # type: ignore
+        context.database.get_table("events").fields["nullable_field"] = StringDatabaseField(  # type: ignore
+            name="nullable_field", nullable=True
+        )
         generated_sql_statements2 = self._select(
             "SELECT "
             "like(nullable_field, 'a') as a, "
@@ -1898,7 +1953,9 @@ class TestPrinter(BaseTest):
 
     def test_field_nullable_not_like(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
-        context.database.events.fields["nullable_field"] = StringDatabaseField(name="nullable_field", nullable=True)  # type: ignore
+        context.database.get_table("events").fields["nullable_field"] = StringDatabaseField(  # type: ignore
+            name="nullable_field", nullable=True
+        )
         generated_sql_statements1 = self._select(
             "SELECT "
             "nullable_field not like 'a' as a, "
@@ -1912,7 +1969,9 @@ class TestPrinter(BaseTest):
         )
 
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
-        context.database.events.fields["nullable_field"] = StringDatabaseField(name="nullable_field", nullable=True)  # type: ignore
+        context.database.get_table("events").fields["nullable_field"] = StringDatabaseField(  # type: ignore
+            name="nullable_field", nullable=True
+        )
         generated_sql_statements2 = self._select(
             "SELECT "
             "notLike(nullable_field, 'a') as a, "
@@ -2133,7 +2192,7 @@ class TestPrinter(BaseTest):
 
     def test_lookup_domain_type(self):
         printed = self._print(
-            "select hogql_lookupDomainType('www.google.com') as domain from events",
+            "select lookupDomainType('www.google.com') as domain from events",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert (
@@ -2149,7 +2208,7 @@ class TestPrinter(BaseTest):
 
     def test_lookup_paid_source_type(self):
         printed = self._print(
-            "select hogql_lookupPaidSourceType('google') as source from events",
+            "select lookupPaidSourceType('google') as source from events",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert (
@@ -2165,7 +2224,7 @@ class TestPrinter(BaseTest):
 
     def test_lookup_paid_medium_type(self):
         printed = self._print(
-            "select hogql_lookupPaidMediumType('social') as medium from events",
+            "select lookupPaidMediumType('social') as medium from events",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert (
@@ -2177,7 +2236,7 @@ class TestPrinter(BaseTest):
 
     def test_lookup_organic_source_type(self):
         printed = self._print(
-            "select hogql_lookupOrganicSourceType('google') as source  from events",
+            "select lookupOrganicSourceType('google') as source  from events",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert (
@@ -2193,7 +2252,7 @@ class TestPrinter(BaseTest):
 
     def test_lookup_organic_medium_type(self):
         printed = self._print(
-            "select hogql_lookupOrganicMediumType('social') as medium from events",
+            "select lookupOrganicMediumType('social') as medium from events",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert (
@@ -2315,7 +2374,7 @@ class TestPrinter(BaseTest):
             enable_select_queries=True,
             database=Database(None, WeekStartDay.SUNDAY),
         )
-        context.database.events.fields["test_date"] = DateDatabaseField(name="test_date")  # type: ignore
+        context.database.get_table("events").fields["test_date"] = DateDatabaseField(name="test_date")  # type: ignore
 
         self.assertEqual(
             self._select(

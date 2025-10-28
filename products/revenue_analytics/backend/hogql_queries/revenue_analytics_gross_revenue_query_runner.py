@@ -9,6 +9,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.database.models import UnknownDatabaseField
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
@@ -25,7 +26,8 @@ class RevenueAnalyticsGrossRevenueQueryRunner(RevenueAnalyticsQueryRunner[Revenu
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         subqueries = list(self.revenue_subqueries(RevenueAnalyticsRevenueItemView))
         if not subqueries:
-            return ast.SelectQuery.empty(columns=["breakdown_by", "period_start", "amount"])
+            columns = ["breakdown_by", "period_start", "amount"]
+            return ast.SelectQuery.empty(columns={key: UnknownDatabaseField(name=key) for key in columns})
 
         queries = [self._to_query_from(subquery) for subquery in subqueries]
         return ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")

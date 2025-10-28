@@ -16,7 +16,7 @@ const ContextMenuGroup = React.forwardRef<
     React.ElementRef<typeof ContextMenuPrimitive.Group>,
     React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Group>
 >(({ className, ...props }, ref): JSX.Element => {
-    return <ContextMenuPrimitive.Group ref={ref} className={cn('flex flex-col gap-px', className)} {...props} />
+    return <ContextMenuPrimitive.Group ref={ref} className={cn('flex flex-col gap-px p-1', className)} {...props} />
 })
 ContextMenuGroup.displayName = ContextMenuPrimitive.Group.displayName
 
