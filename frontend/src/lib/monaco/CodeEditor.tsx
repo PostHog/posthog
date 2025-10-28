@@ -7,6 +7,7 @@ import { IDisposable, editor, editor as importedEditor } from 'monaco-editor'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
@@ -158,6 +159,8 @@ export function CodeEditor({
     })
     useMountedLogic(builtCodeEditorLogic)
 
+    const { isVisible } = usePageVisibility()
+
     // Create DIV with .monaco-editor inside <body> for monaco's popups.
     // Without this monaco's tooltips will be mispositioned if inside another modal or popup.
     const monacoRoot = useMemo(() => {
@@ -205,6 +208,7 @@ export function CodeEditor({
 
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
+    const mutationObserver = useRef<MutationObserver | null>(null)
     useOnMountEffect(() => {
         return () => {
             monacoDisposables.current.forEach((d) => d?.dispose())
@@ -267,6 +271,7 @@ export function CodeEditor({
             }
         })
 
+        mutationObserver.current = observer
         observer.observe(document.body, { childList: true, subtree: true })
 
         // Clean up observers
@@ -307,6 +312,18 @@ export function CodeEditor({
 
         onMount?.(editor, monaco)
     }
+
+    useEffect(() => {
+        if (!mutationObserver.current) {
+            return
+        }
+
+        if (isVisible) {
+            mutationObserver.current.observe(document.body, { childList: true, subtree: true })
+        } else {
+            mutationObserver.current.disconnect()
+        }
+    }, [isVisible])
 
     if (originalValue) {
         // If originalValue is provided, we render a diff editor instead
