@@ -1149,8 +1149,8 @@ async def upload_manifest_file(
             # According to type hints, ExceptionGroup.exceptions can be either
             # ClientError or nested ExceptionGroup[ClientError]. At the moment, there
             # isn't a good way to flatten these without a recursive function, so we keep
-            # only the top level for analysis ClientErrors. There shouldn't be any
-            # nested ExceptionGroup as the `populate_entry` task doesn't run a
+            # only the top level ClientErrors for analysis. There shouldn't be any
+            # nested ExceptionGroup as the populate_entry task doesn't run a
             # TaskGroup, so this should be good enough.
             # There is an ongoing discussion in PEP-0785:
             # https://peps.python.org/pep-0785/#a-leaf-exceptions-helper-function.
@@ -1168,7 +1168,7 @@ async def upload_manifest_file(
                     )
                 else:
                     EXTERNAL_LOGGER.error(  # noqa: TRY400
-                        "Unknown error permissions when attempting to list uploaded files: %s",
+                        "Unknown error when attempting to list uploaded files: %s",
                         error_code,
                     )
 
