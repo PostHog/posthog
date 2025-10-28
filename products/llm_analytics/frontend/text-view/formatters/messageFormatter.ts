@@ -104,6 +104,26 @@ function formatToolCalls(toolCalls: ToolCall[]): string[] {
 }
 
 /**
+ * Extract tool calls from content array
+ */
+function extractToolCallsFromContent(content: any): ToolCall[] {
+    if (!Array.isArray(content)) {
+        return []
+    }
+
+    const toolCalls: ToolCall[] = []
+    for (const block of content) {
+        if (isObject(block) && 'type' in block && block.type === 'tool-call') {
+            // Handle tool-call format: { type: "tool-call", function: {...} }
+            if ('function' in block) {
+                toolCalls.push({ function: block.function })
+            }
+        }
+    }
+    return toolCalls
+}
+
+/**
  * Extract text content from various message content formats
  */
 function extractTextContent(content: any): string {
@@ -125,6 +145,11 @@ function extractTextContent(content: any): string {
         const textParts: string[] = []
         for (const block of content) {
             if (isObject(block)) {
+                // Skip tool-call blocks as they'll be handled separately
+                if ('type' in block && block.type === 'tool-call') {
+                    continue
+                }
+
                 // Handle nested content property
                 if ('content' in block) {
                     const blockContent = block.content
@@ -298,19 +323,23 @@ export function formatOutputMessages(aiOutput: any, aiOutputChoices: any): strin
             lines.push(`[${i + 1}] ${roleLabel}`)
             lines.push('')
 
+            // Extract tool calls from content if they exist there
+            const contentToolCalls = extractToolCallsFromContent(content)
+            const allToolCalls = [...toolCalls, ...contentToolCalls]
+
             if (content || content === '') {
                 const textContent = extractTextContent(content)
                 if (textContent) {
                     const { lines: contentLines } = truncateContent(textContent)
                     lines.push(...contentLines)
-                } else if (!toolCalls.length) {
+                } else if (!allToolCalls.length) {
                     lines.push('[empty response]')
                 }
             }
 
-            if (toolCalls.length > 0) {
+            if (allToolCalls.length > 0) {
                 lines.push('')
-                lines.push(...formatToolCalls(toolCalls))
+                lines.push(...formatToolCalls(allToolCalls))
             }
 
             // Add separator between messages (but not after the last one)
