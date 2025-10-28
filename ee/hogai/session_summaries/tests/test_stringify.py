@@ -12,7 +12,7 @@ from ee.hogai.session_summaries.session_group.stringify import SessionGroupSumma
 class TestSingleSessionSummaryStringifier:
     def test_stringify_single_session_summary(self):
         input_path = Path(__file__).parent / "assets" / "single_session.json"
-        output_path = Path(__file__).parent / "assets" / "single_session_stringified.md"
+        output_path = Path(__file__).parent / "assets" / "single_session_stringified.txt"
         with open(input_path) as f:
             input_data = json.load(f)
         with open(output_path) as f:
@@ -74,7 +74,7 @@ class TestSingleSessionSummaryStringifier:
 class TestSessionGroupSummaryStringifier:
     def test_stringify_group_session_summary(self):
         input_path = Path(__file__).parent / "assets" / "group_session.json"
-        output_path = Path(__file__).parent / "assets" / "group_session_stringified.md"
+        output_path = Path(__file__).parent / "assets" / "group_session_stringified.txt"
         with open(input_path) as f:
             input_data = json.load(f)
         with open(output_path) as f:
