@@ -246,7 +246,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
         groupSearchResults: [
-            {} as Record<GroupTypeIndex, Group[]>,
+            {} as Partial<Record<GroupTypeIndex, Group[]>>,
             {
                 loadGroupSearchResults: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
                     const trimmed = searchTerm.trim()
