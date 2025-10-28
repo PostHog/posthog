@@ -4,13 +4,12 @@ Django-specific helpers for model migrations.
 Ported from migrate_models.py to support phased migration system.
 """
 
-import ast
 import re
+import ast
 from pathlib import Path
-from typing import Set, List
 
 
-def extract_model_names(file_path: Path) -> Set[str]:
+def extract_model_names(file_path: Path) -> set[str]:
     """
     Extract Django model class names from a Python file.
 
@@ -58,7 +57,7 @@ def ensure_model_db_tables(models_path: Path) -> bool:
         return False
 
     lines = source.splitlines()
-    insertions: List[tuple[int, List[str]]] = []
+    insertions: list[tuple[int, list[str]]] = []
 
     for node in tree.body:
         if not isinstance(node, ast.ClassDef):
@@ -69,8 +68,10 @@ def ensure_model_db_tables(models_path: Path) -> bool:
 
         # Only add Meta class to Django Model classes
         is_model_class = any(
-            isinstance(base, ast.Name) and base.id.endswith("Model")
-            or isinstance(base, ast.Attribute) and base.attr.endswith("Model")
+            isinstance(base, ast.Name)
+            and base.id.endswith("Model")
+            or isinstance(base, ast.Attribute)
+            and base.attr.endswith("Model")
             for base in node.bases
         )
         if not is_model_class:
@@ -150,7 +151,7 @@ def ensure_model_db_tables(models_path: Path) -> bool:
     return True
 
 
-def update_foreign_key_references(line: str, model_names: Set[str], app_label: str) -> str:
+def update_foreign_key_references(line: str, model_names: set[str], app_label: str) -> str:
     """
     Update ForeignKey references to include app label prefix.
 
@@ -225,7 +226,7 @@ def update_foreign_key_references(line: str, model_names: Set[str], app_label: s
     return re.sub(pattern, replace_reference, line)
 
 
-def fix_foreign_keys_in_file(file_path: Path, model_names: Set[str], app_label: str) -> bool:
+def fix_foreign_keys_in_file(file_path: Path, model_names: set[str], app_label: str) -> bool:
     """
     Update ForeignKey references in a Python file.
 

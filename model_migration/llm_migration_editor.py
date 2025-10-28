@@ -13,11 +13,13 @@ from typing import Optional
 
 class LLMLimitReachedError(Exception):
     """Raised when an AI provider reports that a usage limit has been reached."""
+
     pass
 
 
 class LLMInvocationError(Exception):
     """Raised when invoking an AI provider fails for runtime reasons."""
+
     pass
 
 
@@ -239,10 +241,7 @@ def find_latest_migration(migrations_dir: Path) -> Optional[Path]:
     if not migrations_dir.exists():
         return None
 
-    migrations = sorted([
-        f for f in migrations_dir.iterdir()
-        if f.suffix == ".py" and f.name != "__init__.py"
-    ])
+    migrations = sorted([f for f in migrations_dir.iterdir() if f.suffix == ".py" and f.name != "__init__.py"])
 
     if not migrations:
         return None

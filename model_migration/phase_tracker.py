@@ -10,11 +10,12 @@ Tracks the state of each migration phase in phase_tracker.yml:
 - Operations performed
 """
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import Any, Optional
+
 import yaml
 
 
@@ -28,15 +29,16 @@ class PhaseStatus(str, Enum):
 @dataclass
 class PhaseRecord:
     """Record of a single phase execution."""
+
     id: int
     name: str
     status: PhaseStatus
     timestamp: Optional[str] = None
     error: Optional[str] = None
-    files_modified: List[str] = field(default_factory=list)
-    operations: List[str] = field(default_factory=list)
+    files_modified: list[str] = field(default_factory=list)
+    operations: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for YAML serialization."""
         data = {
             "id": self.id,
@@ -54,7 +56,7 @@ class PhaseRecord:
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "PhaseRecord":
+    def from_dict(cls, data: dict[str, Any]) -> "PhaseRecord":
         """Create from dictionary loaded from YAML."""
         status = data["status"]
         if isinstance(status, str):
@@ -74,12 +76,13 @@ class PhaseRecord:
 @dataclass
 class PhaseTrackerState:
     """Overall state of the migration."""
+
     product: str
     status: str
     current_phase: Optional[int] = None
-    phases: List[PhaseRecord] = field(default_factory=list)
+    phases: list[PhaseRecord] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for YAML serialization."""
         data = {
             "product": self.product,
@@ -92,7 +95,7 @@ class PhaseTrackerState:
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "PhaseTrackerState":
+    def from_dict(cls, data: dict[str, Any]) -> "PhaseTrackerState":
         """Create from dictionary loaded from YAML."""
         phases = [PhaseRecord.from_dict(p) for p in data.get("phases", [])]
         return cls(
@@ -121,7 +124,7 @@ class PhaseTracker:
             )
             return self.state
 
-        with open(self.tracker_path, "r") as f:
+        with open(self.tracker_path) as f:
             data = yaml.safe_load(f)
 
         self.state = PhaseTrackerState.from_dict(data)
@@ -142,7 +145,7 @@ class PhaseTracker:
                 sort_keys=False,
             )
 
-    def initialize(self, product: str, phase_names: List[str]) -> None:
+    def initialize(self, product: str, phase_names: list[str]) -> None:
         """Initialize tracker with phase definitions."""
         phases = [
             PhaseRecord(
@@ -177,8 +180,8 @@ class PhaseTracker:
     def complete_phase(
         self,
         phase_id: int,
-        files_modified: Optional[List[str]] = None,
-        operations: Optional[List[str]] = None,
+        files_modified: Optional[list[str]] = None,
+        operations: Optional[list[str]] = None,
     ) -> None:
         """Mark phase as completed."""
         if self.state is None:
@@ -239,10 +242,7 @@ class PhaseTracker:
         if self.state is None:
             return False
 
-        return all(
-            phase.status == PhaseStatus.COMPLETED
-            for phase in self.state.phases
-        )
+        return all(phase.status == PhaseStatus.COMPLETED for phase in self.state.phases)
 
     def _get_phase(self, phase_id: int) -> PhaseRecord:
         """Get phase by ID."""

@@ -22,18 +22,16 @@ To skip Phase 7 reorganization, add to moves.yml:
     skip_reorganization: true
 """
 
+import sys
 import argparse
 import subprocess
-import sys
 from pathlib import Path
-from typing import List, Optional
+
 import yaml
-
-from phase_tracker import PhaseTracker, PhaseStatus
-import import_rewriter
 import django_helpers
+import import_rewriter
 import llm_migration_editor
-
+from phase_tracker import PhaseTracker
 
 # Phase definitions
 PHASE_NAMES = [
@@ -47,7 +45,7 @@ PHASE_NAMES = [
 ]
 
 
-def run_command(cmd: List[str], description: str, check=True) -> subprocess.CompletedProcess:
+def run_command(cmd: list[str], description: str, check=True) -> subprocess.CompletedProcess:
     """Run a shell command and handle output."""
     print(f"\n▶ {description}")
     print(f"  $ {' '.join(cmd)}")
@@ -556,13 +554,10 @@ def phase_7_reorganize_files(config: dict, tracker: PhaseTracker) -> None:
             reorganization_data = {
                 "product": product,
                 "file_moves": [],
-                "note": "Manually add moves if reorganization is needed"
+                "note": "Manually add moves if reorganization is needed",
             }
         else:
-            reorganization_data = {
-                "product": product,
-                "file_moves": reorganization_moves
-            }
+            reorganization_data = {"product": product, "file_moves": reorganization_moves}
 
         with open(reorganization_path, "w") as f:
             yaml.dump(reorganization_data, f, default_flow_style=False, sort_keys=False)
@@ -601,7 +596,7 @@ def phase_7_reorganize_files(config: dict, tracker: PhaseTracker) -> None:
             result = run_command(
                 ["python", "model_migration/import_rewriter.py", "--write"],
                 "Update imports with import_rewriter.py",
-                check=False
+                check=False,
             )
 
             if result.returncode == 0:
@@ -620,9 +615,7 @@ def phase_7_reorganize_files(config: dict, tracker: PhaseTracker) -> None:
         print("-" * 80)
 
         result = run_command(
-            ["python", "manage.py", "migrate", "--plan"],
-            "Validate Django with migrate --plan",
-            check=False
+            ["python", "manage.py", "migrate", "--plan"], "Validate Django with migrate --plan", check=False
         )
 
         if result.returncode == 0:
@@ -678,14 +671,13 @@ def execute_phase(phase_id: int, config: dict, tracker: PhaseTracker) -> bool:
     except Exception as e:
         print(f"❌ Phase {phase_id} failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Phased migration orchestrator"
-    )
+    parser = argparse.ArgumentParser(description="Phased migration orchestrator")
     parser.add_argument(
         "--product",
         required=True,
@@ -721,7 +713,7 @@ def main():
         print("Run: python model_migration/move_scanner.py --product {args.product}")
         return 1
 
-    with open(moves_path, "r") as f:
+    with open(moves_path) as f:
         config = yaml.safe_load(f)
 
     # Initialize phase tracker

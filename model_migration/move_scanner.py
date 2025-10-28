@@ -6,14 +6,14 @@ Usage:
     python model_migration/move_scanner.py --product data_warehouse --output model_migration/moves.yml
 """
 
-import argparse
 import ast
+import argparse
 from pathlib import Path
-from typing import Dict, List, Set
+
 import yaml
 
 
-def discover_files(source_dir: Path) -> List[Path]:
+def discover_files(source_dir: Path) -> list[Path]:
     """Recursively find all Python files in source directory."""
     py_files = []
     for file in source_dir.rglob("*.py"):
@@ -22,7 +22,7 @@ def discover_files(source_dir: Path) -> List[Path]:
     return sorted(py_files)
 
 
-def parse_init_exports(init_file: Path, package_name: str) -> Dict[str, str]:
+def parse_init_exports(init_file: Path, package_name: str) -> dict[str, str]:
     """
     Parse __init__.py to discover re-exported symbols.
 
@@ -52,7 +52,7 @@ def parse_init_exports(init_file: Path, package_name: str) -> Dict[str, str]:
                 parts = package_name.split(".")
                 if len(parts) < node.level:
                     continue
-                base_parts = parts[:len(parts) - node.level]
+                base_parts = parts[: len(parts) - node.level]
                 if node.module:
                     source_module = ".".join(base_parts + [node.module])
                 else:
@@ -97,7 +97,7 @@ def parse_init_exports(init_file: Path, package_name: str) -> Dict[str, str]:
     return exports
 
 
-def discover_model_classes(py_file: Path) -> List[str]:
+def discover_model_classes(py_file: Path) -> list[str]:
     """Extract class names from a Python file (useful for models)."""
     classes = []
 
@@ -139,10 +139,12 @@ def generate_moves_config(
         rel_path = py_file.relative_to(source_dir)
         target_path = target_dir / rel_path
 
-        file_moves.append({
-            "from": str(py_file),
-            "to": str(target_path),
-        })
+        file_moves.append(
+            {
+                "from": str(py_file),
+                "to": str(target_path),
+            }
+        )
 
     # Build module moves mapping
     # Map each submodule from source to target
@@ -190,9 +192,7 @@ def generate_moves_config(
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Auto-discover structure and generate moves.yml for migration"
-    )
+    parser = argparse.ArgumentParser(description="Auto-discover structure and generate moves.yml for migration")
     parser.add_argument(
         "--product",
         required=True,
@@ -221,7 +221,9 @@ def main():
 
     # Determine source and target paths
     product = args.product
-    source_package = args.source or f"posthog.{product.replace('_', 'warehouse' if 'warehouse' in product else product)}"
+    source_package = (
+        args.source or f"posthog.{product.replace('_', 'warehouse' if 'warehouse' in product else product)}"
+    )
 
     # Special handling for data_warehouse which uses 'warehouse' in path
     if product == "data_warehouse":

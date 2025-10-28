@@ -9,19 +9,20 @@ Usage:
     python model_migration/import_rewriter.py --config moves.yml --write
 """
 
-import argparse
 import sys
+import argparse
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Sequence
+from typing import Optional
+
 import yaml
-
 import libcst as cst
-from libcst import FlattenSentinel, RemovalSentinel
-
+from libcst import FlattenSentinel
 
 # --------------------------
 # Helpers
 # --------------------------
+
 
 def dotted_name(node: Optional[cst.BaseExpression]) -> Optional[str]:
     """Extract dotted module name from AST node."""
@@ -55,7 +56,7 @@ def build_abs_module(current_module: str, level: int, module: Optional[str]) -> 
     return ".".join(base)
 
 
-def update_module_path(path: str, module_moves: Dict[str, str]) -> str:
+def update_module_path(path: str, module_moves: dict[str, str]) -> str:
     """
     If a module path (or any of its prefixes) is moved, rewrite it.
     E.g. posthog.warehouse.models.table -> products.data_warehouse.backend.models.table
@@ -75,12 +76,13 @@ def update_module_path(path: str, module_moves: Dict[str, str]) -> str:
 # Transformer
 # --------------------------
 
+
 class ImportRewriter(cst.CSTTransformer):
     def __init__(
         self,
         current_module: str,
-        module_moves: Dict[str, str],
-        symbol_exports: Dict[str, Dict[str, str]],
+        module_moves: dict[str, str],
+        symbol_exports: dict[str, dict[str, str]],
     ):
         """
         Args:
@@ -93,9 +95,7 @@ class ImportRewriter(cst.CSTTransformer):
         self.symbol_exports = symbol_exports
 
     # import posthog.warehouse.models as x
-    def leave_Import(
-        self, original_node: cst.Import, updated_node: cst.Import
-    ) -> cst.Import:
+    def leave_Import(self, original_node: cst.Import, updated_node: cst.Import) -> cst.Import:
         """Transform simple import statements."""
         if not isinstance(updated_node.names, cst.ImportStar):
             new_names = []
@@ -108,9 +108,7 @@ class ImportRewriter(cst.CSTTransformer):
                 # Rewrite module path only (no symbol-level rewrite for plain Import)
                 rewritten = update_module_path(name_str, self.module_moves)
                 if rewritten != name_str:
-                    new_alias = alias.with_changes(
-                        name=cst.parse_expression(rewritten)
-                    )
+                    new_alias = alias.with_changes(name=cst.parse_expression(rewritten))
                     new_names.append(new_alias)
                 else:
                     new_names.append(alias)
@@ -169,8 +167,8 @@ class ImportRewriter(cst.CSTTransformer):
         # 1) Check if importing from top-level package with re-exports
         if abs_module in self.symbol_exports:
             # Group imports by their true source module
-            regroup: Dict[str, List[cst.ImportAlias]] = {}
-            leftover: List[cst.ImportAlias] = []
+            regroup: dict[str, list[cst.ImportAlias]] = {}
+            leftover: list[cst.ImportAlias] = []
 
             for alias in import_aliases:
                 if not isinstance(alias, cst.ImportAlias):
@@ -208,9 +206,7 @@ class ImportRewriter(cst.CSTTransformer):
                         module=cst.parse_expression(target_mod),
                         names=aliases,
                     )
-                    new_lines.append(
-                        cst.SimpleStatementLine(body=[new_import])
-                    )
+                    new_lines.append(cst.SimpleStatementLine(body=[new_import]))
 
                 # If there are leftover imports, keep them with updated module path
                 if leftover:
@@ -220,9 +216,7 @@ class ImportRewriter(cst.CSTTransformer):
                         relative=[],
                         names=leftover,
                     )
-                    new_lines.insert(
-                        0, cst.SimpleStatementLine(body=[leftover_import])
-                    )
+                    new_lines.insert(0, cst.SimpleStatementLine(body=[leftover_import]))
 
                 # Return multiple lines using FlattenSentinel
                 return FlattenSentinel(new_lines)
@@ -256,6 +250,7 @@ class ImportRewriter(cst.CSTTransformer):
 # Driver
 # --------------------------
 
+
 def discover_current_module(file: Path, root: Path) -> str:
     """Determine the module path for a Python file relative to project root."""
     rel = file.relative_to(root).with_suffix("")
@@ -263,7 +258,7 @@ def discover_current_module(file: Path, root: Path) -> str:
     return ".".join(parts)
 
 
-def load_moves_config(config_path: Path) -> Tuple[Dict[str, str], Dict[str, Dict[str, str]]]:
+def load_moves_config(config_path: Path) -> tuple[dict[str, str], dict[str, dict[str, str]]]:
     """Load moves.yml and extract module_moves and symbol_remap."""
     data = yaml.safe_load(config_path.read_text())
     module_moves = data.get("module_moves", {})
@@ -273,8 +268,8 @@ def load_moves_config(config_path: Path) -> Tuple[Dict[str, str], Dict[str, Dict
 
 def rewrite_imports_in_file(
     file_path: Path,
-    module_moves: Dict[str, str],
-    symbol_exports: Dict[str, Dict[str, str]],
+    module_moves: dict[str, str],
+    symbol_exports: dict[str, dict[str, str]],
     root: Path,
     dry_run: bool = False,
 ) -> bool:
@@ -313,10 +308,10 @@ def rewrite_imports_in_file(
 
 def rewrite_imports_in_tree(
     root: Path,
-    module_moves: Dict[str, str],
-    symbol_exports: Dict[str, Dict[str, str]],
+    module_moves: dict[str, str],
+    symbol_exports: dict[str, dict[str, str]],
     dry_run: bool = False,
-    exclude_patterns: List[str] = None,
+    exclude_patterns: list[str] = None,
 ) -> int:
     """
     Rewrite imports in all Python files in directory tree.
@@ -335,18 +330,14 @@ def rewrite_imports_in_tree(
 
     modified_count = 0
     for py_file in sorted(py_files):
-        if rewrite_imports_in_file(
-            py_file, module_moves, symbol_exports, root, dry_run
-        ):
+        if rewrite_imports_in_file(py_file, module_moves, symbol_exports, root, dry_run):
             modified_count += 1
 
     return modified_count
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Rewrite imports based on moves.yml configuration"
-    )
+    parser = argparse.ArgumentParser(description="Rewrite imports based on moves.yml configuration")
     parser.add_argument(
         "--config",
         default="model_migration/moves.yml",
@@ -396,16 +387,12 @@ def main():
             print(f"Error: File {file_path} not found", file=sys.stderr)
             return 1
 
-        modified = rewrite_imports_in_file(
-            file_path, module_moves, symbol_exports, root, args.dry_run
-        )
+        modified = rewrite_imports_in_file(file_path, module_moves, symbol_exports, root, args.dry_run)
         print()
         print(f"Modified: {1 if modified else 0} file")
     else:
         # Directory tree mode
-        modified_count = rewrite_imports_in_tree(
-            root, module_moves, symbol_exports, args.dry_run
-        )
+        modified_count = rewrite_imports_in_tree(root, module_moves, symbol_exports, args.dry_run)
         print()
         print(f"Modified: {modified_count} files")
 
