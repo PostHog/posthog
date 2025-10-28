@@ -90,6 +90,73 @@ from posthog.renderers import SafeJSONRenderer
 from posthog.utils import format_query_params_absolute_url
 
 
+def extract_bytecode_from_filters(filters_dict: dict, team: Team) -> tuple[dict, bool]:
+    """
+    Extract bytecode and conditionHash from validated filters and add them to the filters dict.
+    Returns (updated_filters_dict, realtime_supported)
+    """
+    try:
+        if not filters_dict:
+            return filters_dict, False
+
+        # Validate the filters with team context to generate bytecode
+        validated_filters = CohortFilters.model_validate(
+            {"properties": filters_dict["properties"]}, context={"team": team}
+        )
+
+        # Extract the realtime support flag
+        realtime_supported = validated_filters.realtimeSupported
+
+        # Add bytecode data to the original filters dict
+        updated_filters = _add_bytecode_to_filters_dict(filters_dict, validated_filters.properties)
+
+        return updated_filters, realtime_supported
+
+    except Exception as e:
+        logger.warning(f"Failed to extract bytecode from filters: {e}")
+        return filters_dict, False
+
+
+def _add_bytecode_to_filters_dict(original_dict: dict, validated_group) -> dict:
+    """Recursively add bytecode and conditionHash to the original filters dict."""
+    result = dict(original_dict)
+
+    if "properties" in result and "values" in result["properties"]:
+        result["properties"] = dict(result["properties"])
+        result["properties"]["values"] = _add_bytecode_to_values_list(
+            result["properties"]["values"], validated_group.values
+        )
+
+    return result
+
+
+def _add_bytecode_to_values_list(original_values: list, validated_values: list) -> list:
+    """Add bytecode data to a list of filter values."""
+    updated_values = []
+
+    for i, original_value in enumerate(original_values):
+        updated_value = dict(original_value)
+
+        if i < len(validated_values):
+            validated_value = validated_values[i]
+
+            # If it's a nested group, recurse
+            if hasattr(validated_value, "values"):
+                updated_value["values"] = _add_bytecode_to_values_list(
+                    original_value.get("values", []), validated_value.values
+                )
+            else:
+                # It's a filter - add bytecode data if available
+                if hasattr(validated_value, "bytecode") and validated_value.bytecode:
+                    updated_value["bytecode"] = validated_value.bytecode
+                if hasattr(validated_value, "conditionHash") and validated_value.conditionHash:
+                    updated_value["conditionHash"] = validated_value.conditionHash
+
+        updated_values.append(updated_value)
+
+    return updated_values
+
+
 def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list[Any] | None, str | None, str | None]:
     """
     Generate HogQL bytecode for cohort filter data.
@@ -365,6 +432,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "count",
             "is_static",
             "cohort_type",
+            "realtime_supported",
             "experiment_set",
             "_create_in_folder",
             "_create_static_person_ids",
@@ -377,6 +445,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "last_calculation",
             "errors_calculating",
             "count",
+            "realtime_supported",
             "experiment_set",
         ]
 
@@ -445,6 +514,14 @@ class CohortSerializer(serializers.ModelSerializer):
             validated_data["is_calculating"] = True
         if validated_data.get("query") and validated_data.get("filters"):
             raise ValidationError("Cannot set both query and filters at the same time.")
+
+        # Process bytecode for filters if present
+        if validated_data.get("filters"):
+            team = Team.objects.get(id=self.context["team_id"])
+            updated_filters, realtime_supported = extract_bytecode_from_filters(validated_data["filters"], team)
+            validated_data["filters"] = updated_filters
+            validated_data["realtime_supported"] = realtime_supported
+
         person_ids = validated_data.pop("_create_static_person_ids", None)
         cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
 
@@ -729,9 +806,23 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.description = validated_data.get("description", cohort.description)
         cohort.groups = validated_data.get("groups", cohort.groups)
         cohort.is_static = validated_data.get("is_static", cohort.is_static)
-        cohort.filters = validated_data.get("filters", cohort.filters)
         cohort.cohort_type = validated_data.get("cohort_type", cohort.cohort_type)
         cohort.query = validated_data.get("query", cohort.query)
+
+        # Process bytecode for filters if they're being updated
+        if "filters" in validated_data:
+            filters = validated_data["filters"]
+            if filters:
+                updated_filters, realtime_supported = extract_bytecode_from_filters(filters, cohort.team)
+                cohort.filters = updated_filters
+                cohort.realtime_supported = realtime_supported
+            else:
+                cohort.filters = filters
+                cohort.realtime_supported = None
+
+        # Set realtime_supported if provided directly
+        if "realtime_supported" in validated_data:
+            cohort.realtime_supported = validated_data["realtime_supported"]
 
         deleted_state = validated_data.get("deleted", None)
 

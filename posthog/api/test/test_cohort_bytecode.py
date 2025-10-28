@@ -121,3 +121,56 @@ class TestCohortBytecode(APIBaseTest):
 
         # Should not be realtime supported since behavioral filters don't generate bytecode
         self.assertFalse(cohort_filters.realtimeSupported)
+
+    def test_cohort_database_persistence_of_bytecode_data(self):
+        """Test that bytecode and conditionHash are persisted to database in filters JSON"""
+
+        filters_data = {
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {"type": "person", "key": "email", "operator": "exact", "value": "test@example.com"},
+                    {"type": "realtime", "key": "purchase", "value": "performed_event", "event_type": "events"},
+                ],
+            }
+        }
+
+        # Create cohort via API
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "Test Bytecode Persistence", "filters": filters_data},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+
+        # Get the created cohort from database
+        cohort_id = response.json()["id"]
+        from posthog.models.cohort.cohort import Cohort
+
+        cohort = Cohort.objects.get(id=cohort_id)
+
+        # Verify realtime_supported flag is set
+        self.assertTrue(cohort.realtime_supported)
+
+        # Verify bytecode data is stored in filters JSON
+        filters = cohort.filters
+        self.assertIsNotNone(filters)
+
+        filter_values = filters["properties"]["values"]
+
+        # Check person filter has bytecode
+        person_filter = filter_values[0]
+        self.assertIn("bytecode", person_filter)
+        self.assertIn("conditionHash", person_filter)
+        self.assertIsInstance(person_filter["bytecode"], list)
+        self.assertIsInstance(person_filter["conditionHash"], str)
+        self.assertEqual(len(person_filter["conditionHash"]), 16)
+
+        # Check realtime filter has bytecode
+        realtime_filter = filter_values[1]
+        self.assertIn("bytecode", realtime_filter)
+        self.assertIn("conditionHash", realtime_filter)
+        self.assertIsInstance(realtime_filter["bytecode"], list)
+        self.assertIsInstance(realtime_filter["conditionHash"], str)
+        self.assertEqual(len(realtime_filter["conditionHash"]), 16)
