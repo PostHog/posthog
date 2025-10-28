@@ -39,7 +39,7 @@ export function buildProductManifests() {
     const treeItemsProducts = {}
 
     const visitManifests = (sourceFile) => {
-        const manifestSceneKeys = []
+        const manifestSceneKeys = [] // collect the scene keys used in this manifest file
         const manifestTreeItems = []
         ts.forEachChild(sourceFile, function walk(node) {
             if (ts.isPropertyAssignment(node) && ts.isObjectLiteralExpression(node.initializer)) {
@@ -75,7 +75,8 @@ export function buildProductManifests() {
                 ts.isArrayLiteralExpression(node.initializer) &&
                 ['treeItemsNew', 'treeItemsProducts', 'treeItemsMetadata', 'treeItemsGames'].includes(node.name.text)
             ) {
-                const shouldAnnotate = node.name.text !== 'treeItemsGames'
+                // only annotate apps and data for now
+                const shouldAnnotate = node.name.text === 'treeItemsProducts' || node.name.text === 'treeItemsMetadata'
                 const dict =
                     node.name.text === 'treeItemsNew'
                         ? treeItemsNew
@@ -103,20 +104,22 @@ export function buildProductManifests() {
             }
         })
 
-        const makeSceneKeysProp = () =>
-            ts.factory.createPropertyAssignment(
-                ts.factory.createIdentifier('sceneKeys'),
-                ts.factory.createArrayLiteralExpression(
-                    manifestSceneKeys.map((key) => ts.factory.createStringLiteral(key))
-                )
-            )
-
+        // go through all tree items
         manifestTreeItems.forEach((item) => {
+            // skip if the tree item already contains "sceneKeys"
             if (item.properties.some((p) => p.name?.text === 'sceneKeys')) {
                 return
             }
-            const props = [...item.properties, makeSceneKeysProp()]
-            item.properties = ts.factory.createNodeArray(props)
+            // add collected "sceneKeys" to the tree item
+            item.properties = ts.factory.createNodeArray([
+                ...item.properties,
+                ts.factory.createPropertyAssignment(
+                    ts.factory.createIdentifier('sceneKeys'),
+                    ts.factory.createArrayLiteralExpression(
+                        manifestSceneKeys.map((key) => ts.factory.createStringLiteral(key))
+                    )
+                ),
+            ])
         })
     }
 
