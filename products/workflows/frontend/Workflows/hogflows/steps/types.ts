@@ -47,6 +47,44 @@ const CyclotronInputSchema = z.object({
 
 export type CyclotronInputType = z.infer<typeof CyclotronInputSchema>
 
+export const CyclotronJobInputSchemaTypeSchema = z.object({
+    type: z.enum([
+        'string',
+        'number',
+        'boolean',
+        'dictionary',
+        'choice',
+        'json',
+        'integration',
+        'integration_field',
+        'email',
+        'native_email',
+    ]),
+    key: z.string(),
+    label: z.string(),
+    choices: z
+        .array(
+            z.object({
+                value: z.string(),
+                label: z.string(),
+            })
+        )
+        .optional(),
+    required: z.boolean().optional(),
+    default: z.any().optional(),
+    secret: z.boolean().optional(),
+    hidden: z.boolean().optional(),
+    templating: z.boolean().optional(),
+    description: z.string().optional(),
+    integration: z.string().optional(),
+    integration_key: z.string().optional(),
+    integration_field: z.string().optional(),
+    requires_field: z.string().optional(),
+    requiredScopes: z.string().optional(),
+})
+
+export type CyclotronJobInputSchemaType = z.infer<typeof CyclotronJobInputSchemaTypeSchema>
+
 export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     z.object({
         type: z.literal('event'),

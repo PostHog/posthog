@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { CyclotronInputSchema } from './cyclotron'
+import { CyclotronInputSchema, CyclotronJobInputSchemaTypeSchema } from './cyclotron'
 
 const _commonActionFields = {
     id: z.string(),
@@ -195,15 +195,7 @@ export const HogFlowSchema = z.object({
     actions: z.array(HogFlowActionSchema),
     abort_action: z.string().optional(),
     edges: z.array(HogFlowEdgeSchema),
-    variables: z
-        .array(
-            z.object({
-                key: z.string(),
-                default_value: z.string().optional().nullable(),
-            })
-        )
-        .optional()
-        .nullable(),
+    variables: z.array(CyclotronJobInputSchemaTypeSchema).optional().nullable(),
 })
 
 // NOTE: these are purposefully exported as interfaces to support kea typegen

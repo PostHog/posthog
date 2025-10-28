@@ -13,7 +13,10 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
 
     const addNewVariable = (): void => {
         const newVariableName = `VARIABLE_${(workflow?.variables?.length || 0) + 1}`
-        const updatedVariables = [...(workflow?.variables || []), { key: newVariableName, default_value: '' }]
+        const updatedVariables = [
+            ...(workflow?.variables || []),
+            { key: newVariableName, label: newVariableName, type: 'string' as const, default_value: '' },
+        ]
         setWorkflowInfo({
             variables: updatedVariables,
         })
@@ -29,7 +32,7 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
 
     const editVariableDefaultValue = (idx: number, defaultValue: string): void => {
         const updatedVariables = [...(workflow?.variables || [])]
-        updatedVariables[idx].default_value = defaultValue
+        updatedVariables[idx].default = defaultValue
         setWorkflowInfo({
             variables: updatedVariables,
         })
@@ -84,7 +87,7 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
                     <LemonField.Pure label="Default value" className="flex-1">
                         <LemonInput
                             type="text"
-                            value={workflow?.variables?.[idx]?.default_value || ''}
+                            value={workflow?.variables?.[idx]?.default || ''}
                             placeholder="Default value"
                             onChange={(defaultValue) => {
                                 editVariableDefaultValue(idx, defaultValue)
