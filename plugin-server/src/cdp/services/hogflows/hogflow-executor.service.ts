@@ -46,7 +46,7 @@ export function createHogFlowInvocation(
                 // Spread in any existing variables from hogflow so the default values are in place
                 ...hogFlow.variables?.reduce(
                     (acc, variable) => {
-                        acc[variable.key] = variable.default_value || null
+                        acc[variable.key] = variable.default || null
                         return acc
                     },
                     {} as Record<string, any>
