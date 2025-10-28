@@ -9,6 +9,7 @@ from posthog.api.wizard import http as wizard
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
 from posthog.warehouse.api import (
+    connection,
     data_modeling_job,
     data_warehouse,
     external_data_schema,
@@ -337,6 +338,12 @@ legacy_project_batch_exports_router.register(
 
 register_grandfathered_environment_nested_viewset(
     r"warehouse_tables", table.TableViewSet, "environment_warehouse_tables", ["team_id"]
+)
+register_grandfathered_environment_nested_viewset(
+    r"warehouse_connections",
+    connection.WarehouseConnectionViewSet,
+    "environment_warehouse_connections",
+    ["team_id"],
 )
 register_grandfathered_environment_nested_viewset(
     r"warehouse_saved_queries",
