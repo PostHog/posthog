@@ -27,21 +27,4 @@ class Migration(migrations.Migration):
                 null=True,
             ),
         ),
-        migrations.AlterField(
-            model_name="cohort",
-            name="cohort_type",
-            field=models.CharField(
-                blank=True,
-                choices=[
-                    ("static", "static"),
-                    ("person_property", "person_property"),
-                    ("behavioral", "behavioral"),
-                    ("realtime", "realtime"),
-                    ("analytical", "analytical"),
-                ],
-                help_text="Type of cohort based on filter complexity",
-                max_length=50,
-                null=True,
-            ),
-        ),
     ]
