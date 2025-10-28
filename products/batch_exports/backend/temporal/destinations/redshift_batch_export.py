@@ -128,6 +128,7 @@ class ClientErrorGroup(ExceptionGroup):
 
             if op_name not in ops:
                 ops[op_name] = {error_code}
+
             else:
                 ops[op_name].add(error_code)
 
@@ -136,13 +137,14 @@ class ClientErrorGroup(ExceptionGroup):
 
             if len(error_codes) == 1:
                 # One type of operation failed, one error.
-                error_code = error_codes.pop()
-                return super().__new__(
+                error_code = next(iter(error_codes))
+
+                self = super().__new__(
                     ClientErrorGroup, f"S3 operation '{op_name}' failed with error: '{error_code}'", exceptions
                 )
             else:
                 # One type of operation failed, but with multiple errors.
-                return super().__new__(
+                self = super().__new__(
                     ClientErrorGroup,
                     f"S3 operation '{op_name}' failed with multiple errors: {', '.join(f"'{error_code}'" for error_code in error_codes)}",
                     exceptions,
@@ -151,11 +153,15 @@ class ClientErrorGroup(ExceptionGroup):
             # Many operations failed with multiple errors.
             pairs = ((op_name, error_code) for op_name, error_codes in ops.items() for error_code in error_codes)
 
-            return super().__new__(
+            self = super().__new__(
                 ClientErrorGroup,
                 f"Multiple S3 operations failed: {', '.join(f"'{op_name}' failed with error '{error_code}'" for op_name, error_code in pairs)}",
                 exceptions,
             )
+
+        self.ops = ops
+
+        return self
 
     def derive(self, excs):
         return ClientErrorGroup(excs)
@@ -1091,6 +1097,7 @@ async def upload_manifest_file(
     aws_secret_access_key: str | None,
     files_uploaded: list[str],
     manifest_key: str,
+    endpoint_url: str | None = None,
 ):
     """Upload manifest file used by Redshift COPY.
 
@@ -1106,6 +1113,7 @@ async def upload_manifest_file(
         region_name=region_name,
         aws_access_key_id=aws_access_key_id,
         aws_secret_access_key=aws_secret_access_key,
+        endpoint_url=endpoint_url,
     ) as client:
         entries = []
 
