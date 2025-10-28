@@ -17,6 +17,7 @@ from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -419,7 +420,7 @@ class HeatmapSavedRequestSerializer(serializers.ModelSerializer):
         }
 
 
-class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):
     scope_object = "INTERNAL"
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapScreenshotResponseSerializer
@@ -507,10 +508,3 @@ class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         updated = serializer.save()
         return response.Response(HeatmapScreenshotResponseSerializer(updated).data, status=status.HTTP_200_OK)
-
-    def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        obj = self.get_object()
-        if not obj.deleted:
-            obj.deleted = True
-            obj.save(update_fields=["deleted", "updated_at"])
-        return response.Response(status=status.HTTP_204_NO_CONTENT)
