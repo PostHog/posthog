@@ -104,12 +104,10 @@ def extract_bytecode_from_filters(filters_dict: dict, team: Team) -> tuple[dict,
             {"properties": filters_dict["properties"]}, context={"team": team}
         )
 
-        # Extract the realtime support flag
-        realtime_supported = validated_filters.realtimeSupported
-
-        # Extract compiled bytecode to separate array
+        # Extract compiled bytecode and calculate realtime support in one pass
         compiled_bytecode = []
         clean_filters = _extract_bytecode_to_array(filters_dict, validated_filters.properties, compiled_bytecode)
+        realtime_supported = _calculate_realtime_support(validated_filters.properties)
 
         return clean_filters, realtime_supported, compiled_bytecode if compiled_bytecode else None
 
@@ -319,31 +317,25 @@ class Group(BaseModel, extra="forbid"):
 Group.model_rebuild()
 
 
+def _calculate_realtime_support(group: Group) -> bool:
+    """Check if all filters in the group have valid bytecode to determine realtime support."""
+    for value in group.values:
+        if hasattr(value, "values"):  # It's another group
+            if not _calculate_realtime_support(value):
+                return False
+        else:  # It's a filter
+            # Check if filter has FilterBytecodeMixin and valid bytecode
+            if hasattr(value, "bytecode") and hasattr(value, "bytecode_error"):
+                if value.bytecode is None or value.bytecode_error is not None:
+                    return False
+            else:
+                # Filter doesn't support bytecode generation
+                return False
+    return True
+
+
 class CohortFilters(BaseModel, extra="forbid"):
     properties: Group
-    realtimeSupported: bool = False
-
-    @model_validator(mode="after")
-    def _check_realtime_support(self):
-        """Check if all filters have valid bytecode to determine realtime support."""
-        self.realtimeSupported = self._all_filters_have_bytecode(self.properties)
-        return self
-
-    def _all_filters_have_bytecode(self, group: Group) -> bool:
-        """Recursively check if all filters in the group have valid bytecode."""
-        for value in group.values:
-            if hasattr(value, "values"):  # It's another group
-                if not self._all_filters_have_bytecode(value):
-                    return False
-            else:  # It's a filter
-                # Check if filter has FilterBytecodeMixin and valid bytecode
-                if hasattr(value, "bytecode") and hasattr(value, "bytecode_error"):
-                    if value.bytecode is None or value.bytecode_error is not None:
-                        return False
-                else:
-                    # Filter doesn't support bytecode generation
-                    return False
-        return True
 
 
 API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(

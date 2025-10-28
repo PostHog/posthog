@@ -58,9 +58,9 @@ class TestCohortBytecode(APIBaseTest):
         person_filter2 = PersonFilter.model_validate(filter_data, context={"team": self.team})
         self.assertEqual(person_filter1.conditionHash, person_filter2.conditionHash)
 
-    def test_cohort_filters_realtime_support(self):
-        """Test CohortFilters realtime support based on filter types"""
-        from posthog.api.cohort import CohortFilters
+    def test_cohort_realtime_support_calculation(self):
+        """Test realtime support calculation based on filter types at cohort level"""
+        from posthog.models.cohort.cohort import Cohort
 
         test_cases = [
             {
@@ -113,11 +113,21 @@ class TestCohortBytecode(APIBaseTest):
                     }
                 }
 
-                cohort_filters = CohortFilters.model_validate(filters_data, context={"team": self.team})
+                # Create cohort via API to test realtime support calculation
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/cohorts/",
+                    {"name": f"Test {case['name']}", "filters": filters_data},
+                    format="json",
+                )
+                self.assertEqual(response.status_code, 201)
+
+                # Get cohort from database and verify realtime support
+                cohort_id = response.json()["id"]
+                cohort = Cohort.objects.get(id=cohort_id)
                 self.assertEqual(
-                    cohort_filters.realtimeSupported,
+                    cohort.realtime_supported,
                     case["expected_realtime_supported"],
-                    f"Expected realtimeSupported={case['expected_realtime_supported']} for {case['name']}",
+                    f"Expected realtime_supported={case['expected_realtime_supported']} for {case['name']}",
                 )
 
     def test_cohort_database_persistence(self):
