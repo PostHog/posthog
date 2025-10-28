@@ -155,6 +155,31 @@ impl Team {
         client: Arc<dyn RedisClient + Send + Sync>,
         team: &Team,
     ) -> Result<(), FlagError> {
+        let key = format!("{TEAM_TOKEN_CACHE_PREFIX}{}", team.api_token);
+
+        // Check if key already exists to avoid redundant writes
+        match client.exists(key.clone()).await {
+            Ok(true) => {
+                // Key exists, no need to write
+                debug!(team_id = team.id, "Team already in cache, skipping write");
+                return Ok(());
+            }
+            Ok(false) => {
+                // Key doesn't exist, proceed with write
+                debug!(team_id = team.id, "Team not in cache, writing");
+            }
+            Err(e) => {
+                // EXISTS check failed - Redis might be overloaded
+                // Skip the write to avoid making the situation worse
+                warn!(
+                    team_id = team.id,
+                    error = %e,
+                    "EXISTS check failed, skipping cache write to avoid overloading Redis"
+                );
+                return Ok(());
+            }
+        }
+
         let serialized_team = serde_json::to_string(&team).map_err(|e| {
             tracing::error!(
                 "Failed to serialize team {} (token {}): {}",
@@ -166,17 +191,13 @@ impl Team {
         })?;
 
         tracing::info!(
-            "Writing team to Redis at key '{}{}': team_id={}",
-            TEAM_TOKEN_CACHE_PREFIX,
-            team.api_token,
+            "Writing team to Redis at key '{}': team_id={}",
+            key,
             team.id
         );
 
         client
-            .set(
-                format!("{TEAM_TOKEN_CACHE_PREFIX}{}", team.api_token),
-                serialized_team,
-            )
+            .set(key.clone(), serialized_team)
             .await
             .map_err(|e| {
                 tracing::error!(
@@ -428,5 +449,108 @@ mod tests {
         assert_eq!(config[1], Some("valid_event".to_string()));
         assert_eq!(config[2], None);
         assert_eq!(config[3], Some("another_event".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_update_redis_cache_skips_write_when_key_exists() {
+        use common_redis::MockRedisClient;
+
+        let team_id = rand::thread_rng().gen_range(1..10_000_000);
+        let token = random_string("phc_", 12);
+        let team = Team {
+            id: team_id,
+            project_id: i64::from(team_id),
+            name: "team".to_string(),
+            api_token: token.clone(),
+            organization_id: Some(Uuid::new_v4()),
+            ..Default::default()
+        };
+
+        // Set up mock to return true for EXISTS (key exists)
+        let mut mock_client = MockRedisClient::new();
+        mock_client.exists_ret(&format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"), Ok(true));
+        let client: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_client.clone());
+
+        // Call update_redis_cache
+        let result = Team::update_redis_cache(client, &team).await;
+
+        // Should succeed without error
+        assert!(result.is_ok());
+
+        // Verify EXISTS was called but SET was not
+        let calls = mock_client.get_calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].op, "exists");
+        // No SET call should have been made
+    }
+
+    #[tokio::test]
+    async fn test_update_redis_cache_writes_when_key_missing() {
+        use common_redis::MockRedisClient;
+
+        let team_id = rand::thread_rng().gen_range(1..10_000_000);
+        let token = random_string("phc_", 12);
+        let team = Team {
+            id: team_id,
+            project_id: i64::from(team_id),
+            name: "team".to_string(),
+            api_token: token.clone(),
+            organization_id: Some(Uuid::new_v4()),
+            ..Default::default()
+        };
+
+        // Set up mock to return false for EXISTS (key doesn't exist)
+        let mut mock_client = MockRedisClient::new();
+        mock_client.exists_ret(&format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"), Ok(false));
+        mock_client.set_ret(&format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"), Ok(()));
+        let client: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_client.clone());
+
+        // Call update_redis_cache
+        let result = Team::update_redis_cache(client, &team).await;
+
+        // Should succeed
+        assert!(result.is_ok());
+
+        // Verify both EXISTS and SET were called
+        let calls = mock_client.get_calls();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].op, "exists");
+        assert_eq!(calls[1].op, "set");
+    }
+
+    #[tokio::test]
+    async fn test_update_redis_cache_skips_write_when_exists_fails() {
+        use common_redis::{CustomRedisError, MockRedisClient};
+
+        let team_id = rand::thread_rng().gen_range(1..10_000_000);
+        let token = random_string("phc_", 12);
+        let team = Team {
+            id: team_id,
+            project_id: i64::from(team_id),
+            name: "team".to_string(),
+            api_token: token.clone(),
+            organization_id: Some(Uuid::new_v4()),
+            ..Default::default()
+        };
+
+        // Set up mock to return error for EXISTS (Redis overloaded)
+        let mut mock_client = MockRedisClient::new();
+        mock_client.exists_ret(
+            &format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"),
+            Err(CustomRedisError::Timeout),
+        );
+        let client: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_client.clone());
+
+        // Call update_redis_cache
+        let result = Team::update_redis_cache(client, &team).await;
+
+        // Should succeed (we skip the write defensively)
+        assert!(result.is_ok());
+
+        // Verify EXISTS was called but SET was not (defensive skip)
+        let calls = mock_client.get_calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].op, "exists");
+        // No SET call should have been made
     }
 }
