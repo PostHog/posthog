@@ -644,7 +644,7 @@ describe('Hog Executor', () => {
             jest.spyOn(hogExecModule, 'execHog').mockResolvedValue({
                 execResult: {
                     finished: true,
-                    result: 0, // falsy value
+                    result: null, // falsy value
                     state: { syncDuration: 0, maxMemUsed: 1024 * 0.17, ops: 28, stack: [] },
                 },
                 error: undefined,
