@@ -35,9 +35,12 @@ export const hogQLLinkProvider: () => languages.LinkProvider = () => ({
 
             // Find all exact occurrences of this specific table name in the query
             const regex = new RegExp(`\\b${tableName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi')
-            let match: RegExpExecArray | null
 
-            while ((match = regex.exec(query)) !== null) {
+            for (const match of query.matchAll(regex)) {
+                if (match.index === undefined) {
+                    continue
+                }
+
                 const startPos = model.getPositionAt(match.index)
                 const endPos = model.getPositionAt(match.index + match[0].length)
 
@@ -51,6 +54,7 @@ export const hogQLLinkProvider: () => languages.LinkProvider = () => ({
                     url: `#view:${viewInfo.id}`,
                     tooltip: `Open ${viewInfo.is_materialized ? 'materialized view' : 'view'}: ${tableName} in new tab`,
                 })
+                break
             }
         }
 

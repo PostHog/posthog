@@ -670,12 +670,6 @@ class Database(BaseModel):
 
             # Build view metadata mapping for ALL saved queries (including materialized ones)
             view_metadata_mapping: dict[str, dict[str, any]] = {}
-            for saved_query in saved_queries:
-                view_metadata_mapping[saved_query.name] = {
-                    "id": str(saved_query.id),
-                    "is_view": True,
-                    "is_materialized": saved_query.is_materialized or False,
-                }
 
             for saved_query in saved_queries:
                 with timings.measure(f"saved_query_{saved_query.name}"):
@@ -683,6 +677,11 @@ class Database(BaseModel):
                         TableNode(name=saved_query.name, table=saved_query.hogql_definition(modifiers)),
                         table_conflict_mode="ignore",
                     )
+                    view_metadata_mapping[saved_query.name] = {
+                        "id": str(saved_query.id),
+                        "is_view": True,
+                        "is_materialized": saved_query.is_materialized or False,
+                    }
 
         with timings.measure("revenue_analytics_views"):
             revenue_views = []

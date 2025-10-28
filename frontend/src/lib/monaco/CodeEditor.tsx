@@ -330,10 +330,10 @@ export function CodeEditor({
                                                     `\\b${tableName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`,
                                                     'gi'
                                                 )
-                                                let match: RegExpExecArray | null
 
-                                                while ((match = regex.exec(query)) !== null) {
+                                                for (const match of query.matchAll(regex)) {
                                                     if (
+                                                        match.index !== undefined &&
                                                         offset >= match.index &&
                                                         offset < match.index + match[0].length
                                                     ) {
