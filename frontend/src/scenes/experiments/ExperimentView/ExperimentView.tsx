@@ -222,12 +222,12 @@ export function ExperimentView(): JSX.Element {
      * We show the create form if the experiment is draft + has no metrics. Otherwise,
      * we show the experiment view.
      */
-    const isUnifiedCreateFormEnabled = useFeatureFlag('EXPERIMENTS_UNIFIED_CREATE_FORM', 'test')
+    const isCreateFormEnabled = useFeatureFlag('EXPERIMENTS_CREATE_FORM')
     const allPrimaryMetrics = [...(experiment.metrics || []), ...(experiment.saved_metrics || [])]
 
     if (
         !experimentLoading &&
-        isUnifiedCreateFormEnabled &&
+        isCreateFormEnabled &&
         getExperimentStatus(experiment) === ProgressStatus.Draft &&
         allPrimaryMetrics.length === 0
     ) {
