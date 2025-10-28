@@ -99,17 +99,19 @@ export class EventIngestionRestrictionManager {
                         if (Array.isArray(parsedArray)) {
                             // Convert array items to strings
                             // Old format: ["token1", "token2:distinct_id"]
-                            // New format: [{"token": "token1", "analytics": true, "session_recordings": false}, ...]
+                            // New format: [{"token": "token1", "pipelines": ["analytics", "session_recordings"]}, ...]
                             const items = parsedArray.flatMap((item) => {
                                 if (typeof item === 'string') {
-                                    // Old format - assume analytics=true, everything else=false
+                                    // Old format - assume applies to analytics only for backwards compatibility
                                     if (this.pipeline === 'analytics') {
                                         return [item]
                                     }
                                     return []
                                 } else if (typeof item === 'object' && item !== null && 'token' in item) {
-                                    // New format - check if the pipeline field is set to true
-                                    const appliesToPipeline = Boolean(item[this.pipeline])
+                                    // New format - check if this pipeline is in the pipelines array
+                                    const pipelines: unknown = item.pipelines
+                                    const appliesToPipeline =
+                                        Array.isArray(pipelines) && pipelines.includes(this.pipeline)
 
                                     if (appliesToPipeline) {
                                         if ('distinct_id' in item && item.distinct_id) {
