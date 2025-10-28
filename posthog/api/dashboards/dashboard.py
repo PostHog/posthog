@@ -4,7 +4,7 @@ from contextlib import nullcontext
 from typing import Any, Optional, cast
 
 from django.conf import settings
-from django.db.models import CharField, DateTimeField, F, FilteredRelation, Max, Prefetch, Q, QuerySet, Value
+from django.db.models import CharField, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
 from django.db.models.functions import Cast
 from django.dispatch import receiver
 from django.http import StreamingHttpResponse
@@ -643,7 +643,7 @@ class DashboardsViewSet(
                         & Q(team__filesystemviewlog__ref=Cast(F("id"), output_field=CharField()))
                     ),
                 )
-            ).annotate(last_viewed_at=Max("recent_dashboard_views__viewed_at"))
+            ).annotate(last_viewed_at=F("recent_dashboard_views__viewed_at"))
         else:
             queryset = queryset.annotate(last_viewed_at=Value(None, output_field=DateTimeField()))
 
