@@ -314,24 +314,33 @@ export function CodeEditor({
                                 if (metadata) {
                                     const [query, metadataResponse] = metadata
                                     const viewMetadata = metadataResponse?.view_metadata
+                                    const tableNames = metadataResponse?.table_names
 
-                                    if (viewMetadata) {
+                                    if (viewMetadata && tableNames) {
                                         const offset = model?.getOffsetAt(position)
                                         if (offset !== undefined) {
-                                            // Check if we're clicking on a view
-                                            for (const [viewName, viewInfo] of Object.entries(viewMetadata)) {
+                                            // Check if we're clicking on a view - only check tables in the query
+                                            for (const tableName of tableNames) {
+                                                const viewInfo = viewMetadata[tableName]
+                                                if (!viewInfo) {
+                                                    continue
+                                                }
+
                                                 const regex = new RegExp(
-                                                    `\\b${viewName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`,
+                                                    `\\b${tableName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`,
                                                     'gi'
                                                 )
                                                 let match: RegExpExecArray | null
 
                                                 while ((match = regex.exec(query)) !== null) {
-                                                    if (offset >= match.index && offset < match.index + match[0].length) {
+                                                    if (
+                                                        offset >= match.index &&
+                                                        offset < match.index + match[0].length
+                                                    ) {
                                                         // Dispatch a custom event that will be handled by the multitabEditorLogic
                                                         window.dispatchEvent(
                                                             new CustomEvent('hogql-open-view', {
-                                                                detail: { viewId: viewInfo.id, viewName },
+                                                                detail: { viewId: viewInfo.id, viewName: tableName },
                                                             })
                                                         )
                                                         e.event.preventDefault()

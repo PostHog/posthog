@@ -153,17 +153,29 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                     }
                     const [query, metadataResponse] = metadata
                     const viewMetadata = metadataResponse?.view_metadata
+                    const tableNames = metadataResponse?.table_names
 
-                    if (!viewMetadata || Object.keys(viewMetadata).length === 0) {
+                    if (!viewMetadata || Object.keys(viewMetadata).length === 0 || !tableNames) {
                         return []
                     }
 
-                    // Find all occurrences of view names in the query and create decorations
+                    // Only decorate views that are actually in the table_names list from the query
+                    // This ensures we only highlight views that were detected in the parsed query
                     const decorations: editor.IModelDeltaDecoration[] = []
 
-                    for (const [viewName, viewInfo] of Object.entries(viewMetadata)) {
-                        // Find all occurrences of this view name in the query
-                        const regex = new RegExp(`\\b${viewName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi')
+                    for (const tableName of tableNames) {
+                        const viewInfo = viewMetadata[tableName]
+                        if (!viewInfo) {
+                            // This table is not a view, skip it
+                            continue
+                        }
+
+                        // Find all exact occurrences of this specific table name in the query
+                        // Using word boundaries to ensure we match complete table names only
+                        const regex = new RegExp(
+                            `\\b${tableName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`,
+                            'gi'
+                        )
                         let match: RegExpExecArray | null
 
                         while ((match = regex.exec(query)) !== null) {
@@ -185,8 +197,8 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                                     inlineClassName: className,
                                     hoverMessage: {
                                         value: viewInfo.is_materialized
-                                            ? `Materialized view: **${viewName}** (Ctrl+Click to open)`
-                                            : `View: **${viewName}** (Ctrl+Click to open)`,
+                                            ? `Materialized view: **${tableName}** (Ctrl+Click to open)`
+                                            : `View: **${tableName}** (Ctrl+Click to open)`,
                                     },
                                 },
                             })
