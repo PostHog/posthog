@@ -53,7 +53,7 @@ class SparklineQueryRunner(LogsQueryRunner):
                                      {date_to_start_of_interval}) / {interval_count} + 1
                                     )
                         )
-                    WHERE time_bucket >= {date_from} and time_bucket < {date_to}
+                    WHERE time_bucket >= {date_from} and time_bucket <= toStartOfInterval({date_to} - toIntervalSecond(1), {one_interval_period})
                 ) AS am
                 LEFT JOIN (
                     SELECT
@@ -62,7 +62,7 @@ class SparklineQueryRunner(LogsQueryRunner):
                         count() AS event_count
                     FROM logs
                     WHERE {where} AND time >= {date_from} AND time < {date_to}
-                    GROUP BY severity_text, time_bucket, time
+                    GROUP BY severity_text, time
                 ) AS ac ON am.time_bucket = ac.time
                 ORDER BY time asc, severity_text asc
                 LIMIT 1000
