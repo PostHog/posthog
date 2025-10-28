@@ -431,7 +431,7 @@ export function createMarketingTile(
         const hasCurrencyColumn = currencyColumn && table.fields && currencyColumn in table.fields
 
         if (hasCurrencyColumn) {
-            mathHogql = `SUM(toFloat(convertCurrency(${currencyColumn}, '${baseCurrency}', ${costExpr})))`
+            mathHogql = `SUM(toFloat(convertCurrency(coalesce(${currencyColumn}, '${baseCurrency}'), '${baseCurrency}', ${costExpr})))`
         } else if (fallbackCurrency) {
             mathHogql = `toFloat(convertCurrency('${fallbackCurrency}', '${baseCurrency}', SUM(${costExpr})))`
         } else {

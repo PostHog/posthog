@@ -86,9 +86,14 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
             columns = getattr(self.config.stats_table, "columns", None)
             if columns and hasattr(columns, "__contains__") and "account_currency" in columns:
                 # Convert each row's spend, then sum
+                # Use coalesce to handle NULL currency values - fallback to base_currency
                 currency_field = ast.Field(chain=[stats_table_name, "account_currency"])
+                currency_with_fallback = ast.Call(
+                    name="coalesce", args=[currency_field, ast.Constant(value=base_currency)]
+                )
                 convert_currency = ast.Call(
-                    name="convertCurrency", args=[currency_field, ast.Constant(value=base_currency), spend_float]
+                    name="convertCurrency",
+                    args=[currency_with_fallback, ast.Constant(value=base_currency), spend_float],
                 )
                 convert_to_float = ast.Call(name="toFloat", args=[convert_currency])
                 return ast.Call(name="SUM", args=[convert_to_float])

@@ -1736,6 +1736,17 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         response = execute_hogql_query(query, team=self.team)
         self.assertEqual(response.results, [(Decimal(amount),)])
 
+    def test_currency_conversion_same_currency(self):
+        query = "SELECT convertCurrency('USD', 'USD', 100, _toDate('2024-01-01'))"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(response.results, [(Decimal("100.00"),)])
+
+    def test_currency_conversion_both_bogus(self):
+        # Regression test: ensure no division by zero when both currencies are missing from exchange rate dict
+        query = "SELECT convertCurrency('FAKE1', 'FAKE2', 100, _toDate('2024-01-01'))"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(response.results, [(Decimal("0"),)])
+
     def test_metadata_handles_lazy_joins(self):
         query = "SELECT events.session.id from events"
         response = execute_hogql_query(query, team=self.team, modifiers=HogQLQueryModifiers(debug=True))
