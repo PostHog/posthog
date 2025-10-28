@@ -189,6 +189,13 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         help_text="True if all filters support bytecode compilation and can be evaluated in realtime.",
     )
 
+    # Compiled bytecode for realtime evaluation
+    compiled_bytecode = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Array of compiled bytecode objects for filters that support realtime evaluation.",
+    )
+
     # deprecated in favor of filters
     groups = models.JSONField(default=list)
 
