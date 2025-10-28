@@ -1,17 +1,21 @@
 import { useActions, useValues } from 'kea'
 
-import { Link, Spinner } from '@posthog/lemon-ui'
+import { LemonDivider, Link, Spinner } from '@posthog/lemon-ui'
 
 import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import {
+    TabsPrimitive,
+    TabsPrimitiveContent,
+    TabsPrimitiveList,
+    TabsPrimitiveTrigger,
+} from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { ScenePanelDivider, ScenePanelLabel } from '~/layout/scenes/SceneLayout'
-
-import { MiniBreakdowns } from 'products/error_tracking/frontend/components/Breakdowns/MiniBreakdowns'
 
 import { ExternalReferences } from '../../../components/ExternalReferences'
 import { IssueTasks } from '../../../components/IssueTasks'
@@ -29,7 +33,6 @@ export const ErrorTrackingIssueScenePanel = ({ showActions = true }: { showActio
     const hasTasks = useFeatureFlag('TASKS')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
     const hasSimilarIssues = useFeatureFlag('ERROR_TRACKING_RELATED_ISSUES')
-    const hasNewIssueLayout = useFeatureFlag('ERROR_TRACKING_ISSUE_LAYOUT_V2')
 
     return issue ? (
         <div className="flex flex-col gap-2 @container">
@@ -55,10 +58,70 @@ export const ErrorTrackingIssueScenePanel = ({ showActions = true }: { showActio
             />
             <IssueExternalReference />
             {hasIssueSplitting && <IssueFingerprints />}
-            {hasTasks && <IssueTasks />}
+            {hasTasks && (
+                <ScenePanelLabel title="Tasks">
+                    <IssueTasks />
+                </ScenePanelLabel>
+            )}
             <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
-            {hasNewIssueLayout && <IssueBreakdowns />}
-            {hasSimilarIssues && <SimilarIssuesList />}
+            {hasSimilarIssues && (
+                <ScenePanelLabel title="Similar issues">
+                    <SimilarIssuesList />
+                </ScenePanelLabel>
+            )}
+        </div>
+    ) : null
+}
+
+export const ErrorTrackingIssueScenePanelV2 = (): JSX.Element | null => {
+    const { issue } = useValues(errorTrackingIssueSceneLogic)
+    const { updateName, updateAssignee, updateStatus } = useActions(errorTrackingIssueSceneLogic)
+    const hasTasks = useFeatureFlag('TASKS')
+    const hasSimilarIssues = useFeatureFlag('ERROR_TRACKING_RELATED_ISSUES')
+
+    return issue ? (
+        <div className="flex flex-col gap-y-2 @container">
+            <SceneTextInput
+                name="name"
+                defaultValue={issue.name ?? ''}
+                onSave={updateName}
+                dataAttrKey={RESOURCE_TYPE}
+            />
+
+            <IssueStatusSelect status={issue.status} onChange={updateStatus} />
+            <IssueAssigneeSelect
+                assignee={issue.assignee}
+                onChange={updateAssignee}
+                disabled={issue.status != 'active'}
+            />
+            <IssueExternalReference />
+
+            <LemonDivider className="m-0" />
+
+            {hasTasks || hasSimilarIssues ? (
+                <TabsPrimitive defaultValue={hasTasks ? 'tasks' : 'similar'}>
+                    <div className="flex justify-between items-center">
+                        <TabsPrimitiveList className="flex gap-x-4 mb-2 border-b w-full">
+                            {hasTasks && (
+                                <TabsPrimitiveTrigger value="tasks" className="pb-1">
+                                    Tasks
+                                </TabsPrimitiveTrigger>
+                            )}
+                            {hasSimilarIssues && (
+                                <TabsPrimitiveTrigger value="similar" className="pb-1">
+                                    Similar issues
+                                </TabsPrimitiveTrigger>
+                            )}
+                        </TabsPrimitiveList>
+                    </div>
+                    <TabsPrimitiveContent value="tasks">
+                        <IssueTasks />
+                    </TabsPrimitiveContent>
+                    <TabsPrimitiveContent value="similar">
+                        <SimilarIssuesList />
+                    </TabsPrimitiveContent>
+                </TabsPrimitive>
+            ) : null}
         </div>
     ) : null
 }
@@ -80,14 +143,6 @@ const IssueFingerprints = (): JSX.Element => {
                     {issueFingerprintsLoading ? <Spinner /> : `${pluralize(issueFingerprints.length, 'fingerprint')}`}
                 </ButtonPrimitive>
             </Link>
-        </ScenePanelLabel>
-    )
-}
-
-const IssueBreakdowns = (): JSX.Element => {
-    return (
-        <ScenePanelLabel title="Breakdowns">
-            <MiniBreakdowns />
         </ScenePanelLabel>
     )
 }
