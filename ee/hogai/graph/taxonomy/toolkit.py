@@ -847,7 +847,9 @@ class TaxonomyAgentToolkit:
                         results[tool_call_id] = property_results[i]
 
         if collected_tools["entity_properties"]:
-            entity_properties = await self.retrieve_entity_properties_parallel(collected_tools["entity_properties"])
+            # Deduplicate entity names
+            unique_entity_names = list(dict.fromkeys(collected_tools["entity_properties"]))
+            entity_properties = await self.retrieve_entity_properties_parallel(unique_entity_names)
             for entity, result in entity_properties.items():
                 for tool_call_id in collected_tools["entity_mapping"].get(entity, []):
                     results[tool_call_id] = result
@@ -864,7 +866,7 @@ class TaxonomyAgentToolkit:
                         results[tool_call_id] = property_results[i]
 
         if collected_tools["event_properties"]:
-            # Deduplicate event names to avoid repeating work
+            # Deduplicate event names
             unique_event_names = list(dict.fromkeys(collected_tools["event_properties"]))
             event_properties = await self.retrieve_event_or_action_properties_parallel(unique_event_names)
             for event_name, result in event_properties.items():
