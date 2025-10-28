@@ -34,6 +34,7 @@ PropertyType = Literal[
     "recording",
     "log_entry",
     "behavioral",
+    "realtime",
     "session",
     "hogql",
     "data_warehouse",
@@ -104,6 +105,7 @@ VALIDATE_PROP_TYPES = {
     "flag": ["key", "value"],
     "revenue_analytics": ["key", "value"],
     "behavioral": ["key", "value"],
+    "realtime": ["key", "value"],
     "session": ["key", "value"],
     "hogql": ["key"],
 }
@@ -119,6 +121,20 @@ VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES = {
     ],
 }
 
+
+VALIDATE_REALTIME_PROP_TYPES = {
+    BehavioralPropertyType.PERFORMED_EVENT: [
+        "key",
+        "value",
+        "event_type",
+    ],
+    BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE: [
+        "key",
+        "value",
+        "event_type",
+        "operator_value",
+    ],
+}
 
 VALIDATE_BEHAVIORAL_PROP_TYPES = {
     BehavioralPropertyType.PERFORMED_EVENT: [
@@ -280,6 +296,11 @@ class Property:
         for attr in VALIDATE_PROP_TYPES[self.type]:
             if getattr(self, attr, None) is None:
                 raise ValueError(f"Missing required attr {attr} for property type {self.type} with key {self.key}")
+
+        if self.type == "realtime":
+            for attr in VALIDATE_REALTIME_PROP_TYPES[cast(BehavioralPropertyType, self.value)]:
+                if getattr(self, attr, None) is None:
+                    raise ValueError(f"Missing required attr {attr} for property type {self.type}::{self.value}")
 
         if self.type == "behavioral":
             for attr in VALIDATE_BEHAVIORAL_PROP_TYPES[cast(BehavioralPropertyType, self.value)]:

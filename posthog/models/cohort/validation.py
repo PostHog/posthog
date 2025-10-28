@@ -22,6 +22,7 @@ TYPE_PRIORITY = {
     CohortType.STATIC: 0,
     CohortType.PERSON_PROPERTY: 1,
     CohortType.BEHAVIORAL: 2,
+    CohortType.REALTIME: 2,  # Same priority as behavioral
     CohortType.ANALYTICAL: 3,
 }
 
@@ -154,6 +155,9 @@ class CohortTypeValidationSerializer(serializers.Serializer):
             if prop.get("value") in ANALYTICAL_BEHAVIORAL_TYPES:
                 return CohortType.ANALYTICAL
             return CohortType.BEHAVIORAL
+
+        elif prop_type == "realtime":
+            return CohortType.REALTIME
 
         elif prop_type == "person":
             return CohortType.PERSON_PROPERTY
