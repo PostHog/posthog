@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 
 import { IconInfo, IconPencil } from '@posthog/icons'
+import { LemonBanner } from '@posthog/lemon-ui'
 
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -239,21 +239,30 @@ export function ExperimentMetricForm({
             </SceneSection>
             <SceneDivider />
             <SceneSection title="Metric" className="max-w-prose">
-                <div className="border rounded-lg p-3 mb-0 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <span className="text-sm text-secondary">
-                            {exposureCriteria ? (
-                                <>
-                                    Counts only after exposure event{' '}
-                                    <LemonTag>{getExposureCriteriaLabel(exposureCriteria)}</LemonTag>
-                                </>
-                            ) : (
-                                <>
-                                    Counts only after exposure event (<LemonTag>$feature_flag_called</LemonTag> by
-                                    default)
-                                </>
-                            )}
-                        </span>
+                <LemonBanner
+                    type="info"
+                    action={
+                        exposureCriteria && openExposureCriteriaModal
+                            ? {
+                                  size: 'xsmall',
+                                  onClick: () => openExposureCriteriaModal(),
+                                  icon: <IconPencil />,
+                                  tooltip: 'Edit exposure criteria',
+                              }
+                            : undefined
+                    }
+                >
+                    <span className="inline-flex items-center gap-2 flex-wrap">
+                        {exposureCriteria ? (
+                            <>
+                                Counts only after exposure event{' '}
+                                <LemonTag>{getExposureCriteriaLabel(exposureCriteria)}</LemonTag>
+                            </>
+                        ) : (
+                            <>
+                                Counts only after exposure event (<LemonTag>$feature_flag_called</LemonTag> by default)
+                            </>
+                        )}
                         <Tooltip
                             title={
                                 <div className="space-y-2">
@@ -274,19 +283,9 @@ export function ExperimentMetricForm({
                         >
                             <IconInfo className="text-muted-alt text-base" />
                         </Tooltip>
-                    </div>
-                    {exposureCriteria && openExposureCriteriaModal && (
-                        <LemonButton
-                            size="xsmall"
-                            type="secondary"
-                            onClick={() => {
-                                openExposureCriteriaModal()
-                            }}
-                            icon={<IconPencil />}
-                            tooltip="Edit exposure criteria"
-                        />
-                    )}
-                </div>
+                    </span>
+                </LemonBanner>
+
                 {isExperimentMeanMetric(metric) && (
                     <>
                         <ActionFilter
