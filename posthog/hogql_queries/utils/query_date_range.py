@@ -114,8 +114,6 @@ class QueryDateRange:
                     date_to = date_to.replace(second=59, microsecond=999999)
             elif self.interval_name == "second":
                 date_to = date_to.replace(microsecond=999999)
-            else:
-                date_to = date_to.replace(second=59, microsecond=999999)
 
         return date_to
 
