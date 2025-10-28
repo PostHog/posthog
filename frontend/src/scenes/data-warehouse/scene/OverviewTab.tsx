@@ -16,8 +16,14 @@ import { StatusIcon, StatusTag } from './components/StatusComponents'
 const LIST_SIZE = 8
 
 export function OverviewTab(): JSX.Element {
-    const { activityPaginationState, totalRowsStats, tablesLoading, jobStats, jobStatsLoading } =
-        useValues(dataWarehouseSceneLogic)
+    const {
+        activityPaginationState,
+        totalRowsStats,
+        totalRowsStatsLoading,
+        tablesLoading,
+        jobStats,
+        jobStatsLoading,
+    } = useValues(dataWarehouseSceneLogic)
     const { setActivityCurrentPage, loadJobStats } = useActions(dataWarehouseSceneLogic)
 
     const activityPagination = {
@@ -81,19 +87,33 @@ export function OverviewTab(): JSX.Element {
                                     <IconInfo className="text-muted mt-0.5" />
                                 </Tooltip>
                             </div>
-                            <div className="text-2xl font-semibold mt-1">
-                                {(totalRowsStats?.total_rows ?? 0).toLocaleString()}
+                            <div className="text-2xl font-semibold mt-1 flex items-center gap-2">
+                                {totalRowsStatsLoading ? (
+                                    <Spinner className="text-muted" />
+                                ) : (
+                                    (totalRowsStats?.total_rows ?? 0).toLocaleString()
+                                )}
                             </div>
                         </div>
                         <div>
                             <div className="text-sm text-muted">Currently running source syncs</div>
-                            <div className="text-2xl font-semibold mt-1">
-                                {jobStats?.external_data_jobs.running ?? 0}
+                            <div className="text-2xl font-semibold mt-1 flex items-center gap-2">
+                                {jobStatsLoading ? (
+                                    <Spinner className="text-muted" />
+                                ) : (
+                                    jobStats?.external_data_jobs.running ?? 0
+                                )}
                             </div>
                         </div>
                         <div>
                             <div className="text-sm text-muted">Currently running materialized views</div>
-                            <div className="text-2xl font-semibold mt-1">{jobStats?.modeling_jobs.running ?? 0}</div>
+                            <div className="text-2xl font-semibold mt-1 flex items-center gap-2">
+                                {jobStatsLoading ? (
+                                    <Spinner className="text-muted" />
+                                ) : (
+                                    jobStats?.modeling_jobs.running ?? 0
+                                )}
+                            </div>
                         </div>
                     </div>
                 </LemonCard>
