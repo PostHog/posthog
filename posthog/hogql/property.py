@@ -413,7 +413,7 @@ def property_to_expr(
         or property.type == "feature"
         or property.type == "person"
         or property.type == "group"
-        or property.type == "realtime"
+        or property.type == "behavioral"
         or property.type == "data_warehouse"
         or property.type == "data_warehouse_person_property"
         or property.type == "session"

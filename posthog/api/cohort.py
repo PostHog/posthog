@@ -216,6 +216,9 @@ class FilterBytecodeMixin(BaseModel):
     @model_validator(mode="after")
     def _generate_bytecode(self, info):
         """Generate bytecode for the filter if team context is available."""
+        # Check if this filter should generate bytecode
+        if hasattr(self, "_should_generate_bytecode") and not self._should_generate_bytecode():
+            return self
 
         if info and info.context:
             team = info.context.get("team")
@@ -243,7 +246,7 @@ class HogQLFilter(BaseModel, extra="forbid"):
     value: Any | None = None
 
 
-class BehavioralFilter(BaseModel, extra="forbid"):
+class BehavioralFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
     type: Literal["behavioral"]
     key: Union[str, int]  # action IDs can be ints
     value: str
@@ -262,25 +265,9 @@ class BehavioralFilter(BaseModel, extra="forbid"):
     event_filters: list[Union[EventPropFilter, HogQLFilter]] | None = None
     explicit_datetime: str | None = None
 
-
-class RealtimeFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
-    type: Literal["realtime"]
-    key: Union[str, int]  # action IDs can be ints
-    value: str
-    event_type: str
-    time_value: int | None = None
-    time_interval: str | None = None
-    negation: bool = False
-    operator: str | None = None
-    operator_value: int | None = None
-    seq_time_interval: str | None = None
-    seq_time_value: int | None = None
-    seq_event: Union[str, int] | None = None  # Allow both string and int for seq_event
-    seq_event_type: str | None = None
-    total_periods: int | None = None
-    min_periods: int | None = None
-    event_filters: list[Union[EventPropFilter, HogQLFilter]] | None = None
-    explicit_datetime: str | None = None
+    def _should_generate_bytecode(self) -> bool:
+        """Generate bytecode for simple event matching behavioral filters - ignore temporal logic"""
+        return self.value in ["performed_event", "performed_event_multiple"]
 
 
 class CohortFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
@@ -317,7 +304,7 @@ class PersonFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
 
 
 PropertyFilter = Annotated[
-    Union[BehavioralFilter, RealtimeFilter, CohortFilter, PersonFilter],
+    Union[BehavioralFilter, CohortFilter, PersonFilter],
     Field(discriminator="type"),
 ]
 

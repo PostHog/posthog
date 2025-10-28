@@ -62,7 +62,6 @@ export type BehavioralFilterType = BehavioralEventType | BehavioralCohortType | 
 
 export enum BehavioralFilterKey {
     Behavioral = 'behavioral',
-    Realtime = 'realtime',
     Cohort = 'cohort',
     Person = 'person',
 }
