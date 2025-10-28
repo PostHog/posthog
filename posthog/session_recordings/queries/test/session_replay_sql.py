@@ -195,6 +195,7 @@ def produce_replay_summary(
             event="foobarino",
             properties={"$session_id": data["session_id"]},
             team_id=team_id,
+            timestamp=timestamp,
         )
         flush_persons_and_events()
 

@@ -4,6 +4,7 @@ from typing import Any
 
 from django.conf import settings
 
+import aiohttp
 import structlog
 
 from posthog.models.exported_asset import ExportedAsset
@@ -191,7 +192,7 @@ def send_slack_message_with_integration(
             slack_integration.client.chat_postMessage(channel=message_data.channel, thread_ts=thread_ts, **thread_msg)
 
 
-async def _send_slack_message_with_retry(client, max_retries: int = 2, **kwargs):
+async def _send_slack_message_with_retry(client, max_retries: int = 3, **kwargs):
     for attempt in range(max_retries):
         try:
             return await client.chat_postMessage(**kwargs)
@@ -224,36 +225,39 @@ async def send_slack_message_with_integration_async(
     message_data = _prepare_slack_message(subscription, assets, total_asset_count, is_new_subscription)
     slack_integration = SlackIntegration(integration)
 
-    message_res = await _send_slack_message_with_retry(
-        slack_integration.async_client,
-        channel=message_data.channel,
-        blocks=message_data.blocks,
-        text=message_data.title,
-    )
+    async with aiohttp.ClientSession() as slack_session:
+        async_client = slack_integration.async_client(session=slack_session)
 
-    thread_ts = message_res.get("ts")
-    failed_thread_messages = []
+        message_res = await _send_slack_message_with_retry(
+            async_client,
+            channel=message_data.channel,
+            blocks=message_data.blocks,
+            text=message_data.title,
+        )
 
-    if thread_ts:
-        for idx, thread_msg in enumerate(message_data.thread_messages):
-            try:
-                await _send_slack_message_with_retry(
-                    slack_integration.async_client,
-                    channel=message_data.channel,
-                    thread_ts=thread_ts,
-                    **thread_msg,
-                )
-            except TimeoutError:
-                logger.error(
-                    "send_slack_message_with_integration_async.slack_thread_message_failed_after_retries",
-                    subscription_id=subscription.id,
-                    channel=message_data.channel,
-                    thread_index=idx,
-                    total_thread_messages=len(message_data.thread_messages),
-                    thread_ts=thread_ts,
-                    exc_info=True,
-                )
-                failed_thread_messages.append(idx)
+        thread_ts = message_res.get("ts")
+        failed_thread_messages = []
+
+        if thread_ts:
+            for idx, thread_msg in enumerate(message_data.thread_messages):
+                try:
+                    await _send_slack_message_with_retry(
+                        async_client,
+                        channel=message_data.channel,
+                        thread_ts=thread_ts,
+                        **thread_msg,
+                    )
+                except TimeoutError:
+                    logger.error(
+                        "send_slack_message_with_integration_async.slack_thread_message_failed_after_retries",
+                        subscription_id=subscription.id,
+                        channel=message_data.channel,
+                        thread_index=idx,
+                        total_thread_messages=len(message_data.thread_messages),
+                        thread_ts=thread_ts,
+                        exc_info=True,
+                    )
+                    failed_thread_messages.append(idx)
 
     return SlackDeliveryResult(
         main_message_sent=True,

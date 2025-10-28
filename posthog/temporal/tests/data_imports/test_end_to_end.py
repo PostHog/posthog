@@ -1496,7 +1496,77 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
 
     with (
         mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
-        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.INCREASED_DEFAULT_CHUNK_SIZE", 1),
+        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres._get_table_chunk_size") as mock_chunk_size,
+        mock.patch.object(DeltaTable, "merge") as mock_merge,
+        mock.patch.object(deltalake, "write_deltalake") as mock_write,
+        mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
+    ):
+        mock_chunk_size.return_value = 1
+        await _run(
+            team=team,
+            schema_name="test_table",
+            table_name="postgres_test_table",
+            source_type="Postgres",
+            job_inputs={
+                "host": postgres_config["host"],
+                "port": postgres_config["port"],
+                "database": postgres_config["database"],
+                "user": postgres_config["user"],
+                "password": postgres_config["password"],
+                "schema": postgres_config["schema"],
+                "ssh_tunnel_enabled": "False",
+            },
+            mock_data_response=[],
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+            ignore_assertions=True,
+        )
+
+    mock_post_run_operations.assert_called_once()
+
+    mock_merge.assert_not_called()
+    assert mock_write.call_count == 2
+
+    _, first_call_kwargs = mock_write.call_args_list[0]
+    _, second_call_kwargs = mock_write.call_args_list[1]
+
+    # The first call should be an overwrite
+    assert first_call_kwargs == {
+        "mode": "overwrite",
+        "schema_mode": "overwrite",
+        "table_or_uri": mock.ANY,
+        "data": mock.ANY,
+        "partition_by": mock.ANY,
+        "engine": "rust",
+    }
+
+    # The last call should be an append
+    assert second_call_kwargs == {
+        "mode": "append",
+        "schema_mode": "merge",
+        "table_or_uri": mock.ANY,
+        "data": mock.ANY,
+        "partition_by": mock.ANY,
+        "engine": "rust",
+    }
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_delta_no_merging_on_first_sync_uncapped_chunk_size(team, postgres_config, postgres_connection):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.test_table (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_table (id) VALUES (1)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_table (id) VALUES (2)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.commit()
+
+    with (
+        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
@@ -1524,25 +1594,14 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
     mock_post_run_operations.assert_called_once()
 
     mock_merge.assert_not_called()
-    assert mock_write.call_count == 2
+    assert mock_write.call_count == 1
 
-    first_call_args, first_call_kwargs = mock_write.call_args_list[0]
-    second_call_args, second_call_kwargs = mock_write.call_args_list[1]
+    _, first_call_kwargs = mock_write.call_args_list[0]
 
-    # The first call should be an append
+    # first and only call should be an overwite
     assert first_call_kwargs == {
         "mode": "overwrite",
         "schema_mode": "overwrite",
-        "table_or_uri": mock.ANY,
-        "data": mock.ANY,
-        "partition_by": mock.ANY,
-        "engine": "rust",
-    }
-
-    # The last call should be an append
-    assert second_call_kwargs == {
-        "mode": "append",
-        "schema_mode": "merge",
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
@@ -1564,7 +1623,7 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
     )
     await postgres_connection.commit()
 
-    workflow_id, inputs = await _run(
+    _, inputs = await _run(
         team=team,
         schema_name="test_table",
         table_name="postgres_test_table",
@@ -1586,11 +1645,12 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
 
     with (
         mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
-        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.INCREASED_DEFAULT_CHUNK_SIZE", 1),
+        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres._get_table_chunk_size") as mock_chunk_size,
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
     ):
+        mock_chunk_size.return_value = 1
         await _execute_run(
             str(uuid.uuid4()),
             ExternalDataWorkflowInputs(
@@ -1607,8 +1667,8 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
     mock_merge.assert_not_called()
     assert mock_write.call_count == 2
 
-    first_call_args, first_call_kwargs = mock_write.call_args_list[0]
-    second_call_args, second_call_kwargs = mock_write.call_args_list[1]
+    _, first_call_kwargs = mock_write.call_args_list[0]
+    _, second_call_kwargs = mock_write.call_args_list[1]
 
     # The first call should be an overwrite
     assert first_call_kwargs == {
@@ -2085,7 +2145,6 @@ async def test_partition_folders_delta_merge_called_with_partition_predicate(
 
     with (
         mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
-        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.INCREASED_DEFAULT_CHUNK_SIZE", 1),
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,

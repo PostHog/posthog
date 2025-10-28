@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { ReactNode, useEffect, useRef } from 'react'
 
-import { IconArrowRight, IconEllipsis, IconInfo, IconSparkles } from '@posthog/icons'
+import { IconArrowRight, IconEllipsis, IconExternal, IconInfo, IconSparkles } from '@posthog/icons'
 import { LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -17,8 +17,9 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
-import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
+import { ListBox, ListBoxGroupHandle, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { NewTabTreeDataItem, newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
 import { urls } from 'scenes/urls'
@@ -26,6 +27,7 @@ import { urls } from 'scenes/urls'
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
+import { groupsModel } from '~/models/groupsModel'
 import { SidePanelTab } from '~/types'
 
 import { NoResultsFound } from './NoResultsFound'
@@ -37,6 +39,7 @@ export const getCategoryDisplayName = (category: string): string => {
         'data-management': 'Data management',
         recents: 'Recents',
         persons: 'Persons',
+        groups: 'Groups',
         eventDefinitions: 'Events',
         propertyDefinitions: 'Properties',
         askAI: 'Posthog AI',
@@ -115,6 +118,7 @@ function Category({
     columnIndex: number
     isFirstCategoryWithResults: boolean
 }): JSX.Element {
+    const groupRef = useRef<ListBoxGroupHandle>(null)
     const typedItems = items as NewTabTreeDataItem[]
     const isFirstCategory = columnIndex === 0
     const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
@@ -127,6 +131,7 @@ function Category({
         newTabSceneDataInclude,
     } = useValues(newTabSceneLogic({ tabId }))
     const { showMoreInSection } = useActions(newTabSceneLogic({ tabId }))
+    const { groupTypes } = useValues(groupsModel)
 
     return (
         <>
@@ -150,7 +155,7 @@ function Category({
                         {category === 'recents' && isSearching && <Spinner size="small" />}
                         {/* Show "No results found" tag for other categories when empty and include is NOT 'all' */}
                         {newTabSceneData &&
-                            !['persons', 'eventDefinitions', 'propertyDefinitions'].includes(category) &&
+                            !['persons', 'groups', 'eventDefinitions', 'propertyDefinitions'].includes(category) &&
                             typedItems.length === 0 &&
                             !newTabSceneDataInclude.includes('all') && (
                                 <LemonTag className="text-xs text-tertiary" size="small">
@@ -174,130 +179,192 @@ function Category({
                             </div>
                         ) : null
                     ) : (
-                        typedItems.map((item, index) => {
-                            const focusFirst =
-                                (newTabSceneData && isFirstCategoryWithResults && index === 0) ||
-                                (filteredItemsGrid.length > 0 && isFirstCategory && index === 0)
+                        <ListBox.Group ref={groupRef} groupId={`category-${category}`}>
+                            {typedItems.map((item, index) => {
+                                const focusFirst =
+                                    (newTabSceneData && isFirstCategoryWithResults && index === 0) ||
+                                    (filteredItemsGrid.length > 0 && isFirstCategory && index === 0)
 
-                            const lastViewedAt =
-                                item.lastViewedAt ??
-                                (item.record as { last_viewed_at?: string | null } | undefined)?.last_viewed_at ??
-                                null
+                                const lastViewedAt =
+                                    item.lastViewedAt ??
+                                    (item.record as { last_viewed_at?: string | null } | undefined)?.last_viewed_at ??
+                                    null
 
-                            return (
-                                // If we have filtered results set virtual focus to first item
-                                <ButtonGroupPrimitive key={item.id} className="group w-full border-0">
-                                    <ContextMenu>
-                                        <ContextMenuTrigger asChild>
+                                const record = item.record as
+                                    | ({
+                                          groupNoun?: string
+                                          groupDisplayName?: string
+                                      } & Record<string, any>)
+                                    | undefined
+
+                                const groupNoun =
+                                    item.category === 'groups' ? record?.groupNoun || item.name.split(':')[0] : null
+                                const groupDisplayName =
+                                    item.category === 'groups'
+                                        ? typeof item.displayName === 'string'
+                                            ? item.displayName
+                                            : item.name.split(':').slice(1).join(':').trim()
+                                        : null
+
+                                const highlightText = (text: string): ReactNode =>
+                                    search ? <SearchHighlightMultiple string={text} substring={search} /> : text
+
+                                return (
+                                    // If we have filtered results set virtual focus to first item
+                                    <ButtonGroupPrimitive key={item.id} className="group w-full border-0">
+                                        <ContextMenu>
+                                            <ContextMenuTrigger asChild>
+                                                <ListBox.Item
+                                                    asChild
+                                                    focusFirst={focusFirst}
+                                                    row={index}
+                                                    column={columnIndex}
+                                                    focusKey={item.id}
+                                                    index={index}
+                                                >
+                                                    <Link
+                                                        to={item.href || '#'}
+                                                        className="w-full"
+                                                        buttonProps={{
+                                                            size: 'sm',
+                                                            hasSideActionRight: true,
+                                                        }}
+                                                    >
+                                                        <span className="text-sm">{item.icon ?? item.name[0]}</span>
+                                                        <span className="flex min-w-0 items-center gap-2">
+                                                            {groupNoun ? (
+                                                                <>
+                                                                    <span className="text-sm truncate text-primary">
+                                                                        {highlightText(
+                                                                            groupDisplayName &&
+                                                                                groupDisplayName.length > 0
+                                                                                ? groupDisplayName
+                                                                                : item.name
+                                                                        )}
+                                                                    </span>
+                                                                    <LemonTag
+                                                                        size="small"
+                                                                        type="muted"
+                                                                        className="shrink-0"
+                                                                    >
+                                                                        {highlightText(
+                                                                            capitalizeFirstLetter(groupNoun.trim())
+                                                                        )}
+                                                                    </LemonTag>
+                                                                </>
+                                                            ) : (
+                                                                <span className="text-sm truncate text-primary">
+                                                                    {search ? (
+                                                                        <SearchHighlightMultiple
+                                                                            string={item.name}
+                                                                            substring={search}
+                                                                        />
+                                                                    ) : (
+                                                                        item.displayName || item.name
+                                                                    )}
+                                                                </span>
+                                                            )}
+                                                            {lastViewedAt ? (
+                                                                <span className="text-xs text-muted whitespace-nowrap">
+                                                                    {formatRelativeTimeShort(lastViewedAt)}
+                                                                </span>
+                                                            ) : null}
+                                                        </span>
+                                                    </Link>
+                                                </ListBox.Item>
+                                            </ContextMenuTrigger>
+                                            <ContextMenuContent loop className="max-w-[250px]">
+                                                <ContextMenuGroup>
+                                                    <MenuItems
+                                                        item={convertToTreeDataItem(item)}
+                                                        type="context"
+                                                        root="project://"
+                                                        onlyTree={false}
+                                                        showSelectMenuOption={false}
+                                                    />
+                                                </ContextMenuGroup>
+                                            </ContextMenuContent>
+                                        </ContextMenu>
+                                        <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                                <ButtonPrimitive
+                                                    size="xs"
+                                                    iconOnly
+                                                    isSideActionRight
+                                                    className="opacity-0 group-hover:opacity-100 group-has-[button[data-state=open]]:opacity-100 mt-px"
+                                                >
+                                                    <IconEllipsis className="size-3" />
+                                                </ButtonPrimitive>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent
+                                                loop
+                                                align="end"
+                                                side="bottom"
+                                                className="max-w-[250px]"
+                                            >
+                                                <DropdownMenuGroup>
+                                                    <MenuItems
+                                                        item={convertToTreeDataItem(item)}
+                                                        type="dropdown"
+                                                        root="project://"
+                                                        onlyTree={false}
+                                                        showSelectMenuOption={false}
+                                                    />
+                                                </DropdownMenuGroup>
+                                            </DropdownMenuContent>
+                                        </DropdownMenu>
+                                    </ButtonGroupPrimitive>
+                                )
+                            })}
+                            {newTabSceneData &&
+                                (() => {
+                                    const currentLimit = getSectionItemLimit(category)
+                                    const fullCount = newTabSceneDataGroupedItemsFullData[category] || 0
+                                    const hasMore = fullCount > currentLimit
+
+                                    return (
+                                        hasMore && (
                                             <ListBox.Item
                                                 asChild
-                                                focusFirst={focusFirst}
-                                                row={index}
-                                                column={columnIndex}
+                                                focusKey={`show-all-${category}`}
+                                                index={typedItems.length} // This button is at the end of the group
                                             >
-                                                <Link
-                                                    to={item.href || '#'}
-                                                    className="w-full"
-                                                    buttonProps={{
-                                                        size: 'sm',
-                                                        hasSideActionRight: true,
-                                                        className:
-                                                            'data-[focused=true]:outline-2 data-[focused=true]:outline-accent',
+                                                <ButtonPrimitive
+                                                    size="sm"
+                                                    onClick={() => {
+                                                        const showAllIndex = typedItems.length // The "Show all" button index
+
+                                                        showMoreInSection(category)
+
+                                                        // Restore focus to the item that replaces the "Show all" button
+                                                        setTimeout(() => {
+                                                            // Focus the item at the same index where the "Show all" button was
+                                                            groupRef.current?.resumeFocus(showAllIndex)
+                                                        }, 0)
                                                     }}
+                                                    className="w-full text-tertiary data-[focused=true]:text-primary"
                                                 >
-                                                    <span className="text-sm">{item.icon ?? item.name[0]}</span>
-                                                    <span className="flex min-w-0 items-center gap-2">
-                                                        <span className="text-sm truncate text-primary">
-                                                            {search ? (
-                                                                <SearchHighlightMultiple
-                                                                    string={item.name}
-                                                                    substring={search}
-                                                                />
-                                                            ) : (
-                                                                item.displayName || item.name
-                                                            )}
-                                                        </span>
-                                                        {lastViewedAt ? (
-                                                            <span className="text-xs text-muted whitespace-nowrap">
-                                                                {formatRelativeTimeShort(lastViewedAt)}
-                                                            </span>
-                                                        ) : null}
-                                                    </span>
-                                                </Link>
+                                                    <IconArrowRight className="rotate-90" /> Show all (
+                                                    {fullCount - currentLimit} more)
+                                                </ButtonPrimitive>
                                             </ListBox.Item>
-                                        </ContextMenuTrigger>
-                                        <ContextMenuContent loop className="max-w-[250px]">
-                                            <ContextMenuGroup>
-                                                <MenuItems
-                                                    item={convertToTreeDataItem(item)}
-                                                    type="context"
-                                                    root="project://"
-                                                    onlyTree={false}
-                                                    showSelectMenuOption={false}
-                                                />
-                                            </ContextMenuGroup>
-                                        </ContextMenuContent>
-                                    </ContextMenu>
-                                    <DropdownMenu>
-                                        <DropdownMenuTrigger asChild>
-                                            <ButtonPrimitive
-                                                size="xs"
-                                                iconOnly
-                                                isSideActionRight
-                                                className="opacity-0 group-hover:opacity-100 group-has-[button[data-state=open]]:opacity-100 mt-px"
-                                            >
-                                                <IconEllipsis className="size-3" />
-                                            </ButtonPrimitive>
-                                        </DropdownMenuTrigger>
-                                        <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">
-                                            <DropdownMenuGroup>
-                                                <MenuItems
-                                                    item={convertToTreeDataItem(item)}
-                                                    type="dropdown"
-                                                    root="project://"
-                                                    onlyTree={false}
-                                                    showSelectMenuOption={false}
-                                                />
-                                            </DropdownMenuGroup>
-                                        </DropdownMenuContent>
-                                    </DropdownMenu>
-                                </ButtonGroupPrimitive>
-                            )
-                        })
+                                        )
+                                    )
+                                })()}
+                        </ListBox.Group>
                     )}
                     {newTabSceneData && (
                         <>
-                            {(() => {
-                                const currentLimit = getSectionItemLimit(category)
-                                const fullCount = newTabSceneDataGroupedItemsFullData[category] || 0
-                                const hasMore = fullCount > currentLimit
-
-                                return (
-                                    hasMore && (
-                                        <ListBox.Item asChild>
-                                            <ButtonPrimitive
-                                                size="sm"
-                                                onClick={() => showMoreInSection(category)}
-                                                className="w-full text-tertiary data-[focused=true]:outline-2 data-[focused=true]:outline-accent data-[focused=true]:text-primary"
-                                            >
-                                                <IconArrowRight className="rotate-90" /> Show all (
-                                                {fullCount - currentLimit} more)
-                                            </ButtonPrimitive>
-                                        </ListBox.Item>
-                                    )
-                                )
-                            })()}
                             {category === 'persons' && (
                                 <ListBox.Item asChild>
                                     <Link
                                         to={urls.persons()}
                                         buttonProps={{
                                             size: 'sm',
-                                            className:
-                                                'w-full text-tertiary data-[focused=true]:outline-2 data-[focused=true]:outline-accent data-[focused=true]:text-primary',
+                                            className: 'w-full text-tertiary data-[focused=true]:text-primary',
                                         }}
                                     >
-                                        <IconArrowRight /> See all persons
+                                        <IconExternal /> See all persons
                                     </Link>
                                 </ListBox.Item>
                             )}
@@ -307,11 +374,23 @@ function Category({
                                         to={urls.eventDefinitions()}
                                         buttonProps={{
                                             size: 'sm',
-                                            className:
-                                                'w-full text-tertiary data-[focused=true]:outline-2 data-[focused=true]:outline-accent data-[focused=true]:text-primary',
+                                            className: 'w-full text-tertiary data-[focused=true]:text-primary',
                                         }}
                                     >
-                                        <IconArrowRight /> See all events
+                                        <IconExternal /> See all events
+                                    </Link>
+                                </ListBox.Item>
+                            )}
+                            {category === 'groups' && groupTypes.size > 0 && (
+                                <ListBox.Item asChild>
+                                    <Link
+                                        to={urls.groups(Array.from(groupTypes.keys())[0])}
+                                        buttonProps={{
+                                            size: 'sm',
+                                            className: 'w-full text-tertiary data-[focused=true]:text-primary',
+                                        }}
+                                    >
+                                        <IconExternal /> See all groups
                                     </Link>
                                 </ListBox.Item>
                             )}
@@ -321,11 +400,10 @@ function Category({
                                         to={urls.propertyDefinitions()}
                                         buttonProps={{
                                             size: 'sm',
-                                            className:
-                                                'w-full text-tertiary data-[focused=true]:outline-2 data-[focused=true]:outline-accent data-[focused=true]:text-primary',
+                                            className: 'w-full text-tertiary data-[focused=true]:text-primary',
                                         }}
                                     >
-                                        <IconArrowRight /> See all properties
+                                        <IconExternal /> See all properties
                                     </Link>
                                 </ListBox.Item>
                             )}
@@ -409,6 +487,7 @@ export function Results({
                                                 focusFirst={filteredItemsGrid.length > 0 && index === 0}
                                                 row={index}
                                                 column={0}
+                                                focusKey={item.id}
                                             >
                                                 <Link
                                                     to={item.href || '#'}
@@ -509,7 +588,7 @@ export function Results({
                                         searchInputRef.current?.focus()
                                     }}
                                     variant="panel"
-                                    className="list-none data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
+                                    className="list-none"
                                 >
                                     Clear search
                                 </ButtonPrimitive>
@@ -520,7 +599,6 @@ export function Results({
                                     size="sm"
                                     onClick={() => openSidePanel(SidePanelTab.Max)}
                                     variant="panel"
-                                    className="data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
                                 >
                                     <IconSparkles />
                                     Ask Posthog AI

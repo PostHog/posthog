@@ -7,7 +7,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import PersonsOnEventsMode
 
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.constants import (
@@ -75,7 +75,7 @@ class ClickhouseFunnelBase(ABC):
         self._filter.hogql_context.modifiers.personsOnEventsMode = alias_poe_mode_for_legacy(team.person_on_events_mode)
 
         # Recreate the database with the legacy-alised PoE mode
-        self._filter.hogql_context.database = create_hogql_database(
+        self._filter.hogql_context.database = Database.create_for(
             team=self._team, modifiers=self._filter.hogql_context.modifiers
         )
 
