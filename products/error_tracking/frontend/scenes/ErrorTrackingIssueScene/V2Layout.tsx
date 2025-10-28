@@ -25,6 +25,7 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SidePanelTab } from '~/types'
 
 import { BreakdownsChart } from '../../components/Breakdowns/BreakdownsChart'
@@ -60,44 +61,47 @@ export function V2Layout(): JSX.Element {
                 </LemonBanner>
             )}
 
-            <div className="ErrorTrackingIssue grid grid-cols-10 gap-6">
-                <div className="col-span-3 border-r flex flex-col min-h-0">
-                    <div className="flex justify-between p-1">
-                        <SceneBreadcrumbBackButton />
-                        <div>
-                            <ButtonPrimitive
-                                onClick={() => {
-                                    if (!hasDiscussions) {
-                                        posthog.updateEarlyAccessFeatureEnrollment('discussions', true)
-                                    }
-                                    openSidePanel(SidePanelTab.Discussion)
-                                }}
-                                tooltip="Comment"
-                            >
-                                <IconComment />
-                            </ButtonPrimitive>
+            <SceneTitleSection
+                resourceType={{ type: 'issue' }}
+                name={null}
+                actions={
+                    <>
+                        <ButtonPrimitive
+                            onClick={() => {
+                                if (!hasDiscussions) {
+                                    posthog.updateEarlyAccessFeatureEnrollment('discussions', true)
+                                }
+                                openSidePanel(SidePanelTab.Discussion)
+                            }}
+                            tooltip="Comment"
+                        >
+                            <IconComment />
+                        </ButtonPrimitive>
 
-                            <ButtonPrimitive
-                                onClick={() => {
-                                    if (issue) {
-                                        void copyToClipboard(
-                                            window.location.origin + urls.errorTrackingIssue(issue.id),
-                                            'issue link'
-                                        )
-                                    }
-                                }}
-                                tooltip="Share"
-                            >
-                                <IconShare />
-                            </ButtonPrimitive>
-                        </div>
-                    </div>
-                    <LemonDivider className="my-0" />
+                        <ButtonPrimitive
+                            onClick={() => {
+                                if (issue) {
+                                    void copyToClipboard(
+                                        window.location.origin + urls.errorTrackingIssue(issue.id),
+                                        'issue link'
+                                    )
+                                }
+                            }}
+                            tooltip="Share"
+                        >
+                            <IconShare />
+                        </ButtonPrimitive>
+                    </>
+                }
+            />
+
+            <div className="ErrorTrackingIssue grid grid-cols-9 gap-2">
+                <div className="col-span-3 flex flex-col min-h-0">
                     <div className="p-2 space-y-2">
                         <ErrorTrackingIssueScenePanel showActions={false} />
                     </div>
                 </div>
-                <div className="flex col-span-7 gap-y-2 flex-col">
+                <div className="flex col-span-6 gap-y-2 flex-col">
                     <Breadcrumbs />
                     <CategoryContent />
                 </div>
@@ -165,8 +169,6 @@ const Breadcrumbs = (): JSX.Element => {
 
     return (
         <div className="flex items-center gap-x-2 border bg-surface-tertiary py-1 px-2 rounded">
-            <div>Issue</div>
-            <div>/</div>
             <div className="flex items-center">
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
