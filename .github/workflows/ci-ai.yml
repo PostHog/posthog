@@ -79,5 +79,5 @@ jobs:
                   github-token: ${{ secrets.POSTHOG_BOT_PAT }}
                   script: |
                       const fs = require("fs")
-                      const script = require('.github/scripts/post-eval-summary.ts')
+                      const script = require('.github/scripts/post-eval-summary.js')
                       script({ github, context, fs })
