@@ -271,7 +271,7 @@ export const FEATURE_FLAGS = {
     PERSON_READ_TEST_FLAG: 'person-read-test-flag', // owner: @nickbest - #team-ingestion
     CDP_PERSON_UPDATES: 'cdp-person-updates', // owner: #team-workflows-cdp
     ACTIVITY_OR_EXPLORE: 'activity-or-explore', // owner: @pauldambra #team-replay
-    LINEAGE_DEPENDENCY_VIEW: 'lineage-dependency-view', // owner: @phixMe #team-data-warehouse
+    LINEAGE_DEPENDENCY_VIEW: 'lineage-dependency-view', // owner: @phixMe #team-data-stack
     TRACK_MEMORY_USAGE: 'track-memory-usage', // owner: @pauldambra #team-replay
     TAXONOMIC_EVENT_SORTING: 'taxonomic-event-sorting', // owner: @pauldambra #team-replay
     REPLAY_FILTERS_IN_PLAYLIST_MAX_AI: 'replay-filters-in-playlist-max-ai', // owner: @veryayskiy #team-replay
@@ -288,8 +288,8 @@ export const FEATURE_FLAGS = {
     PATH_CLEANING_FILTER_TABLE_UI: 'path-cleaning-filter-table-ui', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_CONVERSION_GOAL_PREAGG: 'web-analytics-conversion-goal-preagg', // owner: @lricoy #team-web-analytics
     REPLAY_SETTINGS_HELP: 'replay-settings-help', // owner: @veryayskiy #team-replay
-    EDITOR_DRAFTS: 'editor-drafts', // owner: @EDsCODE #team-data-warehouse
-    DATA_WAREHOUSE_SCENE: 'data-warehouse-scene', // owner: @naumaanh #team-data-warehouse
+    EDITOR_DRAFTS: 'editor-drafts', // owner: @EDsCODE #team-data-stack
+    DATA_WAREHOUSE_SCENE: 'data-warehouse-scene', // owner: @naumaanh #team-data-stack
     MAX_BILLING_CONTEXT: 'max-billing-context', // owner: @pawel-cebula #team-billing
     TASKS: 'tasks', // owner: #team-llm-analytics
     MANAGED_VIEWSETS: 'managed-viewsets', // owner: @rafaeelaudibert #team-revenue-analytics
@@ -326,6 +326,8 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_USE_NEW_QUERY_BUILDER: 'experiments-use-new-query-builder', // owner: @andehen #team-experiments
     ADVANCE_MARKETING_ANALYTICS_SETTINGS: 'advance-marketing-analytics-settings', // owner: @jabahamondes  #team-web-analytics
     SHOPIFY_DWH: 'shopify-dwh', // owner: @andrew #team-data-stack
+    DWH_FREE_SYNCS: 'dwh-free-syncs', // owner: @Gilbert09  #team-data-stack
+    COPY_WEB_ANALYTICS_DATA: 'copy-web-analytics-data', // owner: @lricoy  #team-web-analytics
 } as const
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
