@@ -65,6 +65,51 @@ class TestTaxonomyAgentNode(BaseTest):
 
     @patch("ee.hogai.graph.taxonomy.nodes.merge_message_runs")
     @patch("ee.hogai.graph.taxonomy.nodes.format_events_yaml")
+    def test_loop_preserves_previous_results_and_appends_new_calls(self, mock_format_events, mock_merge):
+        mock_format_events.return_value = "formatted events"
+        mock_merge.return_value = Mock()
+
+        mock_chain = Mock()
+        mock_output = Mock()
+        mock_output.tool_calls = [{"name": "new_tool", "args": {"param": "value"}, "id": "new_id"}]
+        mock_output.content = "test content"
+        mock_output.id = "message_id"
+        mock_chain.invoke.return_value = mock_output
+
+        with (
+            patch.object(self.node, "_construct_messages") as mock_construct,
+            patch.object(self.node, "_get_model") as mock_get_model,
+        ):
+            mock_template = Mock()
+            mock_construct.return_value = mock_template
+            mock_model = Mock()
+            mock_get_model.return_value = mock_model
+
+            mock_template.__or__ = Mock(return_value=Mock())
+            mock_template.__or__.return_value.__or__ = Mock(return_value=mock_chain)
+
+            state = TaxonomyAgentState()
+            state.intermediate_steps = [(AgentAction(tool="old_tool", tool_input={}, log="old_id"), "old_result")]
+
+            config = RunnableConfig()
+            result = self.node.run(state, config)
+
+            self.assertIsInstance(result, TaxonomyAgentState)
+            self.assertIsNotNone(result.intermediate_steps)
+            self.assertEqual(len(result.intermediate_steps), 2)
+
+            # Old step is preserved with its result
+            old_action, old_obs = result.intermediate_steps[0]
+            self.assertEqual(old_action.log, "ol    d_id")
+            self.assertEqual(old_obs, "old_result")
+
+            # New step is appended with None observation (pending)
+            new_action, new_obs = result.intermediate_steps[1]
+            self.assertEqual(new_action.log, "new_id")
+            self.assertIsNone(new_obs)
+
+    @patch("ee.hogai.graph.taxonomy.nodes.merge_message_runs")
+    @patch("ee.hogai.graph.taxonomy.nodes.format_events_yaml")
     def test_run_basic_flow(self, mock_format_events, mock_merge):
         mock_format_events.return_value = "formatted events"
         mock_merge.return_value = Mock()
