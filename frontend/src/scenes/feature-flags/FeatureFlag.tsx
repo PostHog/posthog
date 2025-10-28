@@ -375,7 +375,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                     >
                         <SceneTitleSection
                             name={featureFlag.key}
-                            resourceType={{ type: 'feature_flag' }}
+                            resourceType={{
+                                type: featureFlag.active ? 'feature_flag' : 'feature_flag_off',
+                            }}
                             actions={
                                 <>
                                     <LemonButton
@@ -782,7 +784,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 name={featureFlag.key}
                                 description={featureFlag.name}
                                 resourceType={{
-                                    type: 'feature_flag',
+                                    type: featureFlag.active ? 'feature_flag' : 'feature_flag_off',
                                 }}
                                 actions={
                                     <>
