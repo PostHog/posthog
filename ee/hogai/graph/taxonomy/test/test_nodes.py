@@ -320,12 +320,14 @@ class TestTaxonomyAgentToolsNode(BaseTest):
 
         action1 = AgentAction(tool="retrieve_event_properties", tool_input={"event_name": "$ai_generation"}, log="id1")
         action2 = AgentAction(tool="retrieve_event_properties", tool_input={"event_name": "$ai_generation"}, log="id2")
-        state = TaxonomyAgentState(intermediate_steps=[(action1, None), (action2, None)])
+        state: TaxonomyAgentState = TaxonomyAgentState(intermediate_steps=[(action1, None), (action2, None)])
 
         # Must not raise KeyError
         result = await self.node.arun(state, RunnableConfig())
 
         # Verify both actions got results
+        self.assertIsNotNone(result.intermediate_steps)
+        assert result.intermediate_steps is not None
         self.assertEqual(len(result.intermediate_steps), 2)
         self.assertEqual(result.intermediate_steps[0][0].log, "id1")
         self.assertEqual(result.intermediate_steps[1][0].log, "id2")
