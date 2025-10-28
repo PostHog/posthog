@@ -120,7 +120,7 @@ export function ExperimentMetricForm({
     handleSetMetric: (newMetric: ExperimentMetric) => void
     filterTestAccounts: boolean
     exposureCriteria?: ExperimentExposureCriteria | undefined
-    openExposureCriteriaModal?: () => void | null
+    openExposureCriteriaModal?: (() => void) | null
 }): JSX.Element {
     const mathAvailability = getMathAvailability(metric.metric_type)
     const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
