@@ -9,10 +9,8 @@ logger = structlog.get_logger(__name__)
 
 EXAMPLES_PER_PATTERN_LIMIT = 5
 
-PATTERNS_STRING_FORMAT = """
-# Patterns
-{{ patterns_str }}
-"""
+PATTERNS_STRING_FORMAT = """# Patterns
+{{ patterns_str }}"""
 
 PATTERN_STRING_FORMAT = """
 ## Pattern: {{ pattern_name }} ({{ severity }})

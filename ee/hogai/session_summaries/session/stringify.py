@@ -5,11 +5,9 @@ from jinja2 import Template
 
 logger = structlog.get_logger(__name__)
 
-SESSION_STRING_FORMAT = """
-# Session `{{ session_id }}`
+SESSION_STRING_FORMAT = """# Session `{{ session_id }}`
 {%if success%}Success{%else%}Failure{%endif%}. {{ description }}.
-{{ session_segments_str }}
-"""
+{{ session_segments_str }}"""
 
 SEGMENT_STRING_FORMAT = """
 ## Segment #{{ segment_index }}
