@@ -203,8 +203,8 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                                     inlineClassName: className,
                                     hoverMessage: {
                                         value: viewInfo.is_materialized
-                                            ? `Materialized view: **${tableName}** (Ctrl+Click to open)`
-                                            : `View: **${tableName}** (Ctrl+Click to open)`,
+                                            ? `Materialized view: **${tableName}** (Ctrl+Click to open in new tab)`
+                                            : `View: **${tableName}** (Ctrl+Click to open in new tab)`,
                                     },
                                 },
                             })

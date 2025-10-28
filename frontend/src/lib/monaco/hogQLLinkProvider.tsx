@@ -49,7 +49,7 @@ export const hogQLLinkProvider: () => languages.LinkProvider = () => ({
                         endColumn: endPos.column,
                     },
                     url: `#view:${viewInfo.id}`,
-                    tooltip: `Open ${viewInfo.is_materialized ? 'materialized view' : 'view'}: ${tableName}`,
+                    tooltip: `Open ${viewInfo.is_materialized ? 'materialized view' : 'view'}: ${tableName} in new tab`,
                 })
             }
         }

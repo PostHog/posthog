@@ -1258,7 +1258,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             const { viewId } = event.detail
             const view = values.dataWarehouseSavedQueryMapById[viewId]
             if (view) {
-                actions.editView(view.query.query || '', view)
+                // Open the view in a new browser tab
+                window.open(urls.sqlEditor(undefined, viewId), '_blank')
             }
         }
 
