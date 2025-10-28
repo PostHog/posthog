@@ -398,7 +398,7 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED)
 
 
-class HeatmapSavedRequestSerializer(serializers.ModelSerializer):
+class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
     widths = serializers.ListField(
         child=serializers.IntegerField(min_value=100, max_value=3000), required=False, allow_empty=False
     )
@@ -421,7 +421,7 @@ class HeatmapSavedRequestSerializer(serializers.ModelSerializer):
         }
 
 
-class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):
+class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):
     scope_object = "INTERNAL"
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapScreenshotResponseSerializer
@@ -472,7 +472,7 @@ class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
         return response.Response({"results": data, "count": count}, status=status.HTTP_200_OK)
 
     def create(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        serializer = HeatmapSavedRequestSerializer(data=request.data)
+        serializer = SavedHeatmapRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         name = serializer.validated_data.get("name")
@@ -518,7 +518,7 @@ class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
 
     def partial_update(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         obj = self.get_object()
-        serializer = HeatmapSavedRequestSerializer(obj, data=request.data, partial=True)
+        serializer = SavedHeatmapRequestSerializer(obj, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         updated = serializer.save()
 
