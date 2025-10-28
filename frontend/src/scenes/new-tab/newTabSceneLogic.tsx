@@ -11,7 +11,6 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import {
@@ -137,6 +136,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         showMoreInSection: (section: string) => ({ section }),
         resetSectionLimits: true,
         askAI: (searchTerm: string) => ({ searchTerm }),
+        logCreateNewItem: (href: string | null | undefined) => ({ href }),
     }),
     loaders(({ values }) => ({
         sceneLogViews: [
@@ -144,6 +144,14 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             {
                 loadSceneLogViews: async () => {
                     return await api.fileSystemLogView.list({ type: 'scene' })
+                },
+            },
+        ],
+        newLogViews: [
+            [] as FileSystemViewLogEntry[],
+            {
+                loadNewLogViews: async () => {
+                    return await api.fileSystemLogView.list({ type: 'create-new' })
                 },
             },
         ],
@@ -370,6 +378,21 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 )
             },
         ],
+        newLogViewsByRef: [
+            (s) => [s.newLogViews],
+            (newLogViews): Record<string, string> => {
+                return newLogViews.reduce(
+                    (acc, { ref, viewed_at }) => {
+                        const current = acc[ref]
+                        if (!current || Date.parse(viewed_at) > Date.parse(current)) {
+                            acc[ref] = viewed_at
+                        }
+                        return acc
+                    },
+                    {} as Record<string, string>
+                )
+            },
+        ],
         newTabSceneDataIncludePersons: [
             (s) => [s.newTabSceneDataInclude],
             (include): boolean => include.includes('persons'),
@@ -583,12 +606,19 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             (sectionItemLimits: Record<string, number>) => (section: string) => sectionItemLimits[section] || 5,
         ],
         itemsGrid: [
-            (s) => [s.featureFlags, s.projectTreeSearchItems, s.aiSearchItems, s.sceneLogViewsByRef],
+            (s) => [
+                s.featureFlags,
+                s.projectTreeSearchItems,
+                s.aiSearchItems,
+                s.sceneLogViewsByRef,
+                s.newLogViewsByRef,
+            ],
             (
                 featureFlags: any,
                 projectTreeSearchItems: NewTabTreeDataItem[],
                 aiSearchItems: NewTabTreeDataItem[],
-                sceneLogViewsByRef: Record<string, string>
+                sceneLogViewsByRef: Record<string, string>,
+                newLogViewsByRef: Record<string, string>
             ): NewTabTreeDataItem[] => {
                 const registerSceneKey = (map: Map<string, string>, key?: string | null, sceneKey?: string): void => {
                     if (!key || !sceneKey || map.has(key)) {
@@ -628,6 +658,9 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 const getLastViewedAt = (sceneKey?: string | null): string | null =>
                     sceneKey ? (sceneLogViewsByRef[sceneKey] ?? null) : null
 
+                const getLastViewedAtForHref = (href?: string | null): string | null =>
+                    href ? (newLogViewsByRef[href] ?? null) : null
+
                 const defaultProducts = getDefaultTreeProducts()
                 const defaultData = getDefaultTreeData()
 
@@ -665,7 +698,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         flag: fs.flag,
                         icon: getIconForFileSystemItem(fs),
                         record: fs,
-                        lastViewedAt: getLastViewedAt(getSceneKeyForFs(fs)),
+                        lastViewedAt: getLastViewedAtForHref(fs.href),
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
@@ -679,7 +712,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         flag: fs.flag,
                         icon: getIconForFileSystemItem(fs),
                         record: fs,
-                        lastViewedAt: getLastViewedAt(getSceneKeyForFs(fs)),
+                        lastViewedAt: getLastViewedAtForHref(fs.href),
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
@@ -693,7 +726,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         flag: fs.flag,
                         icon: getIconForFileSystemItem(fs),
                         record: fs,
-                        lastViewedAt: getLastViewedAt(getSceneKeyForFs(fs)),
+                        lastViewedAt: getLastViewedAtForHref(fs.href),
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
@@ -744,7 +777,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         icon: <IconDatabase />,
                         href: '/sql',
                         record: { type: 'query', path: 'New SQL query' },
-                        lastViewedAt: getLastViewedAt(Scene.SQLEditor),
+                        lastViewedAt: getLastViewedAtForHref('/sql'),
                     },
                     ...sortedNewInsightItems,
                     ...sortedNewOtherItems,
@@ -758,7 +791,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         icon: <IconHogQL />,
                         href: '/debug/hog',
                         record: { type: 'hog', path: 'New Hog program' },
-                        lastViewedAt: getLastViewedAt(Scene.DebugHog),
+                        lastViewedAt: getLastViewedAtForHref('/debug/hog'),
                     },
                 ])
                 return allItems
@@ -1094,6 +1127,19 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
+        logCreateNewItem: async ({ href }) => {
+            if (!href) {
+                return
+            }
+
+            try {
+                await api.fileSystemLogView.create({ type: 'create-new', ref: href })
+            } catch (error) {
+                console.error('Failed to log create new item usage:', error)
+            }
+
+            actions.loadNewLogViews()
+        },
         triggerSearchForIncludedItems: () => {
             const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
 
@@ -1128,11 +1174,15 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             }
         },
         onSubmit: () => {
-            if (values.selectedItem) {
-                if (values.selectedItem.category === 'askAI' && values.selectedItem.record?.searchTerm) {
-                    actions.askAI(values.selectedItem.record.searchTerm)
-                } else if (values.selectedItem.href) {
-                    router.actions.push(values.selectedItem.href)
+            const selected = values.selectedItem
+            if (selected) {
+                if (selected.category === 'askAI' && selected.record?.searchTerm) {
+                    actions.askAI(selected.record.searchTerm)
+                } else if (selected.href) {
+                    if (selected.category === 'create-new') {
+                        actions.logCreateNewItem(selected.href)
+                    }
+                    router.actions.push(selected.href)
                 }
             }
         },
@@ -1417,6 +1467,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
     })),
     afterMount(({ actions, values }) => {
         actions.loadSceneLogViews()
+        actions.loadNewLogViews()
         actions.loadRecents()
 
         // Load initial data for data sections when "all" is selected by default

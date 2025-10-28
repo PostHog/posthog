@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
 import { IconArrowRight, IconEllipsis, IconInfo, IconSparkles } from '@posthog/icons'
@@ -127,7 +128,7 @@ function Category({
         getSectionItemLimit,
         newTabSceneDataInclude,
     } = useValues(newTabSceneLogic({ tabId }))
-    const { showMoreInSection } = useActions(newTabSceneLogic({ tabId }))
+    const { showMoreInSection, logCreateNewItem } = useActions(newTabSceneLogic({ tabId }))
 
     return (
         <>
@@ -177,6 +178,7 @@ function Category({
                     ) : (
                         <ListBox.Group ref={groupRef} groupId={`category-${category}`}>
                             {typedItems.map((item, index) => {
+                                const isCreateNew = item.category === 'create-new'
                                 const focusFirst =
                                     (newTabSceneData && isFirstCategoryWithResults && index === 0) ||
                                     (filteredItemsGrid.length > 0 && isFirstCategory && index === 0)
@@ -205,6 +207,15 @@ function Category({
                                                         buttonProps={{
                                                             size: 'sm',
                                                             hasSideActionRight: true,
+                                                        }}
+                                                        onClick={(e) => {
+                                                            e.preventDefault()
+                                                            if (item.href) {
+                                                                if (isCreateNew) {
+                                                                    logCreateNewItem(item.href)
+                                                                }
+                                                                router.actions.push(item.href)
+                                                            }
                                                         }}
                                                     >
                                                         <span className="text-sm">{item.icon ?? item.name[0]}</span>
@@ -379,7 +390,7 @@ export function Results({
         allCategories,
         firstCategoryWithResults,
     } = useValues(newTabSceneLogic({ tabId }))
-    const { setSearch } = useActions(newTabSceneLogic({ tabId }))
+    const { setSearch, logCreateNewItem } = useActions(newTabSceneLogic({ tabId }))
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
     const items = groupedFilteredItems[selectedCategory] || []
@@ -419,6 +430,7 @@ export function Results({
                         </div>
                     ) : (
                         typedItems.map((item, index) => {
+                            const isCreateNew = item.category === 'create-new'
                             return (
                                 // If we have filtered results set virtual focus to first item
                                 <ButtonGroupPrimitive key={item.id} className="group w-full border-0">
@@ -438,6 +450,15 @@ export function Results({
                                                         size: 'sm',
                                                         hasSideActionRight: true,
                                                         truncate: true,
+                                                    }}
+                                                    onClick={(e) => {
+                                                        e.preventDefault()
+                                                        if (item.href) {
+                                                            if (isCreateNew) {
+                                                                logCreateNewItem(item.href)
+                                                            }
+                                                            router.actions.push(item.href)
+                                                        }
                                                     }}
                                                 >
                                                     <span className="text-sm">{item.icon ?? item.name[0]}</span>
