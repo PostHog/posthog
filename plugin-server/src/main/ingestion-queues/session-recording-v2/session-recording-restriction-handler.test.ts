@@ -59,10 +59,10 @@ describe('SessionRecordingRestrictionHandler', () => {
             )
         })
 
-        it('passes through messages without token', async () => {
+        it('passes through messages without token', () => {
             const messages: Message[] = [createMessage()]
 
-            const result = await handler.applyRestrictions(messages)
+            const result = handler.applyRestrictions(messages)
 
             expect(result).toEqual(messages)
             expect(restrictionManager.shouldDropEvent).not.toHaveBeenCalled()
@@ -71,7 +71,7 @@ describe('SessionRecordingRestrictionHandler', () => {
             expect(SessionRecordingIngesterMetrics.observeOverflowedByRestrictions).not.toHaveBeenCalled()
         })
 
-        it('passes through messages when no restrictions match', async () => {
+        it('passes through messages when no restrictions match', () => {
             const messages: Message[] = [
                 createMessage({
                     headers: [{ token: 'token-1' }, { distinct_id: 'user-1' }],
@@ -81,7 +81,7 @@ describe('SessionRecordingRestrictionHandler', () => {
             jest.mocked(restrictionManager.shouldDropEvent).mockReturnValue(false)
             jest.mocked(restrictionManager.shouldForceOverflow).mockReturnValue(false)
 
-            const result = await handler.applyRestrictions(messages)
+            const result = handler.applyRestrictions(messages)
 
             expect(result).toEqual(messages)
             expect(restrictionManager.shouldDropEvent).toHaveBeenCalledWith('token-1', 'user-1')
@@ -90,7 +90,7 @@ describe('SessionRecordingRestrictionHandler', () => {
             expect(SessionRecordingIngesterMetrics.observeOverflowedByRestrictions).not.toHaveBeenCalled()
         })
 
-        it('filters out messages that should be dropped', async () => {
+        it('filters out messages that should be dropped', () => {
             const messages: Message[] = [
                 createMessage({
                     value: Buffer.from('test1'),
@@ -107,7 +107,7 @@ describe('SessionRecordingRestrictionHandler', () => {
             jest.mocked(restrictionManager.shouldDropEvent).mockImplementation((token) => token === 'drop-token')
             jest.mocked(restrictionManager.shouldForceOverflow).mockReturnValue(false)
 
-            const result = await handler.applyRestrictions(messages)
+            const result = handler.applyRestrictions(messages)
 
             expect(result).toHaveLength(1)
             expect(result[0]).toBe(messages[1])
@@ -115,7 +115,7 @@ describe('SessionRecordingRestrictionHandler', () => {
             expect(SessionRecordingIngesterMetrics.observeOverflowedByRestrictions).not.toHaveBeenCalled()
         })
 
-        it('redirects messages to overflow when forced', async () => {
+        it('redirects messages to overflow when forced', () => {
             const messages: Message[] = [
                 createMessage({
                     headers: [{ token: 'overflow-token' }, { distinct_id: 'user-1' }],
@@ -125,7 +125,7 @@ describe('SessionRecordingRestrictionHandler', () => {
             jest.mocked(restrictionManager.shouldDropEvent).mockReturnValue(false)
             jest.mocked(restrictionManager.shouldForceOverflow).mockReturnValue(true)
 
-            const result = await handler.applyRestrictions(messages)
+            const result = handler.applyRestrictions(messages)
 
             expect(result).toEqual([])
             expect(SessionRecordingIngesterMetrics.observeOverflowedByRestrictions).toHaveBeenCalledWith(1)
@@ -133,7 +133,7 @@ describe('SessionRecordingRestrictionHandler', () => {
             expect(promiseScheduler.schedule).toHaveBeenCalled()
         })
 
-        it('handles mixed messages correctly', async () => {
+        it('handles mixed messages correctly', () => {
             const messages: Message[] = [
                 createMessage({
                     value: Buffer.from('test1'),
@@ -162,7 +162,7 @@ describe('SessionRecordingRestrictionHandler', () => {
                 (token) => token === 'overflow-token'
             )
 
-            const result = await handler.applyRestrictions(messages)
+            const result = handler.applyRestrictions(messages)
 
             expect(result).toHaveLength(2)
             expect(result[0]).toBe(messages[2])
@@ -182,7 +182,7 @@ describe('SessionRecordingRestrictionHandler', () => {
             jest.mocked(restrictionManager.shouldDropEvent).mockReturnValue(false)
             jest.mocked(restrictionManager.shouldForceOverflow).mockReturnValue(true)
 
-            await handler.applyRestrictions(messages)
+            handler.applyRestrictions(messages)
 
             const scheduledPromise = jest.mocked(promiseScheduler.schedule).mock.calls[0][0]
             await scheduledPromise
@@ -199,7 +199,7 @@ describe('SessionRecordingRestrictionHandler', () => {
             })
         })
 
-        it('preserves message order for filtered messages', async () => {
+        it('preserves message order for filtered messages', () => {
             const messages: Message[] = [
                 createMessage({
                     value: Buffer.from('msg1'),
@@ -226,7 +226,7 @@ describe('SessionRecordingRestrictionHandler', () => {
             jest.mocked(restrictionManager.shouldDropEvent).mockReturnValue(false)
             jest.mocked(restrictionManager.shouldForceOverflow).mockReturnValue(false)
 
-            const result = await handler.applyRestrictions(messages)
+            const result = handler.applyRestrictions(messages)
 
             expect(result).toHaveLength(4)
             expect(result[0]).toBe(messages[0])
@@ -260,7 +260,7 @@ describe('SessionRecordingRestrictionHandler', () => {
             jest.mocked(restrictionManager.shouldDropEvent).mockReturnValue(false)
             jest.mocked(restrictionManager.shouldForceOverflow).mockReturnValue(true)
 
-            await handler.applyRestrictions(messages)
+            handler.applyRestrictions(messages)
 
             const scheduledPromise = jest.mocked(promiseScheduler.schedule).mock.calls[0][0]
             await scheduledPromise
@@ -276,7 +276,7 @@ describe('SessionRecordingRestrictionHandler', () => {
             expect(produceCalls[2][0].key).toEqual(Buffer.from('key3'))
         })
 
-        it('throws error when overflow producer is undefined and message should overflow', async () => {
+        it('throws error when overflow producer is undefined and message should overflow', () => {
             const handlerWithoutProducer = new SessionRecordingRestrictionHandler(
                 restrictionManager,
                 overflowTopic,
@@ -294,7 +294,7 @@ describe('SessionRecordingRestrictionHandler', () => {
             jest.mocked(restrictionManager.shouldDropEvent).mockReturnValue(false)
             jest.mocked(restrictionManager.shouldForceOverflow).mockReturnValue(true)
 
-            await expect(handlerWithoutProducer.applyRestrictions(messages)).rejects.toThrow(
+            expect(() => handlerWithoutProducer.applyRestrictions(messages)).toThrow(
                 'Cannot redirect 1 messages to overflow: no overflow producer available'
             )
         })
@@ -311,7 +311,7 @@ describe('SessionRecordingRestrictionHandler', () => {
             )
         })
 
-        it('does not redirect to overflow even when forced', async () => {
+        it('does not redirect to overflow even when forced', () => {
             const messages: Message[] = [
                 createMessage({
                     headers: [{ token: 'overflow-token' }, { distinct_id: 'user-1' }],
@@ -321,14 +321,14 @@ describe('SessionRecordingRestrictionHandler', () => {
             jest.mocked(restrictionManager.shouldDropEvent).mockReturnValue(false)
             jest.mocked(restrictionManager.shouldForceOverflow).mockReturnValue(true)
 
-            const result = await handler.applyRestrictions(messages)
+            const result = handler.applyRestrictions(messages)
 
             expect(result).toEqual(messages)
             expect(SessionRecordingIngesterMetrics.observeOverflowedByRestrictions).not.toHaveBeenCalled()
             expect(promiseScheduler.schedule).not.toHaveBeenCalled()
         })
 
-        it('still drops messages that should be dropped', async () => {
+        it('still drops messages that should be dropped', () => {
             const messages: Message[] = [
                 createMessage({
                     headers: [{ token: 'drop-token' }, { distinct_id: 'user-1' }],
@@ -337,7 +337,7 @@ describe('SessionRecordingRestrictionHandler', () => {
 
             jest.mocked(restrictionManager.shouldDropEvent).mockReturnValue(true)
 
-            const result = await handler.applyRestrictions(messages)
+            const result = handler.applyRestrictions(messages)
 
             expect(result).toEqual([])
             expect(SessionRecordingIngesterMetrics.observeDroppedByRestrictions).toHaveBeenCalledWith(1)

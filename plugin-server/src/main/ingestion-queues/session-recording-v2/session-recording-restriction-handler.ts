@@ -21,7 +21,7 @@ export class SessionRecordingRestrictionHandler {
      * Filters out dropped messages and redirects overflow messages.
      * Returns only messages that should be processed normally.
      */
-    async applyRestrictions(messages: Message[]): Promise<Message[]> {
+    applyRestrictions(messages: Message[]): Message[] {
         const filteredMessages: Message[] = []
         const overflowMessages: Message[] = []
         let droppedCount = 0

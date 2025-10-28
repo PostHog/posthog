@@ -209,7 +209,7 @@ export class SessionRecordingIngester {
         // Apply event ingestion restrictions before parsing
         const messagesToProcess = await instrumentFn(
             `recordingingesterv2.handleEachBatch.applyRestrictions`,
-            async () => this.restrictionHandler!.applyRestrictions(messages)
+            async () => Promise.resolve(this.restrictionHandler!.applyRestrictions(messages))
         )
 
         const processedMessages = await instrumentFn(`recordingingesterv2.handleEachBatch.parseBatch`, async () => {
