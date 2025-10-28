@@ -1135,7 +1135,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         if (item === 'persons') {
                             actions.loadInitialPersons({})
                         } else if (item === 'groups') {
-                            actions.loadInitialGroups({})
+                            actions.loadInitialGroups()
                         } else if (item === 'eventDefinitions') {
                             actions.loadInitialEventDefinitions({})
                         } else if (item === 'propertyDefinitions') {
@@ -1184,7 +1184,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         if (item === 'persons') {
                             actions.loadInitialPersons({})
                         } else if (item === 'groups') {
-                            actions.loadInitialGroups({})
+                            actions.loadInitialGroups()
                         } else if (item === 'eventDefinitions') {
                             actions.loadInitialEventDefinitions({})
                         } else if (item === 'propertyDefinitions') {
@@ -1213,6 +1213,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         actions.loadEventDefinitionSearchResultsSuccess([])
                     } else if (item === 'propertyDefinitions') {
                         actions.loadPropertyDefinitionSearchResultsSuccess([])
+                    } else if (item === 'groups') {
+                        actions.loadGroupSearchResultsSuccess({})
                     }
                 }
             }
@@ -1424,7 +1426,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         if (item === 'persons') {
                             actions.loadInitialPersons({})
                         } else if (item === 'groups') {
-                            actions.loadInitialGroups({})
+                            actions.loadInitialGroups()
                         } else if (item === 'eventDefinitions') {
                             actions.loadInitialEventDefinitions({})
                         } else if (item === 'propertyDefinitions') {
@@ -1456,7 +1458,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
         if (newTabSceneData && values.newTabSceneDataInclude.includes('all')) {
             actions.loadInitialPersons({})
-            actions.loadInitialGroups({})
+            actions.loadInitialGroups()
             actions.loadInitialEventDefinitions({})
             actions.loadInitialPropertyDefinitions({})
         }
