@@ -18,7 +18,7 @@
 !frontend/types
 !frontend/babel.config.js
 !frontend/webpack.config.js
-!gunicorn.config.py
+!granian.config.py
 !manage.py
 !turbo.json
 !package.json
@@ -49,7 +49,6 @@
 !test-runner-jest-environment.js
 !test-runner-jest.config.js
 !tsconfig.json
-!unit.json.tpl
 ee/frontend/node_modules
 common/*/*/node_modules
 common/*/node_modules
