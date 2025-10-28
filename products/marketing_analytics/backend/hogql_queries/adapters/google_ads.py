@@ -22,6 +22,7 @@ class GoogleAdsAdapter(MarketingSourceAdapter[GoogleAdsConfig]):
         return {
             "google": [
                 "google",
+                "adwords",
                 "youtube",
                 "display",
                 "gmail",
