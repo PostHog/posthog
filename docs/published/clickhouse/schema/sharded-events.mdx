@@ -1,0 +1,183 @@
+---
+title: sharded_events
+---
+
+`sharded_events` table powers our analytics and is the biggest table we have by orders of magnitude.
+
+In this document, we'll be dissecting the state of the table at the time of writing, some potential problems and improvements to it.
+
+## Schema
+
+```sql runInPostHog=false
+CREATE TABLE sharded_events
+(
+    uuid UUID,
+    event VARCHAR,
+    properties VARCHAR CODEC(ZSTD(3)),
+    timestamp DateTime64(6, 'UTC'),
+    team_id Int64,
+    distinct_id VARCHAR,
+    elements_chain VARCHAR,
+    created_at DateTime64(6, 'UTC'),
+    person_id UUID,
+    person_created_at DateTime64,
+    person_properties VARCHAR Codec(ZSTD(3)),
+    group0_properties VARCHAR Codec(ZSTD(3)),
+    group1_properties VARCHAR Codec(ZSTD(3)),
+    group2_properties VARCHAR Codec(ZSTD(3)),
+    group3_properties VARCHAR Codec(ZSTD(3)),
+    group4_properties VARCHAR Codec(ZSTD(3)),
+    group0_created_at DateTime64,
+    group1_created_at DateTime64,
+    group2_created_at DateTime64,
+    group3_created_at DateTime64,
+    group4_created_at DateTime64,
+    $group_0 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0',
+    $group_1 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1',
+    $group_2 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^"|"$', '') COMMENT 'column_materializer::$group_2',
+    $group_3 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^"|"$', '') COMMENT 'column_materializer::$group_3',
+    $group_4 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^"|"$', '') COMMENT 'column_materializer::$group_4',
+    $window_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$window_id'), '^"|"$', '') COMMENT 'column_materializer::$window_id',
+    $session_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::$session_id',
+    _timestamp DateTime,
+    _offset UInt64
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.events', '{replica}', _timestamp)
+PARTITION BY toYYYYMM(timestamp)
+ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
+SAMPLE BY cityHash64(distinct_id)
+```
+
+The table is sharded by `sipHash64(distinct_id)`
+
+## `ORDER BY`
+
+The ORDER BY clause for this table is:
+
+```sql runInPostHog=false
+ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
+```
+
+Most insight queries have filters along the lines of:
+
+```sql runInPostHog=false
+WHERE team_id = 2
+  AND event = '$pageview'
+  AND timestamp > '2022-11-03 00:00:00'
+  AND timestamp < '2022-11-10 00:00:00'
+```
+
+Which is well-served by the first 3 parts of this `ORDER BY`.
+
+Note that:
+- This ORDER BY doesn't speed up filtering by common JSON properties, as every matching event needs to be read from disk
+- By having `toDate(timestamp)` before `event`, we might be losing out on some compression benefits (due to same events probably having similar properties)
+
+Also instead of `distinct_id`, we now would want to include `person_id` in the ORDER BY to make counting unique persons faster.
+
+Evaluation: 🤷 It's reasonably good, but there are some potential improvements.
+
+## Sharding by `cityHash64(distinct_id)`
+
+Sharding by distinct_id means that many queries such as unique person counts or funnels
+[cannot be evaluated on individual replicas and data must be sent to coordinator node](/handbook/engineering/clickhouse/replication#example-query-limit-filter-and-aggregate).
+
+Luckily, this isn't the worst bottleneck in our production environments due to fast networking.
+
+Evaluation: 👎 this needs fixing, however [resharding data is hard](/handbook/engineering/clickhouse/operations#resharding).
+
+## `PARTITION BY toYYYYMM(timestamp)`
+
+All analytics queries filter by timestamp and recent data is much more frequently accessed.
+
+Partitioning this way allows us to skip reading a lot of parts and to move older data to cheaper (but older) storage.
+
+Evaluation: 👍 Critical to PostHog functioning well.
+
+## `person` columns
+
+Prior to having `person_id`, `person_properties`, `person_created_at` columns, when calculating funnels, unique users
+or filtering by persons or cohorts, queries always needed to JOIN one or two tables.
+
+JOINs in ClickHouse are expensive and this frequently caused memory errors for our largest users, so a lot of effort
+was put into being able to denormalize that data and for it to be stored in events table.
+
+Evaluation: 👍 Removes a fundamental bottleneck for scaling queries and allows for more efficient sharding in the future.
+
+## `properties` column and materialized columns
+
+A lot of queries touch JSON `properties` or `person_properties` columns, meaning performance on them is critical.
+On the other hand, JSON properties columns are the biggest ones we have and filtering on them is frequently slow due to I/O and parsing overheads.
+
+Some developments have helped speed this expensive operation up significantly:
+1. Adding support for materialized columns
+2. [Compressing these columns via `ZSTD(3)` codec](/handbook/engineering/clickhouse/data-storage#data-compression)
+
+The biggest unrealized win here is also allowing to skip reading rows via indexing or `ORDER BY`, but it's unclear on how that might be achieved.
+
+Read more on working with JSON data and materialized columns [here](/handbook/engineering/clickhouse/working-with-json).
+
+Evaluation: 🤷 A lot better than could be, but also a lot of unrealized potential.
+
+## `SAMPLE BY cityHash64(distinct_id)`
+
+Allowing data to be sampled helps speed up queries at the expense of having less accurate results. This can be helpful
+for allowing a fast data exploration experience.
+
+We should now be sampling by `person_id` column as analytics-by-person is _likely_ the most important thing.
+
+At the time of writing (November 2022), sampling is not yet supported by the PostHog app.
+
+## `ReplacingMergeTree` with `uuid` as sort key
+
+`ReplacingMergeTree` allows "replacing" old data with new given identical `ORDER BY` values. In our case, since
+we have a `uuid` column in `ORDER BY`, in theory users should be able to "fix" past data by re-emitting events
+with same event, date, and uuid but improved data.
+
+However this does not work as `ReplacingMergeTree` only does work at merge-time and:
+1. merges are not guaranteed to occur
+2. we're not accounting for duplicate-uuid data in queries and it would be prohibitively expensive to do so
+
+The only way to use this is to regularly use `OPTIMIZE TABLE sharded_events FINAL`, but that could
+make operations harder and require a lot of I/O due to needing to rewrite data.
+
+Sending data with custom `uuid`s is also undocumented and prone to bugs on our end.
+
+Evaluation: 🚫 This design decision is a mistake.
+
+## `elements_chain` column
+
+PostHog's JavaScript library has an autocapture feature, where we store actions users do on pages and DOM elements
+these actions are done against.
+
+`elements_chain` column contains the DOM hierarchy autocaptured events were done against. In queries we match
+against this using regular expressions.
+
+Evaluation: 🤷 Potentially suspect, but hasn't become an obvious performance bottleneck so far.
+
+## No pre-aggregation / precalculation
+
+Every time an insight query is made that doesn't hit the cache, PostHog needs to re-calculate the result
+off of the whole dataset.
+
+This is likely inevitable during exploration, but when working with dashboards that are refreshed every few hours
+or with common queries this is needlessly inefficient.
+
+There are several unproven ideas on how to could optimize this:
+
+### 1. Combine with previous results
+
+Due to `person` columns now being stored on `sharded_events` table, historical data in the table can be considered immutable.
+
+This means PostHog could store every query result after queries. On subsequent queries only query data ingested after previous query
+and combine results with the previous query results.
+
+In theory this works well with line graphs but harder to do with e.g. funnels and requires extensive in-app logic to build out.
+
+### 2. Projections
+
+Similarly, due to immutable data PostHog could calculate some frequent insights ahead of time.
+
+The [projections](https://clickhouse.com/docs/en/sql-reference/statements/alter/projection/) feature could feasibly help
+do this at a per-part level for consistency without special application logic.
+
+Next schema in the ClickHouse manual: [app_metrics](/handbook/engineering/clickhouse/schema/app-metrics)

@@ -1,0 +1,35 @@
+---
+title: ClickHouse Dictionaries
+---
+
+We don't use ClickHouse dictionaries very often, and there are a few aspects to them that have caused headaches in production.
+
+### Using a ClickHouse table as a source
+
+If you don't provide a `PASSWORD` when creating a dictionary, you will likely get errors like this with calling
+`getDictOrNull`:
+```
+Code: 516. DB::Exception: default: Authentication failed: password is incorrect, or there is no user with such name. If
+you have installed ClickHouse and forgot password you can reset it in the configuration file. The password for default
+user is typically located at /etc/clickhouse-server/users.d/default-password.xml and deleting this file will reset the
+password. See also /etc/clickhouse-server/users.xml on the server where ClickHouse is installed. : while executing '...'
+```
+
+You could provide one in the DDL, but the problem with this is that if the password is ever rotated, you will need to
+re-run the migration, or you'll start getting auth errors again.
+
+Here's an example of providing this section in the DDL:
+```
+CREATE DICTIONARY posthog.my_dict
+(
+    `a` String,
+    `b` String,
+    `c` Nullable(String),
+    `d` Nullable(String),
+    `e` Nullable(String)
+)
+PRIMARY KEY a, b
+SOURCE(CLICKHOUSE(TABLE 'my_table' PASSWORD 'hunter42'))
+LIFETIME(MIN 3000 MAX 3600)
+LAYOUT(COMPLEX_KEY_HASHED())
+```

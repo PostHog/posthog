@@ -1,0 +1,293 @@
+---
+title: ClickHouse Clusters 
+---
+
+We have three different ClickHouse clusters here at PostHog:
+
+1. Prod-US: Our main production cluster for the US.
+2. Prod-EU: Our main production cluster for the EU.
+3. Dev: Our development cluster.
+
+## Common features
+
+All clusters have these features in common:
+- They are all managed by the ClickHouse team.
+- They are all on version `23.12.5.81`
+- schema (roughly)
+- data retention policy
+- backup policy
+- monitoring
+- alerting
+
+
+### ZooKeeper
+
+We use ZooKeeper for ClickHouse replicated MergeTree tables. It is responsible for managing the replication of data between replicas and ensuring consistency.
+
+Eventually we want to migrate to ClickHouseKeeper.
+
+#### US
+
+- 3 ZooKeeper nodes
+- `m7g.2xlarge`
+- 8 vCPUs
+- Graviton2 CPU
+- 32 GiB RAM
+- Max Network 15 Gbps
+- Max EBS Throughput 1250 MB/s
+- 1 x 200 GiB GP3 EBS Data volume
+
+#### EU 
+
+- 3 ZooKeeper nodes
+- `m6g.2xlarge`
+- 8 vCPUs
+- Graviton2 CPU
+- 32 GiB RAM
+- Max Network 10 Gbps
+- Max EBS Throughput 593.75 MB/s
+- 1 x 200 GiB GP3 EBS Data volume
+
+#### Dev
+
+- 3 ZooKeeper nodes
+- `t4g.small`
+- 2 vCPUs
+- Graviton2 CPU
+- 2 GiB RAM
+- Max Network 5 Gbps
+- Max EBS Throughput 260 MB/s
+- 1 x 100 GiB GP3 EBS Data volume
+
+
+### Backup Policy
+
+We backup all production tables every day. Once a week we take a full backup and then incremental backups for the rest of the week. We keep backups for 8 days.
+
+Backups are managed through [HouseWatch](https://github.com/PostHog/HouseWatch)
+
+We are able to do point in time recovery between daily backups and replay from Kafka topics. We have retention on the events to ClickHouse topic set to 5 days.
+
+
+### HouseWatch
+
+https://github.com/PostHog/HouseWatch
+
+HouseWatch is our internal tool (that is also open source!) that we use to manage ClickHouse maintenance tasks such as backups.
+We also use it to benchmark queries, access logs, and other tasks the help to operate the cluster.
+
+You can find HouseWatch deployed on both Prod US and Prod EU Kubernetes clusters here:
+- [Prod US](http://housewatch-prod-us/)
+- [Prod EU](http://housewatch-prod-eu/)
+
+### CH Version
+
+Currently we run `23.12.5.81` 
+
+We run the same version in:
+- Developer environments
+- CI testing environments
+- Production environments
+
+We do this because ClickHouse is notorious for breaking changes between versions. We've seen issues with query syntax compatibility, data result consistency, and other unexpected issues between upgrades.
+
+In order to upgrade ClickHouse, we need to bump the version on CI to test for regressions and compatibility issues. We do this by **adding** the ClickHouse version to the [CI Matrix](https://github.com/PostHog/posthog/blob/master/.github/workflows/ci-backend.yml#L235) of ClickHouse versions.
+This has the issue of slowing down CI because we then run two tests for everything on the current and desired version on ClickHouse, but it works nicely because it shows the discrepancies between the versions clearly.
+
+Once we have resolved all issues on CI, we can then upgrade the ClickHouse version on:
+- Developer environments
+- Prod US
+- Prod EU
+- Dev cluster
+
+## Prod-US
+
+Prod US is our main production cluster for the US.
+
+It is made up of the following topology:
+
+- 2 shards
+- 3 replicas
+
+### Online Cluster
+
+2 out of the 3 replicas are what we call the 'Online cluster'. It serves all traffic coming in from us.posthog.com. We do this to guard against background tasks consuming resources and slowing down query times on the app. We've seen query time variability otherwise.
+
+### Offline Cluster
+
+The third replica is what we call the 'Offline cluster'. It serves all background tasks and other non-essential traffic. 
+
+Traffic that it serves:
+- Celery tasks
+    - Cohort precalculations
+    - Digest emails
+    - Billing reports
+    - Metrics reporting
+- Temporal tasks
+    - Historical exports
+    - Data warehouse syncs
+- Housewatch tasks
+    - Backups
+
+### Load Balancing
+
+We use AWS Network Load Balancers to route traffic to the correct replica. We have a separate load balancer for the Online and Offline clusters.
+We also have another Load Balancer that hits all nodes (Online and Offline) for tasks that don't need to be separated.
+
+- Online Cluster Load Balancer
+    - `ch-online.posthog.net`
+- Offline Cluster Load Balancer
+    - `ch-offline.posthog.net`
+- All Cluster Load Balancer
+    - `ch.posthog.net`
+
+Each of these have a target group for each node targeting ports `:8443` and `:9440`.
+
+### Data Retention Policy
+
+We currently keep all data for all time with no TTL when it comes to Events.
+
+We have a TTL for Session Replay data, which is 30 days.
+
+### Instance types
+
+The original nodes of the cluster are using `i3en.12xlarge` instances. We are currently in the process of migrating to `im4gn.16xlarge` instances.
+
+#### Online cluster
+
+- 2 shards
+- 2 replicas
+- `i3en.12xlarge` instances
+- 48 vCPUs
+- Intel Xeon CPU
+- 384 GiB RAM
+- Max Network 50 Gbps
+- Max EBS throughput 1187.5 MB/s
+- 4 x 7.5 TB NVMe SSD
+    - RAID 10 far layout
+    - md0 volume
+- 3 x 10TB GP3 EBS volumes
+    - JBOD configuration
+- 1 x 16TB GP3 EBS volume
+    - JBOD configuration
+
+
+#### Offline cluster
+
+- 2 shards
+- 1 replica
+- `im4gn.16xlarge` instances
+- 64 vCPUs
+- Graviton2 CPU
+- 256 GiB RAM
+- Max Network 100 Gbps
+- Max EBS Throughput 5000 MB/s
+- 4 x 7.5 TB NVMe SSD
+    - RAID 10 far layout
+    - md0 volume
+- 3 x 16TB GP3 EBS volumes
+    - JBOD configuration
+- 1 x 1TB GP3 EBS volume (Default)
+
+Old nodes are using `r6i.16xlarge` instances. These are being retired due to IO throughput constraints.
+
+### Tiered storage
+
+One of the nice features of our data is that recent data (data < 30 days old and generally hitting the 2 most recent active partitions) is the hottest both for reads and writes. This is a perfect fit for tiered storage.
+We can basically read and write to local ephemeral NVMe (with solid backup strategies) and then move the data to cheaper EBS volumes as it ages out.
+We currently do this using tiered storage configured simply by setting the `storage` configs in ClickHouse, but we eventually will want to move to setting TTLs on tables and having ClickHouse manage the tiering for us consistently.
+
+https://altinity.com/blog/2019-11-29-amplifying-clickhouse-capacity-with-multi-volume-storage-part-2
+
+
+### Monitoring
+
+https://grafana.prod-us.posthog.dev/d/vm-clickhouse-cluster-overview/clickhouse-cluster-overview?from=now-3h&to=now&timezone=utc&refresh=30s
+
+
+## Prod-EU
+
+Prod EU is our main production cluster for the EU.
+
+It is made up of the following setup:
+
+- 8 shards
+- 2 replicas
+- `m6g.8xlarge`
+- 32 vCPUs
+- Graviton2 CPU
+- 128 GiB RAM
+- Max Network 12 Gbps
+- Max EBS Throughput 1187.5 MB/s
+- Single 10TB GP3 EBS volume 
+
+
+We hit a problem with having smaller shards on EU that had a significant performance impact. We were running out of memory for larger queries which was also impacting our page cache hit rate.
+This was mainly due to limiting query size restrictions to protect other users of the cluster.
+We had two solutions for this. Increase the size of the nodes...meaning double the size for each instance x 16, very expensive. Or, we could setup a coordinator node.
+The coordinator node is a topology that allows us to effectively split the storage and compute tiers of the cluster into two pools of resources.
+We treat the current cluster of small nodes with many shards as the storage tier, they effectively are the mappers of the cluster and quickly fetch the data that we want for queries.
+We then send that relatively small data back to the coordinator and do the heavy lifting there which includes joins and aggregates.
+
+For the EU the coordinator node is:
+
+- 1 instance
+- `c7g.metal`
+- 64 vCPUs
+- metal Graviton3 CPU
+- 128 GiB RAM
+- Max Network 30 Gbps
+- Max EBS Throughput 2500 MB/s
+- 4 x 2.5TB GP3 EBS volumes
+This is more than anything we can get with any combination of EBS volumes alone (within reason $$$). A nice bonus on top of this is this does not impinge on the EBS throughput limits of the node.
+
+
+#### Coordinator schema
+
+The coordinator has distributed tables (`events`, `session_replay`) tables that point to the EU Prod cluster
+
+All non-sharded tables are replicated so that they are local to the coordinator.
+
+
+#### Coordinator future
+
+We should probably consider moving this to a `m7g.metal` if we hit any memory constraints with this, but so far we have not because of the dedicated nature of this node.
+
+We will also want to create new coodinators for multi-tenant workloads in the future. This will allow us to scale up and down easily over time, and even potentially throughout the day as the workload rises and falls.
+
+
+### Monitoring
+
+https://grafana.prod-eu.posthog.dev/d/vm-clickhouse-cluster-overview/clickhouse-cluster-overview
+
+
+## Dev
+
+Dev is a relatively basic setup for development and testing.
+
+- 1 shard
+- 2 replicas
+- 'm6id.4xlarge`
+- 16 vCPUs
+- Intel Xeon 8375C CPU
+- 64 GiB RAM
+- Max Network 12.5 Gbps
+- Max EBS Throughput 1250 MB/s
+- 1 x 950 GiB NVMe ephemeral disk
+
+We have a single shard with 2 replicas. This is to mimic the production setup as closely as possible. We have a single shard because we don't have the same volume of data as production. We have 2 replicas because we want to test failover scenarios.
+
+
+
+## Problems
+
+The biggest pain points on our ClickHouse clusters is Disk Throughput. We still are using mutations too frequently.
+Every mutation rewrites large portions of our data on disk. This requires reading, and writing huge amounts of data which robs normal queries and inserts of resources.
+The best solution that we've found to support the current high utilization of mutations is to move to nodes that have local NVMe storage.
+This, along with RAID 10 far 2 configs provides us with roughly 1000 MB/s writes and 4000 MB/s reads at the same time on a node.
+This is  than anything we can get with any combination of EBS volumes alone (within reason $$$). A nice bonus on top of this is this does not impinge on the EBS throughput limits of the node.
+Meaning that on top of the baseline speed to NVMe disk we can tier out to EBS and have full instance EBS throughput available for that JBOD disk pack.
+
+Currently US is entirely on NVMe backed nodes. EU will need to be migrated to this setup as well.
+
+
