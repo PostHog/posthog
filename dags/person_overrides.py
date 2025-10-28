@@ -19,19 +19,16 @@ from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
 from dags.common import JobOwners
+from dags.common.overrides_manager import OverridesSnapshotTable
 
 
 @dataclass
-class PersonOverridesSnapshotTable:
+class PersonOverridesSnapshotTable(OverridesSnapshotTable):
     id: uuid.UUID
 
     @property
     def name(self) -> str:
         return f"person_distinct_id_overrides_snapshot_{self.id.hex}"
-
-    @property
-    def qualified_name(self):
-        return f"{settings.CLICKHOUSE_DATABASE}.{self.name}"
 
     def create(self, client: Client) -> None:
         client.execute(
@@ -41,17 +38,6 @@ class PersonOverridesSnapshotTable:
             ORDER BY (team_id, distinct_id)
             """
         )
-
-    def exists(self, client: Client) -> None:
-        results = client.execute(
-            f"SELECT count() FROM system.tables WHERE database = %(database)s AND name = %(name)s",
-            {"database": settings.CLICKHOUSE_DATABASE, "name": self.name},
-        )
-        [[count]] = results
-        return count > 0
-
-    def drop(self, client: Client) -> None:
-        client.execute(f"DROP TABLE IF EXISTS {self.qualified_name} SYNC")
 
     def populate(self, client: Client, timestamp: str, limit: int | None = None) -> None:
         # NOTE: this is theoretically subject to replication lag and accuracy of this result is not a guarantee
@@ -76,17 +62,6 @@ class PersonOverridesSnapshotTable:
                 "optimize_aggregation_in_order": 1,  # slows down the query, but reduces memory consumption dramatically
             },
         )
-
-    def sync(self, client: Client) -> None:
-        client.execute(f"SYSTEM SYNC REPLICA {self.qualified_name} STRICT")
-
-        # this is probably excessive (and doesn't guarantee that anybody else won't mess with the table later) but it
-        # probably doesn't hurt to be careful
-        [[queue_size]] = client.execute(
-            "SELECT queue_size FROM system.replicas WHERE database = %(database)s AND table = %(table)s",
-            {"database": settings.CLICKHOUSE_DATABASE, "table": self.name},
-        )
-        assert queue_size == 0
 
 
 @dataclass
