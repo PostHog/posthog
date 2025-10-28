@@ -3,7 +3,7 @@
   '''
   
   SELECT
-      multiIf(and(in(lower(source), ['google', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(campaign), ['spring_sale_2024', 'spring-sale-2024'])), 'Spring Sale 2024', and(in(lower(source), ['google', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(campaign), ['holiday_campaign', 'holiday_promo'])), 'Holiday Promo', campaign) AS campaign,
+      multiIf(and(in(lower(source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(campaign), ['spring_sale_2024', 'spring-sale-2024'])), 'Spring Sale 2024', and(in(lower(source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(campaign), ['holiday_campaign', 'holiday_promo'])), 'Holiday Promo', campaign) AS campaign,
       source,
       conversion_0
   
@@ -18,7 +18,7 @@
           (
   SELECT
               if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-              if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
+              if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
               count() AS conversion_0
           
   FROM
@@ -96,7 +96,7 @@
           (
   SELECT
               if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-              if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
+              if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
               count() AS conversion_0
           
   FROM
@@ -159,7 +159,7 @@
   '''
   
   SELECT
-      multiIf(and(in(lower(source), ['google', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(campaign), ['messy_campaign_1', 'messy_campaign_2', 'messy_campaign_3'])), 'Clean Campaign Name', campaign) AS campaign,
+      multiIf(and(in(lower(source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(campaign), ['messy_campaign_1', 'messy_campaign_2', 'messy_campaign_3'])), 'Clean Campaign Name', campaign) AS campaign,
       source,
       conversion_0
   
@@ -174,7 +174,7 @@
           (
   SELECT
               if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-              if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
+              if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
               count() AS conversion_0
           
   FROM
@@ -237,7 +237,7 @@
   '''
   
   SELECT
-      multiIf(and(in(lower(source), ['google', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(campaign), ['spring_sale_2024', 'spring-sale-2024', 'spring_sale'])), 'Spring Sale 2024', and(in(lower(source), ['google', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(campaign), ['bf_2024', 'blackfriday', 'bf-promo'])), 'Black Friday', and(in(lower(source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(campaign), ['spring_sale_fb', 'springsalefb'])), 'Spring Sale 2024', and(in(lower(source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(campaign), ['summer_2024', 'summer_promo'])), 'Summer Campaign', campaign) AS campaign,
+      multiIf(and(in(lower(source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(campaign), ['spring_sale_2024', 'spring-sale-2024', 'spring_sale'])), 'Spring Sale 2024', and(in(lower(source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(campaign), ['bf_2024', 'blackfriday', 'bf-promo'])), 'Black Friday', and(in(lower(source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(campaign), ['spring_sale_fb', 'springsalefb'])), 'Spring Sale 2024', and(in(lower(source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(campaign), ['summer_2024', 'summer_promo'])), 'Summer Campaign', campaign) AS campaign,
       source,
       conversion_0
   
@@ -252,7 +252,7 @@
           (
   SELECT
               if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-              if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
+              if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
               count() AS conversion_0
           
   FROM
@@ -334,7 +334,7 @@
           (
   SELECT
               if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-              if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
+              if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
               count() AS conversion_0,
               0 AS conversion_1,
               0 AS conversion_2
@@ -391,7 +391,7 @@
           
   SELECT
               if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-              if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
+              if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
               0 AS conversion_0,
               count() AS conversion_1,
               0 AS conversion_2
@@ -448,7 +448,7 @@
           
   SELECT
               if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-              if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
+              if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
               0 AS conversion_0,
               0 AS conversion_1,
               count() AS conversion_2
@@ -530,7 +530,7 @@
           (
   SELECT
               if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-              if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
+              if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
               count() AS conversion_0,
               0 AS conversion_1
           
@@ -586,7 +586,7 @@
           
   SELECT
               if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-              if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
+              if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
               0 AS conversion_0,
               count() AS conversion_1
           
