@@ -4,6 +4,11 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import migrations, models
 
 
+def backfill_pipelines(apps, schema_editor):
+    EventIngestionRestrictionConfig = apps.get_model("posthog", "EventIngestionRestrictionConfig")
+    EventIngestionRestrictionConfig.objects.filter(pipelines=[]).update(pipelines=["analytics"])
+
+
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "0892_alter_integration_kind"),
@@ -15,9 +20,10 @@ class Migration(migrations.Migration):
             name="pipelines",
             field=ArrayField(
                 base_field=models.CharField(max_length=50),
-                default=lambda: ["analytics"],
+                default=list,
                 blank=True,
                 help_text="List of ingestion pipelines this restriction applies to (e.g., 'analytics', 'session_recordings')",
             ),
         ),
+        migrations.RunPython(backfill_pipelines, reverse_code=migrations.RunPython.noop),
     ]
