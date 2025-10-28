@@ -9,6 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -92,6 +93,25 @@ function getIconForFileSystemItem(fs: FileSystemImport): JSX.Element {
     // Fall back to iconForType for iconType or type
     return iconForType('iconType' in fs ? fs.iconType : (fs.type as FileSystemIconType), fs.iconColor)
 }
+
+const sortByLastViewedAt = (items: NewTabTreeDataItem[]): NewTabTreeDataItem[] =>
+    items
+        .map((item, originalIndex) => ({ item, originalIndex }))
+        .toSorted((a, b) => {
+            const parseTime = (value: string | null | undefined): number => {
+                if (!value) {
+                    return 0
+                }
+                const parsed = Date.parse(value)
+                return Number.isFinite(parsed) ? parsed : 0
+            }
+            const diff = parseTime(b.item.lastViewedAt) - parseTime(a.item.lastViewedAt)
+            if (diff !== 0) {
+                return diff
+            }
+            return a.originalIndex - b.originalIndex
+        })
+        .map(({ item }) => item)
 
 export const newTabSceneLogic = kea<newTabSceneLogicType>([
     path(['scenes', 'new-tab', 'newTabSceneLogic']),
@@ -608,25 +628,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 const getLastViewedAt = (sceneKey?: string | null): string | null =>
                     sceneKey ? (sceneLogViewsByRef[sceneKey] ?? null) : null
 
-                const sortByLastViewedAt = (items: NewTabTreeDataItem[]): NewTabTreeDataItem[] =>
-                    items
-                        .map((item, originalIndex) => ({ item, originalIndex }))
-                        .toSorted((a, b) => {
-                            const parseTime = (value: string | null | undefined): number => {
-                                if (!value) {
-                                    return 0
-                                }
-                                const parsed = Date.parse(value)
-                                return Number.isFinite(parsed) ? parsed : 0
-                            }
-                            const diff = parseTime(b.item.lastViewedAt) - parseTime(a.item.lastViewedAt)
-                            if (diff !== 0) {
-                                return diff
-                            }
-                            return a.originalIndex - b.originalIndex
-                        })
-                        .map(({ item }) => item)
-
                 const defaultProducts = getDefaultTreeProducts()
                 const defaultData = getDefaultTreeData()
 
@@ -672,8 +673,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     .filter(({ path }) => path.startsWith('Data/'))
                     .map((fs, index) => ({
                         id: `new-data-${index}`,
-                        name: 'Data ' + fs.path.substring(5).toLowerCase(),
-                        category: 'data-management' as NEW_TAB_CATEGORY_ITEMS,
+                        name: 'New ' + capitalizeFirstLetter(fs.path.substring(5).toLowerCase()),
+                        category: 'create-new' as NEW_TAB_CATEGORY_ITEMS,
                         href: fs.href,
                         flag: fs.flag,
                         icon: getIconForFileSystemItem(fs),
@@ -733,7 +734,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                 const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
 
-                const allItems: NewTabTreeDataItem[] = [
+                const allItems: NewTabTreeDataItem[] = sortByLastViewedAt([
                     ...(newTabSceneData ? aiSearchItems : []),
                     ...projectTreeSearchItems,
                     {
@@ -759,7 +760,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         record: { type: 'hog', path: 'New Hog program' },
                         lastViewedAt: getLastViewedAt(Scene.DebugHog),
                     },
-                ]
+                ])
                 return allItems
             },
         ],
@@ -878,23 +879,22 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 // Add each category only if it's selected or if "all" is selected
                 if (showAll || newTabSceneDataInclude.includes('create-new')) {
                     const limit = getSectionItemLimit('create-new')
-                    grouped['create-new'] = filterBySearch(
-                        itemsGrid.filter((item) => item.category === 'create-new')
+                    grouped['create-new'] = sortByLastViewedAt(
+                        filterBySearch(itemsGrid.filter((item) => item.category === 'create-new'))
                     ).slice(0, limit)
                 }
 
                 if (showAll || newTabSceneDataInclude.includes('apps')) {
                     const limit = getSectionItemLimit('apps')
-                    grouped['apps'] = filterBySearch(itemsGrid.filter((item) => item.category === 'apps')).slice(
-                        0,
-                        limit
+                    grouped['apps'] = sortByLastViewedAt(
+                        filterBySearch(itemsGrid.filter((item) => item.category === 'apps')).slice(0, limit)
                     )
                 }
 
                 if (showAll || newTabSceneDataInclude.includes('data-management')) {
                     const limit = getSectionItemLimit('data-management')
-                    grouped['data-management'] = filterBySearch(
-                        itemsGrid.filter((item) => item.category === 'data-management')
+                    grouped['data-management'] = sortByLastViewedAt(
+                        filterBySearch(itemsGrid.filter((item) => item.category === 'data-management'))
                     ).slice(0, limit)
                 }
 
