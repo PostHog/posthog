@@ -1,4 +1,4 @@
-import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
@@ -14,6 +14,8 @@ import {
     BillingPeriod,
     DataWarehouseActivityRecord,
     DataWarehouseDashboardDataSource,
+    DataWarehouseJobStats,
+    DataWarehouseJobStatsRequestPayload,
     DataWarehouseSourceRowCount,
     ExternalDataSource,
 } from '~/types'
@@ -23,6 +25,11 @@ import { externalDataSourcesLogic } from './externalDataSourcesLogic'
 import { dataWarehouseViewsLogic } from './saved_queries/dataWarehouseViewsLogic'
 
 const REFRESH_INTERVAL = 10000
+
+export enum DataWarehouseTab {
+    OVERVIEW = 'overview',
+    SOURCES = 'sources',
+}
 
 export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     path(['scenes', 'data-warehouse', 'dataWarehouseSceneLogic']),
@@ -48,6 +55,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         loadMoreRecentActivity: true,
         setActivityCurrentPage: (page: number) => ({ page }),
         checkAutoLoadMore: true,
+        setActiveTab: (tab: DataWarehouseTab) => ({ tab }),
     }),
     loaders(() => ({
         totalRowsStats: [
@@ -66,8 +74,22 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 },
             },
         ],
+        jobStats: [
+            null as DataWarehouseJobStats | null,
+            {
+                loadJobStats: async ({ days }: DataWarehouseJobStatsRequestPayload) => {
+                    return await api.dataWarehouse.jobStats({ days })
+                },
+            },
+        ],
     })),
     reducers(() => ({
+        activeTab: [
+            DataWarehouseTab.OVERVIEW as DataWarehouseTab,
+            {
+                setActiveTab: (_, { tab }) => tab,
+            },
+        ],
         activityCurrentPage: [
             1 as number,
             {
@@ -160,7 +182,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         activityPaginationState: [
             (s) => [s.recentActivity, s.activityCurrentPage],
             (recentActivity: DataWarehouseActivityRecord[], activityCurrentPage: number) => {
-                const pageSize = 5
+                const pageSize = 8
                 const totalData = recentActivity.length
                 const pageCount = Math.ceil(totalData / pageSize)
                 const startIndex = (activityCurrentPage - 1) * pageSize
@@ -179,19 +201,6 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 }
             },
         ],
-        materializedViews: [
-            (s) => [s.views, s.dataWarehouseSavedQueryMapById],
-            (views: any[], dataWarehouseSavedQueryMapById: any) => {
-                return views
-                    .filter((view: any) => dataWarehouseSavedQueryMapById[view.id]?.is_materialized)
-                    .map((view: any) => ({
-                        ...view,
-                        type: 'materialized_view',
-                        last_run_at: dataWarehouseSavedQueryMapById[view.id]?.last_run_at,
-                        status: dataWarehouseSavedQueryMapById[view.id]?.status,
-                    }))
-            },
-        ],
         tablesLoading: [
             (s) => [s.databaseLoading, s.dataWarehouseSourcesLoading],
             (databaseLoading: boolean, dataWarehouseSourcesLoading: boolean): boolean => {
@@ -199,7 +208,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             },
         ],
     }),
-    listeners(({ cache, values, actions }) => ({
+    listeners(({ values, actions, cache }) => ({
         setActivityCurrentPage: () => {
             actions.checkAutoLoadMore()
         },
@@ -228,12 +237,16 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             }
         },
         loadSourcesSuccess: () => {
-            clearTimeout(cache.refreshTimeout)
+            // Remove any existing refresh timeout
+            cache.disposables.dispose('refreshTimeout')
 
             if (router.values.location.pathname.includes('data-warehouse')) {
-                cache.refreshTimeout = setTimeout(() => {
-                    actions.loadSources(null)
-                }, REFRESH_INTERVAL)
+                cache.disposables.add(() => {
+                    const timerId = setTimeout(() => {
+                        actions.loadSources(null)
+                    }, REFRESH_INTERVAL)
+                    return () => clearTimeout(timerId)
+                }, 'refreshTimeout')
             }
         },
     })),
@@ -241,8 +254,6 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         actions.loadSources(null)
         actions.loadRecentActivityResponse()
         actions.loadTotalRowsStats()
-    }),
-    beforeUnmount(({ cache }) => {
-        clearTimeout(cache.refreshTimeout)
+        actions.loadJobStats({ days: 7 })
     }),
 ])

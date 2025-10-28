@@ -1,5 +1,7 @@
 # ruff: noqa: T201 allow print statements
 
+import os
+import sys
 import logging
 import secrets
 import datetime as dt
@@ -81,8 +83,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "--staff",
             action="store_true",
-            default=False,
-            help="Create a staff user",
+            default=True,
+            help="Whether the demo user should be a staff user (default: True)",
         )
         parser.add_argument(
             "--skip-materialization",
@@ -102,6 +104,12 @@ class Command(BaseCommand):
             default=False,
             help="Skip syncing feature flags from API after data generation",
         )
+        parser.add_argument(
+            "--say-on-complete",
+            action="store_true",
+            default=sys.platform == "darwin",
+            help="Use text-to-speech to say when the process is complete",
+        )
 
     def handle(self, *args, **options):
         timer = monotonic()
@@ -109,12 +117,14 @@ class Command(BaseCommand):
         now = options.get("now") or dt.datetime.now(dt.UTC)
         existing_team_id = options.get("team_id")
         existing_team: Optional[Team] = None
+
         if existing_team_id is not None and existing_team_id != 0:
             try:
                 existing_team = Team.objects.get(pk=existing_team_id)
             except Team.DoesNotExist:
                 print(f"Team with ID {options['team_id']} does not exist!")
                 return
+
         print("Instantiating the Matrix...")
         try:
             RelevantMatrix = {"hedgebox": HedgeboxMatrix, "spikegpt": SpikeGPTMatrix}[options["product"]]
@@ -196,14 +206,18 @@ class Command(BaseCommand):
                     if existing_team_id is not None
                     else f"\nDemo data ready for {user.email}!\n\n"
                     "Pre-fill the login form with this link:\n"
-                    f"http://localhost:8000/login?email={user.email}\n"
+                    f"http://localhost:8010/login?email={user.email}\n"
                     f"The password is:\n{password}\n\n"
                     "If running demo mode (DEMO=1), log in instantly with this link:\n"
-                    f"http://localhost:8000/signup?email={user.email}\n"
+                    f"http://localhost:8010/signup?email={user.email}\n"
                 )
             )
+            if options["say_on_complete"]:
+                os.system('say "demo data ready" || true')
         else:
             print("Dry run - not saving results.")
+            if options["say_on_complete"]:
+                os.system('say "demo data completed (dry run)" || true')
 
     @staticmethod
     def print_results(matrix: Matrix, *, seed: str, duration: float, verbosity: int):

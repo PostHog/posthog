@@ -142,8 +142,8 @@ const AddToNotebookButton = ({ fullWidth = false }: Pick<LemonButtonProps, 'full
 }
 
 const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => {
-    const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { deleteRecording, setIsFullScreen, exportRecordingToFile, exportRecordingToVideoFile } =
+    const { logicProps, isMuted, hasReachedExportFullVideoLimit } = useValues(sessionRecordingPlayerLogic)
+    const { deleteRecording, setIsFullScreen, exportRecordingToFile, exportRecordingToVideoFile, setMuted } =
         useActions(sessionRecordingPlayerLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { skipInactivitySetting } = useValues(playerSettingsLogic)
@@ -186,6 +186,15 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                 status: skipInactivitySetting ? 'danger' : 'default',
                 icon: skipInactivitySetting ? <IconCheck /> : <IconBlank />,
             },
+            {
+                label: isMuted ? 'Unmute audio' : 'Mute audio',
+                'data-attr': 'mute-audio-menu-item',
+                title: isMuted ? 'Unmute audio' : 'Mute audio',
+                onClick: () => {
+                    setMuted(!isMuted)
+                },
+                icon: <IconBlank />,
+            },
             isStandardMode && {
                 label: 'PostHog .json',
                 status: 'default',
@@ -205,11 +214,14 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                               </LemonTag>
                           </div>
                       ),
-                      status: 'default',
+                      status: hasReachedExportFullVideoLimit ? 'danger' : 'default',
                       icon: <IconDownload />,
                       onClick: () => exportRecordingToVideoFile(),
-                      tooltip: 'Export PostHog recording data to MP4 video file.',
+                      tooltip: hasReachedExportFullVideoLimit
+                          ? 'You have reached your export limit.'
+                          : 'Export PostHog recording data to MP4 video file.',
                       'data-attr': 'replay-export-mp4',
+                      className: hasReachedExportFullVideoLimit ? 'replay-export-limit-reached-button' : '',
                   }
                 : null,
         ]
@@ -231,7 +243,16 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
         }
         return itemsArray
         // oxlint-disable-next-line exhaustive-deps
-    }, [logicProps.playerKey, onDelete, exportRecordingToFile, size, skipInactivitySetting])
+    }, [
+        logicProps.playerKey,
+        onDelete,
+        exportRecordingToFile,
+        size,
+        skipInactivitySetting,
+        isMuted,
+        setMuted,
+        hasReachedExportFullVideoLimit,
+    ])
 
     return (
         <LemonMenu items={items} buttonSize="xsmall">

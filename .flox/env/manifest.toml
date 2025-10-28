@@ -10,7 +10,7 @@ version = 1
 # the `[install]` section.
 [install]
 # Python - Python itself is installed on activation via `uv sync`
-uv = { pkg-path = "uv", pkg-group = "uv", version = "0.7.8" }
+uv = { pkg-path = "uv", pkg-group = "uv", version = "0.8.19" }
 xmlsec = { pkg-path = "xmlsec", version = "1.3.6" }
 freetds = { pkg-path = "freetds" } # For pymssql
 # Node
@@ -54,6 +54,7 @@ ffmpeg.pkg-path = "ffmpeg"
 DEBUG = "1"
 POSTHOG_SKIP_MIGRATION_CHECKS = "1"
 DIRENV_LOG_FORMAT = "" # Disable direnv activation logging (in case direnv is present)
+RUST_LOG = "flox=error,flox_rust_sdk=error,flox_watchdog=error" # Suppress Flox logs only (also set in .envrc for early activation)
 OPENSSL_ROOT_DIR = "$FLOX_ENV"
 OPENSSL_LIB_DIR = "$FLOX_ENV/lib"
 DOTENV_FILE = ".env"
@@ -84,37 +85,65 @@ if [[ -t 0 ]] && ! command -v direnv >/dev/null 2>&1 && [ ! -f "$FLOX_ENV_CACHE/
   echo
 fi
 
-# Ensure Python virtual environment - Python version is defined in pyproject.toml
-uv sync
+echo -e "\033[1;36m🔧 Configuring development environment...\033[0m"
 
-# Install top-level Node dependencies (only if not present all yet, because this takes almost a second even with pnpm)
-# This also sets up pre-commit hooks via Husky
-if [ ! -d "node_modules" ]; then
-  echo "Installing Node dependencies..."
-  pnpm install --silent
-  echo "Node dependencies installed"
+# Clean up old Flox log files (older than 7 days)
+echo -e "  \033[1;34m🧹 Flox logs\033[0m"
+find "$FLOX_ENV_PROJECT/.flox/log" -name "*.log" -type f -mtime +7 -delete 2>/dev/null || true
+echo -e "    \033[32m✅ Flox logs cleaned up\033[0m"
+
+# Ensure Python virtual environment - Python version is defined in pyproject.toml
+echo -e "  \033[1;34m🐍 Python packages\033[0m"
+echo -e "    \033[1;33m📦 Setting up Python environment...\033[0m"
+uv sync --quiet
+echo -e "    \033[32m✅ Python environment ready\033[0m"
+
+# Expose hogli CLI on PATH via the uv-managed virtualenv
+if [ -d "$UV_PROJECT_ENVIRONMENT/bin" ]; then
+  ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
 fi
+
+# Install shell completions for hogli in flox environment cache
+# Must run after symlink creation; PYTHONPATH mirrors what bin/hogli does
+HOGLI_COMPLETION_DIR="$FLOX_ENV_CACHE/completions"
+mkdir -p "$HOGLI_COMPLETION_DIR"
+if [ -d "$UV_PROJECT_ENVIRONMENT/bin" ]; then
+  PYTHONPATH="$FLOX_ENV_PROJECT/common" "$UV_PROJECT_ENVIRONMENT/bin/python" -m hogli.core.completion --shell bash > "$HOGLI_COMPLETION_DIR/hogli.bash" 2>/dev/null || true
+  PYTHONPATH="$FLOX_ENV_PROJECT/common" "$UV_PROJECT_ENVIRONMENT/bin/python" -m hogli.core.completion --shell zsh > "$HOGLI_COMPLETION_DIR/_hogli" 2>/dev/null || true
+fi
+
+# Install top-level Node dependencies - This also sets up pre-commit hooks via Husky
+echo -e "  \033[1;34m📦 Node packages\033[0m"
+echo -e "    \033[1;33m📦 Installing Node dependencies and pre-commits hooks...\033[0m"
+pnpm install --silent
+echo -e "    \033[32m✅ Node dependencies installed\033[0m"
 
 # Add required entries to /etc/hosts if not present
+echo -e "  \033[1;34m💻 System configuration\033[0m"
+echo -e "    \033[1;33m💻 Configuring /etc/hosts for IPv4...\033[0m"
 if ! grep -q "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" /etc/hosts; then
-  echo
-  echo "🚨 Amending /etc/hosts to map hostnames 'kafka', 'clickhouse', 'clickhouse-coordinator' and 'objectstorage' to 127.0.0.1..."
   echo "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" | sudo tee -a /etc/hosts 1> /dev/null
-  echo "✅ /etc/hosts amended for IPv4"
+  echo -e "    \033[32m✅ /etc/hosts amended for IPv4\033[0m"
+else
+  echo -e "    \033[32m✅ /etc/hosts already contains the required entries\033[0m"
 fi
 
+echo -e "    \033[1;33m💻 Configuring /etc/hosts for IPv6...\033[0m"
 if ! grep -q "::1 kafka clickhouse clickhouse-coordinator objectstorage" /etc/hosts; then
-  echo
-  echo "🚨 Amending /etc/hosts to map hostnames 'kafka', 'clickhouse', 'clickhouse-coordinator' and 'objectstorage' to ::1..."
   echo "::1 kafka clickhouse clickhouse-coordinator objectstorage" | sudo tee -a /etc/hosts 1> /dev/null
-  echo "✅ /etc/hosts amended for IPv6"
+  echo -e "    \033[32m✅ /etc/hosts amended for IPv6\033[0m"
+else
+  echo -e "    \033[32m✅ /etc/hosts already contains the required entries\033[0m"
 fi
 
+echo -e "  \033[1;34m🔑 Environment variables\033[0m"
 if [ -f "$DOTENV_FILE" ]; then
   set -o allexport
   source "$DOTENV_FILE"
   set +o allexport
-  echo "✅ Environment variables loaded from '$DOTENV_FILE' file"
+  echo -e "    \033[32m✅ Environment variables loaded from '$DOTENV_FILE' file\033[0m"
+else
+  echo -e "    \033[31m❌ Environment variables file '$DOTENV_FILE' not found\033[0m"
 fi
 
 # The block below only runs when in an interactive shell
@@ -131,15 +160,36 @@ if [[ -t 0 ]]; then
     "Ownership isn't a task, it's a mindset."
   )
 
-  echo -e "\nInspirational James Hawkins quote he never said:\n\"${quotes[$RANDOM % ${#quotes[@]}]}\""
+  echo -e "\n\033[1;35m✨ Inspirational James Hawkins quote he never said: ✨\033[0m"
+  echo -e "\033[3;36m💭 \"${quotes[$RANDOM % ${#quotes[@]}]}\"\033[0m"
+  echo -e "\033[2;90m   - James Hawkins (probably)\033[0m"
+
+  # Visual separator
+  echo -e "\n\033[2;90m─────────────────────────────────────────────────────────────\033[0m"
 
   # Print intro message
   echo -e "
-\033[3mRun the following commands in the given order to get the stack up and running:\033[0m
-1. Spin up containers - \033[33mdocker compose -f docker-compose.dev.yml up -d\033[0m
-2. Run all migrations - \033[31mbin/migrate\033[0m
-3. Start the stack - \033[32mbin/start\033[0m
-4. (optional) Create a user with demo data - \033[34m./manage.py generate_demo_data\033[0m
+\033[3mYou're all set! Here's what you can do:\033[0m
+
+\033[32m🚀 Start the development environment:\033[0m
+\033[32mhogli start\033[0m                    \033[3m# Full stack (default, required for first time running the stack)\033[0m
+\033[32mhogli start --minimal\033[0m          \033[3m# Minimal stack (faster startup, lesser memory usage, not all features are included)\033[0m
+\033[32mhogli start --custom <config>\033[0m  \033[3m# Use custom mprocs config\033[0m
+
+\033[3m📋 Useful processes available in mprocs (press R to start manually):\033[0m
+\033[34m• generate-demo-data\033[0m         \033[3m# Create a user with demo data\033[0m
+\033[34m• storybook\033[0m                  \033[3m# Run our storybook instance locally\033[0m
+\033[34m• hedgebox-dummy\033[0m             \033[3m# Demo environment using your local PostHog stack\033[0m
+
+\033[2;90m─────────────────────────────────────────────────────────────\033[0m
+
+\033[3m💡 Pro tips:\033[0m
+• Use \033[32mhogli start --minimal\033[0m for faster development at the cost of not enabling all of our services
+• Check \033[34mbin/mprocs-*.yaml\033[0m for available process configurations
+• Most processes include hot-reloading on file changes (except migrations)
+• You can run follow-up migrations with \033[32mhogli migrations:run\033[0m
+• Press 'q' in mprocs to quit, 'r' to restart a process
+• Want a clean environment? Simply run \033[32mhogli docker:services:down && hogli start\033[0m
 "
 fi
 '''
@@ -159,6 +209,8 @@ bash = '''
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   export PATH="$FLOX_ENV/bin:$PATH"
   source $UV_PROJECT_ENVIRONMENT/bin/activate
+  # Source hogli bash completions
+  [ -f "$FLOX_ENV_CACHE/completions/hogli.bash" ] && source "$FLOX_ENV_CACHE/completions/hogli.bash"
 '''
 zsh = '''
   if [[ -f "$HOME/.zshrc" ]]; then
@@ -169,6 +221,9 @@ zsh = '''
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   export PATH="$FLOX_ENV/bin:$PATH"
   source $UV_PROJECT_ENVIRONMENT/bin/activate
+  # Add hogli completions to zsh
+  [[ -f "$FLOX_ENV_CACHE/completions/_hogli" ]] && fpath=("$FLOX_ENV_CACHE/completions" $fpath)
+  autoload -Uz compinit && compinit -i
 '''
 fish = '''
   # Ensure flox binaries (especially Node.js) take precedence over system binaries

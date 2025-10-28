@@ -1,3 +1,4 @@
+import json
 import typing
 import datetime as dt
 import collections.abc
@@ -19,7 +20,7 @@ from temporalio.client import (
     ScheduleState,
 )
 
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.hogql import HogQLContext
 
 from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun
@@ -202,11 +203,76 @@ class PostgresBatchExportInputs(BaseBatchExportInputs):
         self.port = int(self.port)
 
 
+IAMRole = str
+
+
+@dataclass
+class AWSCredentials:
+    aws_access_key_id: str
+    aws_secret_access_key: str
+
+
+@dataclass
+class RedshiftCopyInputs:
+    s3_bucket: str
+    region_name: str
+    s3_key_prefix: str
+    # Authorization role or credentials for Redshift to COPY data from bucket.
+    authorization: IAMRole | AWSCredentials
+    # S3 batch export credentials.
+    # TODO: Also support RBAC for S3 batch export, then we could take
+    # `IAMRole | AWSCredentials` here too.
+    bucket_credentials: AWSCredentials
+
+
 @dataclass(kw_only=True)
-class RedshiftBatchExportInputs(PostgresBatchExportInputs):
+class RedshiftBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Redshift export workflow."""
 
+    user: str
+    password: str
+    host: str
+    database: str
+    schema: str = "public"
+    table_name: str = "events"
+    port: int = 5439
     properties_data_type: str = "varchar"
+    mode: typing.Literal["COPY", "INSERT"] = "INSERT"
+    copy_inputs: RedshiftCopyInputs | None = None
+
+    def __post_init__(self):
+        if (
+            self.mode == "COPY"
+            and self.copy_inputs is not None
+            and not isinstance(self.copy_inputs, RedshiftCopyInputs)
+        ):
+            if isinstance(self.copy_inputs, str | bytes | bytearray):  # type: ignore
+                raw_inputs = json.loads(self.copy_inputs)
+            elif isinstance(self.copy_inputs, dict):
+                raw_inputs = self.copy_inputs
+            else:
+                raise TypeError(f"Invalid type for copy inputs: '{type(self.copy_inputs)}'")
+
+            bucket_credentials = AWSCredentials(
+                aws_access_key_id=raw_inputs["bucket_credentials"]["aws_access_key_id"],
+                aws_secret_access_key=raw_inputs["bucket_credentials"]["aws_secret_access_key"],
+            )
+
+            if isinstance(raw_inputs["authorization"], str):
+                authorization: IAMRole | AWSCredentials = raw_inputs["authorization"]
+            else:
+                authorization = AWSCredentials(
+                    aws_access_key_id=raw_inputs["authorization"]["aws_access_key_id"],
+                    aws_secret_access_key=raw_inputs["authorization"]["aws_secret_access_key"],
+                )
+
+            self.copy_inputs = RedshiftCopyInputs(
+                s3_bucket=raw_inputs["s3_bucket"],
+                s3_key_prefix=raw_inputs.get("s3_key_prefix", "/"),
+                region_name=raw_inputs["region_name"],
+                authorization=authorization,
+                bucket_credentials=bucket_credentials,
+            )
 
 
 @dataclass(kw_only=True)
@@ -243,7 +309,6 @@ class DatabricksBatchExportInputs(BaseBatchExportInputs):
     table_name: str
     use_variant_type: bool = True
     use_automatic_schema_evolution: bool = True
-    table_partition_field: str | None = None
 
 
 @dataclass(kw_only=True)
@@ -677,7 +742,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
         enable_select_queries=True,
         limit_top_select=False,
     )
-    context.database = create_hogql_database(team=batch_export.team, modifiers=context.modifiers)
+    context.database = Database.create_for(team=batch_export.team, modifiers=context.modifiers)
 
     temporal = sync_connect()
     schedule = Schedule(

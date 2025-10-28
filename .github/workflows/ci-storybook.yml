@@ -25,9 +25,9 @@ jobs:
                   filters: |
                       frontend:
                         - 'frontend/**'
-                        - 'products/**/*.ts'
-                        - 'products/**/*.tsx'
-                        - 'products/**/frontend/**'
+                        - 'products/!(mcp)/**/*.ts'
+                        - 'products/!(mcp)/**/*.tsx'
+                        - 'products/!(mcp)/**/frontend/**'
                         - 'common/**'
                         - 'ee/frontend/**'
                         - '.storybook/**'
@@ -47,7 +47,7 @@ jobs:
                   ref: ${{ github.event.pull_request.head.ref }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   # Use PostHog Bot token when not on forks to enable proper snapshot updating
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
+                  token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
 
             - name: Install pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
@@ -97,7 +97,7 @@ jobs:
                   ref: ${{ github.event.pull_request.head.ref }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   # Use PostHog Bot token when not on forks to enable proper snapshot updating
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
+                  token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
                   fetch-depth: 0 # 👈 Required to retrieve git history (https://www.chromatic.com/docs/github-actions)
 
             - name: Install pnpm
@@ -321,7 +321,7 @@ jobs:
                   ref: ${{ github.event.pull_request.head.ref }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   # Use PostHog Bot token when not on forks to enable proper snapshot updating
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
+                  token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
 
             - name: Install pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
@@ -497,7 +497,7 @@ jobs:
                   message: 'Update UI snapshots for `${{ matrix.browser }}` (${{ matrix.shard }})'
                   pull: --rebase --autostash # Make sure we're up to date with other browsers' updates
                   default_author: github_actions
-                  github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
+                  github_token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
             - name: Add commit hash to outputs, including browser name
               id: commit-hash
               if: steps.commit.outputs.pushed == 'true'
@@ -515,7 +515,7 @@ jobs:
               if: needs.changes.outputs.frontend == 'true' && github.event.pull_request.head.repo.full_name == github.repository
               uses: actions/github-script@v6
               with:
-                  github-token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
+                  github-token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
                   script: |
                       const BROWSERS = ['chromium', 'webkit']
 

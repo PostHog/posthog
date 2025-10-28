@@ -18,7 +18,9 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@v4
               with:
-                  fetch-depth: 0
+                  # fetch enough commits to include the BASE_SHA, without fetching the full repo history.
+                  # note: it's possible a PR will have more than 1000 commits, but extremely unlikely.
+                  fetch-depth: 1000
                   ref: ${{ github.event.pull_request.head.sha }}
 
             - name: Setup Node.js
@@ -31,7 +33,7 @@ jobs:
 
             - name: Run reviewer assignment script
               env:
-                  GITHUB_TOKEN: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  GITHUB_TOKEN: ${{ secrets.POSTHOG_BOT_PAT }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   GITHUB_REPOSITORY: ${{ github.repository }}
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}

@@ -7,11 +7,9 @@ import { LemonButton, LemonCheckbox, LemonTextArea, Link } from '@posthog/lemon-
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { maxLogic } from 'scenes/max/maxLogic'
-import { maxThreadLogic } from 'scenes/max/maxThreadLogic'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
-import { SidePanelTab, SurveyQuestion, SurveyQuestionType } from '~/types'
+import { SurveyQuestion, SurveyQuestionType } from '~/types'
 
 import { internalMultipleChoiceSurveyLogic } from './internalMultipleChoiceSurveyLogic'
 
@@ -170,9 +168,7 @@ export function InternalMultipleChoiceSurvey({ surveyId }: InternalSurveyProps):
     const { survey, surveyResponse, showThankYouMessage, thankYouMessage, openChoice } = useValues(logic)
     const { handleChoiceChange, handleSurveyResponse, setOpenChoice } = useActions(logic)
 
-    const { threadLogicKey, conversation } = useValues(maxLogic)
-    const { askMax } = useActions(maxThreadLogic({ conversationId: threadLogicKey, conversation }))
-    const { openSidePanel } = useActions(sidePanelSettingsLogic)
+    const { askSidePanelMax } = useActions(maxGlobalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     //Because we want to run A/B test to see does it help users or not
@@ -245,13 +241,12 @@ export function InternalMultipleChoiceSurvey({ surveyId }: InternalSurveyProps):
                                                 }
                                                 type="secondary"
                                                 onClick={() => {
-                                                    openSidePanel(SidePanelTab.Max)
-                                                    askMax(
+                                                    askSidePanelMax(
                                                         `I am disabling session replay because of "${openChoice}". Go through PostHog documentation and find a solution to fix this.`
                                                     )
                                                 }}
                                             >
-                                                Ask Max for help
+                                                Ask PostHog AI for help
                                             </LemonButton>
                                         )}
                                     </div>

@@ -18,8 +18,7 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@v4
               with:
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
-                  fetch-depth: 0
+                  token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Run update script
               run: |
@@ -41,7 +40,7 @@ jobs:
               if: steps.check-changes.outputs.changes == 'true'
               uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v5
               with:
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  token: ${{ secrets.POSTHOG_BOT_PAT }}
                   commit-message: 'Update bot IPs from GoodBots repository'
                   title: '🤖 Update bot IPs from GoodBots repository'
                   body: |
@@ -60,4 +59,4 @@ jobs:
                       bot-ips
                       dependencies
                   reviewers: |
-                      PostHog/team-messaging
+                      PostHog/team-workflows

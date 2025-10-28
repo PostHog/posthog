@@ -11,7 +11,6 @@ import {
     LemonTable,
     LemonTag,
     Tooltip,
-    lemonToast,
 } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -19,16 +18,16 @@ import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { SyncTypeLabelMap, syncAnchorIntervalToHumanReadable } from 'scenes/data-warehouse/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ExternalDataSourceSyncSchema, IncrementalField } from '~/types'
+import { ExternalDataSourceSyncSchema } from '~/types'
 
 import { sourceWizardLogic } from '../../new/sourceWizardLogic'
 import { SyncMethodForm } from './SyncMethodForm'
 
 export default function SchemaForm(): JSX.Element {
     const containerRef = useFloatingContainer()
-    const { toggleSchemaShouldSync, openSyncMethodModal, updateSyncTimeOfDay, setIsProjectTime, updateSchemaSyncType } =
+    const { toggleSchemaShouldSync, openSyncMethodModal, updateSyncTimeOfDay, setIsProjectTime, toggleAllTables } =
         useActions(sourceWizardLogic)
-    const { databaseSchema, isProjectTime } = useValues(sourceWizardLogic)
+    const { databaseSchema, isProjectTime, tablesAllToggledOn } = useValues(sourceWizardLogic)
     const { currentTeam } = useValues(teamLogic)
 
     const onClickCheckbox = (schema: ExternalDataSourceSyncSchema, checked: boolean): void => {
@@ -100,7 +99,7 @@ export default function SchemaForm(): JSX.Element {
 
     useEffect(() => {
         smartConfigureTables(databaseSchema)
-    }, [smartConfigureTables, databaseSchema])
+    }, [])
 
     // scroll to top of container
     useEffect(() => {
@@ -116,6 +115,12 @@ export default function SchemaForm(): JSX.Element {
                         dataSource={databaseSchema}
                         columns={[
                             {
+                                title: (
+                                    <LemonCheckbox
+                                        checked={tablesAllToggledOn}
+                                        onChange={(checked) => toggleAllTables(checked)}
+                                    />
+                                ),
                                 width: 0,
                                 key: 'enabled',
                                 render: function RenderEnabled(_, schema) {
@@ -212,7 +217,11 @@ export default function SchemaForm(): JSX.Element {
                                     'Incremental and append-only refresh methods key on a unique field to determine the most up-to-date data.',
                                 isHidden: !databaseSchema.some((schema) => schema.sync_type),
                                 render: function RenderSyncType(_, schema) {
-                                    if (schema.sync_type !== null && schema.incremental_field) {
+                                    if (
+                                        schema.sync_type !== 'full_refresh' &&
+                                        schema.sync_type !== null &&
+                                        schema.incremental_field
+                                    ) {
                                         const field =
                                             schema.incremental_fields.find(
                                                 (f) => f.field == schema.incremental_field

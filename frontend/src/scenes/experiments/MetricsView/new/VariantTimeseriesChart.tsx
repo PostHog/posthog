@@ -79,6 +79,11 @@ export function VariantTimeseriesChart({ chartData: data }: VariantTimeseriesCha
                         },
                         tooltip: {
                             callbacks: {
+                                label: function (context) {
+                                    const value = context.parsed.y
+                                    const formattedValue = `${(value * 100).toFixed(2)}%`
+                                    return `${context.dataset.label}: ${formattedValue}`
+                                },
                                 labelPointStyle: function () {
                                     return {
                                         pointStyle: 'circle',

@@ -56,12 +56,16 @@ export const textContent = (node: RichContentNode): string => {
         [NotebookNodeType.Group]: customOrTitleSerializer,
         [NotebookNodeType.Cohort]: customOrTitleSerializer,
         [NotebookNodeType.PersonFeed]: customOrTitleSerializer,
-        [NotebookNodeType.Properties]: customOrTitleSerializer,
+        [NotebookNodeType.PersonProperties]: customOrTitleSerializer,
+        [NotebookNodeType.GroupProperties]: customOrTitleSerializer,
         [NotebookNodeType.Map]: customOrTitleSerializer,
         [NotebookNodeType.Mention]: customOrTitleSerializer,
         [NotebookNodeType.Embed]: customOrTitleSerializer,
         [NotebookNodeType.Latex]: customOrTitleSerializer,
         [NotebookNodeType.TaskCreate]: customOrTitleSerializer,
+        [NotebookNodeType.UsageMetrics]: customOrTitleSerializer,
+        [NotebookNodeType.ZendeskTickets]: customOrTitleSerializer,
+        [NotebookNodeType.RelatedGroups]: customOrTitleSerializer,
     }
 
     return getText(node, {

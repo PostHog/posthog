@@ -1,28 +1,29 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 
 import { LemonButton, LemonSkeleton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+
+import { urls } from 'scenes/urls'
 
 import { ConversationStatus, ConversationType } from '~/types'
 
 import { maxLogic } from './maxLogic'
-import { formatConversationDate, getConversationUrl } from './utils'
+import { formatConversationDate } from './utils'
 
 interface HistoryPreviewProps {
     sidePanel?: boolean
 }
 
 export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.Element | null {
-    const { location } = useValues(router)
     const { conversationHistory, conversationHistoryLoading } = useValues(maxLogic)
-    const { toggleConversationHistory } = useActions(maxLogic)
+    const { toggleConversationHistory, openConversation } = useActions(maxLogic)
 
-    if (!conversationHistory.length && !conversationHistoryLoading) {
+    // No need to render if we do not have any conversations to show.
+    if (!conversationHistory.length) {
         return null
     }
 
     return (
-        <div className="max-w-120 w-full self-center flex flex-col gap-2">
+        <div className="max-w-120 w-full self-center flex flex-col gap-2 min-h-[6rem]">
             <div className="flex items-center justify-between gap-2 -mr-2">
                 <h3 className="text-sm font-medium text-secondary mb-0">Recent chats</h3>
                 <LemonButton
@@ -34,7 +35,7 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
                     View all
                 </LemonButton>
             </div>
-            {conversationHistoryLoading && !conversationHistory.length ? (
+            {conversationHistoryLoading ? (
                 <>
                     <LemonSkeleton className="h-5 w-full" />
                     <LemonSkeleton className="h-5 w-full" />
@@ -45,12 +46,13 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
                     <Link
                         key={conversation.id}
                         className="text-sm flex items-center gap-2 text-primary hover:text-accent-hover active:text-accent-active justify-between"
-                        to={getConversationUrl({
-                            pathname: location.pathname,
-                            search: location.search,
-                            conversationId: conversation.id,
-                            includeHash: sidePanel,
-                        })}
+                        to={urls.max(conversation.id)}
+                        onClick={(e) => {
+                            if (sidePanel) {
+                                e.preventDefault()
+                                openConversation(conversation.id)
+                            }
+                        }}
                     >
                         <div className="flex items-center gap-2">
                             <span className="flex-1 line-clamp-1">{conversation.title}</span>

@@ -1,4 +1,4 @@
-import { actions, events, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api, { PaginatedResponse } from 'lib/api'
@@ -135,9 +135,7 @@ export const addPersonToCohortModalLogic = kea<addPersonToCohortModalLogicType>(
                 actions.setCohortUpdating(false)
             }
         },
-    })),
-    events(({ actions }) => ({
-        afterMount: () => {
+        showAddPersonToCohortModal: () => {
             actions.loadCohortPersons()
         },
     })),

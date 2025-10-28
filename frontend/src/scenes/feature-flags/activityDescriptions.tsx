@@ -354,7 +354,9 @@ const featureFlagActionsMapping: Record<
     status: () => null,
     version: () => null,
     last_modified_by: () => null,
+    last_called_at: () => null,
     _create_in_folder: () => null,
+    _should_create_usage_dashboard: () => null,
 }
 
 const getActorName = (logItem: ActivityLogItem): JSX.Element => {
@@ -401,7 +403,11 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
                 continue // feature flag updates have to have a "field" to be described
             }
 
-            const possibleLogItem = featureFlagActionsMapping[change.field as keyof FeatureFlagType](change, logItem)
+            const fieldHandler = featureFlagActionsMapping[change.field as keyof FeatureFlagType]
+            if (!fieldHandler) {
+                console.error({ field: change.field, change }, 'No activity describer found for feature flag field')
+            }
+            const possibleLogItem = fieldHandler ? fieldHandler(change, logItem) : null
             if (possibleLogItem) {
                 const { description, suffix } = possibleLogItem
                 if (description) {

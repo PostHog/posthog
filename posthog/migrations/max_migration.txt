@@ -1,1 +1,1 @@
-0878_add_schema_models
+0892_alter_integration_kind

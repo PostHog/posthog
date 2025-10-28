@@ -83,6 +83,10 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         maybeLoadClickmap: true,
         maybeLoadHeatmap: true,
         updateElementMetrics: (observedElements: [HTMLElement, boolean][]) => ({ observedElements }),
+        startScrollTracking: true,
+        stopScrollTracking: true,
+        startElementObservation: true,
+        stopElementObservation: true,
     }),
     windowValues(() => ({
         windowWidth: (window: Window) => window.innerWidth,
@@ -133,6 +137,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
                     return onUpdate
                 },
+                toggleClickmapsEnabled: (state, { enabled }) => (enabled ? state : new Map()),
             },
         ],
     }),
@@ -208,8 +213,18 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
     })),
     selectors(({ cache }) => ({
         elements: [
-            (s) => [s.elementStats, toolbarConfigLogic.selectors.dataAttributes, s.href, s.matchLinksByHref],
-            (elementStats, dataAttributes, href, matchLinksByHref) => {
+            (s) => [
+                s.elementStats,
+                toolbarConfigLogic.selectors.dataAttributes,
+                s.href,
+                s.matchLinksByHref,
+                s.clickmapsEnabled,
+            ],
+            (elementStats, dataAttributes, href, matchLinksByHref, clickmapsEnabled) => {
+                if (!clickmapsEnabled) {
+                    return []
+                }
+
                 cache.pageElements = cache.lastHref == href ? cache.pageElements : collectAllElementsDeep('*', document)
                 cache.selectorToElements = cache.lastHref == href ? cache.selectorToElements : {}
 
@@ -291,12 +306,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         countedElements: [
             (s) => [s.elements, toolbarConfigLogic.selectors.dataAttributes, s.clickmapsEnabled, s.elementMetrics],
             (elements, dataAttributes, clickmapsEnabled, elementMetrics) => {
-                if (!clickmapsEnabled) {
+                if (!clickmapsEnabled || !cache.intersectionObserver) {
                     return []
                 }
-
-                cache.intersectionObserver.disconnect()
-                cache.intersectionObserver.observe(document.body)
 
                 const normalisedElements = new Map<HTMLElement, CountedHTMLElement>()
 
@@ -331,8 +343,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                             visible: metrics.visible,
                         })
                     }
-
-                    cache.intersectionObserver.observe(trimmedElement)
                 }
 
                 const countedElements = Array.from(normalisedElements.values())
@@ -379,19 +389,56 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         viewportRange: () => {
             actions.maybeLoadHeatmap()
         },
+        countedElements: () => {
+            actions.startElementObservation()
+        },
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         enableHeatmap: () => {
-            // need to set the href at least once to get the heatmap to load
             actions.setDataHref(values.href)
             actions.loadAllEnabled()
+            actions.startScrollTracking()
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: true })
         },
 
         disableHeatmap: () => {
+            actions.stopScrollTracking()
             actions.resetElementStats()
             actions.resetHeatmapData()
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: false })
+        },
+
+        startScrollTracking: () => {
+            cache.disposables.add(() => {
+                const timerId = setInterval(() => {
+                    const scrollY = values.posthog?.scrollManager?.scrollY() ?? 0
+                    if (values.heatmapScrollY !== scrollY) {
+                        actions.setHeatmapScrollY(scrollY)
+                    }
+                }, 50)
+                return () => clearInterval(timerId)
+            }, 'scrollCheckTimer')
+        },
+
+        stopScrollTracking: () => {
+            cache.disposables.dispose('scrollCheckTimer')
+        },
+
+        startElementObservation: () => {
+            if (!cache.intersectionObserver || !values.clickmapsEnabled) {
+                return
+            }
+
+            const countedElements = values.countedElements
+            cache.intersectionObserver.disconnect()
+            cache.intersectionObserver.observe(document.body)
+            countedElements.forEach((element) => {
+                cache.intersectionObserver.observe(element.element)
+            })
+        },
+
+        stopElementObservation: () => {
+            cache.intersectionObserver?.disconnect()
         },
 
         loadAllEnabled: async () => {
@@ -419,11 +466,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             actions.maybeLoadClickmap()
         },
         setWildcardHref: ({ href }) => {
-            if (values.heatmapEnabled) {
-                actions.setHrefMatchType(href === window.location.href ? 'exact' : 'pattern')
-                actions.setDataHref(href)
-            }
-            actions.maybeLoadClickmap()
+            actions.setHref(href)
         },
         setCommonFilters: () => {
             actions.loadAllEnabled()
@@ -432,10 +475,15 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             actions.maybeLoadClickmap()
         },
 
-        // Only trigger element stats loading if clickmaps are enabled
         toggleClickmapsEnabled: () => {
             if (values.clickmapsEnabled) {
                 actions.getElementStats()
+            } else {
+                actions.stopElementObservation()
+                actions.resetElementStats()
+                cache.pageElements = undefined
+                cache.selectorToElements = {}
+                cache.lastHref = undefined
             }
         },
 
@@ -453,32 +501,43 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             actions.maybeLoadHeatmap()
         },
     })),
-    afterMount(({ actions, values, cache }) => {
-        cache.scrollCheckTimer = setInterval(() => {
-            const scrollY = values.posthog?.scrollManager?.scrollY() ?? 0
-            if (values.heatmapScrollY !== scrollY) {
-                actions.setHeatmapScrollY(scrollY)
-            }
-        }, 50)
-
-        // we bundle the whole app with the toolbar, which means we don't need ES5 support
-        // so we can use IntersectionObserver
-        // oxlint-disable-next-line compat/compat
-        const intersectionObserver = new IntersectionObserver((entries) => {
-            const observedElements: [HTMLElement, boolean][] = []
-            entries.forEach((entry) => {
-                const element = entry.target as HTMLElement
-                observedElements.push([element, entry.isIntersecting])
+    afterMount(({ actions, cache, values }) => {
+        cache.disposables.add(() => {
+            const intersectionObserver = new IntersectionObserver((entries) => {
+                const observedElements: [HTMLElement, boolean][] = []
+                entries.forEach((entry) => {
+                    const element = entry.target as HTMLElement
+                    observedElements.push([element, entry.isIntersecting])
+                })
+                actions.updateElementMetrics(observedElements)
             })
-            actions.updateElementMetrics(observedElements)
-        })
 
-        // Store for cleanup
-        cache.intersectionObserver = intersectionObserver
+            cache.intersectionObserver = intersectionObserver
+
+            return () => intersectionObserver.disconnect()
+        }, 'intersectionObserver')
+
+        cache.disposables.add(() => {
+            const handleVisibilityChange = (): void => {
+                if (document.hidden) {
+                    actions.stopScrollTracking()
+                    actions.stopElementObservation()
+                } else {
+                    if (values.heatmapEnabled) {
+                        actions.startScrollTracking()
+                    }
+                    if (values.clickmapsEnabled) {
+                        actions.startElementObservation()
+                    }
+                }
+            }
+
+            document.addEventListener('visibilitychange', handleVisibilityChange)
+            return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+        }, 'visibilityChangeHandler')
     }),
-    beforeUnmount(({ cache }) => {
-        clearInterval(cache.scrollCheckTimer)
-        cache.intersectionObserver?.disconnect()
+    beforeUnmount(() => {
+        // Disposables plugin handles cleanup automatically
     }),
 ])
 

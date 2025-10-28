@@ -30,11 +30,12 @@ from posthog.models import (
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
-from posthog.models.error_tracking import ErrorTrackingIssueAssignment
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.utils import UUIDT
 from posthog.ph_client import get_client
 from posthog.user_permissions import UserPermissions
+
+from products.error_tracking.backend.models import ErrorTrackingIssueAssignment
 
 logger = structlog.get_logger(__name__)
 
@@ -237,6 +238,34 @@ def send_email_verification(user_id: int, token: str, next_url: str | None = Non
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
         event="verification email sent",
+        groups={"organization": str(user.current_organization.id)},  # type: ignore
+    )
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_email_mfa_link(user_id: int, token: str) -> None:
+    """Send email MFA verification link"""
+    user: User = User.objects.get(pk=user_id)
+
+    verification_link = f"{settings.SITE_URL}/login/verify?email={user.email}&token={token}"
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"email_mfa_{user.uuid}-{timezone.now().timestamp()}",
+        subject="Verify your PostHog login",
+        template_name="email_mfa_link",
+        template_context={
+            "preheader": "Please follow the link inside to verify your login.",
+            "url": verification_link,
+            "expiration_minutes": 10,
+            "site_url": settings.SITE_URL,
+        },
+    )
+    message.add_recipient(user.email)
+    message.send(send_async=False)
+    posthoganalytics.capture(
+        distinct_id=str(user.distinct_id),
+        event="email mfa link sent",
         groups={"organization": str(user.current_organization.id)},  # type: ignore
     )
 

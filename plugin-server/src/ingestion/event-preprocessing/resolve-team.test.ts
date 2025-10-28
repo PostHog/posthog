@@ -77,7 +77,7 @@ describe('createResolveTeamStep()', () => {
             event: { event: { ...pipelineEvent }, message: {} as Message } as IncomingEvent,
         }
         const response = await step(input)
-        expect(response).toEqual(drop('Failed to resolve team'))
+        expect(response).toEqual(drop('no_token'))
         expect(await getMetricValues('ingestion_event_dropped_total')).toEqual([
             {
                 labels: {
@@ -96,7 +96,7 @@ describe('createResolveTeamStep()', () => {
             event: { event: { ...pipelineEvent, token: 'unknown' }, message: {} as Message } as IncomingEvent,
         }
         const response = await step(input)
-        expect(response).toEqual(drop('Failed to resolve team'))
+        expect(response).toEqual(drop('invalid_token'))
         expect(await getMetricValues('ingestion_event_dropped_total')).toEqual([
             {
                 labels: {
@@ -137,7 +137,7 @@ describe('createResolveTeamStep()', () => {
             event: { event: { ...pipelineEvent, team_id: 3 }, message: {} as Message } as IncomingEvent,
         }
         const response = await step(input)
-        expect(response).toEqual(drop('Failed to resolve team'))
+        expect(response).toEqual(drop('no_token'))
         expect(await getMetricValues('ingestion_event_dropped_total')).toEqual([
             {
                 labels: {

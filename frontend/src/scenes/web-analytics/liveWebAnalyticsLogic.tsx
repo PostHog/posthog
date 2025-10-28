@@ -86,16 +86,15 @@ export const liveWebAnalyticsLogic = kea<liveWebAnalyticsLogicType>([
         },
         setIsHovering: ({ isHovering }) => {
             if (isHovering) {
-                if (cache.nowInterval) {
-                    clearInterval(cache.nowInterval)
-                }
                 actions.setNow({ now: new Date() })
-                cache.nowInterval = setInterval(() => {
-                    actions.setNow({ now: new Date() })
-                }, 500)
-            } else if (cache.nowInterval) {
-                clearInterval(cache.nowInterval)
-                cache.nowInterval = null
+                cache.disposables.add(() => {
+                    const intervalId = setInterval(() => {
+                        actions.setNow({ now: new Date() })
+                    }, 500)
+                    return () => clearInterval(intervalId)
+                }, 'nowInterval')
+            } else {
+                cache.disposables.dispose('nowInterval')
             }
         },
     })),
@@ -104,19 +103,15 @@ export const liveWebAnalyticsLogic = kea<liveWebAnalyticsLogicType>([
             actions.setNow({ now: new Date() })
             actions.pollStats()
 
-            cache.statsInterval = setInterval(() => {
-                actions.pollStats()
-            }, 30000)
+            cache.disposables.add(() => {
+                const intervalId = setInterval(() => {
+                    actions.pollStats()
+                }, 30000)
+                return () => clearInterval(intervalId)
+            }, 'statsInterval')
         },
         beforeUnmount: () => {
-            if (cache.statsInterval) {
-                clearInterval(cache.statsInterval)
-                cache.statsInterval = null
-            }
-            if (cache.nowInterval) {
-                clearInterval(cache.nowInterval)
-                cache.nowInterval = null
-            }
+            // Disposables handle cleanup automatically
         },
     })),
 ])

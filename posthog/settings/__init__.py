@@ -33,7 +33,7 @@ from posthog.settings.ee import *
 from posthog.settings.ingestion import *
 from posthog.settings.feature_flags import *
 from posthog.settings.geoip import *
-from posthog.settings.messaging import *
+from posthog.settings.workflows import *
 from posthog.settings.metrics import *
 from posthog.settings.schedules import *
 from posthog.settings.shell_plus import *
@@ -46,7 +46,6 @@ from posthog.settings.data_warehouse import *
 from posthog.settings.session_replay import *
 from posthog.settings.session_replay_v2 import *
 from posthog.settings.integrations import *
-from posthog.settings.pagerduty import *
 from posthog.settings.payments import *
 from posthog.settings.ses import *
 

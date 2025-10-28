@@ -26,7 +26,6 @@ import {
     LemonDialog,
     LemonInput,
     LemonSkeleton,
-    ProfilePicture,
     Tooltip,
 } from '@posthog/lemon-ui'
 
@@ -90,12 +89,12 @@ import {
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped } = useValues(maxThreadLogic)
+    const { threadGrouped, streamingActive } = useValues(maxThreadLogic)
 
     return (
         <div
             className={twMerge(
-                '@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-1.5 grow',
+                '@container/thread flex flex-col items-stretch w-full max-w-180 self-center gap-1.5 grow mx-auto',
                 className
             )}
         >
@@ -116,6 +115,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                         key={`${conversationId}-${index}`}
                         messages={group}
                         isFinal={index === threadGrouped.length - 1}
+                        streamingActive={streamingActive}
                     />
                 ))
             ) : (
@@ -154,27 +154,16 @@ function MessageGroupContainer({
 interface MessageGroupProps {
     messages: ThreadMessage[]
     isFinal: boolean
+    streamingActive: boolean
 }
 
-function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): JSX.Element {
-    const { user } = useValues(userLogic)
+function MessageGroup({ messages, isFinal: isFinalGroup, streamingActive }: MessageGroupProps): JSX.Element {
     const { editInsightToolRegistered } = useValues(maxGlobalLogic)
 
     const groupType = messages[0].type === 'human' ? 'human' : 'ai'
 
     return (
         <MessageGroupContainer groupType={groupType}>
-            <Tooltip title={groupType === 'human' ? 'You' : 'Max'}>
-                <ProfilePicture
-                    user={
-                        groupType === 'human'
-                            ? { ...user, hedgehog_config: undefined }
-                            : { hedgehog_config: { ...user?.hedgehog_config, use_as_profile: true } }
-                    }
-                    size="lg"
-                    className="hidden @md/thread:flex mt-1 border"
-                />
-            </Tooltip>
             <div
                 className={clsx(
                     'flex flex-col gap-1.5 min-w-0 w-full',
@@ -208,7 +197,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                         <Tooltip
                                             title={
                                                 <>
-                                                    This is a Max command:
+                                                    This is a PostHog AI command:
                                                     <br />
                                                     <i>{maybeCommand.description}</i>
                                                 </>
@@ -254,11 +243,24 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                         return (
                             <MessageTemplate key={key} type="ai">
                                 <div className="flex items-center gap-2">
-                                    <img
-                                        src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
-                                        className="size-7 -m-1" // At the "native" size-6 (24px), the icons are a tad too small
-                                    />
-                                    <span className="font-medium">{message.content}…</span>
+                                    {messageIndex < messages.length - 1 ? (
+                                        <IconCheck className="size-4 m-0.5 animate-[scale-in_0.3s_ease-out]" />
+                                    ) : streamingActive ? (
+                                        <img
+                                            src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
+                                            className="size-7 -m-1" // At the "native" size-6 (24px), the icons are a tad too small
+                                        />
+                                    ) : (
+                                        <IconX className="size-4 m-0.5" />
+                                    )}
+                                    <span className="font-medium">
+                                        {message.content}…
+                                        {messageIndex < messages.length - 1
+                                            ? ' Done.'
+                                            : !streamingActive
+                                              ? ' Canceled.'
+                                              : ''}
+                                    </span>
                                 </div>
                                 {message.substeps?.map((substep, substepIndex) => (
                                     <MarkdownMessage
@@ -283,7 +285,10 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                     <MessageTemplate type="ai" boxClassName="border-warning">
                         <div className="flex items-center gap-1.5">
                             <IconWarning className="text-xl text-warning" />
-                            <i>Max is generating this answer one more time because the previous attempt has failed.</i>
+                            <i>
+                                PostHog AI is generating this answer one more time because the previous attempt has
+                                failed.
+                            </i>
                         </div>
                     </MessageTemplate>
                 )}
@@ -312,11 +317,12 @@ interface MessageTemplateProps {
     action?: React.ReactNode
     className?: string
     boxClassName?: string
-    children: React.ReactNode
+    children?: React.ReactNode
+    header?: React.ReactNode
 }
 
 const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(function MessageTemplate(
-    { type, children, className, boxClassName, action },
+    { type, children, className, boxClassName, action, header },
     ref
 ) {
     return (
@@ -328,15 +334,18 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
             )}
             ref={ref}
         >
-            <div
-                className={twMerge(
-                    'max-w-full border py-2 px-3 rounded-lg bg-surface-primary',
-                    type === 'human' && 'font-medium',
-                    boxClassName
-                )}
-            >
-                {children}
-            </div>
+            {header}
+            {children && (
+                <div
+                    className={twMerge(
+                        'max-w-full border py-2 px-3 rounded-lg bg-surface-primary',
+                        type === 'human' && 'font-medium',
+                        boxClassName
+                    )}
+                >
+                    {children}
+                </div>
+            )}
             {action}
         </div>
     )
@@ -388,10 +397,14 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
             ref={ref}
             action={action}
         >
-            <MarkdownMessage
-                content={message.content || '*Max has failed to generate an answer. Please try again.*'}
-                id={message.id || 'error'}
-            />
+            {message.content ? (
+                <MarkdownMessage content={message.content} id={message.id || 'in-progress'} />
+            ) : (
+                <MarkdownMessage
+                    content={message.content || '*PostHog AI has failed to generate an answer. Please try again.*'}
+                    id={message.id || 'error'}
+                />
+            )}
         </MessageTemplate>
     )
 })
@@ -729,7 +742,7 @@ function InsightSuggestionButton({ tabId }: { tabId: string }): JSX.Element {
                     }}
                     sideIcon={previousQuery ? <IconX /> : <IconRefresh />}
                     size="xsmall"
-                    tooltip={previousQuery ? "Reject Max's changes" : "Reapply Max's changes"}
+                    tooltip={previousQuery ? 'Reject changes' : 'Reapply changes'}
                 />
             )}
         </>
@@ -1073,7 +1086,7 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                     {feedbackInputStatus === 'pending' && (
                         <div className="flex w-full gap-1.5 items-center mt-1.5">
                             <LemonInput
-                                placeholder="Help us improve Max…"
+                                placeholder="Help us improve PostHog AI…"
                                 fullWidth
                                 value={feedback}
                                 onChange={(newValue) => setFeedback(newValue)}

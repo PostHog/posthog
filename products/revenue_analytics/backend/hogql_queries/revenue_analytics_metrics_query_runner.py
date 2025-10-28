@@ -9,6 +9,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.database.models import UnknownDatabaseField
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
@@ -42,20 +43,19 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
         subscription_subqueries = list(self.revenue_subqueries(RevenueAnalyticsSubscriptionView))
         revenue_item_subqueries = list(self.revenue_subqueries(RevenueAnalyticsRevenueItemView))
         if not subscription_subqueries:
-            return ast.SelectQuery.empty(
-                columns=[
-                    "breakdown_by",
-                    "period_start",
-                    "subscription_count",
-                    "new_subscription_count",
-                    "churned_subscription_count",
-                    "customer_count",
-                    "new_customer_count",
-                    "churned_customer_count",
-                    "arpu",
-                    "ltv",
-                ]
-            )
+            columns = [
+                "breakdown_by",
+                "period_start",
+                "subscription_count",
+                "new_subscription_count",
+                "churned_subscription_count",
+                "customer_count",
+                "new_customer_count",
+                "churned_customer_count",
+                "arpu",
+                "ltv",
+            ]
+            return ast.SelectQuery.empty(columns={key: UnknownDatabaseField(name=key) for key in columns})
 
         queries: list[ast.SelectQuery] = []
         for subscription_subquery in subscription_subqueries:
@@ -334,7 +334,10 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
                         distinct=True,
                         args=[
                             ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "id"]),
-                            self._period_eq_expr(ast.Field(chain=["ended_at"]), ast.Field(chain=["period_start"])),
+                            self._period_eq_expr(
+                                ast.Field(chain=["ended_at"]),
+                                self._add_period_expr(ast.Field(chain=["period_start"]), -1),
+                            ),
                         ],
                     ),
                 ),
@@ -368,7 +371,7 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
                             ast.CompareOperation(
                                 op=ast.CompareOperationOp.Eq,
                                 left=ast.Field(chain=["churned_subscription_count"]),
-                                right=ast.Field(chain=["subscription_count"]),
+                                right=ast.Field(chain=["prev_subscription_count"]),
                             ),
                         ]
                     ),

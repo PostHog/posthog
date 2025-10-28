@@ -63,6 +63,7 @@ class Command(BaseCommand):
             verify_ssl_cert=False,
             randomize_replica_paths=settings.TEST or settings.E2E_TESTING,
         )
+
         if options["plan"] or options["check"]:
             print("List of clickhouse migrations to be applied:")
             migrations = list(self.get_migrations(database, options["upto"]))

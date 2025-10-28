@@ -10,34 +10,39 @@ This document outlines the implementation steps for the LLM Analytics capture pi
 
 #### 0.1 Routing Configuration
 
-- [ ] Create new `/ai` endpoint in capture service
-- [ ] Set up routing for `/ai` endpoint to capture service
+- [x] Create new `/i/v0/ai` endpoint in capture service
+- [ ] Set up routing for `/i/v0/ai` endpoint to capture service
 
 #### 0.2 End-to-End Integration Tests
 
-- [ ] Implement end-to-end integration tests for the full LLM analytics pipeline
-- [ ] Create test scenarios with multipart requests and blob data
-- [ ] Test Kafka message output and S3 storage integration
+- [x] Implement Rust integration tests for multipart parsing and validation
+- [x] Create Python acceptance test scenarios with multipart requests and blob data
+- [x] Test Kafka message output and S3 storage integration
 - [ ] Set up automated test suite for continuous validation
 
 ### Phase 1: HTTP Endpoint
 
 #### 1.1 HTTP Endpoint Foundation
 
-- [ ] Implement multipart/form-data request parsing
-- [ ] Add server-side boundary validation
-- [ ] Output events with blob placeholders to Kafka
-- [ ] Implement error schema
+- [x] Implement multipart/form-data request parsing
+- [x] Add server-side boundary validation
+- [x] Support separate `event.properties` multipart part
+- [x] Implement gzip decompression for compressed requests
+- [x] Output events with blob placeholders to Kafka
+- [x] Implement error schema
 
 #### 1.2 Basic Validation
 
-- [ ] Implement `$ai_` event name prefix validation
-- [ ] Validate blob part names against event properties
-- [ ] Prevent blob overwriting of existing properties
+- [x] Implement specific AI event type validation ($ai_generation, $ai_trace, $ai_span, $ai_embedding, $ai_metric, $ai_feedback)
+- [x] Validate blob part names against event properties
+- [x] Prevent blob overwriting of existing properties (reject if both embedded and separate properties)
+- [x] Validate event part is first in multipart request
+- [x] Validate required fields (event name, distinct_id, $ai_model)
+- [x] Implement size limits (32KB event, 960KB combined, 25MB total, 27.5MB request body)
 
 #### 1.3 Initial Deployment
 
-- [ ] Deploy capture-ai service to production with basic `/ai` endpoint
+- [ ] Deploy capture-ai service to production with basic `/i/v0/ai` endpoint
 - [ ] Test basic multipart parsing and Kafka output functionality
 - [ ] Verify endpoint responds correctly to AI events
 
@@ -81,6 +86,7 @@ This document outlines the implementation steps for the LLM Analytics capture pi
 
 #### 5.1 Request Signature Verification
 
+- [x] Implement basic API key validation (Bearer token authentication)
 - [ ] Implement PostHog API key authentication
 - [ ] Add request signature verification
 - [ ] Validate API key before processing multipart data
@@ -96,8 +102,8 @@ This document outlines the implementation steps for the LLM Analytics capture pi
 #### 6.2 Alerting
 
 - [ ] Configure alerts for S3 upload failures
-- [ ] Set up alerts for high error rates on `/ai` endpoint
-- [ ] Set up alerts for high latency on `/ai` endpoint
+- [ ] Set up alerts for high error rates on `/i/v0/ai` endpoint
+- [ ] Set up alerts for high latency on `/i/v0/ai` endpoint
 
 #### 6.3 Runbooks
 
@@ -107,28 +113,37 @@ This document outlines the implementation steps for the LLM Analytics capture pi
 
 #### 7.1 Compression Support
 
-- [ ] Parse Content-Encoding headers from SDK requests
-- [ ] Implement server-side compression for uncompressed text/JSON
-- [ ] Add compression metadata to multipart files
-- [ ] Handle mixed compressed/uncompressed blobs
+- [x] Parse Content-Encoding: gzip header for request-level compression
+- [x] Implement streaming gzip decompression for compressed requests
+- [x] Test with gzip-compressed multipart requests
+- [ ] Implement server-side compression for uncompressed blobs before S3 storage
+- [ ] Add compression metadata to S3 objects
 - [ ] Track compression ratio effectiveness
 
 ### Phase 8: Schema Validation
 
 #### 8.1 Schema Validation
 
-- [ ] Create strict schema definitions for each AI event type
-- [ ] Add schema validation for event payloads
-- [ ] Validate Content-Type headers on blob parts
-- [ ] Add Content-Length validation
+- [x] Validate Content-Type headers on blob parts (required: application/json, text/plain, application/octet-stream)
+- [x] Validate event JSON structure (event, distinct_id, properties fields)
+- [x] Validate required AI properties ($ai_model)
+- [x] Test with different supported content types
+- [ ] Create comprehensive schema definitions for each AI event type
+- [ ] Add detailed schema validation for event-specific properties
+- [ ] Add Content-Length validation beyond size limits
 
 ### Phase 9: Limits (Optional)
 
 #### 9.1 Request Validation & Limits
 
-- [ ] Add request size limits and validation
+- [x] Add request size limits and validation (configurable via `ai_max_sum_of_parts_bytes`)
+- [x] Implement event part size limit (32KB)
+- [x] Implement combined event+properties size limit (960KB)
+- [x] Implement total parts size limit (25MB default, configurable)
+- [x] Implement request body size limit (110% of total parts limit)
+- [x] Return 413 Payload Too Large for size violations
 - [ ] Add request rate limiting per team
-- [ ] Implement payload size limits per team
+- [ ] Implement per-team payload size limits
 
 ### Phase 10: Data Deletion (Optional)
 

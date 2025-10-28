@@ -14,7 +14,7 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 from posthog.api.team import TEAM_CONFIG_FIELDS_SET, TeamSerializer, validate_team_attrs
-from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
@@ -450,6 +450,9 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         queryset = queryset.filter(id__in=visible_teams_ids)
         if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
             if scoped_organizations := self.request.successful_authenticator.personal_api_key.scoped_organizations:
+                queryset = queryset.filter(organization_id__in=scoped_organizations)
+        if isinstance(self.request.successful_authenticator, OAuthAccessTokenAuthentication):
+            if scoped_organizations := self.request.successful_authenticator.access_token.scoped_organizations:
                 queryset = queryset.filter(organization_id__in=scoped_organizations)
         return queryset.filter(id__in=visible_teams_ids)
 

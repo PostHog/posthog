@@ -30,7 +30,6 @@ from posthog.batch_exports.service import BackfillDetails, BatchExportModel, Bat
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
-from posthog.temporal.tests.utils.s3 import read_parquet_from_s3, read_s3_data_as_json
 
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
@@ -50,10 +49,13 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
 )
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue
-from products.batch_exports.backend.tests.temporal.utils import (
-    get_record_batch_from_queue,
-    mocked_start_batch_export_run,
+from products.batch_exports.backend.tests.temporal.utils.records import get_record_batch_from_queue
+from products.batch_exports.backend.tests.temporal.utils.s3 import (
+    delete_all_from_s3,
+    read_parquet_from_s3,
+    read_s3_data_as_json,
 )
+from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -137,16 +139,6 @@ def file_format(request) -> str:
         return f"JSONLines"
 
 
-async def delete_all_from_s3(minio_client, bucket_name: str, key_prefix: str):
-    """Delete all objects in bucket_name under key_prefix."""
-    response = await minio_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
-
-    if "Contents" in response:
-        for obj in response["Contents"]:
-            if "Key" in obj:
-                await minio_client.delete_object(Bucket=bucket_name, Key=obj["Key"])
-
-
 @pytest.fixture
 async def minio_client(bucket_name):
     """Manage an S3 client to interact with a MinIO bucket.
@@ -191,7 +183,14 @@ async def assert_files_in_s3(s3_compatible_client, bucket_name, key_prefix, file
         keys.append(key)
 
         if file_format == "Parquet":
-            s3_data.extend(await read_parquet_from_s3(bucket_name, key, json_columns))
+            s3_data.extend(
+                await read_parquet_from_s3(
+                    s3_client=s3_compatible_client,
+                    bucket_name=bucket_name,
+                    key=key,
+                    json_columns=json_columns,
+                )
+            )
 
         elif file_format == "Arrow":
             s3_object = await s3_compatible_client.get_object(Bucket=bucket_name, Key=key)
@@ -1948,5 +1947,13 @@ base_inputs = {"bucket_name": "test", "region": "test", "team_id": 1}
 )
 def test_get_s3_key(inputs, expected):
     """Test the get_s3_key function renders the expected S3 key given inputs."""
-    result = get_s3_key(inputs)
+    result = get_s3_key(
+        inputs.prefix,
+        inputs.data_interval_start,
+        inputs.data_interval_end,
+        inputs.batch_export_model,
+        inputs.file_format,
+        inputs.compression,
+        use_new_file_naming_scheme=inputs.max_file_size_mb is not None,
+    )
     assert result == expected

@@ -1,4 +1,3 @@
-import json
 import time
 import asyncio
 from typing import Any, cast
@@ -17,7 +16,6 @@ from posthog.schema import (
     RecordingsQuery,
 )
 
-from posthog.models.notebook.notebook import Notebook
 from posthog.models.team.team import check_is_feature_available_for_team
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.sync import database_sync_to_async
@@ -27,6 +25,8 @@ from posthog.temporal.ai.session_summary.summarize_session_group import (
     execute_summarize_session_group,
 )
 
+from products.notebooks.backend.models import Notebook
+
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.session_summaries.prompts import GENERATE_FILTER_QUERY_PROMPT
 from ee.hogai.llm import MaxChatOpenAI
@@ -35,7 +35,9 @@ from ee.hogai.session_summaries.constants import (
     MAX_SESSIONS_TO_SUMMARIZE,
     SESSION_SUMMARIES_STREAMING_MODEL,
 )
+from ee.hogai.session_summaries.session.stringify import SingleSessionSummaryStringifier
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
+from ee.hogai.session_summaries.session_group.stringify import SessionGroupSummaryStringifier
 from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
 from ee.hogai.session_summaries.session_group.summary_notebooks import (
     SummaryNotebookIntermediateState,
@@ -167,7 +169,7 @@ class _SessionSearch:
         self._node = node
 
     async def _generate_replay_filters(
-        self, filter_query: str, conversation_id: str, start_time: float
+        self, state: AssistantState, config: RunnableConfig, filter_query: str, conversation_id: str, start_time: float
     ) -> MaxRecordingUniversalFilters | str | None:
         """
         Generates replay filters to get session ids by directly using SearchSessionRecordingsTool.
@@ -180,8 +182,7 @@ class _SessionSearch:
         from products.replay.backend.max_tools import SearchSessionRecordingsTool  # Avoid circular import
 
         # Create the tool instance with minimal context (no current_filters for fresh generation)
-        tool = SearchSessionRecordingsTool(team=self._node._team, user=self._node._user)
-        tool._context = {"current_filters": {}}
+        tool = SearchSessionRecordingsTool(team=self._node._team, user=self._node._user, state=state, config=config)
         try:
             # Call the tool's graph directly to use the same implementation as in the tool (avoid duplication)
             result = await tool._invoke_graph(change=filter_query)
@@ -327,7 +328,9 @@ class _SessionSearch:
             return self._node._create_error_response(self._node._base_error_instructions, state)
         # If the current filters were marked as relevant, but not present in the context
         current_filters = (
-            self._node._get_contextual_tools(config).get("search_session_recordings", {}).get("current_filters")
+            self._node.context_manager.get_contextual_tools()
+            .get("search_session_recordings", {})
+            .get("current_filters")
         )
         try:
             # Use current filters, if provided
@@ -345,6 +348,8 @@ class _SessionSearch:
             else:
                 filter_query = await self._generate_filter_query(state.session_summarization_query, config)
                 filter_generation_result = await self._generate_replay_filters(
+                    state=state,
+                    config=config,
                     filter_query=filter_query,
                     conversation_id=conversation_id,
                     start_time=start_time,
@@ -414,8 +419,14 @@ class _SessionSummarizer:
         tasks = [_summarize(sid) for sid in session_ids]
         summaries = await asyncio.gather(*tasks)
         await self._node._stream_progress(progress_message=f"Generating a summary, almost there")
-        # Dumping to ensure that summaries content is always stringified JSON
-        return json.dumps(summaries)
+        # Stringify, as chat doesn't need full JSON to be context-aware, while providing it could overload the context
+        stringified_summaries = []
+        for summary in summaries:
+            stringifier = SingleSessionSummaryStringifier(summary)
+            stringified_summaries.append(stringifier.stringify_session())
+        # Combine all stringified summaries into a single string
+        summaries_str = "\n\n".join(stringified_summaries)
+        return summaries_str
 
     async def _summarize_sessions_as_group(
         self,
@@ -491,9 +502,10 @@ class _SessionSummarizer:
                 await update_notebook_from_summary_content(
                     notebook=notebook, summary_content=summary_content, session_ids=session_ids
                 )
-                # Return the summary to Max to generate inline summary of the full summary
-                # TODO: Add some minifier logic as something summary (if too many sessions) blows up the Max's root context
-                return summary.model_dump_json(exclude_none=True)
+                # Stringify the summary to "weight" less and apply example limits per pattern, so it won't overload the context
+                stringifier = SessionGroupSummaryStringifier(summary.model_dump(exclude_none=False))
+                summary_str = stringifier.stringify_patterns()
+                return summary_str
             else:
                 raise ValueError(
                     f"Unexpected update type ({update_type}) in session group summarization (session_ids: {logging_session_ids(session_ids)})."

@@ -4,7 +4,7 @@ from enum import Enum
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
-from django.db.models import Case, F, Q, QuerySet, Value, When
+from django.db.models import Case, F, Prefetch, Q, QuerySet, Value, When
 from django.db.models.functions import Now
 from django.dispatch import receiver
 
@@ -22,9 +22,18 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
+from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
+from posthog.models import Survey
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentMetricResult, ExperimentSavedMetric
-from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.cohort import Cohort
+from posthog.models.experiment import (
+    Experiment,
+    ExperimentHoldout,
+    ExperimentMetricResult,
+    ExperimentSavedMetric,
+    ExperimentTimeseriesRecalculation,
+)
+from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagEvaluationTag
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import model_activity_signal
 from posthog.models.team.team import Team
@@ -123,7 +132,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 saved_metric["query"]["fingerprint"] = compute_metric_fingerprint(
                     saved_metric["query"],
                     instance.start_date,
-                    instance.stats_config,
+                    get_experiment_stats_method(instance),
                     instance.exposure_criteria,
                 )
 
@@ -292,8 +301,9 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         for metric_field in ["metrics", "metrics_secondary"]:
             if metric_field in validated_data:
                 for metric in validated_data[metric_field]:
+                    stats_method = "bayesian" if stats_config is None else stats_config.get("method", "bayesian")
                     metric["fingerprint"] = compute_metric_fingerprint(
-                        metric, validated_data.get("start_date"), stats_config, validated_data.get("exposure_criteria")
+                        metric, validated_data.get("start_date"), stats_method, validated_data.get("exposure_criteria")
                     )
 
         experiment = Experiment.objects.create(
@@ -469,10 +479,11 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 updated_metrics = []
                 for metric in metrics:
                     metric_copy = deepcopy(metric)
+                    stats_method = "bayesian" if stats_config is None else stats_config.get("method", "bayesian")
                     metric_copy["fingerprint"] = compute_metric_fingerprint(
                         metric_copy,
                         start_date,
-                        stats_config,
+                        stats_method,
                         exposure_criteria,
                     )
                     updated_metrics.append(metric_copy)
@@ -741,6 +752,116 @@ class EnterpriseExperimentsViewSet(
         experiment.save(update_fields=["exposure_cohort"])
         return Response({"cohort": cohort_serializer.data}, status=201)
 
+    @action(methods=["GET"], detail=False, required_scopes=["feature_flag:read"])
+    def eligible_feature_flags(self, request: Request, **kwargs: Any) -> Response:
+        """
+        Returns a paginated list of feature flags eligible for use in experiments.
+
+        Eligible flags must:
+        - Be multivariate with at least 2 variants
+        - Have "control" as the first variant key
+
+        Query parameters:
+        - search: Filter by flag key or name (case insensitive)
+        - limit: Number of results per page (default: 20)
+        - offset: Pagination offset (default: 0)
+        - active: Filter by active status ("true" or "false")
+        - created_by_id: Filter by creator user ID
+        - order: Sort order field
+        - evaluation_runtime: Filter by evaluation runtime
+        """
+        # validate limit and offset
+        try:
+            limit = min(int(request.query_params.get("limit", 20)), 100)
+            offset = max(int(request.query_params.get("offset", 0)), 0)
+        except ValueError:
+            return Response({"error": "Invalid limit or offset"}, status=400)
+
+        queryset = FeatureFlag.objects.filter(team__project_id=self.project_id, deleted=False)
+
+        # Filter for multivariate flags with at least 2 variants and first variant is "control"
+        queryset = queryset.extra(
+            where=[
+                """
+                jsonb_array_length(filters->'multivariate'->'variants') >= 2
+                AND filters->'multivariate'->'variants'->0->>'key' = 'control'
+                """
+            ]
+        )
+
+        # Exclude survey targeting flags (same as regular feature flag list endpoint)
+        survey_targeting_flags = Survey.objects.filter(
+            team__project_id=self.project_id, targeting_flag__isnull=False
+        ).values_list("targeting_flag_id", flat=True)
+        survey_internal_targeting_flags = Survey.objects.filter(
+            team__project_id=self.project_id, internal_targeting_flag__isnull=False
+        ).values_list("internal_targeting_flag_id", flat=True)
+        excluded_flag_ids = set(survey_targeting_flags) | set(survey_internal_targeting_flags)
+        queryset = queryset.exclude(id__in=excluded_flag_ids)
+
+        # Apply search filter
+        search = request.query_params.get("search")
+        if search:
+            queryset = queryset.filter(Q(key__icontains=search) | Q(name__icontains=search))
+
+        # Apply active filter
+        active = request.query_params.get("active")
+        if active is not None:
+            queryset = queryset.filter(active=active.lower() == "true")
+
+        # Apply created_by filter
+        created_by_id = request.query_params.get("created_by_id")
+        if created_by_id:
+            queryset = queryset.filter(created_by_id=created_by_id)
+
+        # Apply evaluation_runtime filter
+        evaluation_runtime = request.query_params.get("evaluation_runtime")
+        if evaluation_runtime:
+            queryset = queryset.filter(evaluation_runtime=evaluation_runtime)
+
+        # Ordering
+        order = request.query_params.get("order")
+        if order:
+            queryset = queryset.order_by(order)
+        else:
+            queryset = queryset.order_by("-created_at")
+
+        # Prefetch related data to avoid N+1 queries (same as regular feature flag list)
+        queryset = queryset.prefetch_related(
+            Prefetch(
+                "experiment_set", queryset=Experiment.objects.filter(deleted=False), to_attr="_active_experiments"
+            ),
+            "features",
+            "analytics_dashboards",
+            "surveys_linked_flag",
+            Prefetch(
+                "evaluation_tags",
+                queryset=FeatureFlagEvaluationTag.objects.select_related("tag"),
+            ),
+            Prefetch(
+                "team__cohort_set",
+                queryset=Cohort.objects.filter(deleted=False).only("id", "name"),
+                to_attr="available_cohorts",
+            ),
+        ).select_related("created_by", "last_modified_by")
+
+        total_count = queryset.count()
+        results = queryset[offset : offset + limit]
+
+        # Serialize using the standard FeatureFlagSerializer
+        serializer = FeatureFlagSerializer(
+            results,
+            many=True,
+            context=self.get_serializer_context(),
+        )
+
+        return Response(
+            {
+                "results": serializer.data,
+                "count": total_count,
+            }
+        )
+
     @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
     def timeseries_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
@@ -834,6 +955,16 @@ class EnterpriseExperimentsViewSet(
         # If we have at least some data (completed or failed), it's partial
         else:
             overall_status = "partial"
+
+        active_recalculation = ExperimentTimeseriesRecalculation.objects.filter(
+            experiment=experiment,
+            fingerprint=fingerprint,
+            status__in=[
+                ExperimentTimeseriesRecalculation.Status.PENDING,
+                ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
+            ],
+        ).first()
+
         first_result = metric_results.first()
         last_result = metric_results.last()
         response_data = {
@@ -845,9 +976,86 @@ class EnterpriseExperimentsViewSet(
             "computed_at": latest_completed_at.isoformat() if latest_completed_at else None,
             "created_at": first_result.created_at.isoformat() if first_result else experiment.created_at.isoformat(),
             "updated_at": last_result.updated_at.isoformat() if last_result else experiment.updated_at.isoformat(),
+            "recalculation_status": active_recalculation.status if active_recalculation else None,
+            "recalculation_created_at": active_recalculation.created_at.isoformat() if active_recalculation else None,
         }
 
         return Response(response_data)
+
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def recalculate_timeseries(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Create a recalculation request for experiment timeseries data.
+
+        Request body:
+        - metric (required): The full metric object to recalculate
+        - fingerprint (required): The fingerprint of the metric configuration
+        """
+        experiment = self.get_object()
+
+        metric = request.data.get("metric")
+        fingerprint = request.data.get("fingerprint")
+
+        if not metric:
+            raise ValidationError("metric is required")
+        if not fingerprint:
+            raise ValidationError("fingerprint is required")
+
+        if not experiment.start_date:
+            raise ValidationError("Cannot recalculate timeseries for experiment that hasn't started")
+
+        # Check for existing recalculation request to ensure idempotency
+        existing_recalculation = ExperimentTimeseriesRecalculation.objects.filter(
+            experiment=experiment,
+            fingerprint=fingerprint,
+            status__in=[
+                ExperimentTimeseriesRecalculation.Status.PENDING,
+                ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
+            ],
+        ).first()
+
+        if existing_recalculation:
+            return Response(
+                {
+                    "id": existing_recalculation.id,
+                    "experiment_id": experiment.id,
+                    "metric_uuid": existing_recalculation.metric.get("uuid"),
+                    "fingerprint": fingerprint,
+                    "status": existing_recalculation.status,
+                    "created_at": existing_recalculation.created_at.isoformat(),
+                },
+                status=200,
+            )
+
+        # Delete all existing metric results for this experiment/metric/fingerprint combination
+        metric_uuid = metric.get("uuid")
+        if metric_uuid:
+            ExperimentMetricResult.objects.filter(
+                experiment_id=experiment.id,
+                metric_uuid=metric_uuid,
+                fingerprint=fingerprint,
+            ).delete()
+
+        # Create new recalculation request
+        recalculation_request = ExperimentTimeseriesRecalculation.objects.create(
+            team=experiment.team,
+            experiment=experiment,
+            metric=metric,
+            fingerprint=fingerprint,
+            status=ExperimentTimeseriesRecalculation.Status.PENDING,
+        )
+
+        return Response(
+            {
+                "id": recalculation_request.id,
+                "experiment_id": experiment.id,
+                "metric_uuid": metric.get("uuid"),
+                "fingerprint": fingerprint,
+                "status": recalculation_request.status,
+                "created_at": recalculation_request.created_at.isoformat(),
+            },
+            status=201,
+        )
 
 
 @receiver(model_activity_signal, sender=Experiment)

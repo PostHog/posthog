@@ -10,11 +10,12 @@ import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrD
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { TZLabel } from 'lib/components/TZLabel'
 import { CohortTypeEnum, FEATURE_FLAGS } from 'lib/constants'
+import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { IconErrorOutline, IconUploadFile } from 'lib/lemon-ui/icons'
+import { IconErrorOutline, IconRefresh, IconUploadFile } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -38,10 +39,10 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { QueryContext } from '~/queries/types'
-import { CohortType, PersonType } from '~/types'
+import { CohortType } from '~/types'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
-import { RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
+import { PersonDisplayNameType, RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
 import { cohortCountWarningLogic } from './cohortCountWarningLogic'
 import { createCohortDataNodeLogicKey } from './cohortUtils'
@@ -62,7 +63,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
             console.error('Expected record to be an array for person.$delete column')
             return <></>
         }
-        const personRecord = record[0] as PersonType
+        const personRecord = record[0] as PersonDisplayNameType
 
         return <RemovePersonFromCohortButton person={personRecord} />
     }
@@ -71,6 +72,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
     useAttachedLogic(logic, attachTo)
     const {
         deleteCohort,
+        restoreCohort,
         setOuterGroupsType,
         setQuery,
         duplicateCohort,
@@ -96,6 +98,15 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
     const warningLogic = cohortCountWarningLogic({ cohort, query, dataNodeLogicKey })
     const { shouldShowCountWarning } = useValues(warningLogic)
+
+    const cohortId = typeof cohort.id === 'number' ? cohort.id : null
+
+    useFileSystemLogView({
+        type: 'cohort',
+        ref: cohortId,
+        enabled: Boolean(cohortId && !cohortLoading && !cohortMissing && !cohort.deleted),
+        deps: [cohortId, cohortLoading, cohortMissing, cohort.deleted],
+    })
 
     const createStaticCohortContext: QueryContext = {
         columns: {
@@ -129,6 +140,25 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
 
     if (cohortMissing) {
         return <NotFound object="cohort" />
+    }
+
+    if (cohort.deleted) {
+        return (
+            <div>
+                <LemonBanner type="error">The cohort '{cohort.name}' has been soft deleted.</LemonBanner>
+                <ScenePanel>
+                    <ButtonPrimitive
+                        disabled={cohortLoading}
+                        onClick={() => {
+                            restoreCohort()
+                        }}
+                        menuItem
+                    >
+                        <IconRefresh /> Restore
+                    </ButtonPrimitive>
+                </ScenePanel>
+            </div>
+        )
     }
 
     return (
