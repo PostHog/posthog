@@ -51,6 +51,7 @@ ActivityScope = Literal[
     "ErrorTrackingIssue",
     "DataWarehouseSavedQuery",
     "Organization",
+    "OrganizationDomain",
     "OrganizationMembership",
     "Role",
     "UserGroup",
@@ -215,6 +216,9 @@ field_with_masked_contents: dict[ActivityScope, list[str]] = {
     ],
     "ExternalDataSource": [
         "job_inputs",
+    ],
+    "OrganizationDomain": [
+        "scim_bearer_token",
     ],
 }
 
