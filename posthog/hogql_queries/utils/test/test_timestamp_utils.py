@@ -281,7 +281,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         flush_persons_and_events()
 
         series = [ActionsNode(id=action1.id), ActionsNode(id=action2.id)]
-        earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)
+        earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)  # type: ignore
         self.assertEqual(earliest_timestamp, datetime.datetime(2020, 1, 1, 12, 0, 0, tzinfo=datetime.UTC))
 
     def test_returns_earliest_timestamp_mixed_nodes(self):
@@ -303,7 +303,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         flush_persons_and_events()
 
         series = [ActionsNode(id=action.id), EventsNode(event="$pageleave")]
-        earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)
+        earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)  # type: ignore
         self.assertEqual(earliest_timestamp, datetime.datetime(2019, 1, 1, 12, 0, 0, tzinfo=datetime.UTC))
 
     def test_caches_earliest_timestamp(self):
