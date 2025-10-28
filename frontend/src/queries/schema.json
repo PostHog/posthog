@@ -14938,6 +14938,25 @@
                     },
                     "type": "array"
                 },
+                "view_metadata": {
+                    "additionalProperties": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "id": {
+                                "type": "string"
+                            },
+                            "is_materialized": {
+                                "type": "boolean"
+                            },
+                            "is_view": {
+                                "type": "boolean"
+                            }
+                        },
+                        "required": ["id", "is_view", "is_materialized"],
+                        "type": "object"
+                    },
+                    "type": "object"
+                },
                 "warnings": {
                     "items": {
                         "$ref": "#/definitions/HogQLNotice"
@@ -19132,6 +19151,25 @@
                                 "type": "string"
                             },
                             "type": "array"
+                        },
+                        "view_metadata": {
+                            "additionalProperties": {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "id": {
+                                        "type": "string"
+                                    },
+                                    "is_materialized": {
+                                        "type": "boolean"
+                                    },
+                                    "is_view": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "required": ["id", "is_view", "is_materialized"],
+                                "type": "object"
+                            },
+                            "type": "object"
                         },
                         "warnings": {
                             "items": {
