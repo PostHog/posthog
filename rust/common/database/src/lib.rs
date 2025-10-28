@@ -41,10 +41,10 @@ pub struct PoolStats {
 /// Each service should provide its own configuration based on its needs
 #[derive(Debug, Clone)]
 pub struct PoolConfig {
+    pub min_connections: u32,
     pub max_connections: u32,
     pub acquire_timeout: Duration,
     pub idle_timeout: Option<Duration>,
-    pub max_lifetime: Option<Duration>,
     pub test_before_acquire: bool,
     /// PostgreSQL statement_timeout to set on each connection (in milliseconds)
     /// Set to None to use the database default
@@ -56,12 +56,12 @@ impl Default for PoolConfig {
     /// Services can override these with their own environment-based configs
     fn default() -> Self {
         Self {
+            min_connections: 0, // Start with 0 connections by default
             max_connections: 10,
             acquire_timeout: Duration::from_secs(10),
             idle_timeout: Some(Duration::from_secs(300)), // Close idle connections after 5 minutes
-            max_lifetime: Some(Duration::from_secs(1800)), // Force refresh connections after 30 minutes
-            test_before_acquire: true,                     // Test connection health before use
-            statement_timeout_ms: None,                    // Use database default
+            test_before_acquire: true,                    // Test connection health before use
+            statement_timeout_ms: None,                   // Use database default
         }
     }
 }
@@ -95,16 +95,13 @@ pub async fn get_pool_with_timeout(
 /// This is the recommended function for services to use
 pub async fn get_pool_with_config(url: &str, config: PoolConfig) -> Result<PgPool, sqlx::Error> {
     let mut options = PgPoolOptions::new()
+        .min_connections(config.min_connections)
         .max_connections(config.max_connections)
         .acquire_timeout(config.acquire_timeout)
         .test_before_acquire(config.test_before_acquire);
 
     if let Some(idle_timeout) = config.idle_timeout {
         options = options.idle_timeout(idle_timeout);
-    }
-
-    if let Some(max_lifetime) = config.max_lifetime {
-        options = options.max_lifetime(max_lifetime);
     }
 
     // If statement_timeout is configured, set it via after_connect hook

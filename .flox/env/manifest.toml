@@ -104,12 +104,12 @@ if [ -d "$UV_PROJECT_ENVIRONMENT/bin" ]; then
 fi
 
 # Install shell completions for hogli in flox environment cache
-# Must run after uv sync so hogli.completion module is available
+# Must run after symlink creation; PYTHONPATH mirrors what bin/hogli does
 HOGLI_COMPLETION_DIR="$FLOX_ENV_CACHE/completions"
 mkdir -p "$HOGLI_COMPLETION_DIR"
 if [ -d "$UV_PROJECT_ENVIRONMENT/bin" ]; then
-  "$UV_PROJECT_ENVIRONMENT/bin/python" -m hogli.completion --shell bash > "$HOGLI_COMPLETION_DIR/hogli.bash" 2>/dev/null || true
-  "$UV_PROJECT_ENVIRONMENT/bin/python" -m hogli.completion --shell zsh > "$HOGLI_COMPLETION_DIR/_hogli" 2>/dev/null || true
+  PYTHONPATH="$FLOX_ENV_PROJECT/common" "$UV_PROJECT_ENVIRONMENT/bin/python" -m hogli.core.completion --shell bash > "$HOGLI_COMPLETION_DIR/hogli.bash" 2>/dev/null || true
+  PYTHONPATH="$FLOX_ENV_PROJECT/common" "$UV_PROJECT_ENVIRONMENT/bin/python" -m hogli.core.completion --shell zsh > "$HOGLI_COMPLETION_DIR/_hogli" 2>/dev/null || true
 fi
 
 # Install top-level Node dependencies - This also sets up pre-commit hooks via Husky

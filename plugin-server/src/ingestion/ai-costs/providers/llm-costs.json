@@ -1138,7 +1138,7 @@
                 "completion_token": 0.000001
             },
             "parasail-fp8": {
-                "prompt_token": 6e-7,
+                "prompt_token": 5e-7,
                 "completion_token": 0.0000017
             },
             "sambanova-fp8": {
@@ -1199,10 +1199,6 @@
             "deepinfra-turbo": {
                 "prompt_token": 0.000001,
                 "completion_token": 0.000003
-            },
-            "minimax": {
-                "prompt_token": 5.5e-7,
-                "completion_token": 0.00000219
             },
             "novita-fp8": {
                 "prompt_token": 7e-7,
@@ -2149,12 +2145,8 @@
         "model": "inclusionai/ling-1t",
         "cost": {
             "default": {
-                "prompt_token": 4e-7,
-                "completion_token": 0.000002
-            },
-            "chutes-fp8": {
-                "prompt_token": 4e-7,
-                "completion_token": 0.000002
+                "prompt_token": 5.7e-7,
+                "completion_token": 0.00000228
             },
             "siliconflow-fp8": {
                 "prompt_token": 5.7e-7,
@@ -2659,6 +2651,10 @@
                 "prompt_token": 0,
                 "completion_token": 0
             },
+            "modelrun": {
+                "prompt_token": 0,
+                "completion_token": 0
+            },
             "together-fp8": {
                 "prompt_token": 0,
                 "completion_token": 0
@@ -2721,7 +2717,7 @@
                 "image": 0.0006684
             },
             "parasail-fp8": {
-                "prompt_token": 1.5e-7,
+                "prompt_token": 3.5e-7,
                 "completion_token": 8.5e-7,
                 "image": 0.00070182
             },
@@ -3029,6 +3025,19 @@
             "siliconflow-fp8": {
                 "prompt_token": 5.5e-7,
                 "completion_token": 0.0000022
+            }
+        }
+    },
+    {
+        "model": "minimax/minimax-m2:free",
+        "cost": {
+            "default": {
+                "prompt_token": 0,
+                "completion_token": 0
+            },
+            "minimax": {
+                "prompt_token": 0,
+                "completion_token": 0
             }
         }
     },
@@ -4673,8 +4682,8 @@
                 "completion_token": 2.5e-7
             },
             "parasail-fp4": {
-                "prompt_token": 2.5e-7,
-                "completion_token": 6e-7
+                "prompt_token": 1.4e-7,
+                "completion_token": 5e-7
             },
             "phala": {
                 "prompt_token": 1e-7,
@@ -4768,7 +4777,7 @@
                 "completion_token": 1.5e-7
             },
             "parasail-fp4": {
-                "prompt_token": 2e-7,
+                "prompt_token": 4e-8,
                 "completion_token": 2e-7
             },
             "phala": {
@@ -5554,7 +5563,7 @@
                 "completion_token": 5.8e-7
             },
             "parasail-fp8": {
-                "prompt_token": 1.5e-7,
+                "prompt_token": 1.8e-7,
                 "completion_token": 8.5e-7
             },
             "siliconflow-fp8": {
@@ -6091,7 +6100,7 @@
                 "completion_token": 0.0000015
             },
             "parasail-fp8": {
-                "prompt_token": 1.4e-7,
+                "prompt_token": 1e-7,
                 "completion_token": 0.0000011
             },
             "siliconflow-fp8": {
@@ -6131,10 +6140,6 @@
                 "prompt_token": 1.5e-7,
                 "completion_token": 0.0000015
             },
-            "parasail-fp8": {
-                "prompt_token": 2.5e-7,
-                "completion_token": 0.0000011
-            },
             "together": {
                 "prompt_token": 1.5e-7,
                 "completion_token": 0.0000015
@@ -6145,8 +6150,8 @@
         "model": "qwen/qwen3-vl-235b-a22b-instruct",
         "cost": {
             "default": {
-                "prompt_token": 3e-7,
-                "completion_token": 0.0000012
+                "prompt_token": 2.2e-7,
+                "completion_token": 8.8e-7
             },
             "alibaba": {
                 "prompt_token": 7e-7,
@@ -6159,6 +6164,10 @@
             "deepinfra-fp8": {
                 "prompt_token": 3e-7,
                 "completion_token": 0.00000149
+            },
+            "fireworks": {
+                "prompt_token": 2.2e-7,
+                "completion_token": 8.8e-7
             },
             "novita-bf16": {
                 "prompt_token": 3e-7,
@@ -6207,19 +6216,23 @@
         "model": "qwen/qwen3-vl-30b-a3b-instruct",
         "cost": {
             "default": {
-                "prompt_token": 2e-7,
-                "completion_token": 7e-7
+                "prompt_token": 1.5e-7,
+                "completion_token": 6e-7
             },
             "deepinfra-fp8": {
                 "prompt_token": 2.9e-7,
                 "completion_token": 9.9e-7
+            },
+            "fireworks": {
+                "prompt_token": 1.5e-7,
+                "completion_token": 6e-7
             },
             "novita-bf16": {
                 "prompt_token": 2e-7,
                 "completion_token": 7e-7
             },
             "parasail-fp8": {
-                "prompt_token": 3e-7,
+                "prompt_token": 2.5e-7,
                 "completion_token": 0.000001
             },
             "siliconflow-fp8": {
@@ -6252,7 +6265,7 @@
                 "prompt_token": 3.5e-7,
                 "completion_token": 0.0000011
             },
-            "parasail-bf16": {
+            "parasail-fp8": {
                 "prompt_token": 3.5e-7,
                 "completion_token": 0.0000011
             }
@@ -6950,7 +6963,7 @@
         "model": "z-ai/glm-4.6",
         "cost": {
             "default": {
-                "prompt_token": 5e-7,
+                "prompt_token": 4e-7,
                 "completion_token": 0.00000175
             },
             "atlas-cloud-fp8": {
@@ -6962,7 +6975,7 @@
                 "completion_token": 0.0000022
             },
             "chutes-fp8": {
-                "prompt_token": 5e-7,
+                "prompt_token": 4e-7,
                 "completion_token": 0.00000175
             },
             "deepinfra-fp8": {
@@ -6984,7 +6997,7 @@
                 "cache_read_token": 1.1e-7
             },
             "parasail-fp8": {
-                "prompt_token": 6e-7,
+                "prompt_token": 4.5e-7,
                 "completion_token": 0.0000021
             },
             "siliconflow-fp8": {
