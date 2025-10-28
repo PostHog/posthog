@@ -216,6 +216,7 @@ RUN apt-get update && \
     "chromium" \
     "chromium-driver" \
     "curl" \
+    "xz-utils" \
     "libpq-dev" \
     "libxmlsec1" \
     "libxmlsec1-dev" \
