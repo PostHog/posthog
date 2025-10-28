@@ -1,12 +1,10 @@
 # ruff: noqa: T201 allow print statements
 
-import re
 import datetime
-from collections import defaultdict
 from textwrap import indent
 
 from django.conf import settings
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand
 
 from infi.clickhouse_orm import Database
 from infi.clickhouse_orm.migrations import MigrationHistory
@@ -49,11 +47,6 @@ class Command(BaseCommand):
             action="store_true",
             help="Only use with --plan. Also prints SQL for each migration to be applied.",
         )
-        parser.add_argument(
-            "--strict",
-            action="store_true",
-            help="Enable strict validation. Checks for duplicate migration prefixes before running.",
-        )
 
     def handle(self, *args, **options):
         self.migrate(CLICKHOUSE_HTTP_URL, options)
@@ -71,10 +64,6 @@ class Command(BaseCommand):
             randomize_replica_paths=settings.TEST or settings.E2E_TESTING,
         )
 
-        # Check for duplicate migration prefixes if strict mode is enabled
-        # Skip in DEBUG mode to allow development with duplicate prefixes
-        if options.get("strict") and not settings.DEBUG:
-            self._check_duplicate_prefixes(database)
         if options["plan"] or options["check"]:
             print("List of clickhouse migrations to be applied:")
             migrations = list(self.get_migrations(database, options["upto"]))
@@ -118,40 +107,6 @@ class Command(BaseCommand):
 
     def get_applied_migrations(self, database):
         return database._get_applied_migrations(MIGRATIONS_PACKAGE_NAME, replicated=True)
-
-    def _check_duplicate_prefixes(self, database):
-        """Check for duplicate migration prefixes among unapplied migrations and against applied migrations."""
-        modules = import_submodules(MIGRATIONS_PACKAGE_NAME)
-        applied_migrations = self.get_applied_migrations(database)
-        unapplied_migrations = set(modules.keys()) - applied_migrations
-
-        # Group all migrations by prefix
-        prefixes = defaultdict(list)
-        duplicates: list[tuple[str, str]] = []
-
-        migration_id_re = re.compile(r"^(\d+)_")
-        for migration_name in applied_migrations:
-            if match := migration_id_re.match(migration_name):
-                prefixes[match.group(1)].append(migration_name)
-
-        for migration_name in unapplied_migrations:
-            if match := migration_id_re.match(migration_name):
-                prefix = match.group(1)
-                if prefix in prefixes:
-                    duplicates.append((prefix, migration_name))
-                prefixes[prefix].append(migration_name)
-
-        # Check for conflicts
-        errors = []
-        for prefix, migration_name in duplicates:
-            errors.append(f"  Duplicate prefix {migration_name}:")
-            for conflict in sorted(prefixes[prefix]):
-                errors.append(f"    - {conflict}")
-
-        if errors:
-            message = "❌ Found migration prefix conflicts:\n\n" + "\n".join(errors)
-            message += "\n\nPlease rename the conflicting unapplied migrations."
-            raise CommandError(message)
 
     def _create_database_if_not_exists(self, database: str, cluster: str):
         if settings.TEST or settings.E2E_TESTING:
