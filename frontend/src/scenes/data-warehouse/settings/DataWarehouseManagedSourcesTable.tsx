@@ -1,6 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonDialog, LemonSkeleton, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDialog,
+    LemonInput,
+    LemonSkeleton,
+    LemonTable,
+    LemonTag,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -14,9 +23,9 @@ import { availableSourcesDataLogic } from '../new/availableSourcesDataLogic'
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
 export function DataWarehouseManagedSourcesTable(): JSX.Element {
-    const { dataWarehouseSources, dataWarehouseSourcesLoading, sourceReloadingById } =
+    const { filteredManagedSources, dataWarehouseSourcesLoading, sourceReloadingById, searchTerm } =
         useValues(dataWarehouseSettingsLogic)
-    const { deleteSource, reloadSource } = useActions(dataWarehouseSettingsLogic)
+    const { deleteSource, reloadSource, setSearchTerm } = useActions(dataWarehouseSettingsLogic)
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesDataLogic)
 
     if (availableSourcesLoading || !availableSources) {
@@ -26,9 +35,12 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
     return (
         <>
             <FireSaleBanner />
+            <div className="flex gap-2 justify-between items-center mb-4">
+                <LemonInput type="search" placeholder="Search..." onChange={setSearchTerm} value={searchTerm} />
+            </div>
             <LemonTable
                 id="managed-sources"
-                dataSource={dataWarehouseSources?.results ?? []}
+                dataSource={filteredManagedSources}
                 loading={dataWarehouseSourcesLoading}
                 disableTableWhileLoading={false}
                 pagination={{ pageSize: 10 }}

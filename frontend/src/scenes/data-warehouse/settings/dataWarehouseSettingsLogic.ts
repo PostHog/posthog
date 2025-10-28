@@ -125,6 +125,21 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 return selfManagedTables.filter((table) => table.name.toLowerCase().includes(normalizedSearch))
             },
         ],
+        filteredManagedSources: [
+            (s) => [s.dataWarehouseSources, s.searchTerm],
+            (dataWarehouseSources, searchTerm): ExternalDataSource[] => {
+                const sources = dataWarehouseSources?.results ?? []
+                if (!searchTerm?.trim()) {
+                    return sources
+                }
+                const normalizedSearch = searchTerm.toLowerCase()
+                return sources.filter(
+                    (source) =>
+                        source.source_type.toLowerCase().includes(normalizedSearch) ||
+                        source.prefix?.toLowerCase().includes(normalizedSearch)
+                )
+            },
+        ],
     }),
     urlToAction(({ actions }) => ({
         '/data-warehouse/*': () => {
