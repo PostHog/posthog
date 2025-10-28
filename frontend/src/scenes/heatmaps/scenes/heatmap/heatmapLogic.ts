@@ -61,7 +61,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             }
             actions.setLoading(true)
             try {
-                const item = await api.heatmapSaved.get(props.id)
+                const item = await api.savedHeatmaps.get(props.id)
                 actions.setHeatmapId(item.id)
                 actions.setName(item.name)
                 actions.setDisplayUrl(item.url)
@@ -153,7 +153,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     data_url: values.dataUrl,
                     type: values.type,
                 }
-                const created = await api.heatmapSaved.create(data)
+                const created = await api.savedHeatmaps.create(data)
                 actions.loadSavedHeatmaps()
                 // Navigate to the created heatmap detail page
                 router.actions.push(`/heatmaps/${created.short_id}`)
@@ -170,7 +170,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     data_url: values.dataUrl,
                     type: values.type,
                 }
-                await api.heatmapSaved.update(props.id, data)
+                await api.savedHeatmaps.update(props.id, data)
             } finally {
                 actions.setLoading(false)
             }

@@ -89,7 +89,7 @@ export const heatmapsSceneLogic = kea<heatmapsSceneLogicType>([
                     limit: HEATMAPS_PER_PAGE,
                     offset: Math.max(0, (f.page - 1 || 0) * HEATMAPS_PER_PAGE),
                 }
-                const response = await api.heatmapSaved.list(params)
+                const response = await api.savedHeatmaps.list(params)
                 actions.setSavedHeatmaps(response.results || [])
                 actions.setTotalCount(response.count || 0)
             } finally {

@@ -4564,7 +4564,7 @@ const api = {
         },
     },
 
-    heatmapSaved: {
+    savedHeatmaps: {
         async list(
             params: {
                 type?: HeatmapType
