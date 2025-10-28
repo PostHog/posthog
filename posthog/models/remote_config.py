@@ -130,7 +130,7 @@ class RemoteConfig(UUIDTModel):
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
 
-        from products.error_tracking.backend.api.error_tracking import get_suppression_rules
+        from products.error_tracking.backend.api.suppression_rules import get_suppression_rules
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
         # should be kept consistent. The JS code should be minified and the JSON should be as small as possible.

@@ -1,7 +1,6 @@
 import escapeStringRegexp from 'escape-string-regexp'
 import equal from 'fast-deep-equal'
 import { Summary } from 'prom-client'
-import RE2 from 're2'
 
 import { Properties } from '@posthog/plugin-scaffold'
 
@@ -23,6 +22,7 @@ import { PostgresRouter } from '../../utils/db/postgres'
 import { stringToBoolean } from '../../utils/env-utils'
 import { mutatePostIngestionEventWithElementsList } from '../../utils/event'
 import { captureException } from '../../utils/posthog'
+import { createTrackedRE2 } from '../../utils/tracked-re2'
 import { stringify } from '../../utils/utils'
 import { ActionManager } from './action-manager'
 
@@ -119,7 +119,7 @@ export function matchString(actual: string, expected: string, matching: StringMa
             // Using RE2 here because that's what ClickHouse uses for regex matching anyway
             // It's also safer for user-provided patterns because of a few explicit limitations
             try {
-                return new RE2(expected).test(actual)
+                return createTrackedRE2(expected, undefined, 'action-matcher:matchString').test(actual)
             } catch {
                 return false
             }
@@ -422,10 +422,12 @@ export class ActionMatcher {
                 test = (okValue) => !foundValueLowerCase.includes(stringify(okValue).toLowerCase())
                 break
             case PropertyOperator.Regex:
-                test = (okValue) => new RE2(stringify(okValue)).test(foundValue)
+                test = (okValue) =>
+                    createTrackedRE2(stringify(okValue), undefined, 'action-matcher:propertyFilter').test(foundValue)
                 break
             case PropertyOperator.NotRegex:
-                test = (okValue) => !new RE2(stringify(okValue)).test(foundValue)
+                test = (okValue) =>
+                    !createTrackedRE2(stringify(okValue), undefined, 'action-matcher:propertyFilter').test(foundValue)
                 break
             case PropertyOperator.GreaterThan:
                 test = (okValue) => castingCompare(foundValue, okValue, PropertyOperator.GreaterThan)

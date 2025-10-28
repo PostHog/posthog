@@ -74,21 +74,18 @@ def annotate_file_system_with_view_logs(
     *, team_id: int, user_id: int, queryset: Optional[QuerySet] = None
 ) -> QuerySet[FileSystem]:
     queryset = queryset or FileSystem.objects.all()
-    base_qs = queryset.filter(team_id=team_id)
-
-    return cast(
-        QuerySet[FileSystem],
-        base_qs.alias(
-            recent_file_system_views=FilteredRelation(
-                "team__filesystemviewlog",
-                condition=(
-                    Q(team__filesystemviewlog__user_id=user_id)
-                    & Q(team__filesystemviewlog__type=F("type"))
-                    & Q(team__filesystemviewlog__ref=F("ref"))
-                ),
-            )
-        ).annotate(last_viewed_at=F("recent_file_system_views__viewed_at")),
+    base_qs = queryset.filter(team_id=team_id).alias(
+        matching_view_logs=FilteredRelation(
+            "team__filesystemviewlog",
+            condition=(
+                Q(team__filesystemviewlog__user_id=user_id)
+                & Q(team__filesystemviewlog__type=models.F("type"))
+                & Q(team__filesystemviewlog__ref=models.F("ref"))
+            ),
+        )
     )
+
+    return base_qs.annotate(last_viewed_at=F("matching_view_logs__viewed_at"))
 
 
 def get_recent_file_system_items(*, team_id: int, user_id: int, limit: Optional[int] = None) -> QuerySet[FileSystem]:

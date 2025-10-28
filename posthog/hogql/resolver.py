@@ -513,9 +513,9 @@ class Resolver(CloningVisitor):
 
             if node.name == "sparkline":
                 return self.visit(sparkline(node=node, args=node.args))
-            if node.name == "recording_button":
+            if node.name == "recordingButton":
                 return self.visit(recording_button(node=node, args=node.args))
-            if node.name == "explain_csp_report":
+            if node.name == "explainCSPReport":
                 return self.visit(explain_csp_report(node=node, args=node.args))
             if node.name == "matchesAction":
                 events_alias, _ = self._get_events_table_current_scope()
