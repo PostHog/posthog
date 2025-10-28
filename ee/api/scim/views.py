@@ -63,7 +63,7 @@ class SCIMUsersView(APIView):
 
         return Response(
             {
-                "schemas": ["urn:ietf:params:scim:api:messages:2.0:ListResponse"],
+                "schemas": [constants.SchemaURI.LIST_RESPONSE],
                 "totalResults": len(users),
                 "startIndex": 1,
                 "itemsPerPage": len(users),
@@ -149,7 +149,7 @@ class SCIMGroupsView(APIView):
 
         return Response(
             {
-                "schemas": ["urn:ietf:params:scim:api:messages:2.0:ListResponse"],
+                "schemas": [constants.SchemaURI.LIST_RESPONSE],
                 "totalResults": len(groups),
                 "startIndex": 1,
                 "itemsPerPage": len(groups),
@@ -217,7 +217,7 @@ class SCIMServiceProviderConfigView(APIView):
     def get(self, request: Request, domain_id: str) -> Response:
         return Response(
             {
-                "schemas": ["urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig"],
+                "schemas": [constants.SchemaURI.SERVICE_PROVIDER_CONFIG],
                 "documentationUri": "https://posthog.com/docs/scim",
                 "patch": {"supported": True},
                 "bulk": {"supported": False, "maxOperations": 0, "maxPayloadSize": 0},
@@ -244,7 +244,7 @@ class SCIMResourceTypesView(APIView):
     def get(self, request: Request, domain_id: str) -> Response:
         return Response(
             {
-                "schemas": ["urn:ietf:params:scim:api:messages:2.0:ListResponse"],
+                "schemas": [constants.SchemaURI.LIST_RESPONSE],
                 "totalResults": 2,
                 "Resources": [
                     PostHogSCIMUser.resource_type_dict(request),
@@ -260,7 +260,7 @@ class SCIMSchemasView(APIView):
     def get(self, request: Request, domain_id: str) -> Response:
         return Response(
             {
-                "schemas": ["urn:ietf:params:scim:api:messages:2.0:ListResponse"],
+                "schemas": [constants.SchemaURI.LIST_RESPONSE],
                 "totalResults": 2,
                 "Resources": [
                     {
