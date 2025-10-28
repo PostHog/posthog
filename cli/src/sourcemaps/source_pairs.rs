@@ -141,7 +141,6 @@ impl TryInto<SymbolSetUpload> for SourcePair {
 
     fn try_into(self) -> Result<SymbolSetUpload> {
         let chunk_id = self
-            .sourcemap
             .get_chunk_id()
             .ok_or_else(|| anyhow!("Chunk ID not found"))?;
         let source_content = self.source.inner.content;

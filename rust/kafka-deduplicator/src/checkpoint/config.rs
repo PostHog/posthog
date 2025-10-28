@@ -35,8 +35,16 @@ pub struct CheckpointConfig {
     /// Timeout for checkpoint worker graceful shutdown (applied in CheckpointManager::stop)
     pub checkpoint_worker_shutdown_timeout: Duration,
 
-    /// Timeout for S3 operations
-    pub s3_timeout: Duration,
+    /// Number of hours prior to "now" that the checkpoint import mechanism
+    /// will search for valid checkpoint attempts in a DR recovery or HPA
+    /// autoscaling scenario where net-new Persistent Volumes are created
+    pub checkpoint_import_window_hours: u32,
+
+    /// Timeout for S3 operations (including all retry attempts)
+    pub s3_operation_timeout: Duration,
+
+    /// Timeout for a single S3 operation attempt
+    pub s3_attempt_timeout: Duration,
 }
 
 impl Default for CheckpointConfig {
@@ -53,7 +61,9 @@ impl Default for CheckpointConfig {
             max_concurrent_checkpoints: 3,
             checkpoint_gate_interval: Duration::from_millis(200),
             checkpoint_worker_shutdown_timeout: Duration::from_secs(10),
-            s3_timeout: Duration::from_secs(300),
+            checkpoint_import_window_hours: 24,
+            s3_operation_timeout: Duration::from_secs(120),
+            s3_attempt_timeout: Duration::from_secs(20),
         }
     }
 }

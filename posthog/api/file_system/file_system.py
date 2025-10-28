@@ -14,6 +14,7 @@ from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.file_system.file_system import FileSystem, join_path, split_path
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog, annotate_file_system_with_view_logs
@@ -506,6 +507,12 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def log_view(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if request.method == "GET":
             return self._list_log_views(request)
+
+        if is_impersonated_session(request):
+            return Response(
+                {"detail": "Impersonated sessions cannot log file system views."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         serializer = FileSystemViewLogSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
