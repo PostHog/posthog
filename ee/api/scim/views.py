@@ -16,7 +16,6 @@ from ee.models.rbac.role import Role
 
 SCIM_USER_ATTR_MAP = {
     ("userName", None, None): "email",
-    ("email", None, None): "email",
     ("emails", "value", None): "email",
     ("name", "familyName", None): "last_name",
     ("familyName", None, None): "last_name",

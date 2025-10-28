@@ -331,18 +331,19 @@ pytest ee/api/scim/test/test_groups_api.py
 2. SCIM Base URL: For cloud, use `https://app.posthog.com/scim/v2/{domain_id}`. For local testing, use your ngrok URL, e.g. `https://<ngrok-subdomain>.ngrok.io/scim/v2/{domain_id}`. The `{domain_id}` can be copied directly from the SCIM configuration screen in PostHog.
 3. Bearer Token: Paste the generated Bearer Token from PostHog. It's only shown on first enable or when regenerating.
 4. Enable provisioning in the Configuration and Provisioning tabs (otherwise, OneLogin won't push any updates).
-5. In the "Parameters" tab, map:
-    - `email` → Email (custom parameter)
-    - `first_name` → First Name
-    - `last_name` → Last Name
-    - `groups` (optional, but useful for pushing group memberships)
-6. Make sure you check "Include in User Provisioning" for _all_ attributes above. If you don't, OneLogin won't actually send them in SCIM updates.
-7. In "Rules", you can sync Role membership by: - Mapping OneLogin roles or groups directly to existing groups in PostHog (by matching names), or - Mapping OneLogin roles/groups that will be upserted in PostHog as needed
+5. In "Rules", you can sync Role membership by: - Mapping OneLogin roles or groups directly to existing groups in PostHog (by matching names), or - Mapping OneLogin roles/groups that will be upserted in PostHog as needed
    In most cases you'll want the second - it pushes OneLogin roles to PostHog.
    To configure this, set the condition to: "Match `any` of the following conditions" and select the roles you want to provision by choosing "Roles include <ONELOGIN-ROLE-NAME>".
    Then set the actions to "Map from OneLogin" and "For each `roles` with a value that matches `.*`"
-8. Add users to the App if they weren't added automatically
-9. Save, and test by adding or updating users/roles
+6. Add users to the App if they weren't added automatically
+7. Save, and test by adding or updating users/roles
+
+**Note**: The custom parameters (email, first_name, last_name) configured in step 5 are **NOT** sent via SCIM. They are only used in SAML assertions for authentication. SCIM operations use the standard SCIM 2.0 attribute names:
+
+- `userName` for identifier
+- `emails[].value` array for email addresses
+- `name.givenName` for first name
+- `name.familyName` for last name
 
 ## Frontend UI
 
