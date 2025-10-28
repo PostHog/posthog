@@ -7,6 +7,7 @@ from posthog.temporal.weekly_digest.activities import (
     generate_experiment_launched_lookup,
     generate_external_data_source_lookup,
     generate_feature_flag_lookup,
+    generate_filter_lookup,
     generate_organization_digest_batch,
     generate_survey_lookup,
     generate_user_notification_lookup,
@@ -37,4 +38,5 @@ ACTIVITIES = [
     count_organizations,
     count_teams,
     send_weekly_digest_batch,
+    generate_filter_lookup,
 ]

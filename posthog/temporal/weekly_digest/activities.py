@@ -1,4 +1,3 @@
-import asyncio
 from collections.abc import Callable
 from datetime import datetime
 from typing import Optional
@@ -11,6 +10,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.models.messaging import MessagingRecord, get_email_hash
+from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.sync import database_sync_to_async
 from posthog.tasks.email import NotificationSetting, should_send_notification
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -18,6 +18,7 @@ from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.weekly_digest.queries import (
     query_experiments_completed,
     query_experiments_launched,
+    query_most_viewed_saved_filters,
     query_new_dashboards,
     query_new_event_definitions,
     query_new_external_data_sources,
@@ -37,9 +38,11 @@ from posthog.temporal.weekly_digest.types import (
     ExperimentList,
     ExternalDataSourceList,
     FeatureFlagList,
+    FilterList,
     GenerateDigestDataBatchInput,
     GenerateOrganizationDigestInput,
     OrganizationDigest,
+    PlaylistCount,
     SendWeeklyDigestBatchInput,
     SurveyList,
     TeamDigest,
@@ -48,6 +51,11 @@ from posthog.temporal.weekly_digest.types import (
 
 def _redis_url(common: CommonInput) -> str:
     return f"redis://{common.redis_host}:{common.redis_port}?decode_responses=true"
+
+
+async def _load_filter_counts_from_django_cache(r: redis.Redis, filters: FilterList) -> list[PlaylistCount | None]:
+    resp = await r.mget([f"{PLAYLIST_COUNT_REDIS_PREFIX}{_filter.short_id}" for _filter in filters.root])
+    return [None if r is None else PlaylistCount.model_validate_json(r) for r in resp]
 
 
 LOGGER = get_write_only_logger()
@@ -61,10 +69,14 @@ async def generate_digest_data_lookup(
 ) -> None:
     async with Heartbeater():
         bind_contextvars(
-            digest_key=input.digest.key, period_start=input.digest.period_start, period_end=input.digest.period_end
+            digest_key=input.digest.key,
+            period_start=input.digest.period_start,
+            period_end=input.digest.period_end,
+            batch_start=input.batch[0],
+            batch_end=input.batch[1],
         )
         logger = LOGGER.bind()
-        logger.info(f"Querying digest data", resource_key=resource_key)
+        logger.info(f"Generating digest data batch", resource_key=resource_key)
 
         resource_count = 0
         team_count = 0
@@ -83,7 +95,7 @@ async def generate_digest_data_lookup(
                 await r.setex(key, input.common.redis_ttl, digest_data.model_dump_json())
 
         logger.info(
-            f"Finished querying digest data",
+            f"Finished generating digest data batch",
             resource_key=resource_key,
             resource_count=resource_count,
             team_count=team_count,
@@ -160,12 +172,65 @@ async def generate_survey_lookup(input: GenerateDigestDataBatchInput) -> None:
     )
 
 
+@activity.defn(name="generate-filter-lookup")
+async def generate_filter_lookup(input: GenerateDigestDataBatchInput) -> None:
+    async with Heartbeater():
+        bind_contextvars(
+            digest_key=input.digest.key,
+            period_start=input.digest.period_start,
+            period_end=input.digest.period_end,
+            batch_start=input.batch[0],
+            batch_end=input.batch[1],
+        )
+        logger = LOGGER.bind()
+        logger.info(f"Generating Replay filter batch")
+
+        filter_count = 0
+        team_count = 0
+
+        if input.common.django_redis_url is None:
+            logger.error(f"Unable to generate Replay filter batch, missing URL for Django Redis...")
+            return
+
+        async with (
+            redis.from_url(_redis_url(input.common)) as r,
+            redis.from_url(input.common.django_redis_url) as django_cache,
+        ):
+            query_filters: QuerySet = query_most_viewed_saved_filters(
+                input.digest.period_start, input.digest.period_end
+            )
+
+            batch_start, batch_end = input.batch
+            async for team in query_teams_for_digest()[batch_start:batch_end]:
+                filters = FilterList(await queryset_to_list(query_filters.filter(team_id=team.id)))
+                playlist_counts = await _load_filter_counts_from_django_cache(django_cache, filters)
+
+                for filter, playlist_count in zip(filters.root, playlist_counts):
+                    if playlist_count is not None:
+                        filter.recording_count = len(playlist_count.session_ids)
+                        filter.more_available = playlist_count.has_more
+
+                ordered_filters = filters.order_by_recording_count()
+
+                filter_count += len(ordered_filters.root)
+                team_count += 1
+
+                key: str = f"{input.digest.key}-saved-filters-{team.id}"
+                await r.setex(key, input.common.redis_ttl, ordered_filters.model_dump_json())
+
+        logger.info(
+            f"Finished generating Replay filter batch",
+            filter_count=filter_count,
+            team_count=team_count,
+        )
+
+
 @activity.defn(name="generate-user-notification-lookup")
 async def generate_user_notification_lookup(input: GenerateDigestDataBatchInput) -> None:
     async with Heartbeater():
-        bind_contextvars(digest_key=input.digest.key)
+        bind_contextvars(digest_key=input.digest.key, batch_start=input.batch[0], batch_end=input.batch[1])
         logger = LOGGER.bind()
-        logger.info("Querying team access and notification settings")
+        logger.info("Generating team access and notification settings batch")
 
         team_count = 0
         user_count = 0
@@ -182,7 +247,9 @@ async def generate_user_notification_lookup(input: GenerateDigestDataBatchInput)
                         await r.expire(key, input.common.redis_ttl)
 
         logger.info(
-            "Finished querying team access and notification settings", user_count=user_count, team_count=team_count
+            "Finished generating team access and notification settings batch",
+            user_count=user_count,
+            team_count=team_count,
         )
 
 
@@ -216,23 +283,20 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
                 team_digests: list[TeamDigest] = []
 
                 async for team in query_org_teams(organization):
-                    results: list[str | None] = await asyncio.gather(
-                        *[
-                            r.get(f"{input.digest.key}-dashboards-{team.id}"),
-                            r.get(f"{input.digest.key}-event-definitions-{team.id}"),
-                            r.get(f"{input.digest.key}-experiments-launched-{team.id}"),
-                            r.get(f"{input.digest.key}-experiments-completed-{team.id}"),
-                            r.get(f"{input.digest.key}-external-data-sources-{team.id}"),
-                            r.get(f"{input.digest.key}-surveys-launched-{team.id}"),
-                            r.get(f"{input.digest.key}-feature-flags-{team.id}"),
+                    results: list[str | None] = await r.mget(
+                        [
+                            f"{input.digest.key}-dashboards-{team.id}",
+                            f"{input.digest.key}-event-definitions-{team.id}",
+                            f"{input.digest.key}-experiments-launched-{team.id}",
+                            f"{input.digest.key}-experiments-completed-{team.id}",
+                            f"{input.digest.key}-external-data-sources-{team.id}",
+                            f"{input.digest.key}-feature-flags-{team.id}",
+                            f"{input.digest.key}-saved-filters-{team.id}",
+                            f"{input.digest.key}-surveys-launched-{team.id}",
                         ]
                     )
 
-                    digest_data: list[str] = [r for r in results if r is not None]
-
-                    if len(digest_data) < len(results):
-                        logger.warning(f"Missing digest data for team, skipping...", team_id=team.id)
-                        continue
+                    digest_data: list[str] = ["[]" if v is None else v for v in results]
 
                     team_digests.append(
                         TeamDigest(
@@ -243,8 +307,9 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
                             experiments_launched=ExperimentList.model_validate_json(digest_data[2]),
                             experiments_completed=ExperimentList.model_validate_json(digest_data[3]),
                             external_data_sources=ExternalDataSourceList.model_validate_json(digest_data[4]),
-                            surveys_launched=SurveyList.model_validate_json(digest_data[5]),
-                            feature_flags=FeatureFlagList.model_validate_json(digest_data[6]),
+                            feature_flags=FeatureFlagList.model_validate_json(digest_data[5]),
+                            filters=FilterList.model_validate_json(digest_data[6]),
+                            surveys_launched=SurveyList.model_validate_json(digest_data[7]),
                         )
                     )
                     team_count += 1
@@ -260,7 +325,7 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
                 await r.setex(key, input.common.redis_ttl, org_digest.model_dump_json())
 
         logger.info(
-            "Finished generating organization-level digests",
+            "Finished generating organization-level digest batch",
             organization_count=organization_count,
             team_count=team_count,
         )
