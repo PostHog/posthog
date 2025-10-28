@@ -1,4 +1,4 @@
-import { GithubIntegration, LinearIntegration } from './Integrations'
+import { GitLabIntegration, GithubIntegration, LinearIntegration } from './Integrations'
 
 export function ErrorTrackingIntegrations(): JSX.Element {
     return (
@@ -10,6 +10,10 @@ export function ErrorTrackingIntegrations(): JSX.Element {
             <div>
                 <h3>GitHub</h3>
                 <GithubIntegration />
+            </div>
+            <div>
+                <h3>GitLab</h3>
+                <GitLabIntegration />
             </div>
         </div>
     )

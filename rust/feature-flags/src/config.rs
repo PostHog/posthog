@@ -165,9 +165,27 @@ pub struct Config {
     // Database connection pool settings:
     // - High traffic: Increase max_pg_connections (e.g., 20-50)
     // - Bursty traffic: Increase idle_timeout_secs to keep connections warm
-    // - Note: With 4 pools (readers/writers × persons/non-persons), total connections = 4 × max_pg_connections
+    // - Set min_connections > 0 to pre-warm pools at startup and avoid cold-start latency
+    // - Total connections depend on configuration:
+    //   - With persons DB routing: 4 pools × max_pg_connections
+    //   - Without persons DB routing: 2 pools × max_pg_connections (persons pools alias to non-persons)
     #[envconfig(default = "10")]
     pub max_pg_connections: u32,
+
+    // Minimum connections to maintain in each pool
+    // Set > 0 to pre-warm connections at startup for faster first requests
+    // Production recommendation: Set to 2-5 to avoid cold start on deploy
+    #[envconfig(default = "0")]
+    pub min_non_persons_reader_connections: u32,
+
+    #[envconfig(default = "0")]
+    pub min_non_persons_writer_connections: u32,
+
+    #[envconfig(default = "0")]
+    pub min_persons_reader_connections: u32,
+
+    #[envconfig(default = "0")]
+    pub min_persons_writer_connections: u32,
 
     #[envconfig(default = "redis://localhost:6379/")]
     pub redis_url: String,
@@ -200,19 +218,6 @@ pub struct Config {
     // - Decrease to free resources more aggressively (e.g., 60-120)
     #[envconfig(default = "300")]
     pub idle_timeout_secs: u64,
-
-    // Force refresh connections after this many seconds regardless of activity
-    // - Set to 0 to disable (connections never refresh automatically)
-    // - Decrease for unreliable networks or frequent DB restarts (e.g., 600-900)
-    // - Increase for stable environments to reduce overhead (e.g., 3600-7200)
-    #[envconfig(default = "1800")]
-    pub max_lifetime_secs: u64,
-
-    // Additional maximum jitter to max_lifetime to avoid thundering herd.
-    // - Adds random amount of seconds [0, max_lifetime_jitter_secs) to max_lifetime_secs
-    // - Set to 0 to disable (uses fixed max_lifetime).
-    #[envconfig(default = "1800")]
-    pub max_lifetime_jitter_secs: u64,
 
     // Test connection health before returning from pool
     // - Set to true for production to catch stale connections
@@ -401,10 +406,12 @@ impl Config {
                 .to_string(),
             max_concurrency: 1000,
             max_pg_connections: 10,
+            min_non_persons_reader_connections: 0,
+            min_non_persons_writer_connections: 0,
+            min_persons_reader_connections: 0,
+            min_persons_writer_connections: 0,
             acquire_timeout_secs: 3,
             idle_timeout_secs: 300,
-            max_lifetime_secs: 1800,
-            max_lifetime_jitter_secs: 1800,
             test_before_acquire: FlexBool(true),
             non_persons_reader_statement_timeout_ms: 5000,
             persons_reader_statement_timeout_ms: 5000,
@@ -552,6 +559,10 @@ mod tests {
         );
         assert_eq!(config.max_concurrency, 1000);
         assert_eq!(config.max_pg_connections, 10);
+        assert_eq!(config.min_non_persons_reader_connections, 0);
+        assert_eq!(config.min_non_persons_writer_connections, 0);
+        assert_eq!(config.min_persons_reader_connections, 0);
+        assert_eq!(config.min_persons_writer_connections, 0);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
         assert_eq!(config.team_ids_to_track, TeamIdCollection::All);
         assert_eq!(
@@ -581,6 +592,10 @@ mod tests {
         );
         assert_eq!(config.max_concurrency, 1000);
         assert_eq!(config.max_pg_connections, 10);
+        assert_eq!(config.min_non_persons_reader_connections, 0);
+        assert_eq!(config.min_non_persons_writer_connections, 0);
+        assert_eq!(config.min_persons_reader_connections, 0);
+        assert_eq!(config.min_persons_writer_connections, 0);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
         assert_eq!(config.team_ids_to_track, TeamIdCollection::All);
         assert_eq!(
@@ -607,6 +622,10 @@ mod tests {
         );
         assert_eq!(config.max_concurrency, 1000);
         assert_eq!(config.max_pg_connections, 10);
+        assert_eq!(config.min_non_persons_reader_connections, 0);
+        assert_eq!(config.min_non_persons_writer_connections, 0);
+        assert_eq!(config.min_persons_reader_connections, 0);
+        assert_eq!(config.min_persons_writer_connections, 0);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
         assert_eq!(config.team_ids_to_track, TeamIdCollection::All);
         assert_eq!(
