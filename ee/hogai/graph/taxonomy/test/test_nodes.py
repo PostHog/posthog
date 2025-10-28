@@ -100,7 +100,7 @@ class TestTaxonomyAgentNode(BaseTest):
 
             # Old step is preserved with its result
             old_action, old_obs = result.intermediate_steps[0]
-            self.assertEqual(old_action.log, "ol    d_id")
+            self.assertEqual(old_action.log, "old_id")
             self.assertEqual(old_obs, "old_result")
 
             # New step is appended with None observation (pending)
@@ -220,6 +220,8 @@ class TestTaxonomyAgentToolsNode(BaseTest):
         result = await self.node.arun(state, RunnableConfig())
 
         self.assertIsInstance(result, TaxonomyAgentState)
+        self.assertIsNotNone(result.intermediate_steps)
+        assert result.intermediate_steps is not None
         self.assertEqual(len(result.intermediate_steps), 1)
         self.assertEqual(result.intermediate_steps[0][1], "tool output")
         self.assertEqual(result.intermediate_steps[0][0].log, "test_tool_id")
@@ -318,7 +320,7 @@ class TestTaxonomyAgentToolsNode(BaseTest):
         ]
     )
     def test_router(self, scenario, expected):
-        state = TaxonomyAgentState()
+        state: TaxonomyAgentState = TaxonomyAgentState()
         if scenario == "has_output":
             state.output = {"result": "test"}  # Has output
         elif scenario == "final_answer":
@@ -346,8 +348,10 @@ class TestTaxonomyAgentToolsNode(BaseTest):
 
             result = self.node._get_reset_state("test output", "test_tool", original_state)
 
+            self.assertIsNotNone(result.intermediate_steps)
+            assert result.intermediate_steps is not None
             self.assertEqual(len(result.intermediate_steps), 1)
-            action, output = result.intermediate_steps[0]  # type: ignore
+            action, output = result.intermediate_steps[0]
             self.assertEqual(action.tool, "test_tool")
             self.assertEqual(action.tool_input, "test output")
             self.assertIsNone(output)
