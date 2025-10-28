@@ -6,7 +6,7 @@ import datetime as dt
 import resource
 import threading
 from collections.abc import Callable, Generator, Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from functools import wraps
 from typing import Any, Optional, Union
 
@@ -1526,9 +1526,7 @@ def snapshot_hogql_queries(fn_or_class):
             pass
 
         # Apply all patches
-        import contextlib
-
-        with contextlib.ExitStack() as stack:
+        with ExitStack() as stack:
             for p in patches:
                 stack.enter_context(p)
 
