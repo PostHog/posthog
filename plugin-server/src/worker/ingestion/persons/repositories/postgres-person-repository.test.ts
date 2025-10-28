@@ -1283,6 +1283,8 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { name: 'Jane', age: 30 },
                 properties_to_unset: [],
+                original_is_identified: false,
+                original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
             }
 
             // First update should succeed
@@ -1317,6 +1319,8 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { name: 'Jane', age: 30 },
                 properties_to_unset: [],
+                original_is_identified: false,
+                original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
             }
 
             // Update should fail due to version mismatch
@@ -1350,6 +1354,8 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { name: 'Jane' },
                 properties_to_unset: [],
+                original_is_identified: false,
+                original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
             }
 
             // Update should fail because person doesn't exist
@@ -1949,6 +1955,8 @@ describe('PostgresPersonRepository', () => {
                     needs_write: true,
                     properties_to_set: { description: 'x'.repeat(150) },
                     properties_to_unset: [],
+                    original_is_identified: false,
+                    original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 }
 
                 await expect(oversizedRepository.updatePersonAssertVersion(personUpdate)).rejects.toThrow(
@@ -2201,6 +2209,8 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { name: 'Jane', age: 30, data: 'y'.repeat(2500) },
                 properties_to_unset: [],
+                original_is_identified: false,
+                original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
             })
 
             const personUpdate1 = createPersonUpdate(person1, 'test-assert-1')

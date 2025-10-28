@@ -167,6 +167,14 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
      * Also tracks metrics for ignored properties at the batch level.
      */
     private getPersonUpdateOutcome(update: PersonUpdate): 'changed' | 'ignored' | 'no_change' {
+        const hasNonPropertyChanges =
+            update.is_identified !== update.original_is_identified ||
+            !update.created_at.equals(update.original_created_at)
+
+        if (hasNonPropertyChanges) {
+            return 'changed'
+        }
+
         const hasPropertyChanges =
             Object.keys(update.properties_to_set).length > 0 || update.properties_to_unset.length > 0
 
@@ -1250,6 +1258,8 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             needs_write: personUpdate.needs_write,
             properties_to_set: personUpdate.properties_to_set,
             properties_to_unset: personUpdate.properties_to_unset,
+            original_is_identified: personUpdate.original_is_identified,
+            original_created_at: personUpdate.original_created_at,
         }
 
         return updatedPersonUpdate

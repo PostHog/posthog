@@ -20,6 +20,8 @@ export interface PersonUpdate {
     // Fine-grained property tracking
     properties_to_set: Properties // Properties to set/update
     properties_to_unset: string[] // Property keys to unset
+    original_is_identified: boolean
+    original_created_at: DateTime
 }
 
 export interface PersonPropertyUpdate {
@@ -35,7 +37,7 @@ export function fromInternalPerson(person: InternalPerson, distinctId: string): 
         team_id: person.team_id,
         uuid: person.uuid,
         distinct_id: distinctId,
-        properties: person.properties, // Original properties from database
+        properties: person.properties,
         properties_last_updated_at: person.properties_last_updated_at,
         properties_last_operation: person.properties_last_operation || {},
         created_at: person.created_at,
@@ -45,6 +47,8 @@ export function fromInternalPerson(person: InternalPerson, distinctId: string): 
         needs_write: false,
         properties_to_set: {},
         properties_to_unset: [],
+        original_is_identified: person.is_identified,
+        original_created_at: person.created_at,
     }
 }
 
