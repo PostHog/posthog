@@ -35,9 +35,9 @@ def sessions_v3_backfill(context: AssetExecutionContext):
     backfill_sql = RAW_SESSION_TABLE_BACKFILL_SQL_V3(where=where_clause)
 
     partition_range = context.partition_key_range
-    range = f"{partition_range.start} to {partition_range.end}"
+    partition_range_str = f"{partition_range.start} to {partition_range.end}"
     context.log.info(
-        f"Running backfill for {range} (where='{where_clause}') using commit {get_git_commit_short() or 'unknown'} "
+        f"Running backfill for {partition_range_str} (where='{where_clause}') using commit {get_git_commit_short() or 'unknown'} "
     )
 
     cluster = get_cluster()
@@ -47,6 +47,6 @@ def sessions_v3_backfill(context: AssetExecutionContext):
 
     cluster.map_one_host_per_shard(backfill_per_shard)
 
-    context.log.info(f"Successfully backfilled sessions_v3 for {range}")
+    context.log.info(f"Successfully backfilled sessions_v3 for {partition_range_str}")
 
-    return f"Backfilled for {range}"
+    return f"Backfilled for {partition_range_str}"
