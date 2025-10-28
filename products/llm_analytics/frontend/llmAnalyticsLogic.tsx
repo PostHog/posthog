@@ -72,6 +72,11 @@ export interface LLMAnalyticsLogicProps {
     tabId?: string
 }
 
+export interface GroupReducerProps {
+    groupKey: string
+    groupTypeIndex: number
+}
+
 /**
  * Helper function to get date range for a specific day.
  * @param day - The day string from the chart (e.g., "2024-01-15")
@@ -108,6 +113,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         setLoadedTrace: (traceId: string, trace: LLMTrace) => ({ traceId, trace }),
         clearExpandedGenerations: true,
         setPersonId: (personId: string) => ({ personId }),
+        setGroup: (group: GroupReducerProps) => ({ group }),
     }),
 
     reducers({
@@ -177,6 +183,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 refreshAllDashboardItems: () => ({}),
             },
         ],
+
         newestRefreshed: [
             null as Date | null,
             {
@@ -221,6 +228,13 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
             null as string | null,
             {
                 setPersonId: (_, { personId }) => personId,
+            },
+        ],
+
+        group: [
+            null as GroupReducerProps | null,
+            {
+                setGroup: (_, { group }) => group,
             },
         ],
     }),
@@ -696,6 +710,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 s.shouldFilterTestAccounts,
                 s.propertyFilters,
                 s.personId,
+                s.group,
                 groupsModel.selectors.groupsTaxonomicTypes,
                 featureFlagLogic.selectors.featureFlags,
             ],
@@ -704,6 +719,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 shouldFilterTestAccounts,
                 propertyFilters,
                 personId,
+                group,
                 groupsTaxonomicTypes,
                 featureFlags
             ): DataTableNode => ({
@@ -716,7 +732,9 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     },
                     filterTestAccounts: shouldFilterTestAccounts ?? false,
                     properties: propertyFilters,
-                    ...(personId ? { personId } : {}),
+                    personId,
+                    groupKey: group?.groupKey,
+                    groupTypeIndex: group?.groupTypeIndex,
                 },
                 columns: [
                     'id',
