@@ -514,6 +514,9 @@ class ConcurrentS3Consumer(Consumer):
         self.file_format = file_format
         self.compression = compression
         self.encryption = encryption
+        # This is only needed to obtain a file key. It's very easy to confuse it with
+        # the transformer's `max_file_size_bytes` which actually does the file splitting.
+        # TODO: Remove this from here, figure out a different way to obtain an S3 key.
         self.max_file_size_mb = max_file_size_mb
 
         self.aws_access_key_id = aws_access_key_id

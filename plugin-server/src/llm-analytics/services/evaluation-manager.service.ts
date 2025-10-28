@@ -4,7 +4,19 @@ import { LazyLoader } from '../../utils/lazy-loader'
 import { logger } from '../../utils/logger'
 import { Evaluation, EvaluationInfo } from '../types'
 
-const EVALUATION_FIELDS = ['id', 'team_id', 'name', 'enabled', 'prompt', 'conditions', 'created_at', 'updated_at']
+const EVALUATION_FIELDS = [
+    'id',
+    'team_id',
+    'name',
+    'enabled',
+    'evaluation_type',
+    'evaluation_config',
+    'output_type',
+    'output_config',
+    'conditions',
+    'created_at',
+    'updated_at',
+]
 
 export class EvaluationManagerService {
     private lazyLoader: LazyLoader<Evaluation>

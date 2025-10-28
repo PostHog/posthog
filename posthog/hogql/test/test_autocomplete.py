@@ -12,7 +12,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.autocomplete import get_hogql_autocomplete
-from posthog.hogql.database.database import Database, create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import StringDatabaseField
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PERSONS_FIELDS
@@ -300,8 +300,8 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert len(results.suggestions) == 0
 
     def test_autocomplete_events_hidden_field(self):
-        database = create_hogql_database(team=self.team)
-        database.events.fields["event"] = StringDatabaseField(name="event", hidden=True)
+        database = Database.create_for(team=self.team)
+        database.get_table("events").fields["event"] = StringDatabaseField(name="event", hidden=True)
 
         query = "select  from events"
         results = self._select(query=query, start=7, end=7, database=database)
@@ -310,8 +310,8 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
             assert suggestion.label != "event"
 
     def test_autocomplete_special_characters(self):
-        database = create_hogql_database(team=self.team)
-        database.events.fields["event-name"] = StringDatabaseField(name="event-name")
+        database = Database.create_for(team=self.team)
+        database.get_table("events").fields["event-name"] = StringDatabaseField(name="event-name")
 
         query = "select  from events"
         results = self._select(query=query, start=7, end=7, database=database)
@@ -325,7 +325,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert suggestion.insertText == "`event-name`"
 
     def test_autocomplete_expressions(self):
-        database = create_hogql_database(team=self.team)
+        database = Database.create_for(team=self.team)
 
         query = "person."
         results = self._expr(query=query, start=7, end=7, database=database)
@@ -339,9 +339,9 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert suggestion.insertText == "created_at"
 
     def test_autocomplete_resolve_expression_type(self):
-        database = create_hogql_database(team=self.team)
+        database = Database.create_for(team=self.team)
 
-        database.events.fields["expr_field"] = ast.ExpressionField(
+        database.get_table("events").fields["expr_field"] = ast.ExpressionField(
             name="expr_field",
             isolate_scope=True,
             expr=ast.Call(name="toDateTime", args=[ast.Constant(value="2025-01-01")]),
@@ -360,7 +360,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert suggestion.detail == "DateTime"
 
     def test_autocomplete_template_strings(self):
-        database = create_hogql_database(team=self.team)
+        database = Database.create_for(team=self.team)
 
         query = "this isn't a string {concat(eve)} <- this is"
         results = self._template(query=query, start=28, end=31, database=database)
@@ -380,7 +380,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert len(results.suggestions) == 0
 
     def test_autocomplete_template_json(self):
-        database = create_hogql_database(team=self.team)
+        database = Database.create_for(team=self.team)
 
         query = '{ "key": "val_{event.distinct_id}_ue" }'
         results = self._json(query=query, start=15, end=20, database=database)
@@ -400,7 +400,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert len(results.suggestions) == 0
 
     def test_autocomplete_hog(self):
-        database = create_hogql_database(team=self.team)
+        database = Database.create_for(team=self.team)
 
         # 1
         query = "let var1 := 3; let otherVar := 5; print(v)"

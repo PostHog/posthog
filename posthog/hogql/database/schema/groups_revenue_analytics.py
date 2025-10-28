@@ -58,7 +58,7 @@ def select_from_groups_revenue_analytics_table(context: HogQLContext) -> ast.Sel
     # Get all customer/revenue item pairs from the existing views making sure we ignore `all`
     # since the `group` join is in the child view
     all_views: dict[str, dict[type[RevenueAnalyticsBaseView], RevenueAnalyticsBaseView]] = defaultdict(defaultdict)
-    for view_name in context.database.get_views():
+    for view_name in context.database.get_view_names():
         view = context.database.get_table(view_name)
 
         if isinstance(view, RevenueAnalyticsBaseView) and not view.union_all:
