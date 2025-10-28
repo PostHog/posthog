@@ -16,14 +16,8 @@ import { StatusIcon, StatusTag } from './components/StatusComponents'
 const LIST_SIZE = 8
 
 export function OverviewTab(): JSX.Element {
-    const {
-        activityPaginationState,
-        totalRowsStats,
-        totalRowsStatsLoading,
-        tablesLoading,
-        jobStats,
-        jobStatsLoading,
-    } = useValues(dataWarehouseSceneLogic)
+    const { activityPaginationState, totalRowsStats, totalRowsStatsLoading, tablesLoading, jobStats, jobStatsLoading } =
+        useValues(dataWarehouseSceneLogic)
     const { setActivityCurrentPage, loadJobStats } = useActions(dataWarehouseSceneLogic)
 
     const activityPagination = {
@@ -101,7 +95,7 @@ export function OverviewTab(): JSX.Element {
                                 {jobStatsLoading && !jobStats ? (
                                     <Spinner className="text-muted" />
                                 ) : (
-                                    jobStats?.external_data_jobs.running ?? 0
+                                    (jobStats?.external_data_jobs.running ?? 0)
                                 )}
                             </div>
                         </div>
@@ -111,7 +105,7 @@ export function OverviewTab(): JSX.Element {
                                 {jobStatsLoading && !jobStats ? (
                                     <Spinner className="text-muted" />
                                 ) : (
-                                    jobStats?.modeling_jobs.running ?? 0
+                                    (jobStats?.modeling_jobs.running ?? 0)
                                 )}
                             </div>
                         </div>
