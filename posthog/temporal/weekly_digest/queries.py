@@ -20,7 +20,14 @@ def query_teams_for_digest() -> QuerySet:
     return (
         Team.objects.select_related("organization")
         .exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
-        .only("id", "name", "organization__id", "organization__name", "organization__created_at")
+        .only(
+            "id",
+            "name",
+            "organization__id",
+            "organization__name",
+            "organization__created_at",
+            "organization__available_product_features",
+        )
     )
 
 
@@ -99,7 +106,7 @@ def query_new_feature_flags(period_start: datetime, period_end: datetime) -> Que
     )
 
 
-def query_most_viewed_saved_filters(period_start: datetime, period_end: datetime) -> QuerySet:
+def query_saved_filters(period_start: datetime, period_end: datetime) -> QuerySet:
     return (
         SessionRecordingPlaylist.objects.exclude(
             (Q(name__isnull=True) | Q(name="Unnamed") | Q(name=""))

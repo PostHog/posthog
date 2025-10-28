@@ -99,6 +99,11 @@ class DigestFilter(BaseModel):
     more_available: bool = False
 
 
+class DigestRecording(BaseModel):
+    session_id: str
+    recording_ttl: int
+
+
 class DigestSurvey(BaseModel):
     name: str
     id: UUID
@@ -133,6 +138,10 @@ class FilterList(RootModel):
         return FilterList(root=sorted(self.root, key=lambda f: f.recording_count, reverse=True))
 
 
+class RecordingList(RootModel):
+    root: list[DigestRecording]
+
+
 class SurveyList(RootModel):
     root: list[DigestSurvey]
 
@@ -147,6 +156,7 @@ DigestResourceType: TypeAlias = (
     | type[ExternalDataSourceList]
     | type[FeatureFlagList]
     | type[FilterList]
+    | type[RecordingList]
     | type[SurveyList]
 )
 
@@ -161,6 +171,7 @@ class TeamDigest(BaseModel):
     external_data_sources: ExternalDataSourceList
     feature_flags: FeatureFlagList
     filters: FilterList
+    recordings: RecordingList
     surveys_launched: SurveyList
 
     def is_empty(self) -> bool:
@@ -174,6 +185,7 @@ class TeamDigest(BaseModel):
                     len(self.external_data_sources.root),
                     len(self.feature_flags.root),
                     len(self.filters.root),
+                    len(self.recordings.root),
                     len(self.surveys_launched.root),
                 ]
             )
@@ -209,3 +221,10 @@ class PlaylistCount(BaseModel):
     refreshed_at: datetime
     error_count: int
     errored_at: Optional[datetime]
+
+
+class ClickHouseResponse(BaseModel):
+    meta: list
+    data: list
+    statistics: dict
+    rows: int

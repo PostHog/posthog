@@ -1,6 +1,7 @@
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Optional
+from uuid import uuid4
 
 from django.db.models import QuerySet
 from django.utils import timezone
@@ -10,15 +11,16 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.models.messaging import MessagingRecord, get_email_hash
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents, ttl_days
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.sync import database_sync_to_async
 from posthog.tasks.email import NotificationSetting, should_send_notification
+from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.weekly_digest.queries import (
     query_experiments_completed,
     query_experiments_launched,
-    query_most_viewed_saved_filters,
     query_new_dashboards,
     query_new_event_definitions,
     query_new_external_data_sources,
@@ -26,11 +28,13 @@ from posthog.temporal.weekly_digest.queries import (
     query_org_members,
     query_org_teams,
     query_orgs_for_digest,
+    query_saved_filters,
     query_surveys_launched,
     query_teams_for_digest,
     queryset_to_list,
 )
 from posthog.temporal.weekly_digest.types import (
+    ClickHouseResponse,
     CommonInput,
     DashboardList,
     DigestResourceType,
@@ -43,6 +47,7 @@ from posthog.temporal.weekly_digest.types import (
     GenerateOrganizationDigestInput,
     OrganizationDigest,
     PlaylistCount,
+    RecordingList,
     SendWeeklyDigestBatchInput,
     SurveyList,
     TeamDigest,
@@ -196,9 +201,7 @@ async def generate_filter_lookup(input: GenerateDigestDataBatchInput) -> None:
             redis.from_url(_redis_url(input.common)) as r,
             redis.from_url(input.common.django_redis_url) as django_cache,
         ):
-            query_filters: QuerySet = query_most_viewed_saved_filters(
-                input.digest.period_start, input.digest.period_end
-            )
+            query_filters: QuerySet = query_saved_filters(input.digest.period_start, input.digest.period_end)
 
             batch_start, batch_end = input.batch
             async for team in query_teams_for_digest()[batch_start:batch_end]:
@@ -221,6 +224,62 @@ async def generate_filter_lookup(input: GenerateDigestDataBatchInput) -> None:
         logger.info(
             f"Finished generating Replay filter batch",
             filter_count=filter_count,
+            team_count=team_count,
+        )
+
+
+TTL_THRESHOLD = 7  # days
+
+
+@activity.defn(name="generate-recording-lookup")
+async def generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None:
+    async with Heartbeater():
+        bind_contextvars(
+            digest_key=input.digest.key,
+            period_start=input.digest.period_start,
+            period_end=input.digest.period_end,
+            batch_start=input.batch[0],
+            batch_end=input.batch[1],
+        )
+        logger = LOGGER.bind()
+        logger.info(f"Generating Replay recording batch")
+
+        recording_count = 0
+        team_count = 0
+
+        async with redis.from_url(_redis_url(input.common)) as r, get_client() as ch_client:
+            ch_query: str = SessionReplayEvents.get_soon_to_expire_sessions_query(format="JSON")
+
+            batch_start, batch_end = input.batch
+            async for team in query_teams_for_digest()[batch_start:batch_end]:
+                parameters = {
+                    "team_id": team.id,
+                    "python_now": datetime.now(UTC),
+                    "ttl_days": await database_sync_to_async(ttl_days)(team),
+                    "ttl_threshold": TTL_THRESHOLD,
+                    "limit": 100,
+                }
+
+                raw_response: bytes = b""
+                async with ch_client.aget_query(
+                    query=ch_query,
+                    query_parameters=parameters,
+                    query_id=str(uuid4()),
+                ) as ch_response:
+                    raw_response = await ch_response.content.read()
+
+                response = ClickHouseResponse.model_validate_json(raw_response)
+                recordings = RecordingList.model_validate(response.data)
+
+                recording_count += len(recordings.root)
+                team_count += 1
+
+                key: str = f"{input.digest.key}-expiring-recordings-{team.id}"
+                await r.setex(key, input.common.redis_ttl, recordings.model_dump_json())
+
+        logger.info(
+            f"Finished generating Replay recording batch",
+            filter_count=recording_count,
             team_count=team_count,
         )
 
@@ -292,6 +351,7 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
                             f"{input.digest.key}-external-data-sources-{team.id}",
                             f"{input.digest.key}-feature-flags-{team.id}",
                             f"{input.digest.key}-saved-filters-{team.id}",
+                            f"{input.digest.key}-expiring-recordings-{team.id}",
                             f"{input.digest.key}-surveys-launched-{team.id}",
                         ]
                     )
@@ -309,7 +369,8 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
                             external_data_sources=ExternalDataSourceList.model_validate_json(digest_data[4]),
                             feature_flags=FeatureFlagList.model_validate_json(digest_data[5]),
                             filters=FilterList.model_validate_json(digest_data[6]),
-                            surveys_launched=SurveyList.model_validate_json(digest_data[7]),
+                            recordings=RecordingList.model_validate_json(digest_data[7]),
+                            surveys_launched=SurveyList.model_validate_json(digest_data[8]),
                         )
                     )
                     team_count += 1
