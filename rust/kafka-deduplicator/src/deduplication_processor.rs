@@ -163,7 +163,7 @@ impl DeduplicationProcessor {
         metrics: &MetricsHelper,
     ) -> Result<DeduplicationResult> {
         // Track timestamp-based deduplication
-        let deduplication_result = self.check_timestamp_duplicate(raw_event, store, metrics)?;
+        let deduplication_result = self.check_timestamp_duplicate(raw_event, store, metrics).await?;
 
         if !matches!(deduplication_result, DeduplicationResult::New) {
             return Ok(deduplication_result);
@@ -171,7 +171,7 @@ impl DeduplicationProcessor {
 
         // Track UUID-based deduplication (only if UUID exists)
         if raw_event.uuid.is_some() {
-            let deduplication_result = self.check_uuid_duplicate(raw_event, store, metrics)?;
+            let deduplication_result = self.check_uuid_duplicate(raw_event, store, metrics).await?;
             return Ok(deduplication_result);
         }
 
@@ -179,7 +179,7 @@ impl DeduplicationProcessor {
     }
 
     /// Check for timestamp-based duplicates
-    fn check_timestamp_duplicate(
+    async fn check_timestamp_duplicate(
         &self,
         raw_event: &RawEvent,
         store: &DeduplicationStore,
@@ -188,7 +188,7 @@ impl DeduplicationProcessor {
         let key = TimestampKey::from(raw_event);
 
         // Check if this is a duplicate
-        let existing_metadata = store.get_timestamp_record(&key)?;
+        let existing_metadata = store.get_timestamp_record(&key).await?;
 
         if let Some(mut metadata) = existing_metadata {
             // Key exists - it's a duplicate
@@ -280,14 +280,14 @@ impl DeduplicationProcessor {
             }
 
             // Store updated metadata
-            store.put_timestamp_record(&key, &metadata)?;
+            store.put_timestamp_record(&key, &metadata).await?;
 
             return Ok(dedup_result);
         }
 
         // Key doesn't exist - store it with initial metadata
         let metadata = TimestampMetadata::new(raw_event);
-        store.put_timestamp_record(&key, &metadata)?;
+        store.put_timestamp_record(&key, &metadata).await?;
 
         // Track unique event
         if let Some(lib_info) = raw_event.extract_library_info() {
@@ -302,7 +302,7 @@ impl DeduplicationProcessor {
     }
 
     /// Check for UUID-based duplicates
-    fn check_uuid_duplicate(
+    async fn check_uuid_duplicate(
         &self,
         raw_event: &RawEvent,
         store: &DeduplicationStore,
@@ -318,7 +318,7 @@ impl DeduplicationProcessor {
             .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() as u64);
 
         // Check if this UUID combination exists
-        let existing_metadata = store.get_uuid_record(&key)?;
+        let existing_metadata = store.get_uuid_record(&key).await?;
 
         if let Some(mut metadata) = existing_metadata {
             // UUID combination exists - it's a duplicate
@@ -414,7 +414,7 @@ impl DeduplicationProcessor {
             }
 
             // Store updated metadata
-            store.put_uuid_record(&key, &metadata, timestamp)?;
+            store.put_uuid_record(&key, &metadata, timestamp).await?;
 
             return Ok(dedup_result);
         }
@@ -423,7 +423,7 @@ impl DeduplicationProcessor {
         let metadata = UuidMetadata::new(raw_event);
 
         // Store in UUID CF (with timestamp index handled automatically)
-        store.put_uuid_record(&key, &metadata, timestamp)?;
+        store.put_uuid_record(&key, &metadata, timestamp).await?;
 
         // Track new UUID combination
         if let Some(lib_info) = raw_event.extract_library_info() {
@@ -956,6 +956,7 @@ mod tests {
 
         let result = processor
             .check_timestamp_duplicate(&event, &store, &metrics)
+            .await
             .unwrap();
         assert_eq!(result, DeduplicationResult::New);
     }
@@ -986,12 +987,14 @@ mod tests {
         // First event should be new
         let result1 = processor
             .check_timestamp_duplicate(&event, &store, &metrics)
+            .await
             .unwrap();
         assert_eq!(result1, DeduplicationResult::New);
 
         // Exact duplicate should be confirmed duplicate
         let result2 = processor
             .check_timestamp_duplicate(&event, &store, &metrics)
+            .await
             .unwrap();
         assert!(matches!(
             result2,
@@ -1030,6 +1033,7 @@ mod tests {
         // First event should be new
         let result1 = processor
             .check_timestamp_duplicate(&event1, &store, &metrics)
+            .await
             .unwrap();
         assert_eq!(result1, DeduplicationResult::New);
 
@@ -1046,6 +1050,7 @@ mod tests {
 
         let result2 = processor
             .check_timestamp_duplicate(&event2, &store, &metrics)
+            .await
             .unwrap();
         assert!(matches!(
             result2,
@@ -1088,6 +1093,7 @@ mod tests {
         // First event should be new
         let result1 = processor
             .check_timestamp_duplicate(&event1, &store, &metrics)
+            .await
             .unwrap();
         assert_eq!(result1, DeduplicationResult::New);
 
@@ -1108,6 +1114,7 @@ mod tests {
 
         let result2 = processor
             .check_timestamp_duplicate(&event2, &store, &metrics)
+            .await
             .unwrap();
         assert!(matches!(
             result2,
@@ -1140,6 +1147,7 @@ mod tests {
 
         let result = processor
             .check_uuid_duplicate(&event, &store, &metrics)
+            .await
             .unwrap();
         assert_eq!(result, DeduplicationResult::New);
     }
@@ -1171,6 +1179,7 @@ mod tests {
         // First event should be new
         let result1 = processor
             .check_uuid_duplicate(&event1, &store, &metrics)
+            .await
             .unwrap();
         assert_eq!(result1, DeduplicationResult::New);
 
@@ -1187,6 +1196,7 @@ mod tests {
 
         let result2 = processor
             .check_uuid_duplicate(&event2, &store, &metrics)
+            .await
             .unwrap();
         assert!(matches!(
             result2,
@@ -1348,11 +1358,13 @@ mod tests {
         // Process event twice to test metrics emission with library info
         let result1 = processor
             .check_timestamp_duplicate(&event, &store, &metrics)
+            .await
             .unwrap();
         assert_eq!(result1, DeduplicationResult::New);
 
         let result2 = processor
             .check_timestamp_duplicate(&event, &store, &metrics)
+            .await
             .unwrap();
         assert!(matches!(
             result2,

@@ -590,8 +590,8 @@ mod tests {
         // Add test data directly to stores
         let key = TimestampKey::from(&event);
         let metadata = TimestampMetadata::new(&event);
-        store1.put_timestamp_record(&key, &metadata).unwrap();
-        store2.put_timestamp_record(&key, &metadata).unwrap();
+        store1.put_timestamp_record(&key, &metadata).await.unwrap();
+        store2.put_timestamp_record(&key, &metadata).await.unwrap();
 
         // add dedup stores to manager
         let stores = store_manager.stores();
@@ -655,11 +655,11 @@ mod tests {
         let event1 = create_test_event();
         let key1 = TimestampKey::from(&event1);
         let metadata1 = TimestampMetadata::new(&event1);
-        store.put_timestamp_record(&key1, &metadata1).unwrap();
+        store.put_timestamp_record(&key1, &metadata1).await.unwrap();
         let event2 = create_test_event();
         let key2 = TimestampKey::from(&event2);
         let metadata2 = TimestampMetadata::new(&event2);
-        store.put_timestamp_record(&key2, &metadata2).unwrap();
+        store.put_timestamp_record(&key2, &metadata2).await.unwrap();
 
         // Create manager with short interval for testing and filesystem exporter
         let tmp_checkpoint_dir = TempDir::new().unwrap();
@@ -782,7 +782,7 @@ mod tests {
             let store = create_test_store(part.topic(), part.partition_number());
             let key = TimestampKey::from(&event);
             let metadata = TimestampMetadata::new(&event);
-            store.put_timestamp_record(&key, &metadata).unwrap();
+            store.put_timestamp_record(&key, &metadata).await.unwrap();
             stores.insert(part, store);
         }
 

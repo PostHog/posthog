@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use num_cpus;
 use once_cell::sync::Lazy;
 use rocksdb::{
-    checkpoint::Checkpoint, BlockBasedOptions, BoundColumnFamily, Cache, ColumnFamilyDescriptor,
+    checkpoint::Checkpoint, BlockBasedOptions, Cache, ColumnFamilyDescriptor,
     DBWithThreadMode, MultiThreaded, Options, SliceTransform, WriteBatch, WriteBufferManager,
     WriteOptions,
 };
@@ -15,12 +15,14 @@ use std::time::Instant;
 
 use crate::metrics::MetricsHelper;
 use crate::rocksdb::metrics_consts::*;
+use crate::rocksdb::store_command::StoreCommand;
+use tokio::sync::mpsc;
 
 #[derive(Debug, Clone)]
 pub struct RocksDbStore {
-    pub(crate) db: Arc<DBWithThreadMode<MultiThreaded>>,
+    command_tx: mpsc::UnboundedSender<StoreCommand>,
     path_location: PathBuf,
-    metrics: MetricsHelper,
+    _metrics: MetricsHelper,
 }
 
 // Shared block cache for all RocksDB instances (1GB default)
@@ -131,167 +133,383 @@ impl RocksDbStore {
             DBWithThreadMode::<MultiThreaded>::open_cf_descriptors(&opts, path_ref, cf_descriptors)
                 .context("Failed to open RocksDB")?;
 
+        let db = Arc::new(db);
+        let path_location = path_ref.to_path_buf();
+
+        // Create channel for commands
+        let (command_tx, command_rx) = mpsc::unbounded_channel();
+
+        // Spawn worker thread
+        let worker_metrics = metrics.clone();
+        std::thread::spawn(move || {
+            Self::worker_loop(db, command_rx, worker_metrics);
+        });
+
         Ok(Self {
-            db: Arc::new(db),
-            path_location: path_ref.to_path_buf(),
-            metrics,
+            command_tx,
+            path_location,
+            _metrics: metrics,
         })
     }
 
-    pub fn get(&self, cf_name: &str, key: &[u8]) -> Result<Option<Vec<u8>>> {
+    /// Worker loop that runs in a dedicated thread and processes commands
+    fn worker_loop(
+        db: Arc<DBWithThreadMode<MultiThreaded>>,
+        mut command_rx: mpsc::UnboundedReceiver<StoreCommand>,
+        metrics: MetricsHelper,
+    ) {
+        // Create a tokio runtime for this worker thread
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("Failed to create tokio runtime for RocksDB worker");
+
+        runtime.block_on(async move {
+            while let Some(command) = command_rx.recv().await {
+                match command {
+                    StoreCommand::Get { cf_name, key, response } => {
+                        let result = Self::handle_get(&db, &metrics, &cf_name, &key);
+                        let _ = response.send(result);
+                    }
+                    StoreCommand::MultiGet { cf_name, keys, response } => {
+                        let result = Self::handle_multi_get(&db, &metrics, &cf_name, keys);
+                        let _ = response.send(result);
+                    }
+                    StoreCommand::Put { cf_name, key, value, response } => {
+                        let result = Self::handle_put(&db, &metrics, &cf_name, &key, &value);
+                        let _ = response.send(result);
+                    }
+                    StoreCommand::PutBatch { cf_name, entries, response } => {
+                        let result = Self::handle_put_batch(&db, &metrics, &cf_name, entries);
+                        let _ = response.send(result);
+                    }
+                    StoreCommand::Delete { cf_name, key, response } => {
+                        let result = Self::handle_delete(&db, &cf_name, &key);
+                        let _ = response.send(result);
+                    }
+                    StoreCommand::DeleteRange { cf_name, start, end, response } => {
+                        let result = Self::handle_delete_range(&db, &cf_name, &start, &end);
+                        let _ = response.send(result);
+                    }
+                    StoreCommand::FlushCf { cf_name, response } => {
+                        let result = Self::handle_flush_cf(&db, &metrics, &cf_name);
+                        let _ = response.send(result);
+                    }
+                    StoreCommand::FlushAllCf { response } => {
+                        let result = Self::handle_flush_all_cf(&db, &metrics);
+                        let _ = response.send(result);
+                    }
+                    StoreCommand::FlushWal { sync, response } => {
+                        let result = Self::handle_flush_wal(&db, sync);
+                        let _ = response.send(result);
+                    }
+                    StoreCommand::GetDbSize { cf_name, response } => {
+                        let result = Self::handle_get_db_size(&db, &cf_name);
+                        let _ = response.send(result);
+                    }
+                    StoreCommand::UpdateDbMetrics { cf_name, response } => {
+                        let result = Self::handle_update_db_metrics(&db, &metrics, &cf_name);
+                        let _ = response.send(result);
+                    }
+                    StoreCommand::CreateCheckpoint { path, response } => {
+                        let result = Self::handle_create_checkpoint(&db, &metrics, path);
+                        let _ = response.send(result);
+                    }
+                    StoreCommand::GetSstFileNames { cf_name, response } => {
+                        let result = Self::handle_get_sst_file_names(&db, &cf_name);
+                        let _ = response.send(result);
+                    }
+                    StoreCommand::LatestSequenceNumber { response } => {
+                        let seq = db.latest_sequence_number();
+                        let _ = response.send(seq);
+                    }
+                    StoreCommand::Shutdown { response } => {
+                        let _ = response.send(());
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
+    pub async fn get(&self, cf_name: &str, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let command = StoreCommand::Get {
+            cf_name: cf_name.to_string(),
+            key: key.to_vec(),
+            response: tx,
+        };
+
+        self.command_tx
+            .send(command)
+            .map_err(|_| anyhow::anyhow!("Store worker has shut down"))?;
+
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Store worker dropped response channel"))?
+    }
+
+    fn handle_get(
+        db: &Arc<DBWithThreadMode<MultiThreaded>>,
+        metrics: &MetricsHelper,
+        cf_name: &str,
+        key: &[u8],
+    ) -> Result<Option<Vec<u8>>> {
         let start_time = Instant::now();
 
-        // Track read operation with column family label
-        self.metrics
+        metrics
             .counter(ROCKSDB_READ_OPERATIONS_COUNTER)
             .with_label("column_family", cf_name)
             .increment(1);
 
-        let cf = self.get_cf_handle(cf_name)?;
-        let result = self
-            .db
-            .get_cf(&cf, key)
-            .context("Failed to get key from RocksDB");
+        let cf = db.cf_handle(cf_name).context("Column family not found")?;
+        let result = db.get_cf(&cf, key).context("Failed to get key from RocksDB");
 
         let duration = start_time.elapsed();
-        self.metrics
+        metrics
             .histogram(ROCKSDB_READ_DURATION_HISTOGRAM)
             .with_label("column_family", cf_name)
             .record(duration.as_secs_f64());
 
         if result.is_err() {
-            self.metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
+            metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
         }
 
         result
     }
 
-    pub fn multi_get(&self, cf_name: &str, keys: Vec<&[u8]>) -> Result<Vec<Option<Vec<u8>>>> {
+    pub async fn multi_get(&self, cf_name: &str, keys: Vec<&[u8]>) -> Result<Vec<Option<Vec<u8>>>> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let keys_owned: Vec<Vec<u8>> = keys.iter().map(|k| k.to_vec()).collect();
+        let command = StoreCommand::MultiGet {
+            cf_name: cf_name.to_string(),
+            keys: keys_owned,
+            response: tx,
+        };
+
+        self.command_tx
+            .send(command)
+            .map_err(|_| anyhow::anyhow!("Store worker has shut down"))?;
+
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Store worker dropped response channel"))?
+    }
+
+    fn handle_multi_get(
+        db: &Arc<DBWithThreadMode<MultiThreaded>>,
+        metrics: &MetricsHelper,
+        cf_name: &str,
+        keys: Vec<Vec<u8>>,
+    ) -> Result<Vec<Option<Vec<u8>>>> {
         let start_time = Instant::now();
-        self.metrics
+        metrics
             .counter(ROCKSDB_READ_OPERATIONS_COUNTER)
             .with_label("column_family", cf_name)
             .increment(1);
 
-        let result = self.multi_get_internal(cf_name, keys);
+        let cf = db.cf_handle(cf_name).context("Column family not found")?;
+        let keys_with_cf: Vec<_> = keys.iter().map(|k| (&cf, k.as_slice())).collect();
+        let results = db.multi_get_cf(keys_with_cf);
+
+        let result: Result<Vec<Option<Vec<u8>>>> = results
+            .into_iter()
+            .map(|r| r.context("Failed to get key"))
+            .collect();
 
         let duration = start_time.elapsed();
-        self.metrics
+        metrics
             .histogram(ROCKSDB_MULTI_GET_DURATION_HISTOGRAM)
             .with_label("column_family", cf_name)
             .record(duration.as_secs_f64());
 
         if result.is_err() {
-            self.metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
+            metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
         }
 
         result
     }
 
-    fn multi_get_internal(&self, cf_name: &str, keys: Vec<&[u8]>) -> Result<Vec<Option<Vec<u8>>>> {
-        let cf = self.get_cf_handle(cf_name)?;
+    pub async fn put(&self, cf_name: &str, key: &[u8], value: &[u8]) -> Result<()> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let command = StoreCommand::Put {
+            cf_name: cf_name.to_string(),
+            key: key.to_vec(),
+            value: value.to_vec(),
+            response: tx,
+        };
 
-        let keys_with_cf: Vec<_> = keys.iter().map(|k| (&cf, k)).collect();
-        let results = self.db.multi_get_cf(keys_with_cf);
+        self.command_tx
+            .send(command)
+            .map_err(|_| anyhow::anyhow!("Store worker has shut down"))?;
 
-        results
-            .into_iter()
-            .map(|r| r.context("Failed to get key"))
-            .collect()
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Store worker dropped response channel"))?
     }
 
-    pub fn put(&self, cf_name: &str, key: &[u8], value: &[u8]) -> Result<()> {
+    fn handle_put(
+        db: &Arc<DBWithThreadMode<MultiThreaded>>,
+        metrics: &MetricsHelper,
+        cf_name: &str,
+        key: &[u8],
+        value: &[u8],
+    ) -> Result<()> {
         let start_time = Instant::now();
-        self.metrics
+        metrics
             .counter(ROCKSDB_WRITE_OPERATIONS_COUNTER)
             .with_label("column_family", cf_name)
             .increment(1);
 
-        let result = self.put_internal(cf_name, key, value);
+        let cf = db.cf_handle(cf_name).context("Column family not found")?;
+        let result = db.put_cf(&cf, key, value).context("Failed to put key");
 
         let duration = start_time.elapsed();
-        self.metrics
+        metrics
             .histogram(ROCKSDB_WRITE_DURATION_HISTOGRAM)
             .with_label("column_family", cf_name)
             .record(duration.as_secs_f64());
 
         if result.is_err() {
-            self.metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
+            metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
         }
 
         result
     }
 
-    fn put_internal(&self, cf_name: &str, key: &[u8], value: &[u8]) -> Result<()> {
-        let cf = self.get_cf_handle(cf_name)?;
-        self.db.put_cf(&cf, key, value).context("Failed to put key")
+    pub async fn put_batch(&self, cf_name: &str, entries: Vec<(&[u8], &[u8])>) -> Result<()> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let entries_owned: Vec<(Vec<u8>, Vec<u8>)> = entries
+            .iter()
+            .map(|(k, v)| (k.to_vec(), v.to_vec()))
+            .collect();
+        let command = StoreCommand::PutBatch {
+            cf_name: cf_name.to_string(),
+            entries: entries_owned,
+            response: tx,
+        };
+
+        self.command_tx
+            .send(command)
+            .map_err(|_| anyhow::anyhow!("Store worker has shut down"))?;
+
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Store worker dropped response channel"))?
     }
 
-    pub fn put_batch(&self, cf_name: &str, entries: Vec<(&[u8], &[u8])>) -> Result<()> {
+    fn handle_put_batch(
+        db: &Arc<DBWithThreadMode<MultiThreaded>>,
+        metrics: &MetricsHelper,
+        cf_name: &str,
+        entries: Vec<(Vec<u8>, Vec<u8>)>,
+    ) -> Result<()> {
         let start_time = Instant::now();
         let batch_size = entries.len();
-        self.metrics
+        metrics
             .counter(ROCKSDB_BATCH_WRITE_OPERATIONS_COUNTER)
             .with_label("column_family", cf_name)
             .increment(1);
 
-        let result = self.put_batch_internal(cf_name, entries);
+        let cf = db.cf_handle(cf_name).context("Column family not found")?;
+        let mut batch = WriteBatch::default();
+        for (key, value) in entries {
+            batch.put_cf(&cf, &key, &value);
+        }
+        let mut write_opts = WriteOptions::default();
+        write_opts.set_sync(false);
+        let result = db
+            .write_opt(batch, &write_opts)
+            .context("Failed to put batch");
 
         let duration = start_time.elapsed();
-        self.metrics
+        metrics
             .histogram(ROCKSDB_BATCH_WRITE_DURATION_HISTOGRAM)
             .with_label("column_family", cf_name)
             .record(duration.as_secs_f64());
 
         if result.is_ok() {
-            // Track successful batch size
-            self.metrics
+            metrics
                 .histogram(ROCKSDB_BATCH_SIZE_HISTOGRAM)
                 .with_label("column_family", cf_name)
                 .record(batch_size as f64);
         } else {
-            self.metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
+            metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
         }
 
         result
     }
 
-    fn put_batch_internal(&self, cf_name: &str, entries: Vec<(&[u8], &[u8])>) -> Result<()> {
-        let cf = self.get_cf_handle(cf_name)?;
-        let mut batch = WriteBatch::default();
-        for (key, value) in entries {
-            batch.put_cf(&cf, key, value);
-        }
-        let mut write_opts = WriteOptions::default();
-        write_opts.set_sync(false);
-        self.db
-            .write_opt(batch, &write_opts)
-            .context("Failed to put batch")
+    pub async fn delete_range(&self, cf_name: &str, start: &[u8], end: &[u8]) -> Result<()> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let command = StoreCommand::DeleteRange {
+            cf_name: cf_name.to_string(),
+            start: start.to_vec(),
+            end: end.to_vec(),
+            response: tx,
+        };
+
+        self.command_tx
+            .send(command)
+            .map_err(|_| anyhow::anyhow!("Store worker has shut down"))?;
+
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Store worker dropped response channel"))?
     }
 
-    pub fn delete_range(&self, cf_name: &str, start: &[u8], end: &[u8]) -> Result<()> {
-        let cf = self.get_cf_handle(cf_name)?;
-        self.db
-            .delete_range_cf(&cf, start, end)
+    fn handle_delete_range(
+        db: &Arc<DBWithThreadMode<MultiThreaded>>,
+        cf_name: &str,
+        start: &[u8],
+        end: &[u8],
+    ) -> Result<()> {
+        let cf = db.cf_handle(cf_name).context("Column family not found")?;
+        db.delete_range_cf(&cf, start, end)
             .context("Failed to delete range")
     }
 
-    pub fn delete(&self, cf_name: &str, key: &[u8]) -> Result<()> {
-        let cf = self.get_cf_handle(cf_name)?;
-        self.db.delete_cf(&cf, key).context("Failed to delete key")
+    pub async fn delete(&self, cf_name: &str, key: &[u8]) -> Result<()> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let command = StoreCommand::Delete {
+            cf_name: cf_name.to_string(),
+            key: key.to_vec(),
+            response: tx,
+        };
+
+        self.command_tx
+            .send(command)
+            .map_err(|_| anyhow::anyhow!("Store worker has shut down"))?;
+
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Store worker dropped response channel"))?
     }
 
-    pub fn get_cf_handle(&self, cf_name: &str) -> Result<Arc<BoundColumnFamily<'_>>> {
-        self.db
-            .cf_handle(cf_name)
-            .context("Column family not found")
+    fn handle_delete(
+        db: &Arc<DBWithThreadMode<MultiThreaded>>,
+        cf_name: &str,
+        key: &[u8],
+    ) -> Result<()> {
+        let cf = db.cf_handle(cf_name).context("Column family not found")?;
+        db.delete_cf(&cf, key).context("Failed to delete key")
     }
 
-    pub fn get_db_size(&self, cf_name: &str) -> Result<u64> {
-        let cf = self.get_cf_handle(cf_name)?;
-        // Try to get SST files size
-        let sst_size = self
-            .db
+    pub async fn get_db_size(&self, cf_name: &str) -> Result<u64> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let command = StoreCommand::GetDbSize {
+            cf_name: cf_name.to_string(),
+            response: tx,
+        };
+
+        self.command_tx
+            .send(command)
+            .map_err(|_| anyhow::anyhow!("Store worker has shut down"))?;
+
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Store worker dropped response channel"))?
+    }
+
+    fn handle_get_db_size(
+        db: &Arc<DBWithThreadMode<MultiThreaded>>,
+        cf_name: &str,
+    ) -> Result<u64> {
+        let cf = db.cf_handle(cf_name).context("Column family not found")?;
+        let sst_size = db
             .property_int_value_cf(&cf, "rocksdb.total-sst-files-size")?
             .unwrap_or(0);
 
@@ -300,17 +518,34 @@ impl RocksDbStore {
 
     /// Update database metrics (size, SST file count, etc.)
     /// This should be called periodically to emit current database state
-    pub fn update_db_metrics(&self, cf_name: &str) -> Result<()> {
-        // Update database size metric with column family label
-        let db_size = self.get_db_size(cf_name)?;
-        self.metrics
+    pub async fn update_db_metrics(&self, cf_name: &str) -> Result<()> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let command = StoreCommand::UpdateDbMetrics {
+            cf_name: cf_name.to_string(),
+            response: tx,
+        };
+
+        self.command_tx
+            .send(command)
+            .map_err(|_| anyhow::anyhow!("Store worker has shut down"))?;
+
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Store worker dropped response channel"))?
+    }
+
+    fn handle_update_db_metrics(
+        db: &Arc<DBWithThreadMode<MultiThreaded>>,
+        metrics: &MetricsHelper,
+        cf_name: &str,
+    ) -> Result<()> {
+        let db_size = Self::handle_get_db_size(db, cf_name)?;
+        metrics
             .gauge(ROCKSDB_SIZE_BYTES_GAUGE)
             .with_label("column_family", cf_name)
             .set(db_size as f64);
 
-        // Update SST file count with column family label
-        let sst_files = self.get_sst_file_names(cf_name)?;
-        self.metrics
+        let sst_files = Self::handle_get_sst_file_names(db, cf_name)?;
+        metrics
             .gauge(ROCKSDB_SST_FILES_COUNT_GAUGE)
             .with_label("column_family", cf_name)
             .set(sst_files.len() as f64);
@@ -318,93 +553,150 @@ impl RocksDbStore {
         Ok(())
     }
 
-    pub fn flush_cf(&self, cf_name: &str) -> Result<()> {
+    pub async fn flush_cf(&self, cf_name: &str) -> Result<()> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let command = StoreCommand::FlushCf {
+            cf_name: cf_name.to_string(),
+            response: tx,
+        };
+
+        self.command_tx
+            .send(command)
+            .map_err(|_| anyhow::anyhow!("Store worker has shut down"))?;
+
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Store worker dropped response channel"))?
+    }
+
+    fn handle_flush_cf(
+        db: &Arc<DBWithThreadMode<MultiThreaded>>,
+        metrics: &MetricsHelper,
+        cf_name: &str,
+    ) -> Result<()> {
         let start_time = Instant::now();
 
-        let result = self.flush_cf_internal(cf_name);
+        let mut flush_opts = rocksdb::FlushOptions::default();
+        flush_opts.set_wait(true);
+        let cf = db.cf_handle(cf_name).context("Column family not found")?;
+        let result = db.flush_cf_opt(&cf, &flush_opts).context("Failed to flush");
 
         let duration = start_time.elapsed();
-        self.metrics
+        metrics
             .histogram(ROCKSDB_FLUSH_DURATION_HISTOGRAM)
             .with_label("column_family", cf_name)
             .record(duration.as_secs_f64());
 
         if result.is_err() {
-            self.metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
+            metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
         }
 
         result
     }
 
-    pub fn flush_all_cf(&self) -> Result<()> {
+    pub async fn flush_all_cf(&self) -> Result<()> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let command = StoreCommand::FlushAllCf { response: tx };
+
+        self.command_tx
+            .send(command)
+            .map_err(|_| anyhow::anyhow!("Store worker has shut down"))?;
+
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Store worker dropped response channel"))?
+    }
+
+    fn handle_flush_all_cf(
+        db: &Arc<DBWithThreadMode<MultiThreaded>>,
+        metrics: &MetricsHelper,
+    ) -> Result<()> {
         let mut flush_opts = rocksdb::FlushOptions::default();
         flush_opts.set_wait(true);
         let start_time = Instant::now();
-        let result = self.db.flush_opt(&flush_opts);
+        let result = db.flush_opt(&flush_opts);
         let duration = start_time.elapsed();
-        self.metrics
+        metrics
             .histogram(ROCKSDB_FLUSH_DURATION_HISTOGRAM)
             .record(duration.as_secs_f64());
         match result {
             Ok(_) => Ok(()),
             Err(e) => {
-                self.metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
+                metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
                 Err(anyhow::anyhow!("Failed to flush: {}", e))
             }
         }
     }
 
-    fn flush_cf_internal(&self, cf_name: &str) -> Result<()> {
-        let mut flush_opts = rocksdb::FlushOptions::default();
-        flush_opts.set_wait(true);
-        let cf = self.get_cf_handle(cf_name)?;
-        self.db
-            .flush_cf_opt(&cf, &flush_opts)
-            .context("Failed to flush")
-    }
-
     /// Flush the WAL (Write-Ahead Log) to ensure durability
     /// Setting sync=true ensures WAL is synced to disk before returning
-    pub fn flush_wal(&self, sync: bool) -> Result<()> {
-        self.db
-            .flush_wal(sync)
+    pub async fn flush_wal(&self, sync: bool) -> Result<()> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let command = StoreCommand::FlushWal { sync, response: tx };
+
+        self.command_tx
+            .send(command)
+            .map_err(|_| anyhow::anyhow!("Store worker has shut down"))?;
+
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Store worker dropped response channel"))?
+    }
+
+    fn handle_flush_wal(db: &Arc<DBWithThreadMode<MultiThreaded>>, sync: bool) -> Result<()> {
+        db.flush_wal(sync)
             .map_err(|e| anyhow::anyhow!("Failed to flush WAL (sync={}): {}", sync, e))
     }
 
     /// Get the latest sequence number from the database
     /// This represents the current state of the database and can be used to verify checkpoint consistency
-    pub fn latest_sequence_number(&self) -> u64 {
-        self.db.latest_sequence_number()
+    pub async fn latest_sequence_number(&self) -> u64 {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let command = StoreCommand::LatestSequenceNumber { response: tx };
+
+        let _ = self.command_tx.send(command);
+        rx.await.unwrap_or(0)
     }
 
     /// Create an incremental checkpoint at the specified path
     /// This creates a point-in-time snapshot that can be used for recovery
-    pub fn create_checkpoint<P: AsRef<Path>>(&self, checkpoint_path: P) -> Result<()> {
+    pub async fn create_checkpoint<P: AsRef<Path>>(&self, checkpoint_path: P) -> Result<()> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let command = StoreCommand::CreateCheckpoint {
+            path: checkpoint_path.as_ref().to_path_buf(),
+            response: tx,
+        };
+
+        self.command_tx
+            .send(command)
+            .map_err(|_| anyhow::anyhow!("Store worker has shut down"))?;
+
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Store worker dropped response channel"))?
+    }
+
+    fn handle_create_checkpoint(
+        db: &Arc<DBWithThreadMode<MultiThreaded>>,
+        metrics: &MetricsHelper,
+        checkpoint_path: PathBuf,
+    ) -> Result<()> {
         let start_time = Instant::now();
-        self.metrics
+        metrics
             .counter(ROCKSDB_CHECKPOINT_OPERATIONS_COUNTER)
             .increment(1);
 
-        let result = self.create_checkpoint_internal(checkpoint_path);
+        let checkpoint = Checkpoint::new(db).context("Failed to create checkpoint object")?;
+        let result = checkpoint
+            .create_checkpoint(checkpoint_path)
+            .context("Failed to create checkpoint");
 
         let duration = start_time.elapsed();
-        self.metrics
+        metrics
             .histogram(ROCKSDB_CHECKPOINT_DURATION_HISTOGRAM)
             .record(duration.as_secs_f64());
 
         if result.is_err() {
-            self.metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
+            metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
         }
 
         result
-    }
-
-    fn create_checkpoint_internal<P: AsRef<Path>>(&self, checkpoint_path: P) -> Result<()> {
-        let checkpoint = Checkpoint::new(&self.db).context("Failed to create checkpoint object")?;
-
-        checkpoint
-            .create_checkpoint(checkpoint_path)
-            .context("Failed to create checkpoint")
     }
 
     /// Get the database path location
@@ -413,9 +705,26 @@ impl RocksDbStore {
     }
 
     /// Get current SST file names for tracking incremental changes
-    pub fn get_sst_file_names(&self, cf_name: &str) -> Result<Vec<String>> {
-        let live_files = self
-            .db
+    pub async fn get_sst_file_names(&self, cf_name: &str) -> Result<Vec<String>> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let command = StoreCommand::GetSstFileNames {
+            cf_name: cf_name.to_string(),
+            response: tx,
+        };
+
+        self.command_tx
+            .send(command)
+            .map_err(|_| anyhow::anyhow!("Store worker has shut down"))?;
+
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Store worker dropped response channel"))?
+    }
+
+    fn handle_get_sst_file_names(
+        db: &Arc<DBWithThreadMode<MultiThreaded>>,
+        cf_name: &str,
+    ) -> Result<Vec<String>> {
+        let live_files = db
             .live_files()
             .context("Failed to get live files metadata")?;
 
@@ -477,17 +786,15 @@ mod tests {
         (store, temp_dir)
     }
 
-    #[test]
-    fn test_store_creation() {
-        let (store, _temp_dir) = create_test_store();
-
-        // Verify we can get the column family handle
-        let cf_handle = store.get_cf_handle(TEST_CF);
-        assert!(cf_handle.is_ok());
+    #[tokio::test]
+    async fn test_store_creation() {
+        let (_store, _temp_dir) = create_test_store();
+        // Store created successfully - just verify it doesn't panic
+        // (get_cf_handle is now internal to the worker thread)
     }
 
-    #[test]
-    fn test_put_and_multi_get() {
+    #[tokio::test]
+    async fn test_put_and_multi_get() {
         let (store, _temp_dir) = create_test_store();
 
         let key1 = b"key1";
@@ -496,20 +803,20 @@ mod tests {
         let value2 = b"value2";
 
         // Put values
-        store.put(TEST_CF, key1, value1).unwrap();
-        store.put(TEST_CF, key2, value2).unwrap();
+        store.put(TEST_CF, key1, value1).await.unwrap();
+        store.put(TEST_CF, key2, value2).await.unwrap();
 
         // Multi-get
         let keys = vec![key1.as_slice(), key2.as_slice()];
-        let results = store.multi_get(TEST_CF, keys).unwrap();
+        let results = store.multi_get(TEST_CF, keys).await.unwrap();
 
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].as_ref().unwrap(), value1);
         assert_eq!(results[1].as_ref().unwrap(), value2);
     }
 
-    #[test]
-    fn test_multi_get_missing_keys() {
+    #[tokio::test]
+    async fn test_multi_get_missing_keys() {
         let (store, _temp_dir) = create_test_store();
 
         let key1 = b"existing_key";
@@ -517,19 +824,19 @@ mod tests {
         let value1 = b"value1";
 
         // Put only one key
-        store.put(TEST_CF, key1, value1).unwrap();
+        store.put(TEST_CF, key1, value1).await.unwrap();
 
         // Multi-get both keys
         let keys = vec![key1.as_slice(), key2.as_slice()];
-        let results = store.multi_get(TEST_CF, keys).unwrap();
+        let results = store.multi_get(TEST_CF, keys).await.unwrap();
 
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].as_ref().unwrap(), value1);
         assert!(results[1].is_none());
     }
 
-    #[test]
-    fn test_put_batch() {
+    #[tokio::test]
+    async fn test_put_batch() {
         let (store, _temp_dir) = create_test_store();
 
         let entries = vec![
@@ -539,29 +846,29 @@ mod tests {
         ];
 
         // Batch put
-        store.put_batch(TEST_CF, entries.clone()).unwrap();
+        store.put_batch(TEST_CF, entries.clone()).await.unwrap();
 
         // Verify all entries were stored
         let keys: Vec<&[u8]> = entries.iter().map(|(k, _)| *k).collect();
-        let results = store.multi_get(TEST_CF, keys).unwrap();
+        let results = store.multi_get(TEST_CF, keys).await.unwrap();
 
         for (i, (_, expected_value)) in entries.iter().enumerate() {
             assert_eq!(results[i].as_ref().unwrap(), expected_value);
         }
     }
 
-    #[test]
-    fn test_delete_range() {
+    #[tokio::test]
+    async fn test_delete_range() {
         let (store, _temp_dir) = create_test_store();
 
         // Put some keys
-        store.put(TEST_CF, b"key1", b"value1").unwrap();
-        store.put(TEST_CF, b"key2", b"value2").unwrap();
-        store.put(TEST_CF, b"key3", b"value3").unwrap();
-        store.put(TEST_CF, b"key4", b"value4").unwrap();
+        store.put(TEST_CF, b"key1", b"value1").await.unwrap();
+        store.put(TEST_CF, b"key2", b"value2").await.unwrap();
+        store.put(TEST_CF, b"key3", b"value3").await.unwrap();
+        store.put(TEST_CF, b"key4", b"value4").await.unwrap();
 
         // Delete range key2 to key4 (exclusive)
-        store.delete_range(TEST_CF, b"key2", b"key4").unwrap();
+        store.delete_range(TEST_CF, b"key2", b"key4").await.unwrap();
 
         // Check what remains
         let keys = vec![
@@ -570,7 +877,7 @@ mod tests {
             b"key3".as_slice(),
             b"key4".as_slice(),
         ];
-        let results = store.multi_get(TEST_CF, keys).unwrap();
+        let results = store.multi_get(TEST_CF, keys).await.unwrap();
 
         assert!(results[0].is_some()); // key1 should remain
         assert!(results[1].is_none()); // key2 should be deleted
@@ -578,11 +885,11 @@ mod tests {
         assert!(results[3].is_some()); // key4 should remain (exclusive end)
     }
 
-    #[test]
-    fn test_invalid_column_family() {
+    #[tokio::test]
+    async fn test_invalid_column_family() {
         let (store, _temp_dir) = create_test_store();
 
-        let result = store.put("nonexistent_cf", b"key", b"value");
+        let result = store.put("nonexistent_cf", b"key", b"value").await;
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -590,37 +897,37 @@ mod tests {
             .contains("Column family not found"));
     }
 
-    #[test]
-    fn test_empty_multi_get() {
+    #[tokio::test]
+    async fn test_empty_multi_get() {
         let (store, _temp_dir) = create_test_store();
 
         let keys: Vec<&[u8]> = vec![];
-        let results = store.multi_get(TEST_CF, keys).unwrap();
+        let results = store.multi_get(TEST_CF, keys).await.unwrap();
         assert!(results.is_empty());
     }
 
-    #[test]
-    fn test_empty_put_batch() {
+    #[tokio::test]
+    async fn test_empty_put_batch() {
         let (store, _temp_dir) = create_test_store();
 
         let entries: Vec<(&[u8], &[u8])> = vec![];
-        let result = store.put_batch(TEST_CF, entries);
+        let result = store.put_batch(TEST_CF, entries).await;
         assert!(result.is_ok());
     }
 
-    #[test]
-    fn test_create_checkpoint() {
+    #[tokio::test]
+    async fn test_create_checkpoint() {
         let (store, _temp_dir) = create_test_store();
 
         // Add some data
-        store.put(TEST_CF, b"key1", b"value1").unwrap();
-        store.put(TEST_CF, b"key2", b"value2").unwrap();
+        store.put(TEST_CF, b"key1", b"value1").await.unwrap();
+        store.put(TEST_CF, b"key2", b"value2").await.unwrap();
 
         // Create checkpoint
         let checkpoint_dir = TempDir::new().unwrap();
         let checkpoint_path = checkpoint_dir.path().join("checkpoint");
 
-        let result = store.create_checkpoint(&checkpoint_path);
+        let result = store.create_checkpoint(&checkpoint_path).await;
         assert!(result.is_ok());
 
         // Verify checkpoint directory was created and contains data
@@ -628,8 +935,8 @@ mod tests {
         assert!(checkpoint_path.is_dir());
     }
 
-    #[test]
-    fn test_checkpoint_recovery() {
+    #[tokio::test]
+    async fn test_checkpoint_recovery() {
         let temp_dir = TempDir::new().unwrap();
         let original_path = temp_dir.path().join("original");
         let checkpoint_path = temp_dir.path().join("checkpoint");
@@ -641,11 +948,11 @@ mod tests {
                 RocksDbStore::new(&original_path, vec![cf_descriptor], MetricsHelper::new())
                     .unwrap();
 
-            original_store.put(TEST_CF, b"key1", b"value1").unwrap();
-            original_store.put(TEST_CF, b"key2", b"value2").unwrap();
+            original_store.put(TEST_CF, b"key1", b"value1").await.unwrap();
+            original_store.put(TEST_CF, b"key2", b"value2").await.unwrap();
 
             // Create checkpoint
-            original_store.create_checkpoint(&checkpoint_path).unwrap();
+            original_store.create_checkpoint(&checkpoint_path).await.unwrap();
         } // Drop original store
 
         // Open new store from checkpoint
@@ -655,26 +962,26 @@ mod tests {
 
         // Verify data is recovered
         let keys = vec![b"key1".as_slice(), b"key2".as_slice()];
-        let results = recovered_store.multi_get(TEST_CF, keys).unwrap();
+        let results = recovered_store.multi_get(TEST_CF, keys).await.unwrap();
 
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].as_ref().unwrap(), b"value1");
         assert_eq!(results[1].as_ref().unwrap(), b"value2");
     }
 
-    #[test]
-    fn test_get_sst_file_names() {
+    #[tokio::test]
+    async fn test_get_sst_file_names() {
         let (store, _temp_dir) = create_test_store();
 
         // Add some data to create SST files
-        store.put(TEST_CF, b"key1", b"value1").unwrap();
-        store.put(TEST_CF, b"key2", b"value2").unwrap();
+        store.put(TEST_CF, b"key1", b"value1").await.unwrap();
+        store.put(TEST_CF, b"key2", b"value2").await.unwrap();
 
         // Force flush to create SST files
-        store.flush_cf(TEST_CF).unwrap();
+        store.flush_cf(TEST_CF).await.unwrap();
 
         // Get SST file names
-        let sst_files = store.get_sst_file_names(TEST_CF).unwrap();
+        let sst_files = store.get_sst_file_names(TEST_CF).await.unwrap();
 
         // Should have at least one SST file after flush
         assert!(!sst_files.is_empty());
@@ -685,8 +992,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_compute_sst_delta() {
+    #[tokio::test]
+    async fn test_compute_sst_delta() {
         let old_files = vec![
             "000001.sst".to_string(),
             "000002.sst".to_string(),
@@ -714,8 +1021,8 @@ mod tests {
         assert!(delta.unchanged_files.contains(&"000003.sst".to_string()));
     }
 
-    #[test]
-    fn test_sst_delta_tracking_with_checkpoints() {
+    #[tokio::test]
+    async fn test_sst_delta_tracking_with_checkpoints() {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("db");
         let checkpoint1_path = temp_dir.path().join("checkpoint1");
@@ -725,20 +1032,20 @@ mod tests {
         let store = RocksDbStore::new(&db_path, vec![cf_descriptor], MetricsHelper::new()).unwrap();
 
         // Phase 1: Add initial data
-        store.put(TEST_CF, b"key1", b"value1").unwrap();
-        store.put(TEST_CF, b"key2", b"value2").unwrap();
-        store.flush_cf(TEST_CF).unwrap();
+        store.put(TEST_CF, b"key1", b"value1").await.unwrap();
+        store.put(TEST_CF, b"key2", b"value2").await.unwrap();
+        store.flush_cf(TEST_CF).await.unwrap();
 
-        let sst_files_phase1 = store.get_sst_file_names(TEST_CF).unwrap();
-        store.create_checkpoint(&checkpoint1_path).unwrap();
+        let sst_files_phase1 = store.get_sst_file_names(TEST_CF).await.unwrap();
+        store.create_checkpoint(&checkpoint1_path).await.unwrap();
 
         // Phase 2: Add more data
-        store.put(TEST_CF, b"key3", b"value3").unwrap();
-        store.put(TEST_CF, b"key4", b"value4").unwrap();
-        store.flush_cf(TEST_CF).unwrap();
+        store.put(TEST_CF, b"key3", b"value3").await.unwrap();
+        store.put(TEST_CF, b"key4", b"value4").await.unwrap();
+        store.flush_cf(TEST_CF).await.unwrap();
 
-        let sst_files_phase2 = store.get_sst_file_names(TEST_CF).unwrap();
-        store.create_checkpoint(&checkpoint2_path).unwrap();
+        let sst_files_phase2 = store.get_sst_file_names(TEST_CF).await.unwrap();
+        store.create_checkpoint(&checkpoint2_path).await.unwrap();
 
         // Compute delta between phases
         let delta = RocksDbStore::compute_sst_delta(&sst_files_phase1, &sst_files_phase2);

@@ -121,7 +121,7 @@ impl CheckpointWorker {
         let rocks_metadata = self.create_local_partition_checkpoint(store).await?;
 
         // update store metrics - this can fail without blocking the checkpoint attempt
-        if let Err(e) = store.update_metrics() {
+        if let Err(e) = store.update_metrics().await {
             warn!(
                 self.worker_id,
                 partition = self.partition.to_string(),
@@ -180,7 +180,7 @@ impl CheckpointWorker {
         let local_attempt_path = self.get_local_attempt_path();
 
         // TODO: this should accept CheckpointMode argument to implement incremental local checkpoint step
-        match store.create_checkpoint_with_metadata(&local_attempt_path) {
+        match store.create_checkpoint_with_metadata(&local_attempt_path).await {
             Ok(rocks_metadata) => {
                 let checkpoint_duration = start_time.elapsed();
                 metrics::histogram!(CHECKPOINT_DURATION_HISTOGRAM)
@@ -405,7 +405,7 @@ mod tests {
         let event = create_test_event();
         let key = TimestampKey::from(&event);
         let metadata = TimestampMetadata::new(&event);
-        store.put_timestamp_record(&key, &metadata).unwrap();
+        store.put_timestamp_record(&key, &metadata).await.unwrap();
 
         let tmp_checkpoint_dir = TempDir::new().unwrap();
         let config = CheckpointConfig {
@@ -468,7 +468,7 @@ mod tests {
         let event = create_test_event();
         let key = TimestampKey::from(&event);
         let metadata = TimestampMetadata::new(&event);
-        store.put_timestamp_record(&key, &metadata).unwrap();
+        store.put_timestamp_record(&key, &metadata).await.unwrap();
 
         let partition = Partition::new("some_test_topic".to_string(), 0);
         let attempt_timestamp = Utc::now();
