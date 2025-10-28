@@ -24,6 +24,7 @@ from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PERSONAL_API_KEY_MODES_TO_TRY, PersonalAPIKey, hash_key_value
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 
@@ -113,8 +114,8 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             if authorization_match:
                 token = authorization_match.group(1).strip()
 
-                if token.startswith(
-                    "pha_"
+                if (
+                    token.startswith("pha_") or token.startswith("phs_")
                 ):  # TRICKY: This returns None to allow the next authentication method to have a go. This should be `if not token.startswith("phx_")`, but we need to support legacy personal api keys that may not have been prefixed with phx_.
                     return None
                 return token, "Authorization header"
@@ -222,6 +223,7 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
     """
 
     keyword = "Bearer"
+    project_secret_api_key: Optional["ProjectSecretAPIKey"] = None
 
     @classmethod
     def find_secret_api_token(
@@ -251,19 +253,40 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
         if not secret_api_token:
             return None
 
-        # get the team from the secret api key
+        project_secret_api_key_result = ProjectSecretAPIKey.find_project_secret_api_key(secret_api_token)
+
+        if project_secret_api_key_result:
+            project_secret_api_key, _ = project_secret_api_key_result
+            self.project_secret_api_key = project_secret_api_key
+
+            now = timezone.now()
+            if project_secret_api_key.last_used_at is None or (
+                now - project_secret_api_key.last_used_at > timedelta(hours=1)
+            ):
+                project_secret_api_key.last_used_at = now
+                project_secret_api_key.save(update_fields=["last_used_at"])
+
+            tag_queries(
+                team_id=project_secret_api_key.team_id,
+                access_method="project_secret_api_key",
+                api_key_mask=project_secret_api_key.mask_value,
+                api_key_label=project_secret_api_key.label,
+            )
+
+            return (ProjectSecretAPIKeyUser(project_secret_api_key.team, project_secret_api_key), None)
+
+        # For backwards compat with feature flags - fallback to team secret_api_token
         try:
             Team = apps.get_model(app_label="posthog", model_name="Team")
             team = Team.objects.get_team_from_cache_or_secret_api_token(secret_api_token)
 
             if team is None:
-                return None
+                raise AuthenticationFailed(detail="Project secret API key is invalid.")
 
-            # Secret api keys are not associated with a user, so we create a ProjectSecretAPIKeyUser
-            # and attach the team. The team is the important part here.
-            return (ProjectSecretAPIKeyUser(team), None)
+            # Team secret token = full access, no project_secret_api_key object
+            return (ProjectSecretAPIKeyUser(team, None), None)
         except Team.DoesNotExist:
-            return None
+            raise AuthenticationFailed(detail="Project secret API key is invalid.")
 
     @classmethod
     def authenticate_header(cls, request) -> str:
@@ -275,11 +298,20 @@ class ProjectSecretAPIKeyUser:
     A "synthetic" user object returned by the ProjectSecretAPIKeyAuthentication when authenticating with a project secret API key.
     """
 
-    def __init__(self, team):
+    pk: int = -1
+    id: int = -1
+
+    def __init__(self, team, project_secret_api_key: Optional["ProjectSecretAPIKey"] = None):
         self.team = team
         self.current_team_id = team.id
         self.is_authenticated = True
-        self.pk = -1
+        self.project_secret_api_key = project_secret_api_key
+        self.distinct_id = (
+            f"ph_secret_project_key:{self.project_secret_api_key.id}"
+            if self.project_secret_api_key
+            else "team_secret_api_token"
+        )
+        self.email = None
 
     def has_perm(self, perm, obj=None):
         return False

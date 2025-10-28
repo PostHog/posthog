@@ -33,8 +33,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import Product, get_query_tag_value, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
@@ -42,6 +43,7 @@ from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.permissions import ProjectSecretAPIKeyPermission
 from posthog.rate_limit import APIQueriesBurstThrottle, APIQueriesSustainedThrottle
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.types import InsightQueryNode
@@ -55,16 +57,15 @@ MAX_CACHE_AGE_SECONDS = 86400
 
 
 @extend_schema(tags=["endpoints"])
-class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ModelViewSet):
-    # NOTE: Do we need to override the scopes for the "create"
+class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.GenericViewSet):
     scope_object = "endpoint"
-    # Special case for query - these are all essentially read actions
-    scope_object_read_actions = ["retrieve", "list", "run"]
-    scope_object_write_actions: list[str] = ["create", "destroy", "update"]
     lookup_field = "name"
     queryset = Endpoint.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_active", "created_by"]
+
+    scope_object_read_actions = ["retrieve", "list", "run"]
+    scope_object_write_actions: list[str] = ["create", "destroy", "update"]
 
     def get_serializer_class(self):
         return None  # We use Pydantic models instead
@@ -164,12 +165,12 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         try:
             endpoint = Endpoint.objects.create(
                 team=self.team,
-                created_by=cast(User, request.user),
                 name=cast(str, data.name),  # verified in validate_request
                 query=cast(Union[HogQLQuery, InsightQueryNode], data.query).model_dump(),
                 description=data.description or "",
-                is_active=data.is_active if data.is_active is not None else True,
+                is_active=data.is_active if data.is_active else True,
                 cache_age_seconds=data.cache_age_seconds,
+                created_by=cast(User, request.user),
             )
 
             # Activity log: created
@@ -279,7 +280,13 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         request=EndpointRunRequest,
         description="Update an existing endpoint. Parameters are optional.",
     )
-    @action(methods=["GET", "POST"], detail=True)
+    @action(
+        methods=["GET", "POST"],
+        detail=True,
+        required_scopes=["endpoint:read"],
+        authentication_classes=[ProjectSecretAPIKeyAuthentication],
+        permission_classes=[ProjectSecretAPIKeyPermission],
+    )
     def run(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Execute a endpoint with optional parameters."""
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name, is_active=True)
@@ -314,6 +321,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 merged_data, self.team, data.client_query_id, request.user
             )
             self._tag_client_query_id(client_query_id)
+            tag_queries(product=Product.ENDPOINTS)
 
             if execution_mode not in BLOCKING_EXECUTION_MODES:
                 raise ValidationError("only sync modes are supported (refresh param)")
@@ -324,7 +332,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 execution_mode=execution_mode,
                 query_id=client_query_id,
                 user=cast(User, request.user),
-                is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
+                is_query_service=(
+                    get_query_tag_value("access_method") in ["personal_api_key", "project_secret_api_key"]
+                ),
                 cache_age_seconds=endpoint.cache_age_seconds,
             )
 

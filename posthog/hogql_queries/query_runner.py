@@ -1126,7 +1126,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     org_id=self.team.organization_id,
                     task_id=self.query_id,
                     team_id=self.team.id,
-                    is_api=get_query_tag_value("access_method") == "personal_api_key",
+                    is_api=get_query_tag_value("access_method") in ["personal_api_key", "project_secret_api_key"],
                     limit=get_org_app_concurrency_limit(self.team.organization_id),
                 ):
                     with get_app_dashboard_queries_rate_limiter().run(
@@ -1134,7 +1134,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         dashboard_id=dashboard_id,
                         task_id=self.query_id,
                         team_id=self.team.id,
-                        is_api=get_query_tag_value("access_method") == "personal_api_key",
+                        is_api=get_query_tag_value("access_method") in ["personal_api_key", "project_secret_api_key"],
                     ):
                         query_start_time = perf_counter()
                         query_result = self.calculate()

@@ -2193,6 +2193,14 @@ class PlaywrightWorkspaceSetupResult(BaseModel):
     user_id: str
 
 
+class ProjectSecretAPIKeyRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: Optional[str] = None
+    scopes: Optional[list[str]] = None
+
+
 class PropertyFilterType(StrEnum):
     META = "meta"
     EVENT = "event"

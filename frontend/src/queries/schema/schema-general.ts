@@ -4259,3 +4259,8 @@ export interface UsageMetricsQuery extends DataNode<UsageMetricsQueryResponse> {
     /** Group key. Required with group_type_index for group queries. */
     group_key?: string
 }
+
+export interface ProjectSecretAPIKeyRequest {
+    label?: string
+    scopes?: string[]
+}

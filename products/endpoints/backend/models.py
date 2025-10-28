@@ -59,6 +59,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     )
 
     created_by = models.ForeignKey(User, on_delete=models.CASCADE)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -67,7 +68,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
             models.UniqueConstraint(
                 fields=["team", "name"],
                 name="unique_team_endpoint_name",
-            )
+            ),
         ]
         indexes = [
             models.Index(fields=["team", "is_active"]),

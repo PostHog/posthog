@@ -185,7 +185,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
 
-        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_missing_required_fields(self):
         """Test validation when required fields are missing."""
