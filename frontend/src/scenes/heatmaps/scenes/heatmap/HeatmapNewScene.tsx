@@ -106,8 +106,8 @@ export function HeatmapNewScene(): JSX.Element {
                     onClick={createHeatmap}
                     loading={false}
                     disabledReason={
-                        !isDisplayUrlValid
-                            ? 'Invalid URL'
+                        !isDisplayUrlValid || !isBrowserUrlAuthorized
+                            ? 'Invalid URL or forbidden URL'
                             : !displayUrl
                               ? 'URL is required'
                               : !dataUrl
