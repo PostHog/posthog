@@ -57,7 +57,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             date_range_length = qdr.date_to() - qdr.date_from()
             limit = logs_query_params["limit"]
 
-            def runner_slice(runner: LogsQueryRunner, slice_length: dt.timedelta) -> tuple[LogsQueryRunner, LogsQueryRunner]:
+            def runner_slice(
+                runner: LogsQueryRunner, slice_length: dt.timedelta
+            ) -> tuple[LogsQueryRunner, LogsQueryRunner]:
                 """
                 Slices a LogsQueryRunner into two query runners
                 The first one returns just the `slice_length` most recent logs
