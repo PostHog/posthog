@@ -145,6 +145,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return dataWarehouseSavedQueryActivityDescriber
         case ActivityScope.REPLAY:
             return replayActivityDescriber
+        case ActivityScope.HEATMAP:
+            return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
         case ActivityScope.EXPERIMENT:
             return experimentActivityDescriber
         case ActivityScope.TAG:
