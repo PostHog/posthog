@@ -22,11 +22,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDTModel
 from posthog.sync import database_sync_to_async
 
-from products.data_warehouse.backend.data_load.saved_query_service import (
-    saved_query_workflow_exists,
-    sync_saved_query_workflow,
-    unpause_saved_query_schedule,
-)
 from products.data_warehouse.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
@@ -142,6 +137,12 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
 
         If the workflow fails to schedule, it will disable materialization for this view.
         """
+        from products.data_warehouse.backend.data_load.saved_query_service import (
+            saved_query_workflow_exists,
+            sync_saved_query_workflow,
+            unpause_saved_query_schedule,
+        )
+
         try:
             schedule_exists = saved_query_workflow_exists(str(self.id))
             if schedule_exists and unpause:
