@@ -26,11 +26,19 @@ interface VariantsPanelProps {
             ensure_experience_continuity?: boolean
         }
     }) => void
+    disabled?: boolean
 }
 
-export function VariantsPanel({ experiment, updateFeatureFlag, onPrevious, onNext }: VariantsPanelProps): JSX.Element {
-    const { mode, linkedFeatureFlag } = useValues(variantsPanelLogic({ experiment }))
-    const { setMode, setLinkedFeatureFlag } = useActions(variantsPanelLogic({ experiment }))
+export function VariantsPanel({
+    experiment,
+    updateFeatureFlag,
+    onPrevious,
+    onNext,
+    disabled = false,
+}: VariantsPanelProps): JSX.Element {
+    const isEditMode = disabled
+    const { mode, linkedFeatureFlag } = useValues(variantsPanelLogic({ experiment, disabled }))
+    const { setMode, setLinkedFeatureFlag } = useActions(variantsPanelLogic({ experiment, disabled }))
 
     const { openSelectExistingFeatureFlagModal, closeSelectExistingFeatureFlagModal } = useActions(
         selectExistingFeatureFlagModalLogic
@@ -47,23 +55,33 @@ export function VariantsPanel({ experiment, updateFeatureFlag, onPrevious, onNex
                     onClick={() => {
                         setMode('create')
                     }}
+                    disabled={disabled}
+                    disabledReason="You cannot change the mode when editing an experiment."
                 />
                 <SelectableCard
                     title="Link existing feature flag"
                     description="Use an existing multivariate feature flag and inherit its variants."
                     selected={mode === 'link'}
                     onClick={() => setMode('link')}
+                    disabled={disabled}
+                    disabledReason="You cannot change the mode when editing an experiment."
                 />
             </div>
 
             {match(mode)
                 .with('create', () => (
-                    <VariantsPanelCreateFeatureFlag experiment={experiment} onChange={updateFeatureFlag} />
+                    <VariantsPanelCreateFeatureFlag
+                        experiment={experiment}
+                        onChange={updateFeatureFlag}
+                        readOnly={isEditMode}
+                        disabled={disabled}
+                    />
                 ))
                 .with('link', () => (
                     <VariantsPanelLinkFeatureFlag
                         linkedFeatureFlag={linkedFeatureFlag}
                         setShowFeatureFlagSelector={openSelectExistingFeatureFlagModal}
+                        readOnly={isEditMode}
                     />
                 ))
                 .exhaustive()}

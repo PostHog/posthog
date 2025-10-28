@@ -11,11 +11,14 @@ import type { Experiment, FeatureFlagType } from '~/types'
 import type { variantsPanelLogicType } from './variantsPanelLogicType'
 
 export const variantsPanelLogic = kea<variantsPanelLogicType>({
-    path: ['scenes', 'experiments', 'create', 'panels', 'variantsPanelLogic'],
+    key: (props) => props.experiment?.id || 'new',
+    path: (key) => ['scenes', 'experiments', 'create', 'panels', 'variantsPanelLogic', key],
     props: {
         experiment: {} as Experiment,
+        disabled: false as boolean,
     } as {
         experiment: Experiment
+        disabled: boolean
     },
     connect: {
         values: [featureFlagsLogic, ['featureFlags'], experimentsLogic, ['experiments']],
@@ -28,7 +31,7 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
         setFeatureFlagKeyDirty: true,
         setLinkedFeatureFlag: (flag: FeatureFlagType | null) => ({ flag }),
     },
-    reducers: {
+    reducers: ({ props }) => ({
         featureFlagKeyError: [
             null as string | null,
             {
@@ -36,9 +39,16 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
             },
         ],
         mode: [
-            'create' as 'create' | 'link',
+            // if disabled, we've default to 'link' mode
+            props.disabled ? ('link' as const) : ('create' as const),
             {
-                setMode: (_: any, { mode }: { mode: 'create' | 'link' }) => mode,
+                setMode: (state: 'create' | 'link', { mode }: { mode: 'create' | 'link' }) => {
+                    // Prevent mode changes when editing
+                    if (props.disabled) {
+                        return state
+                    }
+                    return mode
+                },
             },
         ],
         featureFlagKeyDirty: [
@@ -49,12 +59,15 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
             },
         ],
         linkedFeatureFlag: [
-            null as FeatureFlagType | null,
+            // Initialize from experiment.feature_flag when disabled
+            (props.disabled && props.experiment.feature_flag
+                ? props.experiment.feature_flag
+                : null) as FeatureFlagType | null,
             {
                 setLinkedFeatureFlag: (_, { flag }) => flag,
             },
         ],
-    },
+    }),
     loaders: ({ values }) => ({
         featureFlagKeyValidation: [
             null as { valid: boolean; error: string | null } | null,

@@ -75,9 +75,9 @@ describe('createExperimentLogic', () => {
                     name: '',
                     description: 'Valid hypothesis',
                 })
-                logic.actions.submitExperiment()
+                logic.actions.saveExperiment()
             })
-                .toDispatchActions(['setExperiment', 'submitExperiment', 'submitExperimentFailure'])
+                .toDispatchActions(['setExperiment', 'saveExperiment', 'saveExperimentFailure'])
                 .toMatchValues({
                     experimentErrors: partial({
                         name: 'Name is required',
@@ -91,13 +91,14 @@ describe('createExperimentLogic', () => {
                     ...NEW_EXPERIMENT,
                     name: 'Test Experiment',
                     description: 'Test hypothesis',
+                    feature_flag_key: 'test-experiment',
                 })
-                logic.actions.submitExperiment()
-            }).toDispatchActions(['setExperiment', 'submitExperiment', 'submitExperimentSuccess'])
+                logic.actions.saveExperiment()
+            }).toDispatchActions(['setExperiment', 'saveExperiment', 'createExperimentSuccess'])
         })
     })
 
-    describe('createExperiment', () => {
+    describe('saveExperiment', () => {
         it('successfully creates experiment and triggers success action', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setExperiment({
@@ -107,9 +108,9 @@ describe('createExperimentLogic', () => {
                     type: 'product',
                     feature_flag_key: 'test-experiment',
                 })
-                logic.actions.submitExperiment()
+                logic.actions.saveExperiment()
             })
-                .toDispatchActions(['setExperiment', 'submitExperiment', 'createExperimentSuccess'])
+                .toDispatchActions(['setExperiment', 'saveExperiment', 'createExperimentSuccess'])
                 .toMatchValues({
                     experimentErrors: {},
                 })
@@ -123,9 +124,9 @@ describe('createExperimentLogic', () => {
                     description: 'Test hypothesis',
                     feature_flag_key: 'test-experiment',
                 })
-                logic.actions.submitExperiment()
+                logic.actions.saveExperiment()
             })
-                .toDispatchActions(['submitExperiment', 'createExperimentSuccess'])
+                .toDispatchActions(['saveExperiment', 'createExperimentSuccess'])
                 .toFinishAllListeners()
 
             expect(refreshTreeItem).toHaveBeenCalledWith('experiment', '123')
@@ -140,15 +141,15 @@ describe('createExperimentLogic', () => {
                     description: 'Test hypothesis',
                     feature_flag_key: 'test-experiment',
                 })
-                logic.actions.submitExperiment()
+                logic.actions.saveExperiment()
             })
-                .toDispatchActions(['submitExperiment', 'createExperimentSuccess'])
+                .toDispatchActions(['saveExperiment', 'createExperimentSuccess'])
                 .toFinishAllListeners()
 
             expect(routerPushSpy).toHaveBeenCalledWith('/experiments/123')
         })
 
-        it('shows success toast with view button', async () => {
+        it('shows success toast', async () => {
             routerPushSpy.mockClear()
 
             await expectLogic(logic, () => {
@@ -158,25 +159,14 @@ describe('createExperimentLogic', () => {
                     description: 'Test hypothesis',
                     feature_flag_key: 'test-experiment',
                 })
-                logic.actions.submitExperiment()
+                logic.actions.saveExperiment()
             })
-                .toDispatchActions(['submitExperiment', 'createExperimentSuccess'])
+                .toDispatchActions(['saveExperiment', 'createExperimentSuccess'])
                 .toFinishAllListeners()
 
-            expect(lemonToast.success).toHaveBeenCalledWith(
-                'Experiment created successfully!',
-                expect.objectContaining({
-                    button: expect.objectContaining({
-                        label: 'View it',
-                    }),
-                })
-            )
-
-            const toastCall = (lemonToast.success as jest.Mock).mock.calls[0]
-            const toastButton = toastCall[1].button
-            toastButton.action()
-
-            expect(routerPushSpy).toHaveBeenCalledTimes(2)
+            expect(lemonToast.success).toHaveBeenCalledWith('Experiment created successfully!')
+            expect(routerPushSpy).toHaveBeenCalledTimes(1)
+            expect(routerPushSpy).toHaveBeenCalledWith('/experiments/123')
         })
     })
 
@@ -421,8 +411,8 @@ describe('createExperimentLogic', () => {
                     description: 'Test hypothesis',
                     feature_flag_key: 'custom-flag-key',
                 })
-                logic.actions.submitExperiment()
-            }).toDispatchActions(['setExperiment', 'submitExperiment', 'createExperimentSuccess'])
+                logic.actions.saveExperiment()
+            }).toDispatchActions(['setExperiment', 'saveExperiment', 'createExperimentSuccess'])
         })
 
         it('includes variants in experiment submission', async () => {
@@ -439,8 +429,8 @@ describe('createExperimentLogic', () => {
                         ],
                     },
                 })
-                logic.actions.submitExperiment()
-            }).toDispatchActions(['setExperiment', 'submitExperiment', 'createExperimentSuccess'])
+                logic.actions.saveExperiment()
+            }).toDispatchActions(['setExperiment', 'saveExperiment', 'createExperimentSuccess'])
         })
 
         it('includes experience continuity setting in submission', async () => {
@@ -457,8 +447,8 @@ describe('createExperimentLogic', () => {
                         ],
                     },
                 })
-                logic.actions.submitExperiment()
-            }).toDispatchActions(['setExperiment', 'submitExperiment', 'createExperimentSuccess'])
+                logic.actions.saveExperiment()
+            }).toDispatchActions(['setExperiment', 'saveExperiment', 'createExperimentSuccess'])
         })
     })
 })

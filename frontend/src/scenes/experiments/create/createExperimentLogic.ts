@@ -98,9 +98,11 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
     key((props) => props.experiment?.id || 'create-experiment'),
     path((key) => ['scenes', 'experiments', 'create', 'createExperimentLogic', key]),
     connect((props: CreateExperimentLogicProps) => {
+        const experiment = props.experiment || { ...NEW_EXPERIMENT }
+        const disabled = experiment.id !== 'new' && experiment.id !== null
         const variantsPanelLogicInstance = variantsPanelLogic({
-            experiment: props.experiment || { ...NEW_EXPERIMENT },
-            disabled: (props.experiment?.id !== 'new' && props.experiment?.id !== null) || false,
+            experiment,
+            disabled,
         })
 
         return {
