@@ -13,6 +13,151 @@ use common_metrics::inc;
 use common_redis::Client as RedisClient;
 use std::sync::Arc;
 
+/// Team-specific cache-or-fallback helper
+async fn team_cache_or_fallback(
+    redis_reader: Arc<dyn RedisClient + Send + Sync>,
+    redis_writer: Arc<dyn RedisClient + Send + Sync>,
+    pg_client: PostgresReader,
+    token: &str,
+) -> Result<(Team, bool), FlagError> {
+    match Team::from_redis(redis_reader, token).await {
+        Ok(team) => Ok((team, true)),
+        Err(FlagError::TokenValidationError) => {
+            // True cache miss - key doesn't exist
+            let team = Team::from_pg(pg_client, token).await?;
+            inc(DB_TEAM_READS_COUNTER, &[], 1);
+
+            // Write to cache for future hits
+            if Team::update_redis_cache(redis_writer, &team).await.is_err() {
+                inc(
+                    TEAM_CACHE_ERRORS_COUNTER,
+                    &[("reason".to_string(), "redis_update_failed".to_string())],
+                    1,
+                );
+            }
+
+            Ok((team, false))
+        }
+        Err(e) => {
+            // Redis timeout, unavailable, or other errors - skip cache write
+            tracing::warn!(
+                "Redis error reading team: {}, skipping cache write on fallback",
+                e
+            );
+            let team = Team::from_pg(pg_client, token).await?;
+            inc(DB_TEAM_READS_COUNTER, &[], 1);
+            // Skip cache write to avoid overloading Redis
+            Ok((team, false))
+        }
+    }
+}
+
+/// Flags-specific cache-or-fallback helper
+async fn flags_cache_or_fallback(
+    redis_reader: Arc<dyn RedisClient + Send + Sync>,
+    redis_writer: Arc<dyn RedisClient + Send + Sync>,
+    pg_client: PostgresReader,
+    project_id: i64,
+) -> Result<(FeatureFlagList, bool, bool), FlagError> {
+    match FeatureFlagList::from_redis(redis_reader, project_id).await {
+        Ok(flags) => Ok((flags, true, false)),
+        Err(FlagError::TokenValidationError) => {
+            // True cache miss - key doesn't exist
+            let (flags, had_deserialization_errors) =
+                FeatureFlagList::from_pg(pg_client, project_id).await?;
+            inc(DB_FLAG_READS_COUNTER, &[], 1);
+
+            // Write to cache for future hits
+            if FeatureFlagList::update_flags_in_redis(redis_writer, project_id, &flags)
+                .await
+                .is_err()
+            {
+                inc(
+                    FLAG_CACHE_ERRORS_COUNTER,
+                    &[("reason".to_string(), "redis_update_failed".to_string())],
+                    1,
+                );
+            }
+
+            Ok((flags, false, had_deserialization_errors))
+        }
+        Err(e) => {
+            // Redis timeout, unavailable, or other errors - skip cache write
+            tracing::warn!(
+                "Redis error reading flags: {}, skipping cache write on fallback",
+                e
+            );
+            let (flags, had_deserialization_errors) =
+                FeatureFlagList::from_pg(pg_client, project_id).await?;
+            inc(DB_FLAG_READS_COUNTER, &[], 1);
+            // Skip cache write to avoid overloading Redis
+            Ok((flags, false, had_deserialization_errors))
+        }
+    }
+}
+
+/// Token verification cache-or-fallback helper
+async fn token_verification_cache_or_fallback(
+    redis_reader: Arc<dyn RedisClient + Send + Sync>,
+    redis_writer: Arc<dyn RedisClient + Send + Sync>,
+    pg_client: PostgresReader,
+    token: &str,
+) -> Result<(String, bool), FlagError> {
+    match Team::from_redis(redis_reader, token).await {
+        Ok(_) => Ok((token.to_string(), true)),
+        Err(FlagError::TokenValidationError) => {
+            // True cache miss - key doesn't exist
+            match Team::from_pg(pg_client, token).await {
+                Ok(team) => {
+                    inc(DB_TEAM_READS_COUNTER, &[], 1);
+                    // Token found in PostgreSQL, update Redis cache so that we can verify it from Redis next time
+                    if let Err(e) = Team::update_redis_cache(redis_writer, &team).await {
+                        tracing::warn!("Failed to update Redis cache: {}", e);
+                        inc(
+                            TEAM_CACHE_ERRORS_COUNTER,
+                            &[("reason".to_string(), "redis_update_failed".to_string())],
+                            1,
+                        );
+                    }
+                    Ok((token.to_string(), false))
+                }
+                Err(e) => {
+                    tracing::warn!("Token validation failed for token '{}': {:?}", token, e);
+                    inc(
+                        TOKEN_VALIDATION_ERRORS_COUNTER,
+                        &[("reason".to_string(), "token_not_found".to_string())],
+                        1,
+                    );
+                    Err(FlagError::TokenValidationError)
+                }
+            }
+        }
+        Err(e) => {
+            // Redis timeout, unavailable, or other errors - skip cache write
+            tracing::warn!(
+                "Redis error reading team: {}, skipping cache write on fallback",
+                e
+            );
+            match Team::from_pg(pg_client, token).await {
+                Ok(_team) => {
+                    inc(DB_TEAM_READS_COUNTER, &[], 1);
+                    // Skip cache write to avoid overloading Redis
+                    Ok((token.to_string(), false))
+                }
+                Err(e) => {
+                    tracing::warn!("Token validation failed for token '{}': {:?}", token, e);
+                    inc(
+                        TOKEN_VALIDATION_ERRORS_COUNTER,
+                        &[("reason".to_string(), "token_not_found".to_string())],
+                        1,
+                    );
+                    Err(FlagError::TokenValidationError)
+                }
+            }
+        }
+    }
+}
+
 /// Result of fetching feature flags, including cache hit status and deserialization errors status
 #[derive(Debug, Clone)]
 pub struct FlagResult {
@@ -43,39 +188,19 @@ impl FlagService {
 
     /// Verifies the Project API token against the cache or the database.
     /// If the token is not found in the cache, it will be verified against the database,
-    /// and the result will be cached in redis.
+    /// and the result will be cached in redis (only on true cache misses).
+    ///
+    /// # Cache Write Behavior
+    /// Only writes to cache when the Redis error is TokenValidationError (NotFound).
+    /// Skips cache writes for Redis timeouts or unavailability to avoid overloading Redis.
     pub async fn verify_token(&self, token: &str) -> Result<String, FlagError> {
-        let (result, cache_hit) = match Team::from_redis(self.redis_reader.clone(), token).await {
-            Ok(_) => (Ok(token), true),
-            Err(_) => {
-                match Team::from_pg(self.pg_client.clone(), token).await {
-                    Ok(team) => {
-                        inc(DB_TEAM_READS_COUNTER, &[], 1);
-                        // Token found in PostgreSQL, update Redis cache so that we can verify it from Redis next time
-                        if let Err(e) =
-                            Team::update_redis_cache(self.redis_writer.clone(), &team).await
-                        {
-                            tracing::warn!("Failed to update Redis cache: {}", e);
-                            inc(
-                                TEAM_CACHE_ERRORS_COUNTER,
-                                &[("reason".to_string(), "redis_update_failed".to_string())],
-                                1,
-                            );
-                        }
-                        (Ok(token), false)
-                    }
-                    Err(e) => {
-                        tracing::warn!("Token validation failed for token '{}': {:?}", token, e);
-                        inc(
-                            TOKEN_VALIDATION_ERRORS_COUNTER,
-                            &[("reason".to_string(), "token_not_found".to_string())],
-                            1,
-                        );
-                        (Err(FlagError::TokenValidationError), false)
-                    }
-                }
-            }
-        };
+        let (result, cache_hit) = token_verification_cache_or_fallback(
+            self.redis_reader.clone(),
+            self.redis_writer.clone(),
+            self.pg_client.clone(),
+            token,
+        )
+        .await?;
 
         inc(
             TEAM_CACHE_HIT_COUNTER,
@@ -83,36 +208,24 @@ impl FlagService {
             1,
         );
 
-        result.map(|token| token.to_string())
+        Ok(result)
     }
 
     /// Fetches the team from the cache or the database.
-    /// If the team is not found in the cache, it will be fetched from the database and stored in the cache.
+    /// If the team is not found in the cache, it will be fetched from the database and stored in the cache (only on true cache misses).
     /// Returns the team if found, otherwise an error.
+    ///
+    /// # Cache Write Behavior
+    /// Only writes to cache when the Redis error is TokenValidationError (NotFound).
+    /// Skips cache writes for Redis timeouts or unavailability to avoid overloading Redis.
     pub async fn get_team_from_cache_or_pg(&self, token: &str) -> Result<Team, FlagError> {
-        let (team_result, cache_hit) =
-            match Team::from_redis(self.redis_reader.clone(), token).await {
-                Ok(team) => (Ok(team), true),
-                Err(_) => match Team::from_pg(self.pg_client.clone(), token).await {
-                    Ok(team) => {
-                        inc(DB_TEAM_READS_COUNTER, &[], 1);
-                        // If we have the team in postgres, but not redis, update redis so we're faster next time
-                        if Team::update_redis_cache(self.redis_writer.clone(), &team)
-                            .await
-                            .is_err()
-                        {
-                            inc(
-                                TEAM_CACHE_ERRORS_COUNTER,
-                                &[("reason".to_string(), "redis_update_failed".to_string())],
-                                1,
-                            );
-                        }
-                        (Ok(team), false)
-                    }
-                    // TODO what kind of error should we return here?
-                    Err(e) => (Err(e), false),
-                },
-            };
+        let (team, cache_hit) = team_cache_or_fallback(
+            self.redis_reader.clone(),
+            self.redis_writer.clone(),
+            self.pg_client.clone(),
+            token,
+        )
+        .await?;
 
         inc(
             TEAM_CACHE_HIT_COUNTER,
@@ -120,7 +233,7 @@ impl FlagService {
             1,
         );
 
-        team_result
+        Ok(team)
     }
 
     /// Fetches the flags from the cache or the database. Returns a tuple containing
@@ -130,51 +243,28 @@ impl FlagService {
         &self,
         project_id: i64,
     ) -> Result<FlagResult, FlagError> {
-        let flag_result = match FeatureFlagList::from_redis(self.redis_reader.clone(), project_id)
-            .await
-        {
-            Ok(flags_from_redis) => Ok(FlagResult {
-                flag_list: flags_from_redis,
-                was_cache_hit: true,
-                had_deserialization_errors: false,
-            }),
-            Err(_) => match FeatureFlagList::from_pg(self.pg_client.clone(), project_id).await {
-                Ok((flags_from_pg, had_deserialization_errors)) => {
-                    inc(DB_FLAG_READS_COUNTER, &[], 1);
-                    if (FeatureFlagList::update_flags_in_redis(
-                        self.redis_writer.clone(),
-                        project_id,
-                        &flags_from_pg,
-                    )
-                    .await)
-                        .is_err()
-                    {
-                        inc(
-                            FLAG_CACHE_ERRORS_COUNTER,
-                            &[("reason".to_string(), "redis_update_failed".to_string())],
-                            1,
-                        );
-                    }
-                    Ok(FlagResult {
-                        flag_list: flags_from_pg,
-                        was_cache_hit: false,
-                        had_deserialization_errors,
-                    })
-                }
-                Err(database_error) => Err(database_error),
-            },
+        let (flag_list, was_cache_hit, had_deserialization_errors) = flags_cache_or_fallback(
+            self.redis_reader.clone(),
+            self.redis_writer.clone(),
+            self.pg_client.clone(),
+            project_id,
+        )
+        .await?;
+
+        let flag_result = FlagResult {
+            flag_list,
+            was_cache_hit,
+            had_deserialization_errors,
         };
 
         // Track cache hits and misses
-        if let Ok(ref result) = flag_result {
-            inc(
-                FLAG_CACHE_HIT_COUNTER,
-                &[("cache_hit".to_string(), result.was_cache_hit.to_string())],
-                1,
-            );
-        }
+        inc(
+            FLAG_CACHE_HIT_COUNTER,
+            &[("cache_hit".to_string(), was_cache_hit.to_string())],
+            1,
+        );
 
-        flag_result
+        Ok(flag_result)
     }
 }
 
@@ -187,7 +277,9 @@ mod tests {
             FeatureFlag, FlagFilters, FlagPropertyGroup, TEAM_FLAGS_CACHE_PREFIX,
         },
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
-        utils::test_utils::{insert_new_team_in_redis, setup_pg_reader_client, setup_redis_client},
+        utils::test_utils::{
+            insert_new_team_in_redis, setup_pg_reader_client, setup_redis_client, TestContext,
+        },
     };
 
     use super::*;
@@ -451,5 +543,89 @@ mod tests {
         let redis_flags = FeatureFlagList::from_redis(redis_client.clone(), team.project_id).await;
         assert!(redis_flags.is_ok());
         assert_eq!(redis_flags.unwrap().flags.len(), mock_flags.flags.len());
+    }
+
+    #[tokio::test]
+    async fn test_get_flags_from_cache_or_pg_skips_cache_write_on_redis_timeout() {
+        use common_redis::{CustomRedisError, MockRedisClient};
+
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team");
+
+        // Set up mock redis_reader to return Timeout
+        let mut mock_reader = MockRedisClient::new();
+        mock_reader.get_ret(
+            &format!("{TEAM_FLAGS_CACHE_PREFIX}{}", team.project_id),
+            Err(CustomRedisError::Timeout),
+        );
+
+        // Set up mock redis_writer to track SET calls
+        let mock_writer = MockRedisClient::new();
+
+        let reader: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_reader.clone());
+        let writer: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_writer.clone());
+
+        let flag_service = FlagService::new(reader, writer, context.non_persons_reader.clone());
+
+        let result = flag_service
+            .get_flags_from_cache_or_pg(team.project_id)
+            .await;
+
+        // Should succeed despite Redis timeout
+        assert!(result.is_ok());
+        let flag_result = result.unwrap();
+        assert!(!flag_result.was_cache_hit);
+
+        // Verify SET was NOT called (cache write was skipped)
+        let writer_calls = mock_writer.get_calls();
+        assert!(
+            !writer_calls.iter().any(|call| call.op == "set"),
+            "Expected SET to NOT be called for Timeout error, but it was"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_flags_from_cache_or_pg_skips_cache_write_on_redis_unavailable() {
+        use common_redis::{CustomRedisError, MockRedisClient};
+
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team");
+
+        // Set up mock redis_reader to return Other error (maps to RedisUnavailable)
+        let mut mock_reader = MockRedisClient::new();
+        mock_reader.get_ret(
+            &format!("{TEAM_FLAGS_CACHE_PREFIX}{}", team.project_id),
+            Err(CustomRedisError::Other("Connection refused".to_string())),
+        );
+
+        // Set up mock redis_writer to track SET calls
+        let mock_writer = MockRedisClient::new();
+
+        let reader: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_reader.clone());
+        let writer: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_writer.clone());
+
+        let flag_service = FlagService::new(reader, writer, context.non_persons_reader.clone());
+
+        let result = flag_service
+            .get_flags_from_cache_or_pg(team.project_id)
+            .await;
+
+        // Should succeed despite Redis being unavailable
+        assert!(result.is_ok());
+        let flag_result = result.unwrap();
+        assert!(!flag_result.was_cache_hit);
+
+        // Verify SET was NOT called (cache write was skipped)
+        let writer_calls = mock_writer.get_calls();
+        assert!(
+            !writer_calls.iter().any(|call| call.op == "set"),
+            "Expected SET to NOT be called for RedisUnavailable error, but it was"
+        );
     }
 }
