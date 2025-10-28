@@ -85,6 +85,16 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
             },
         )
 
+    def get_checksum(self, client: Client):
+        results = client.execute(
+            f"""
+             SELECT groupBitXor(row_checksum) AS table_checksum
+             FROM (SELECT cityHash64(*) AS row_checksum FROM {self.qualified_name} ORDER BY team_id, distinct_id)
+             """
+        )
+        [[checksum]] = results
+        return checksum
+
     @property
     def update_table(self):
         return EVENTS_DATA_TABLE()

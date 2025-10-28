@@ -106,6 +106,9 @@ class OverridesSnapshotDictionary(ABC, Generic[TOverridesSnapshotTable]):
             else:
                 raise Exception(f"unexpected status: {status}")
 
+    def get_checksum(self, client: Client):
+        raise NotImplementedError()
+
     def load(self, client: Client):
         # TODO: this should probably not reload if the dictionary is already loaded
         client.execute(f"SYSTEM RELOAD DICTIONARY {self.qualified_name}")
@@ -115,14 +118,7 @@ class OverridesSnapshotDictionary(ABC, Generic[TOverridesSnapshotTable]):
         while not self.__is_loaded(client):
             time.sleep(5.0)
 
-        results = client.execute(
-            f"""
-            SELECT groupBitXor(row_checksum) AS table_checksum
-            FROM (SELECT cityHash64(*) AS row_checksum FROM {self.qualified_name} ORDER BY team_id, distinct_id)
-            """
-        )
-        [[checksum]] = results
-        return checksum
+        return self.get_checksum()
 
     @property
     def update_table(self):
