@@ -1,18 +1,18 @@
 product: data_warehouse
-status: failed
-current_phase: 7
+status: completed
 phases:
 - id: 1
   name: prepare_structure
   status: completed
-  timestamp: '2025-10-28T12:11:48.609746'
+  timestamp: '2025-10-28T13:26:59.466253'
   operations:
   - touch products/data_warehouse/backend/models/__init__.py
   - touch products/data_warehouse/backend/migrations/__init__.py
+  - Added products.data_warehouse.backend.apps.DataWarehouseConfig to PRODUCTS_APPS
 - id: 2
   name: move_files
   status: completed
-  timestamp: '2025-10-28T12:11:49.587550'
+  timestamp: '2025-10-28T13:27:00.341628'
   files_modified:
   - products/data_warehouse/backend/__init__.py
   - products/data_warehouse/backend/api/__init__.py
@@ -147,60 +147,39 @@ phases:
 - id: 3
   name: update_imports
   status: completed
-  timestamp: '2025-10-28T12:13:06.683901'
+  timestamp: '2025-10-28T13:28:15.221440'
   files_modified:
-  - 463 files updated
+  - 201 files updated
   operations:
   - import_rewriter.py --write
 - id: 4
   name: prepare_models
   status: completed
-  timestamp: '2025-10-28T12:13:06.739535'
+  timestamp: '2025-10-28T13:28:15.278999'
   operations:
   - Discovered 14 models
   - Fixed ForeignKeys in 13 files
   - Added db_table to 13 files
 - id: 5
   name: validate_django
-  status: failed
-  timestamp: '2025-10-28T12:13:13.625193'
-  error: "Django validation failed with exit code 1\n2025-10-28T11:13:08.644560Z [warning\
-    \  ] initialized clickhouse users: DEFAULT [root] pid=91500 tid=8714215744\nTraceback\
-    \ (most recent call last):\n  File \"/Users/julian/workspace/model-migrations/manage.py\"\
-    , line 22, in <module>\n    main()\n  File \"/Users/julian/workspace/model-migrations/manage.py\"\
-    , line 18, in main\n    execute_from_command_line(sys.argv)\n  File \"/Users/julian/workspace/model-migrations/.flox/cache/venv/lib/python3.12/site-packages/django/core/management/__init__.py\"\
-    , line 442, in execute_from_command_line\n    utility.execute()\n  File \"/Users/julian/workspace/model-migrations/.flox/cache/venv/lib/python3.12/site-packages/django/core/management/__init__.py\"\
-    , line 416, in execute\n    django.setup()\n  File \"/Users/julian/workspace/model-migrations/.flox/cache/venv/lib/python3.12/site-packages/django/__init__.py\"\
-    , line 24, in setup\n    apps.populate(settings.INSTALLED_APPS)\n  File \"/Users/julian/workspace/model-migrations/.flox/cache/venv/lib/python3.12/site-packages/django/apps/registry.py\"\
-    , line 116, in populate\n    app_config.import_models()\n  File \"/Users/julian/workspace/model-migrations/.flox/cache/venv/lib/python3.12/site-packages/django/apps/config.py\"\
-    , line 269, in import_models\n    self.models_module = import_module(models_module_name)\n\
-    \                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/julian/.local/share/uv/python/cpython-3.12.11-macos-aarch64-none/lib/python3.12/importlib/__init__.py\"\
-    , line 90, in import_module\n    return _bootstrap._gcd_import(name[level:], package,\
-    \ level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File\
-    \ \"<frozen importlib._bootstrap>\", line 1387, in _gcd_import\n  File \"<frozen\
-    \ importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\"\
-    , line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\"\
-    , line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\"\
-    , line 999, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488,\
-    \ in _call_with_frames_removed\n  File \"/Users/julian/workspace/model-migrations/posthog/models/__init__.py\"\
-    , line 10, in <module>\n    from products.data_warehouse.backend.models import\
-    \ DataWarehouseTable\n  File \"/Users/julian/workspace/model-migrations/products/data_warehouse/backend/models/__init__.py\"\
-    , line 1, in <module>\n    from products.data_warehouse.backend.models.credential\
-    \ import *\n  File \"/Users/julian/workspace/model-migrations/products/data_warehouse/backend/models/credential.py\"\
-    , line 9, in <module>\n    class DataWarehouseCredential(CreatedMetaFields, UUIDTModel):\n\
-    \  File \"/Users/julian/workspace/model-migrations/.flox/cache/venv/lib/python3.12/site-packages/django/db/models/base.py\"\
-    , line 134, in __new__\n    raise RuntimeError(\nRuntimeError: Model class products.data_warehouse.backend.models.credential.DataWarehouseCredential\
-    \ doesn't declare an explicit app_label and isn't in an application in INSTALLED_APPS.\n"
+  status: completed
+  timestamp: '2025-10-28T13:28:33.399985'
+  operations:
+  - python manage.py migrate --plan
 - id: 6
   name: generate_migrations
   status: completed
-  timestamp: '2025-10-28T12:51:44.576203'
+  timestamp: '2025-10-28T13:31:42.244366'
   operations:
   - Generated data_warehouse migration
   - Generated posthog removal migration
   - Successfully edited both migrations with Claude
 - id: 7
   name: reorganize_files
-  status: failed
-  timestamp: '2025-10-28T12:13:24.071442'
-  error: Django validation failed after reorganization
+  status: completed
+  timestamp: '2025-10-28T13:50:42.436489'
+  operations:
+  - Created model_migration/reorganization.yml
+  - No reorganization moves needed
+  - No import updates needed
+  - Django validation passed

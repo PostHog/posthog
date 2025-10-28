@@ -73,6 +73,201 @@ def update_module_path(path: str, module_moves: dict[str, str]) -> str:
 
 
 # --------------------------
+# Export Index Builder
+# --------------------------
+
+
+class ExportCollector(cst.CSTVisitor):
+    """
+    Collect public exports from a Python module.
+
+    Extracts:
+    - __all__ if present (most authoritative)
+    - Public classes, functions (not starting with _)
+    - Re-exports like: from .other import Foo
+    """
+
+    def __init__(self):
+        self.public_names = set()
+        self.all_literal = None  # set or None
+        self.re_exports = {}  # {name: source_module}
+
+    def visit_Assign(self, node: cst.Assign) -> None:
+        """Look for __all__ = ["A", "B"] assignments."""
+        for target in node.targets:
+            if isinstance(target.target, cst.Name) and target.target.value == "__all__":
+                # Try to parse __all__ list
+                if isinstance(node.value, cst.List):
+                    all_names = []
+                    for elem in node.value.elements:
+                        if isinstance(elem.value, cst.SimpleString):
+                            # Remove quotes
+                            name = elem.value.value.strip("\"'")
+                            all_names.append(name)
+                    self.all_literal = set(all_names)
+
+    def visit_ClassDef(self, node: cst.ClassDef) -> None:
+        """Collect public class names."""
+        name = node.name.value
+        if not name.startswith("_"):
+            self.public_names.add(name)
+
+    def visit_FunctionDef(self, node: cst.FunctionDef) -> None:
+        """Collect public function names."""
+        name = node.name.value
+        if not name.startswith("_"):
+            self.public_names.add(name)
+
+    def visit_ImportFrom(self, node: cst.ImportFrom) -> None:
+        """
+        Collect re-exports like: from .other import Foo
+
+        Note: We track these but they're less authoritative than
+        direct definitions or __all__.
+        """
+        # Only handle relative imports from sibling modules
+        if node.relative and isinstance(node.names, Sequence):
+            level = len(node.relative)
+            module_str = dotted_name(node.module) if node.module else None
+
+            # Only track direct re-exports (from .foo import Bar)
+            if level == 1:  # same package
+                for alias in node.names:
+                    if isinstance(alias, cst.ImportAlias) and isinstance(alias.name, cst.Name):
+                        imported_name = alias.asname.name.value if alias.asname else alias.name.value
+                        source_mod = module_str if module_str else ""
+                        self.re_exports[imported_name] = source_mod
+
+
+def eliminate_star_imports(package_path: Path) -> bool:
+    """
+    Remove star imports from package __init__.py after Pass A completes.
+
+    This is safe to run after --bypass-init-aggregation has redirected all
+    imports to their source modules, making the star imports unused.
+
+    Args:
+        package_path: Path to package directory
+
+    Returns:
+        True if modifications were made
+    """
+    init_file = package_path / "__init__.py"
+    if not init_file.exists():
+        return False
+
+    code = init_file.read_text()
+    tree = cst.parse_module(code)
+
+    # Remove star import statements
+    class StarImportRemover(cst.CSTTransformer):
+        def __init__(self):
+            self.removed_count = 0
+
+        def leave_SimpleStatementLine(
+            self, original_node: cst.SimpleStatementLine, updated_node: cst.SimpleStatementLine
+        ) -> cst.SimpleStatementLine | cst.RemovalSentinel:
+            """Remove lines containing star imports."""
+            if len(updated_node.body) == 1 and isinstance(updated_node.body[0], cst.ImportFrom):
+                imp = updated_node.body[0]
+                if isinstance(imp.names, cst.ImportStar):
+                    self.removed_count += 1
+                    return cst.RemovalSentinel.REMOVE
+            return updated_node
+
+    remover = StarImportRemover()
+    new_tree = tree.visit(remover)
+
+    if remover.removed_count > 0:
+        init_file.write_text(new_tree.code)
+        print(f"  ✓ Removed {remover.removed_count} star imports from {init_file}")
+        return True
+
+    return False
+
+
+def build_export_index_for_package(package_path: Path, package_module: str) -> dict[str, str]:
+    """
+    Build symbol → source_module mapping for a package with star imports.
+
+    Args:
+        package_path: Path to package directory (e.g. products/data_warehouse/backend/models)
+        package_module: Full module name (e.g. products.data_warehouse.backend.models)
+
+    Returns:
+        {symbol_name: full.module.path}
+
+    Example:
+        {
+            "DataWarehouseTable": "products.data_warehouse.backend.models.table",
+            "DataWarehouseCredential": "products.data_warehouse.backend.models.credential",
+        }
+    """
+    init_file = package_path / "__init__.py"
+    if not init_file.exists():
+        return {}
+
+    # Parse __init__.py to find star imports
+    init_code = init_file.read_text()
+    init_tree = cst.parse_module(init_code)
+
+    # Find all star imports: from .foo import *
+    star_imports = []
+    for stmt in init_tree.body:
+        if isinstance(stmt, cst.SimpleStatementLine) and len(stmt.body) == 1:
+            if isinstance(stmt.body[0], cst.ImportFrom):
+                imp = stmt.body[0]
+                if isinstance(imp.names, cst.ImportStar):
+                    # Get module name from relative import
+                    if imp.relative:
+                        level = len(imp.relative)
+                        module_str = dotted_name(imp.module) if imp.module else None
+                        if level == 1 and module_str:  # from .foo import *
+                            star_imports.append(module_str)
+
+    # Build export index
+    export_index = {}
+    conflicts = []
+
+    for submodule_name in star_imports:
+        submodule_file = package_path / f"{submodule_name}.py"
+        if not submodule_file.exists():
+            print(f"⚠️  Submodule not found: {submodule_file}")
+            continue
+
+        # Parse submodule and collect exports
+        code = submodule_file.read_text()
+        tree = cst.parse_module(code)
+        collector = ExportCollector()
+        # LibCST uses wrapper.visit() not tree.walk()
+        wrapper = cst.metadata.MetadataWrapper(tree)
+        tree.visit(collector)
+
+        # Use __all__ if present, otherwise all public names
+        if collector.all_literal:
+            exports = collector.all_literal
+        else:
+            exports = collector.public_names
+
+        # Map each export to its source module
+        full_module_path = f"{package_module}.{submodule_name}"
+        for name in exports:
+            if name in export_index:
+                # Conflict - same symbol exported from multiple modules
+                conflicts.append((name, export_index[name], full_module_path))
+            export_index[name] = full_module_path
+
+    # Report conflicts
+    if conflicts:
+        print(f"\n⚠️  Symbol conflicts detected in {package_module}:")
+        for name, mod1, mod2 in conflicts:
+            print(f"   - {name}: {mod1} vs {mod2}")
+        print("   Using last occurrence. Review manually if needed.\n")
+
+    return export_index
+
+
+# --------------------------
 # Transformer
 # --------------------------
 
@@ -359,6 +554,22 @@ def main():
         "--file",
         help="Rewrite imports in a single file only",
     )
+    parser.add_argument(
+        "--bypass-init-aggregation",
+        nargs="+",
+        metavar="PACKAGE",
+        help="Bypass __init__.py aggregation for specified packages (e.g. products.data_warehouse.backend.models)",
+    )
+    parser.add_argument(
+        "--eliminate-stars",
+        action="store_true",
+        help="Remove star imports from __init__.py after redirecting imports (requires --bypass-init-aggregation)",
+    )
+    parser.add_argument(
+        "--write",
+        action="store_true",
+        help="Write changes to files (opposite of --dry-run)",
+    )
 
     args = parser.parse_args()
 
@@ -372,16 +583,39 @@ def main():
     # Load configuration
     module_moves, symbol_exports = load_moves_config(config_path)
 
+    # Build export indexes for --bypass-init-aggregation packages
+    if args.bypass_init_aggregation:
+        print("Building export indexes for init aggregation bypass...")
+        for package_module in args.bypass_init_aggregation:
+            # Convert module path to file path
+            package_path = root / Path(package_module.replace(".", "/"))
+            if not package_path.exists():
+                print(f"⚠️  Package not found: {package_path}")
+                continue
+
+            print(f"  Scanning {package_module}...")
+            export_index = build_export_index_for_package(package_path, package_module)
+            if export_index:
+                symbol_exports[package_module] = export_index
+                print(f"  ✓ Added {len(export_index)} exports from {package_module}")
+        print()
+
     print(f"Loaded configuration from {config_path}")
     print(f"  - {len(module_moves)} module mappings")
     print(f"  - {len(symbol_exports)} packages with re-exports")
     print()
 
+    # Determine if we're in write mode
+    write_mode = args.write or not args.dry_run
     if args.dry_run:
         print("DRY RUN MODE - No files will be modified")
-        print()
+        write_mode = False
+    if args.write:
+        write_mode = True
+    print()
 
     # Rewrite imports
+    dry_run = not write_mode
     if args.file:
         # Single file mode
         file_path = Path(args.file).resolve()
@@ -389,14 +623,27 @@ def main():
             print(f"Error: File {file_path} not found", file=sys.stderr)
             return 1
 
-        modified = rewrite_imports_in_file(file_path, module_moves, symbol_exports, root, args.dry_run)
+        modified = rewrite_imports_in_file(file_path, module_moves, symbol_exports, root, dry_run)
         print()
         print(f"Modified: {1 if modified else 0} file")
     else:
         # Directory tree mode
-        modified_count = rewrite_imports_in_tree(root, module_moves, symbol_exports, args.dry_run)
+        modified_count = rewrite_imports_in_tree(root, module_moves, symbol_exports, dry_run)
         print()
         print(f"Modified: {modified_count} files")
+
+    # Pass B: Eliminate star imports if requested
+    if args.eliminate_stars and args.bypass_init_aggregation and write_mode:
+        print("\nPass B: Eliminating star imports from __init__.py files...")
+        for package_module in args.bypass_init_aggregation:
+            package_path = root / Path(package_module.replace(".", "/"))
+            if package_path.exists():
+                print(f"  Processing {package_module}...")
+                if eliminate_star_imports(package_path):
+                    print(f"    Star imports removed")
+                else:
+                    print(f"    No star imports found")
+        print()
 
     return 0
 

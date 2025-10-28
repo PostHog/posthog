@@ -22,9 +22,9 @@ To skip Phase 7 reorganization, add to moves.yml:
     skip_reorganization: true
 """
 
+import re
 import sys
 import argparse
-import re
 import subprocess
 from pathlib import Path
 
