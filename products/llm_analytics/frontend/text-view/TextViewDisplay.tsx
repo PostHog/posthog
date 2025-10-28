@@ -2,9 +2,9 @@
  * Text view display component for generation events
  * Shows a formatted text representation with copy functionality and expandable truncated sections
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
-import { IconCopy } from '@posthog/icons'
+import { IconCopy, IconExternal } from '@posthog/icons'
 import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -153,8 +153,7 @@ export function TextViewDisplay({ event }: { event: LLMTraceEvent }): JSX.Elemen
     const textRepr = formatGenerationTextRepr(event)
     const segments = parseTextSegments(textRepr)
     const [expandedSegments, setExpandedSegments] = useState<Set<number>>(new Set())
-    const [hoverSegment, setHoverSegment] = useState<number | null>(null)
-    const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+    const [popoutSegment, setPopoutSegment] = useState<number | null>(null)
 
     // Get indices of all truncated segments
     const truncatedIndices = segments
@@ -163,14 +162,26 @@ export function TextViewDisplay({ event }: { event: LLMTraceEvent }): JSX.Elemen
 
     const allExpanded = truncatedIndices.length > 0 && truncatedIndices.every((idx) => expandedSegments.has(idx))
 
-    // Cleanup timeout on unmount
+    // Close popout when clicking outside
     useEffect(() => {
-        return () => {
-            if (hoverTimeoutRef.current) {
-                clearTimeout(hoverTimeoutRef.current)
+        const handleClickOutside = (event: MouseEvent): void => {
+            // Close if clicking outside and popout is open
+            if (popoutSegment !== null) {
+                const target = event.target as HTMLElement
+                // Don't close if clicking on the tooltip or the button
+                if (!target.closest('[data-popout-content]') && !target.closest('[data-popout-button]')) {
+                    setPopoutSegment(null)
+                }
             }
         }
-    }, [])
+
+        if (popoutSegment !== null) {
+            document.addEventListener('mousedown', handleClickOutside)
+            return () => {
+                document.removeEventListener('mousedown', handleClickOutside)
+            }
+        }
+    }, [popoutSegment])
 
     const handleCopy = (): void => {
         const plainText = getPlainText(segments)
@@ -201,38 +212,8 @@ export function TextViewDisplay({ event }: { event: LLMTraceEvent }): JSX.Elemen
         }
     }
 
-    const handleMouseEnter = (index: number): void => {
-        // Clear any existing timeout
-        if (hoverTimeoutRef.current) {
-            clearTimeout(hoverTimeoutRef.current)
-        }
-        // Set a 2-second delay before showing the tooltip
-        hoverTimeoutRef.current = setTimeout(() => {
-            setHoverSegment(index)
-        }, 2000)
-    }
-
-    const handleMouseLeave = (index: number): void => {
-        // Clear the timeout if user leaves before 2 seconds
-        if (hoverTimeoutRef.current) {
-            clearTimeout(hoverTimeoutRef.current)
-        }
-        // Only hide if not already showing (so it stays when hovering on tooltip)
-        if (hoverSegment !== index) {
-            setHoverSegment(null)
-        }
-    }
-
-    const handleTooltipMouseEnter = (): void => {
-        // Keep tooltip open when hovering over it
-        if (hoverTimeoutRef.current) {
-            clearTimeout(hoverTimeoutRef.current)
-        }
-    }
-
-    const handleTooltipMouseLeave = (): void => {
-        // Close tooltip when leaving the tooltip area
-        setHoverSegment(null)
+    const togglePopout = (index: number): void => {
+        setPopoutSegment((prev) => (prev === index ? null : index))
     }
 
     return (
@@ -264,6 +245,7 @@ export function TextViewDisplay({ event }: { event: LLMTraceEvent }): JSX.Elemen
                         return <span key={index}>{renderTextWithLinks(segment.content)}</span>
                     }
                     const isExpanded = expandedSegments.has(index)
+                    const isPopoutOpen = popoutSegment === index
                     return (
                         <span key={index}>
                             {isExpanded ? (
@@ -277,30 +259,40 @@ export function TextViewDisplay({ event }: { event: LLMTraceEvent }): JSX.Elemen
                                     </button>
                                 </>
                             ) : (
-                                <Tooltip
-                                    title={
-                                        hoverSegment === index ? (
-                                            <div
-                                                className="max-w-2xl max-h-96 overflow-auto whitespace-pre-wrap font-mono text-xs"
-                                                onMouseEnter={handleTooltipMouseEnter}
-                                                onMouseLeave={handleTooltipMouseLeave}
-                                            >
-                                                {segment.fullContent}
-                                            </div>
-                                        ) : null
-                                    }
-                                    placement="top"
-                                    delayMs={0}
-                                >
+                                <>
                                     <button
                                         onClick={() => toggleSegment(index)}
-                                        onMouseEnter={() => handleMouseEnter(index)}
-                                        onMouseLeave={() => handleMouseLeave(index)}
                                         className="text-link hover:underline cursor-pointer"
                                     >
                                         {segment.content}
                                     </button>
-                                </Tooltip>
+                                    <Tooltip
+                                        title={
+                                            isPopoutOpen ? (
+                                                <div
+                                                    data-popout-content
+                                                    className="max-w-2xl max-h-96 overflow-auto whitespace-pre-wrap font-mono text-xs p-2"
+                                                >
+                                                    {segment.fullContent}
+                                                </div>
+                                            ) : null
+                                        }
+                                        placement="top"
+                                        visible={isPopoutOpen}
+                                    >
+                                        <button
+                                            data-popout-button
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                togglePopout(index)
+                                            }}
+                                            className="inline-flex items-center justify-center w-4 h-4 ml-1 text-muted hover:text-default transition-colors"
+                                            title="Preview truncated content"
+                                        >
+                                            <IconExternal className="w-3 h-3" />
+                                        </button>
+                                    </Tooltip>
+                                </>
                             )}
                         </span>
                     )
