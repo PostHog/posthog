@@ -28,7 +28,7 @@ from rest_framework import status
 from posthog.api.survey import nh3_clean_with_allow_list
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.constants import AvailableFeature
-from posthog.models import Action, FeatureFlag, Person, Team
+from posthog.models import Action, FeatureFlag, Person, RemoteConfig, Team
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.organization import Organization
 from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey
@@ -3079,6 +3079,24 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                 assert "description" not in survey, f"Description field should not be present in survey: {survey}"
 
             assert len(surveys) == 2
+
+    def test_list_surveys_uses_remote_config(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey 1",
+            type="popover",
+            questions=[{"type": "open", "question": "Why's a hedgehog?"}],
+        )
+        survey.save()
+        self.client.logout()
+
+        with self.assertNumQueries(0):
+            with self.settings(SURVEYS_API_USE_REMOTE_CONFIG_TOKENS=[self.team.api_token]):
+                response = self._get_surveys(token=self.team.api_token)
+                assert response.status_code == status.HTTP_200_OK
+                surveys = response.json()["surveys"]
+                assert len(surveys) == 0
 
 
 class TestSurveyAPITokens(PersonalAPIKeysBaseTest, APIBaseTest):

@@ -16,6 +16,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 import nh3
 import orjson
+from prometheus_client import Counter
 import structlog
 import posthoganalytics
 from axes.decorators import axes_dispatch
@@ -44,6 +45,7 @@ from posthog.models import Action
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag import FeatureFlag
+from posthog.models.remote_config import RemoteConfig
 from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey, ensure_question_ids
 from posthog.models.surveys.util import (
     SurveyEventName,
@@ -82,6 +84,13 @@ if "replica" in settings.DATABASES:
     READ_DB_FOR_SURVEYS = "replica"
 else:
     READ_DB_FOR_SURVEYS = "default"
+
+
+COUNTER_SURVEYS_API_USE_REMOTE_CONFIG = Counter(
+    "posthog_surveys_api_use_remote_config",
+    "Number of times the surveys API has been used with remote config",
+    labelnames=["result"],
+)
 
 
 class EventStats(TypedDict):
@@ -1620,6 +1629,24 @@ def surveys(request: Request):
                 status_code=status.HTTP_401_UNAUTHORIZED,
             ),
         )
+
+    if settings.SURVEYS_API_USE_REMOTE_CONFIG_TOKENS and token in settings.SURVEYS_API_USE_REMOTE_CONFIG_TOKENS:
+        try:
+            config = RemoteConfig.get_config_via_token(token, request=request)
+            COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="found").inc()
+            surveys = config.get("surveys")
+            response = {
+                "surveys": surveys,
+            }
+
+            if config.get("survey_config", None):
+                response["survey_config"] = config["survey_config"]
+
+            return cors_response(request, JsonResponse(response))
+
+        except RemoteConfig.DoesNotExist:
+            COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="not_found").inc()
+            pass  # For now fallback
 
     team = Team.objects.get_team_from_cache_or_token(token)
     if team is None:

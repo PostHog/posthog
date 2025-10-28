@@ -543,3 +543,5 @@ OAUTH2_PROVIDER_GRANT_MODEL = "posthog.OAuthGrant"
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes
+
+SURVEYS_API_USE_REMOTE_CONFIG_TOKENS = get_list(os.getenv("SURVEYS_API_USE_REMOTE_CONFIG_TOKENS", ""))
