@@ -44,7 +44,17 @@ export function cleanBehavioralTypeCriteria(criteria: AnyCohortCriteriaType): An
             BehavioralLifecycleType.StartPerformEventAgain,
         ].includes(criteria.value as BehavioralEventType | BehavioralLifecycleType)
     ) {
-        type = BehavioralFilterKey.Behavioral
+        // Use realtime for simple event matching (performed_event, performed_event_multiple)
+        // Use behavioral for complex temporal logic (sequences, lifecycle events)
+        if (
+            [BehavioralEventType.PerformEvent, BehavioralEventType.PerformMultipleEvents].includes(
+                criteria.value as BehavioralEventType
+            )
+        ) {
+            type = BehavioralFilterKey.Realtime
+        } else {
+            type = BehavioralFilterKey.Behavioral
+        }
     }
     if (
         [BehavioralCohortType.InCohort, BehavioralCohortType.NotInCohort].includes(
@@ -356,7 +366,7 @@ export function determineFilterType(
     }
     if (value === BehavioralEventType.NotPerformedEvent || (value === BehavioralEventType.PerformEvent && negation)) {
         return {
-            type: BehavioralFilterKey.Behavioral,
+            type: BehavioralFilterKey.Realtime,
             value: BehavioralEventType.PerformEvent,
             negation: true,
         }
@@ -373,6 +383,17 @@ export function determineFilterType(
             type: BehavioralFilterKey.Person,
             value: BehavioralEventType.HaveProperty,
             negation: true,
+        }
+    }
+
+    // Default to realtime for simple event types, behavioral for complex ones
+    if (type === BehavioralFilterKey.Behavioral) {
+        if (
+            [BehavioralEventType.PerformEvent, BehavioralEventType.PerformMultipleEvents].includes(
+                value as BehavioralEventType
+            )
+        ) {
+            type = BehavioralFilterKey.Realtime
         }
     }
 
