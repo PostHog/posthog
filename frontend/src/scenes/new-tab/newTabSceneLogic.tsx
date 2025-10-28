@@ -23,7 +23,7 @@ import {
 import { SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { TreeDataItem } from '~/lib/lemon-ui/LemonTree/LemonTree'
-import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { EventDefinition, PersonType, PropertyDefinition } from '~/types'
 
 import { SearchInputCommand } from './components/SearchInput'
@@ -92,6 +92,18 @@ function getIconForFileSystemItem(fs: FileSystemImport): JSX.Element {
 
     // Fall back to iconForType for iconType or type
     return iconForType('iconType' in fs ? fs.iconType : (fs.type as FileSystemIconType), fs.iconColor)
+}
+
+function matchesRecentsSearch(entry: FileSystemEntry, searchChunks: string[]): boolean {
+    if (searchChunks.length === 0) {
+        return true
+    }
+
+    const name = splitPath(entry.path).pop() || entry.path
+    const nameLower = name.toLowerCase()
+    const categoryLower = 'recents'
+
+    return searchChunks.every((chunk) => nameLower.includes(chunk) || categoryLower.includes(chunk))
 }
 
 export const newTabSceneLogic = kea<newTabSceneLogicType>([
@@ -168,6 +180,13 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         notType: 'folder',
                     })
                     breakpoint()
+                    const searchChunks = searchTerm
+                        .toLowerCase()
+                        .split(' ')
+                        .filter((s) => s)
+                    const filteredCount = searchTerm
+                        ? response.results.filter((item) => matchesRecentsSearch(item, searchChunks)).length
+                        : response.results.length
                     const recents = {
                         searchTerm,
                         results: response.results.slice(0, PAGINATION_LIMIT),
@@ -175,10 +194,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         lastCount: Math.min(response.results.length, PAGINATION_LIMIT),
                     }
                     if (searchTerm) {
-                        actions.setFirstNoResultsSearchPrefix(
-                            'recents',
-                            recents.results.length === 0 ? searchTerm : null
-                        )
+                        actions.setFirstNoResultsSearchPrefix('recents', filteredCount === 0 ? searchTerm : null)
                     } else {
                         actions.setFirstNoResultsSearchPrefix('recents', null)
                     }
