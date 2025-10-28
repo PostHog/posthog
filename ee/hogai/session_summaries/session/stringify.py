@@ -4,15 +4,6 @@ from typing import Any
 import structlog
 from jinja2 import Template
 
-# Base scheme
-# # Session 019951b9-9962-7958-b6a7-0b9262db3823
-# ## Segment #0
-# User focused on "Initial feature exploration and funnel insight", spent 12s, performing 38 events.
-# ### What user did:
-# - Selected Error Tracking section at 00:04:00, as "$autocapture (click)" event (event_id: 019951b9-9962-7958-b6a7-0b9262db3823).
-# - A non-blocking exception happened. Selected Error Tracking section at 00:04:00, as "$autocapture (click)" event (event_id: 019951b9-9962-7958-b6a7-0b9262db3823).
-# ...
-
 logger = structlog.get_logger(__name__)
 
 SESSION_STRING_FORMAT = """
@@ -114,8 +105,6 @@ class SingleSessionSummaryStringifier:
             "event_uuid": event["event_uuid"],
         }
         event_str = template.render(context)
-        # # TODO: Remove after testing
-        # logger.info(event_str)
         return event_str
 
     @staticmethod
@@ -127,6 +116,7 @@ class SingleSessionSummaryStringifier:
         return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
+# TODO: Remove after testing
 if __name__ == "__main__":
     # Read the example summary
     with open(
