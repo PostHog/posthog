@@ -66,9 +66,6 @@ async def abatch_summarize_entity(
         if hasattr(summarizer, "taxonomy_description"):
             taxonomy_prompt = await sync_to_async(lambda s=summarizer: s.taxonomy_description)()
 
-        logger.info(f"taxonomy_prompt: {taxonomy_prompt}")
-        logger.info(f"system_prompt: {system_prompt}")
-
         prompt_template = ChatPromptTemplate.from_messages(
             [
                 ("system", system_prompt),
@@ -78,8 +75,8 @@ async def abatch_summarize_entity(
 
         # Prepare parameters based on what the template needs
         format_params = {"entity_description": summary}
-        if "{taxonomy}" in system_prompt and taxonomy_prompt != "":
-            format_params["taxonomy"] = f"\n\n{taxonomy_prompt}"
+
+        format_params["taxonomy"] = f"\n\n{taxonomy_prompt}" if taxonomy_prompt else ""
 
         prompt = prompt_template.format_prompt(**format_params)
         logger.info(prompt.to_string())
