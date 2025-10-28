@@ -17,6 +17,7 @@ const persistConfig = { persist: true, prefix: `${teamId}__` }
 export enum DisplayOption {
     ExpandAll = 'expand_all',
     CollapseExceptOutputAndLastInput = 'collapse_except_output_and_last_input',
+    TextView = 'text_view',
 }
 
 export interface LLMAnalyticsTraceDataNodeLogicParams {

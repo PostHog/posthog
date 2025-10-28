@@ -49,6 +49,7 @@ import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
 import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
 import { DisplayOption, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
+import { TextViewDisplay } from './text-view/TextViewDisplay'
 import { exportTraceToClipboard } from './traceExportUtils'
 import {
     formatLLMCost,
@@ -585,6 +586,7 @@ const EventContent = React.memo(
     }): JSX.Element => {
         const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
         const { featureFlags } = useValues(featureFlagLogic)
+        const { displayOption } = useValues(llmAnalyticsTraceLogic)
 
         const [viewMode, setViewMode] = useState(TraceViewMode.Conversation)
 
@@ -733,46 +735,54 @@ const EventContent = React.memo(
                                     label: 'Conversation',
                                     content: (
                                         <>
-                                            {isLLMEvent(event) ? (
-                                                event.event === '$ai_generation' ? (
-                                                    <ConversationMessagesDisplay
-                                                        inputNormalized={normalizeMessages(
-                                                            event.properties.$ai_input,
-                                                            'user',
-                                                            event.properties.$ai_tools
-                                                        )}
-                                                        outputNormalized={normalizeMessages(
-                                                            event.properties.$ai_output_choices ??
-                                                                event.properties.$ai_output,
-                                                            'assistant'
-                                                        )}
-                                                        errorData={event.properties.$ai_error}
-                                                        httpStatus={event.properties.$ai_http_status}
-                                                        raisedError={event.properties.$ai_is_error}
-                                                        searchQuery={searchQuery}
-                                                    />
-                                                ) : event.event === '$ai_embedding' ? (
-                                                    <EventContentDisplay
-                                                        input={event.properties.$ai_input}
-                                                        output="Embedding vector generated"
-                                                    />
-                                                ) : (
-                                                    <EventContentDisplay
-                                                        input={event.properties.$ai_input_state}
-                                                        output={
-                                                            event.properties.$ai_output_state ??
-                                                            event.properties.$ai_error
-                                                        }
-                                                        raisedError={event.properties.$ai_is_error}
-                                                    />
-                                                )
+                                            {displayOption === DisplayOption.TextView &&
+                                            isLLMEvent(event) &&
+                                            event.event === '$ai_generation' ? (
+                                                <TextViewDisplay event={event} />
                                             ) : (
                                                 <>
-                                                    <TraceMetricsTable />
-                                                    <EventContentDisplay
-                                                        input={event.inputState}
-                                                        output={event.outputState}
-                                                    />
+                                                    {isLLMEvent(event) ? (
+                                                        event.event === '$ai_generation' ? (
+                                                            <ConversationMessagesDisplay
+                                                                inputNormalized={normalizeMessages(
+                                                                    event.properties.$ai_input,
+                                                                    'user',
+                                                                    event.properties.$ai_tools
+                                                                )}
+                                                                outputNormalized={normalizeMessages(
+                                                                    event.properties.$ai_output_choices ??
+                                                                        event.properties.$ai_output,
+                                                                    'assistant'
+                                                                )}
+                                                                errorData={event.properties.$ai_error}
+                                                                httpStatus={event.properties.$ai_http_status}
+                                                                raisedError={event.properties.$ai_is_error}
+                                                                searchQuery={searchQuery}
+                                                            />
+                                                        ) : event.event === '$ai_embedding' ? (
+                                                            <EventContentDisplay
+                                                                input={event.properties.$ai_input}
+                                                                output="Embedding vector generated"
+                                                            />
+                                                        ) : (
+                                                            <EventContentDisplay
+                                                                input={event.properties.$ai_input_state}
+                                                                output={
+                                                                    event.properties.$ai_output_state ??
+                                                                    event.properties.$ai_error
+                                                                }
+                                                                raisedError={event.properties.$ai_is_error}
+                                                            />
+                                                        )
+                                                    ) : (
+                                                        <>
+                                                            <TraceMetricsTable />
+                                                            <EventContentDisplay
+                                                                input={event.inputState}
+                                                                output={event.outputState}
+                                                            />
+                                                        </>
+                                                    )}
                                                 </>
                                             )}
                                         </>
@@ -894,6 +904,10 @@ function DisplayOptionsSelect(): JSX.Element {
         {
             value: DisplayOption.CollapseExceptOutputAndLastInput,
             label: 'Collapse except output and last input',
+        },
+        {
+            value: DisplayOption.TextView,
+            label: 'Text view',
         },
     ]
 
