@@ -137,6 +137,7 @@ describe('PersonState.processEvent()', () => {
 
         personRepository = new PostgresPersonRepository(hub.db.postgres)
         jest.spyOn(personRepository, 'fetchPerson')
+        jest.spyOn(personRepository, 'createPerson')
         jest.spyOn(personRepository, 'updatePerson')
 
         defaultRetryConfig.RETRY_INTERVAL_DEFAULT = 0
@@ -1124,7 +1125,12 @@ describe('PersonState.processEvent()', () => {
             // create mock merge service,
             const mergeService = personMergeService(event)
             jest.spyOn(mergeService, 'handleIdentifyOrAlias').mockReturnValue(
-                Promise.resolve({ success: true, person: personInitial, kafkaAck: Promise.resolve() })
+                Promise.resolve({
+                    success: true,
+                    person: personInitial,
+                    kafkaAck: Promise.resolve(),
+                    needsPersonUpdate: true,
+                })
             )
 
             const personS = personProcessor(event, undefined, mergeService)
@@ -1278,7 +1284,12 @@ describe('PersonState.processEvent()', () => {
             // create mock merge service
             const mergeService = personMergeService(event)
             jest.spyOn(mergeService, 'handleIdentifyOrAlias').mockReturnValue(
-                Promise.resolve({ success: true, person: mergeDeletedPerson, kafkaAck: Promise.resolve() })
+                Promise.resolve({
+                    success: true,
+                    person: mergeDeletedPerson,
+                    kafkaAck: Promise.resolve(),
+                    needsPersonUpdate: true,
+                })
             )
 
             const personS = personProcessor(event, undefined, mergeService)
@@ -1372,9 +1383,9 @@ describe('PersonState.processEvent()', () => {
                 })
             )
 
-            expect(personRepository.updatePerson).toHaveBeenCalledTimes(1)
+            expect(personRepository.createPerson).toHaveBeenCalledTimes(1)
+            expect(personRepository.updatePerson).not.toHaveBeenCalled()
 
-            // verify Postgres persons
             const persons = await fetchPostgresPersonsH()
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(
@@ -1383,12 +1394,11 @@ describe('PersonState.processEvent()', () => {
                     uuid: newUserUuid,
                     properties: { foo: 'bar' },
                     created_at: timestamp,
-                    version: 1,
+                    version: 0,
                     is_identified: true,
                 })
             )
 
-            // verify Postgres distinct_ids
             const distinctIds = await fetchDistinctIdValues(hub.db.postgres, persons[0])
             expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
         })
@@ -1982,7 +1992,12 @@ describe('PersonState.processEvent()', () => {
                 hub
             )
             jest.spyOn(state, 'merge').mockImplementation(() => {
-                return Promise.resolve({ success: true, person: undefined, kafkaAck: Promise.resolve() })
+                return Promise.resolve({
+                    success: true,
+                    person: undefined,
+                    kafkaAck: Promise.resolve(),
+                    needsPersonUpdate: true,
+                })
             })
             await state.handleIdentifyOrAlias()
             expect(state.merge).toHaveBeenCalledWith(oldUserDistinctId, newUserDistinctId, teamId, timestamp)
@@ -1999,7 +2014,12 @@ describe('PersonState.processEvent()', () => {
                 hub
             )
             jest.spyOn(state, 'merge').mockImplementation(() => {
-                return Promise.resolve({ success: true, person: undefined, kafkaAck: Promise.resolve() })
+                return Promise.resolve({
+                    success: true,
+                    person: undefined,
+                    kafkaAck: Promise.resolve(),
+                    needsPersonUpdate: true,
+                })
             })
 
             await state.handleIdentifyOrAlias()
@@ -2017,7 +2037,12 @@ describe('PersonState.processEvent()', () => {
                 hub
             )
             jest.spyOn(state, 'merge').mockImplementation(() => {
-                return Promise.resolve({ success: true, person: undefined, kafkaAck: Promise.resolve() })
+                return Promise.resolve({
+                    success: true,
+                    person: undefined,
+                    kafkaAck: Promise.resolve(),
+                    needsPersonUpdate: true,
+                })
             })
 
             await state.handleIdentifyOrAlias()
@@ -4148,6 +4173,7 @@ describe('PersonState.processEvent()', () => {
                             success: true,
                             person: mockPerson,
                             kafkaAck: Promise.resolve(),
+                            needsPersonUpdate: true,
                         })
 
                         const [result] = await processor.processEvent()

@@ -829,10 +829,14 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
         if (existingPersonUpdate) {
             // Merge the properties and changesets from both updates
-            const mergedPersonUpdate = this.mergeUpdateIntoPersonUpdate(existingPersonUpdate, {
-                properties: person.properties,
-                is_identified: person.is_identified,
-            } as Partial<InternalPerson>)
+            const mergedPersonUpdate = this.mergeUpdateIntoPersonUpdate(
+                existingPersonUpdate,
+                {
+                    properties: person.properties,
+                    is_identified: person.is_identified,
+                } as Partial<InternalPerson>,
+                false
+            )
 
             // Handle fields that are specific to PersonUpdate - merge properties_to_set and properties_to_unset
             mergedPersonUpdate.properties_to_set = {
@@ -844,6 +848,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             ]
 
             mergedPersonUpdate.created_at = DateTime.min(existingPersonUpdate.created_at, person.created_at)
+            mergedPersonUpdate.needs_write = existingPersonUpdate.needs_write || person.needs_write
 
             this.personUpdateCache.set(this.getPersonIdCacheKey(teamId, person.id), mergedPersonUpdate)
         } else {
