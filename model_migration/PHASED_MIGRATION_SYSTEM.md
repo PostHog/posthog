@@ -85,7 +85,23 @@ from products.data_warehouse.backend.models import DataWarehouseTable, ExternalD
 - Respects TYPE_CHECKING blocks
 - Handles lazy imports in functions
 
-### 3. migrate_phased.py
+### 3. django_helpers.py
+
+Django-specific utilities ported from migrate_models.py:
+- `extract_model_names()` - Discovers Django model classes from Python files
+- `ensure_model_db_tables()` - Adds db_table declarations to model Meta classes
+- `fix_foreign_keys_in_file()` - Updates ForeignKey references with app labels
+
+### 4. llm_migration_editor.py
+
+LLM-assisted migration editing (ported from migrate_models.py):
+- Calls Claude CLI to automatically edit generated migrations
+- Product migration: Applies SeparateDatabaseAndState pattern
+- Posthog migration: Adds ContentType update functions
+- Falls back to Codex if Claude limit reached
+- **This worked great in the old system**, now integrated into phased approach
+
+### 5. migrate_phased.py
 
 Main orchestrator that coordinates all phases.
 
@@ -130,9 +146,15 @@ python model_migration/migrate_phased.py --product data_warehouse --reset
 - Fails if any import errors or model issues
 
 ### Phase 5: Generate Django Migrations
-- Runs `python manage.py makemigrations {product}`
-- Creates migration files for ContentType updates
-- Adds db_table declarations if needed
+- Discovers model classes from moved files
+- Ensures db_table declarations on all models
+- Fixes ForeignKey references (adds app labels)
+- Generates product app migration (`makemigrations {product}`)
+- Generates posthog removal migration (`makemigrations posthog`)
+- **Automatically edits migrations with Claude CLI**:
+  - Product migration: Uses SeparateDatabaseAndState pattern
+  - Posthog migration: Adds ContentType update via RunPython
+  - Falls back to Codex if Claude limit reached
 
 ## Phase Tracker
 
