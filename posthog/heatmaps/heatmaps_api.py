@@ -25,7 +25,7 @@ from posthog.auth import TemporaryTokenAuthentication
 from posthog.heatmaps.heatmaps_utils import DEFAULT_TARGET_WIDTHS, is_url_allowed
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
-from posthog.models.heatmap_saved import HeatmapSaved
+from posthog.models.heatmap_saved import SavedHeatmap
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.tasks.heatmap_screenshot import generate_heatmap_screenshot
 from posthog.utils import relative_date_parse_with_delta_mapping
@@ -303,7 +303,7 @@ class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
     snapshots = serializers.SerializerMethodField()
 
     class Meta:
-        model = HeatmapSaved
+        model = SavedHeatmap
         fields = [
             "id",
             "short_id",
@@ -332,7 +332,7 @@ class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
             "exception",
         ]
 
-    def get_snapshots(self, obj: HeatmapSaved) -> list[dict]:
+    def get_snapshots(self, obj: SavedHeatmap) -> list[dict]:
         # Expose metadata of generated snapshots (width + readiness)
         snaps = []
         for snap in obj.snapshots.all():
@@ -350,7 +350,7 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapScreenshotResponseSerializer
     authentication_classes = [TemporaryTokenAuthentication]
-    queryset = HeatmapSaved.objects.all()
+    queryset = SavedHeatmap.objects.all()
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(team=self.team)
@@ -410,13 +410,13 @@ class HeatmapSavedRequestSerializer(serializers.ModelSerializer):
         return value
 
     class Meta:
-        model = HeatmapSaved
+        model = SavedHeatmap
         fields = ["name", "url", "data_url", "widths", "type", "deleted"]
         extra_kwargs = {
             "name": {"required": False, "allow_null": True},
             "url": {"required": True},
             "data_url": {"required": False, "allow_null": True},
-            "type": {"required": False, "default": HeatmapSaved.Type.SCREENSHOT},
+            "type": {"required": False, "default": SavedHeatmap.Type.SCREENSHOT},
             "deleted": {"required": False},
         }
 
@@ -426,7 +426,7 @@ class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapScreenshotResponseSerializer
     authentication_classes = [TemporaryTokenAuthentication]
-    queryset = HeatmapSaved.objects.all()
+    queryset = SavedHeatmap.objects.all()
     lookup_field = "short_id"
 
     def safely_get_queryset(self, queryset):
@@ -479,9 +479,9 @@ class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
         url = serializer.validated_data["url"]
         data_url = serializer.validated_data.get("data_url") or url
         widths = serializer.validated_data.get("widths", DEFAULT_TARGET_WIDTHS)
-        heatmap_type = serializer.validated_data.get("type", HeatmapSaved.Type.SCREENSHOT)
+        heatmap_type = serializer.validated_data.get("type", SavedHeatmap.Type.SCREENSHOT)
 
-        screenshot = HeatmapSaved.objects.create(
+        screenshot = SavedHeatmap.objects.create(
             team=self.team,
             name=name,
             url=url,
@@ -489,9 +489,9 @@ class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
             target_widths=widths,
             type=heatmap_type,
             created_by=cast(User, request.user),
-            status=HeatmapSaved.Status.PROCESSING
-            if heatmap_type == HeatmapSaved.Type.SCREENSHOT
-            else HeatmapSaved.Status.COMPLETED,
+            status=SavedHeatmap.Status.PROCESSING
+            if heatmap_type == SavedHeatmap.Type.SCREENSHOT
+            else SavedHeatmap.Status.COMPLETED,
         )
 
         log_activity(
@@ -507,7 +507,7 @@ class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
             was_impersonated=getattr(request, "was_impersonated", False),
         )
 
-        if heatmap_type == HeatmapSaved.Type.SCREENSHOT:
+        if heatmap_type == SavedHeatmap.Type.SCREENSHOT:
             generate_heatmap_screenshot.delay(screenshot.id)
 
         return response.Response(HeatmapScreenshotResponseSerializer(screenshot).data, status=status.HTTP_201_CREATED)

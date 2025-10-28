@@ -1,7 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from posthog.models.heatmap_saved import HeatmapSaved, HeatmapSnapshot
+from posthog.models.heatmap_saved import HeatmapSnapshot, SavedHeatmap
 from posthog.tasks.heatmap_screenshot import generate_heatmap_screenshot
 
 
@@ -26,12 +26,12 @@ class TestHeatmapScreenshotTask(APIBaseTest):
         # Return different bytes per screenshot call to verify width mapping
         mock_page.screenshot.side_effect = [b"jpeg320", b"jpeg768", b"jpeg1024"]
 
-        heatmap = HeatmapSaved.objects.create(
+        heatmap = SavedHeatmap.objects.create(
             team=self.team,
             url="https://example.com",
             created_by=self.user,
             target_widths=[320, 768, 1024],
-            status=HeatmapSaved.Status.PROCESSING,
+            status=SavedHeatmap.Status.PROCESSING,
         )
 
         # Act
@@ -39,7 +39,7 @@ class TestHeatmapScreenshotTask(APIBaseTest):
 
         # Assert status and snapshots
         heatmap.refresh_from_db()
-        assert heatmap.status == HeatmapSaved.Status.COMPLETED
+        assert heatmap.status == SavedHeatmap.Status.COMPLETED
 
         snaps = list(HeatmapSnapshot.objects.filter(heatmap=heatmap).order_by("width"))
         assert [s.width for s in snaps] == [320, 768, 1024]
@@ -55,12 +55,12 @@ class TestHeatmapScreenshotTask(APIBaseTest):
         # Arrange: make playwright crash when entering context
         mock_sync_playwright.return_value.__enter__.side_effect = RuntimeError("boom")
 
-        heatmap = HeatmapSaved.objects.create(
+        heatmap = SavedHeatmap.objects.create(
             team=self.team,
             url="https://example.com",
             created_by=self.user,
             target_widths=[320],
-            status=HeatmapSaved.Status.PROCESSING,
+            status=SavedHeatmap.Status.PROCESSING,
         )
 
         # Act
@@ -71,5 +71,5 @@ class TestHeatmapScreenshotTask(APIBaseTest):
 
         # Assert
         heatmap.refresh_from_db()
-        assert heatmap.status == HeatmapSaved.Status.FAILED
+        assert heatmap.status == SavedHeatmap.Status.FAILED
         assert "boom" in (heatmap.exception or "")

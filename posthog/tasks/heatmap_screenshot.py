@@ -4,7 +4,7 @@ from celery import shared_task
 
 from posthog.exceptions_capture import capture_exception
 from posthog.heatmaps.heatmaps_utils import DEFAULT_TARGET_WIDTHS, is_url_allowed, should_block_url
-from posthog.models.heatmap_saved import HeatmapSaved, HeatmapSnapshot
+from posthog.models.heatmap_saved import HeatmapSnapshot, SavedHeatmap
 from posthog.tasks.exports.image_exporter import HEIGHT_OFFSET
 from posthog.tasks.utils import CeleryQueue
 
@@ -98,8 +98,8 @@ def _block_internal_requests(page: Page) -> None:
 )
 def generate_heatmap_screenshot(screenshot_id: str) -> None:
     try:
-        screenshot = HeatmapSaved.objects.select_related("team", "created_by").get(id=screenshot_id)
-    except HeatmapSaved.DoesNotExist:
+        screenshot = SavedHeatmap.objects.select_related("team", "created_by").get(id=screenshot_id)
+    except SavedHeatmap.DoesNotExist:
         logger.exception("heatmap_screenshot.not_found", screenshot_id=screenshot_id)
         return
 
@@ -110,7 +110,7 @@ def generate_heatmap_screenshot(screenshot_id: str) -> None:
         try:
             ok, err = is_url_allowed(screenshot.url)
             if not ok:
-                screenshot.status = HeatmapSaved.Status.FAILED
+                screenshot.status = SavedHeatmap.Status.FAILED
                 screenshot.exception = f"SSRF blocked: {err}"
                 screenshot.save(update_fields=["status", "exception"])
                 logger.warning(
@@ -124,7 +124,7 @@ def generate_heatmap_screenshot(screenshot_id: str) -> None:
 
             _generate_screenshots(screenshot)
 
-            screenshot.status = HeatmapSaved.Status.COMPLETED
+            screenshot.status = SavedHeatmap.Status.COMPLETED
             screenshot.save()
 
             logger.info(
@@ -135,7 +135,7 @@ def generate_heatmap_screenshot(screenshot_id: str) -> None:
             )
 
         except Exception as e:
-            screenshot.status = HeatmapSaved.Status.FAILED
+            screenshot.status = SavedHeatmap.Status.FAILED
             screenshot.exception = str(e)
             screenshot.save()
 
@@ -159,7 +159,7 @@ def generate_heatmap_screenshot(screenshot_id: str) -> None:
             raise
 
 
-def _generate_screenshots(screenshot: HeatmapSaved) -> None:
+def _generate_screenshots(screenshot: SavedHeatmap) -> None:
     # Determine target widths
     target_widths = screenshot.target_widths or DEFAULT_TARGET_WIDTHS
     # Deduplicate and keep order
