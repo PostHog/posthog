@@ -1304,7 +1304,6 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_filesystemviewlog" recent_dashboard_views ON ("posthog_team"."id" = recent_dashboard_views."team_id"
                                                                          AND ((recent_dashboard_views."user_id" = 99999
-                                                                               AND recent_dashboard_views."team_id" = ("posthog_dashboard"."team_id")
                                                                                AND recent_dashboard_views."type" = 'dashboard'
                                                                                AND recent_dashboard_views."ref" = ("posthog_dashboard"."id")::varchar)))
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
@@ -3790,7 +3789,6 @@
      INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
      LEFT OUTER JOIN "posthog_filesystemviewlog" recent_dashboard_views ON ("posthog_team"."id" = recent_dashboard_views."team_id"
                                                                             AND ((recent_dashboard_views."user_id" = 99999
-                                                                                  AND recent_dashboard_views."team_id" = ("posthog_dashboard"."team_id")
                                                                                   AND recent_dashboard_views."type" = 'dashboard'
                                                                                   AND recent_dashboard_views."ref" = ("posthog_dashboard"."id")::varchar)))
      WHERE ("posthog_team"."project_id" = 99999
@@ -3852,7 +3850,6 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_filesystemviewlog" recent_dashboard_views ON ("posthog_team"."id" = recent_dashboard_views."team_id"
                                                                          AND ((recent_dashboard_views."user_id" = 99999
-                                                                               AND recent_dashboard_views."team_id" = ("posthog_dashboard"."team_id")
                                                                                AND recent_dashboard_views."type" = 'dashboard'
                                                                                AND recent_dashboard_views."ref" = ("posthog_dashboard"."id")::varchar)))
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
@@ -7527,7 +7524,6 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_filesystemviewlog" recent_dashboard_views ON ("posthog_team"."id" = recent_dashboard_views."team_id"
                                                                          AND ((recent_dashboard_views."user_id" = 99999
-                                                                               AND recent_dashboard_views."team_id" = ("posthog_dashboard"."team_id")
                                                                                AND recent_dashboard_views."type" = 'dashboard'
                                                                                AND recent_dashboard_views."ref" = ("posthog_dashboard"."id")::varchar)))
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
@@ -12929,7 +12925,6 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_filesystemviewlog" recent_dashboard_views ON ("posthog_team"."id" = recent_dashboard_views."team_id"
                                                                          AND ((recent_dashboard_views."user_id" = 99999
-                                                                               AND recent_dashboard_views."team_id" = ("posthog_dashboard"."team_id")
                                                                                AND recent_dashboard_views."type" = 'dashboard'
                                                                                AND recent_dashboard_views."ref" = ("posthog_dashboard"."id")::varchar)))
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
@@ -15641,7 +15636,6 @@
      INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
      LEFT OUTER JOIN "posthog_filesystemviewlog" recent_dashboard_views ON ("posthog_team"."id" = recent_dashboard_views."team_id"
                                                                             AND ((recent_dashboard_views."user_id" = 99999
-                                                                                  AND recent_dashboard_views."team_id" = ("posthog_dashboard"."team_id")
                                                                                   AND recent_dashboard_views."type" = 'dashboard'
                                                                                   AND recent_dashboard_views."ref" = ("posthog_dashboard"."id")::varchar)))
      WHERE ("posthog_team"."project_id" = 99999
@@ -15703,7 +15697,6 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_filesystemviewlog" recent_dashboard_views ON ("posthog_team"."id" = recent_dashboard_views."team_id"
                                                                          AND ((recent_dashboard_views."user_id" = 99999
-                                                                               AND recent_dashboard_views."team_id" = ("posthog_dashboard"."team_id")
                                                                                AND recent_dashboard_views."type" = 'dashboard'
                                                                                AND recent_dashboard_views."ref" = ("posthog_dashboard"."id")::varchar)))
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
