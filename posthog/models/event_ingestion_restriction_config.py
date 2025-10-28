@@ -11,11 +11,22 @@ from posthog.settings import PLUGINS_RELOAD_REDIS_URL
 
 DYNAMIC_CONFIG_REDIS_KEY_PREFIX = "event_ingestion_restriction_dynamic_config"
 
+# Pipeline configuration - first item is the default
+INGESTION_PIPELINES = [
+    {"value": "analytics", "label": "Analytics Pipeline"},
+    {"value": "session_recordings", "label": "Session Recordings Pipeline"},
+]
+
 
 class RestrictionType(models.TextChoices):
     SKIP_PERSON_PROCESSING = "skip_person_processing"
     DROP_EVENT_FROM_INGESTION = "drop_event_from_ingestion"
     FORCE_OVERFLOW_FROM_INGESTION = "force_overflow_from_ingestion"
+
+
+class IngestionPipeline(models.TextChoices):
+    ANALYTICS = "analytics"
+    SESSION_RECORDINGS = "session_recordings"
 
 
 class EventIngestionRestrictionConfig(UUIDTModel):
@@ -29,15 +40,36 @@ class EventIngestionRestrictionConfig(UUIDTModel):
     note = models.TextField(
         blank=True, null=True, help_text="Optional note explaining why this restriction was put in place"
     )
-    analytics = models.BooleanField(
-        default=True, help_text="Whether this restriction applies to the analytics ingestion pipeline"
-    )
-    session_recordings = models.BooleanField(
-        default=False, help_text="Whether this restriction applies to the session recordings ingestion pipeline"
+    pipelines = ArrayField(
+        models.CharField(max_length=50),
+        default=list,
+        blank=True,
+        help_text="List of ingestion pipelines this restriction applies to (e.g., 'analytics', 'session_recordings')",
     )
 
     class Meta:
         unique_together = ("token", "restriction_type")
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+
+        # Validate that at least one pipeline is selected
+        if not self.pipelines:
+            raise ValidationError({"pipelines": "At least one pipeline must be selected"})
+
+        # Validate that all pipeline values are valid
+        valid_pipelines = {p["value"] for p in INGESTION_PIPELINES}
+        invalid_pipelines = set(self.pipelines) - valid_pipelines
+        if invalid_pipelines:
+            raise ValidationError(
+                {
+                    "pipelines": f"Invalid pipeline(s): {', '.join(invalid_pipelines)}. Valid options are: {', '.join(valid_pipelines)}"
+                }
+            )
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
 
     def get_redis_key(self):
         return f"{DYNAMIC_CONFIG_REDIS_KEY_PREFIX}:{self.restriction_type}"
@@ -64,8 +96,7 @@ def update_redis_cache_with_config(sender, instance, created=False, **kwargs):
     # Add new entries with pipeline information
     entry_base = {
         "token": instance.token,
-        "analytics": instance.analytics,
-        "session_recordings": instance.session_recordings,
+        "pipelines": instance.pipelines or [],
     }
 
     if instance.distinct_ids:
