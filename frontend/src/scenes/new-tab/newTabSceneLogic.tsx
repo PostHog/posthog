@@ -597,6 +597,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         items.push({
                             id: `group-${groupTypeIndex}-${group.group_key}`,
                             name: `${noun}: ${display}`,
+                            displayName: display,
                             category: 'groups' as NEW_TAB_CATEGORY_ITEMS,
                             href,
                             icon: <IconPeople />,
@@ -606,6 +607,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                                 href,
                                 groupTypeIndex,
                                 groupKey: group.group_key,
+                                groupNoun: noun,
+                                groupDisplayName: display,
                             },
                         })
                     })
