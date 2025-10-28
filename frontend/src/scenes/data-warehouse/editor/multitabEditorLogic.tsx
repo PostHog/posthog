@@ -1,5 +1,17 @@
 import { Monaco } from '@monaco-editor/react'
-import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import {
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -20,6 +32,7 @@ import { removeUndefinedAndNull } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -1252,14 +1265,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
         },
     })),
-    afterMount(({ actions, values, cache }) => {
+    afterMount(({ values, cache }) => {
         // Listen for view open events from the editor
         const handleOpenView = (event: CustomEvent<{ viewId: string; viewName: string }>): void => {
             const { viewId } = event.detail
             const view = values.dataWarehouseSavedQueryMapById[viewId]
             if (view) {
                 // Open the view in a new browser tab
-                window.open(urls.sqlEditor(undefined, viewId), '_blank')
+                sceneLogic.actions.newTab(urls.sqlEditor(undefined, viewId))
             }
         }
 

@@ -4,7 +4,7 @@ import { languages } from 'monaco-editor'
 import type { codeEditorLogicType } from './codeEditorLogicType'
 
 export const hogQLLinkProvider: () => languages.LinkProvider = () => ({
-    provideLinks: (model, _token) => {
+    provideLinks: (model) => {
         const logic: BuiltLogic<codeEditorLogicType> | undefined = (model as any).codeEditorLogic
         if (!logic?.isMounted()) {
             return { links: [] }
@@ -56,7 +56,7 @@ export const hogQLLinkProvider: () => languages.LinkProvider = () => ({
 
         return { links }
     },
-    resolveLink: (link, _token) => {
+    resolveLink: (link) => {
         // The actual navigation will be handled by the editor's onMouseDown event
         return link
     },
