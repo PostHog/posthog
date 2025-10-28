@@ -8,7 +8,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.db import connection, models, transaction
 
 from posthog.hogql import ast
-from posthog.hogql.database.database import Database, create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
@@ -326,7 +326,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
 
     def get_hogql_database(self, team: Team) -> Database:
         """Get the HogQL database for given team."""
-        return create_hogql_database(team=team)
+        return Database.create_for(team=team)
 
     def get_or_create_root_path_for_data_warehouse_table(
         self, data_warehouse_table: DataWarehouseTable

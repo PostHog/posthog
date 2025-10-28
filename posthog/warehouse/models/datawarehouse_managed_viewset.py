@@ -188,7 +188,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
 
     def _get_expected_views_for_revenue_analytics(self) -> list[ExpectedView]:
         """
-        Reuses build_all_revenue_analytics_views() from create_hogql_database logic.
+        Reuses build_all_revenue_analytics_views() from Database.create_for logic.
         For each source (events + external data sources):
           - Creates 5 views: customer, charge, subscription, revenue_item, product
         """

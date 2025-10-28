@@ -1,7 +1,7 @@
 import pytest
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -15,7 +15,7 @@ def test_get_schema_description(snapshot):
     team = Team.objects.create(organization=org)
 
     query = "select * from events"
-    database = create_hogql_database(team.id)
+    database = Database.create_for(team.id)
     hogql_context = HogQLContext(team_id=team.id, enable_select_queries=True, database=database)
 
     res = _get_schema_description({"hogql_query": query}, hogql_context, database)
@@ -28,7 +28,7 @@ def test_get_system_prompt(snapshot):
     org = Organization.objects.create(name="org")
     team = Team.objects.create(organization=org)
 
-    database = create_hogql_database(team.id)
+    database = Database.create_for(team.id)
     all_table_names = database.get_all_table_names()
 
     res = _get_system_prompt(all_table_names)
@@ -42,7 +42,7 @@ def test_get_user_prompt(snapshot):
     team = Team.objects.create(organization=org)
 
     query = "select * from events"
-    database = create_hogql_database(team.id)
+    database = Database.create_for(team.id)
     hogql_context = HogQLContext(team_id=team.id, enable_select_queries=True, database=database)
 
     schema_description = _get_schema_description({"hogql_query": query}, hogql_context, database)

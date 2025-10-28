@@ -3,7 +3,7 @@ from typing import Literal
 from posthog.test.base import BaseTest
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import TableNode
 from posthog.hogql.database.test.tables import (
     create_aapl_stock_s3_table,
@@ -22,7 +22,7 @@ class TestView(BaseTest):
     def setUp(self):
         super().setUp()
 
-        self.database = create_hogql_database(team=self.team)
+        self.database = Database.create_for(team=self.team)
         self.database._add_views(
             TableNode(
                 children={
