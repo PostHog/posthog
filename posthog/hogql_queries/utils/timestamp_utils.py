@@ -137,12 +137,12 @@ def get_earliest_timestamp_from_series(
 ) -> datetime:
     """
     Get the earliest timestamp for specific events/actions in a series.
-    This is used for "Since event first seen" date filtering - each event/action is queried
+    This is used for "All time" date filtering - each event/action is queried
     for its own earliest timestamp, and the minimum is returned.
 
     :param team: The team
     :param series: A list of series nodes (EventsNode, ActionsNode, or DataWarehouseNode)
-    :return: The minimum earliest timestamp across all series
+    :return: The earliest timestamp across all series
     """
     timestamps = []
     if len(series) == 1 or settings.IN_UNIT_TESTING:
