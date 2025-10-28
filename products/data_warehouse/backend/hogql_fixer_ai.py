@@ -156,8 +156,8 @@ def _get_schema_description(ai_context: dict[Any, Any], hogql_context: HogQLCont
                 for table_name, table in serialized_database.items()
                 # Only the most important core tables, plus all warehouse tables
                 if table_name in ["events", "groups", "persons"]
-                or table_name in database.get_warehouse_tables()
-                or table_name in database.get_views()
+                or table_name in database.get_warehouse_table_names()
+                or table_name in database.get_view_names()
             )
         )
 
@@ -190,14 +190,14 @@ class HogQLQueryFixerTool(MaxTool):
         database = create_hogql_database(team=self._team)
         hogql_context = HogQLContext(team=self._team, enable_select_queries=True, database=database)
 
-        all_tables = database.get_all_tables()
+        all_table_names = database.get_all_table_names()
         schema_description = _get_schema_description(self.context, hogql_context, database)
 
         prompt = ChatPromptTemplate.from_messages(
             [
                 (
                     "system",
-                    _get_system_prompt(all_tables),
+                    _get_system_prompt(all_table_names),
                 ),
                 (
                     "user",

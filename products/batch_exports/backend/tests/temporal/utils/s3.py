@@ -1,49 +1,27 @@
-import os
 import gzip
 import json
 import datetime as dt
 
-from django.conf import settings
-
 import brotli
-import aioboto3
-import botocore
 import pyarrow.parquet as pq
 from pyarrow import fs
+from types_aiobotocore_s3.client import S3Client
 
 
 async def read_parquet_from_s3(
+    s3_client: S3Client,
     bucket_name: str,
     key: str,
     json_columns,
-    access_key="object_storage_root_user",
-    secret_key="object_storage_root_password",
 ) -> list:
-    async with aioboto3.Session().client("sts") as sts:
-        try:
-            await sts.get_caller_identity()
-        except botocore.exceptions.ClientError:
-            s3 = fs.S3FileSystem(
-                access_key=access_key,
-                secret_key=secret_key,
-                endpoint_override=settings.OBJECT_STORAGE_ENDPOINT,
-            )
-        except botocore.exceptions.NoCredentialsError:
-            s3 = fs.S3FileSystem(
-                access_key=access_key,
-                secret_key=secret_key,
-                endpoint_override=settings.OBJECT_STORAGE_ENDPOINT,
-            )
+    credentials = s3_client._request_signer._credentials  # type: ignore
+    endpoint_url = s3_client.meta.endpoint_url
 
-        else:
-            if os.getenv("S3_TEST_BUCKET") is not None:
-                s3 = fs.S3FileSystem()
-            else:
-                s3 = fs.S3FileSystem(
-                    access_key=access_key,
-                    secret_key=secret_key,
-                    endpoint_override=settings.OBJECT_STORAGE_ENDPOINT,
-                )
+    s3 = fs.S3FileSystem(
+        access_key=credentials.access_key,
+        secret_key=credentials.secret_key,
+        endpoint_override=endpoint_url,
+    )
 
     table = pq.read_table(f"{bucket_name}/{key}", filesystem=s3)
 
@@ -77,3 +55,13 @@ def read_s3_data_as_json(data: bytes, compression: str | None) -> list:
 
     json_data = [json.loads(line) for line in data.decode("utf-8").split("\n") if line]
     return json_data
+
+
+async def delete_all_from_s3(s3_client, bucket_name: str, key_prefix: str):
+    """Delete all objects in bucket_name under key_prefix."""
+    response = await s3_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
+
+    if "Contents" in response:
+        for obj in response["Contents"]:
+            if "Key" in obj:
+                await s3_client.delete_object(Bucket=bucket_name, Key=obj["Key"])

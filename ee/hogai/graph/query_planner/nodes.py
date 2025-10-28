@@ -206,7 +206,7 @@ class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
                 + "\n".join(f"- {field.name} ({field.type})" for field in table.fields.values())
                 for table_name, table in serialized_database.items()
                 # Only the most important core tables, plus all warehouse tables
-                if table_name in ["events", "groups", "persons"] or table_name in database.get_warehouse_tables()
+                if table_name in ["events", "groups", "persons"] or table_name in database.get_warehouse_table_names()
             )
         )
         conversation = ChatPromptTemplate(
