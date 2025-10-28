@@ -1272,7 +1272,7 @@
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared",
-         MAX(recent_dashboard_views."viewed_at") AS "last_viewed_at",
+         recent_dashboard_views."viewed_at" AS "last_viewed_at",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -1310,8 +1310,6 @@
   WHERE ("posthog_team"."project_id" = 99999
          AND NOT ("posthog_dashboard"."deleted")
          AND "posthog_dashboard"."id" = 99999)
-  GROUP BY "posthog_dashboard"."id",
-           "posthog_user"."id"
   LIMIT 21
   '''
 # ---
@@ -3782,18 +3780,15 @@
 # ---
 # name: TestDashboard.test_listing_dashboards_is_not_nplus1.33
   '''
-  SELECT COUNT(*)
-  FROM
-    (SELECT "posthog_dashboard"."id" AS "col1"
-     FROM "posthog_dashboard"
-     INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
-     LEFT OUTER JOIN "posthog_filesystemviewlog" recent_dashboard_views ON ("posthog_team"."id" = recent_dashboard_views."team_id"
-                                                                            AND ((recent_dashboard_views."user_id" = 99999
-                                                                                  AND recent_dashboard_views."type" = 'dashboard'
-                                                                                  AND recent_dashboard_views."ref" = ("posthog_dashboard"."id")::varchar)))
-     WHERE ("posthog_team"."project_id" = 99999
-            AND NOT ("posthog_dashboard"."deleted"))
-     GROUP BY 1) subquery
+  SELECT COUNT(*) AS "__count"
+  FROM "posthog_dashboard"
+  INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
+  LEFT OUTER JOIN "posthog_filesystemviewlog" recent_dashboard_views ON ("posthog_team"."id" = recent_dashboard_views."team_id"
+                                                                         AND ((recent_dashboard_views."user_id" = 99999
+                                                                               AND recent_dashboard_views."type" = 'dashboard'
+                                                                               AND recent_dashboard_views."ref" = ("posthog_dashboard"."id")::varchar)))
+  WHERE ("posthog_team"."project_id" = 99999
+         AND NOT ("posthog_dashboard"."deleted"))
   '''
 # ---
 # name: TestDashboard.test_listing_dashboards_is_not_nplus1.34
@@ -3818,7 +3813,7 @@
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared",
-         MAX(recent_dashboard_views."viewed_at") AS "last_viewed_at",
+         recent_dashboard_views."viewed_at" AS "last_viewed_at",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -3855,8 +3850,6 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
   WHERE ("posthog_team"."project_id" = 99999
          AND NOT ("posthog_dashboard"."deleted"))
-  GROUP BY "posthog_dashboard"."id",
-           "posthog_user"."id"
   ORDER BY "posthog_dashboard"."pinned" DESC,
            "posthog_dashboard"."name" ASC
   LIMIT 300
@@ -7492,7 +7485,7 @@
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared",
-         MAX(recent_dashboard_views."viewed_at") AS "last_viewed_at",
+         recent_dashboard_views."viewed_at" AS "last_viewed_at",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -7530,8 +7523,6 @@
   WHERE ("posthog_team"."project_id" = 99999
          AND NOT ("posthog_dashboard"."deleted")
          AND "posthog_dashboard"."id" = 99999)
-  GROUP BY "posthog_dashboard"."id",
-           "posthog_user"."id"
   LIMIT 21
   '''
 # ---
@@ -12893,7 +12884,7 @@
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared",
-         MAX(recent_dashboard_views."viewed_at") AS "last_viewed_at",
+         recent_dashboard_views."viewed_at" AS "last_viewed_at",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -12931,8 +12922,6 @@
   WHERE ("posthog_team"."project_id" = 99999
          AND NOT ("posthog_dashboard"."deleted")
          AND "posthog_dashboard"."id" = 99999)
-  GROUP BY "posthog_dashboard"."id",
-           "posthog_user"."id"
   LIMIT 21
   '''
 # ---
@@ -15629,18 +15618,15 @@
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.46
   '''
-  SELECT COUNT(*)
-  FROM
-    (SELECT "posthog_dashboard"."id" AS "col1"
-     FROM "posthog_dashboard"
-     INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
-     LEFT OUTER JOIN "posthog_filesystemviewlog" recent_dashboard_views ON ("posthog_team"."id" = recent_dashboard_views."team_id"
-                                                                            AND ((recent_dashboard_views."user_id" = 99999
-                                                                                  AND recent_dashboard_views."type" = 'dashboard'
-                                                                                  AND recent_dashboard_views."ref" = ("posthog_dashboard"."id")::varchar)))
-     WHERE ("posthog_team"."project_id" = 99999
-            AND NOT ("posthog_dashboard"."deleted"))
-     GROUP BY 1) subquery
+  SELECT COUNT(*) AS "__count"
+  FROM "posthog_dashboard"
+  INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
+  LEFT OUTER JOIN "posthog_filesystemviewlog" recent_dashboard_views ON ("posthog_team"."id" = recent_dashboard_views."team_id"
+                                                                         AND ((recent_dashboard_views."user_id" = 99999
+                                                                               AND recent_dashboard_views."type" = 'dashboard'
+                                                                               AND recent_dashboard_views."ref" = ("posthog_dashboard"."id")::varchar)))
+  WHERE ("posthog_team"."project_id" = 99999
+         AND NOT ("posthog_dashboard"."deleted"))
   '''
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.47
@@ -15665,7 +15651,7 @@
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared",
-         MAX(recent_dashboard_views."viewed_at") AS "last_viewed_at",
+         recent_dashboard_views."viewed_at" AS "last_viewed_at",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -15702,8 +15688,6 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
   WHERE ("posthog_team"."project_id" = 99999
          AND NOT ("posthog_dashboard"."deleted"))
-  GROUP BY "posthog_dashboard"."id",
-           "posthog_user"."id"
   ORDER BY "posthog_dashboard"."pinned" DESC,
            "posthog_dashboard"."name" ASC
   LIMIT 100
