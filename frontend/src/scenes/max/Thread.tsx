@@ -197,7 +197,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup, streamingActive }: Mess
                                         <Tooltip
                                             title={
                                                 <>
-                                                    This is a Max command:
+                                                    This is a PostHog AI command:
                                                     <br />
                                                     <i>{maybeCommand.description}</i>
                                                 </>

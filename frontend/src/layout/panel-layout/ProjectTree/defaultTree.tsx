@@ -1,7 +1,6 @@
 import React, { CSSProperties } from 'react'
 
 import {
-    IconAI,
     IconApp,
     IconApps,
     IconBook,
@@ -21,6 +20,7 @@ import {
     IconHome,
     IconLifecycle,
     IconLive,
+    IconLlmAnalytics,
     IconMegaphone,
     IconMessage,
     IconNotebook,
@@ -63,7 +63,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         iconColor: ['var(--color-product-dashboards-light)'],
     },
     llm_analytics: {
-        icon: <IconAI />,
+        icon: <IconLlmAnalytics />,
         iconColor: ['var(--color-product-llm-analytics-light)'],
     },
     product_analytics: {

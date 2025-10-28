@@ -374,6 +374,17 @@ class BatchExportSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "team_id", "created_at", "last_updated_at", "latest_runs", "schema"]
 
+    def validate(self, attrs: dict) -> dict:
+        """Validate the batch export configuration."""
+        # HTTP batch exports only support the events model
+        destination = attrs.get("destination")
+        if destination and destination.get("type") == BatchExportDestination.Destination.HTTP:
+            model = attrs.get("model")
+            if model is not None and model != "events":
+                raise serializers.ValidationError("HTTP batch exports only support the events model")
+
+        return attrs
+
     # TODO: could this be moved inside BatchExportDestinationSerializer::validate?
     def validate_destination(self, destination_attrs: dict):
         destination_type = destination_attrs["type"]

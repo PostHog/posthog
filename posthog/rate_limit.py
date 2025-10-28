@@ -542,9 +542,13 @@ class SetupWizardQueryRateThrottle(SimpleRateThrottle):
     def get_cache_key(self, request, view):
         hash = request.headers.get("X-PostHog-Wizard-Hash")
 
-        if not hash:
-            return self.get_ident(request)
-        return f"throttle_wizard_query_{hash}"
+        authorization_header = request.headers.get("Authorization")
+
+        value = (hash or authorization_header or "").strip() or self.get_ident(request)
+
+        sha_hash = hashlib.sha256(value.encode()).hexdigest()
+
+        return f"throttle_wizard_query_{sha_hash}"
 
 
 class BreakGlassBurstThrottle(UserOrEmailRateThrottle):
