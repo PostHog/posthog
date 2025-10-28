@@ -63,81 +63,84 @@ def _trim_source_job_inputs(source: ExternalDataSource) -> None:
 def _report_heartbeat_timeout(inputs: ImportDataActivityInputs, logger: FilteringBoundLogger) -> None:
     logger.debug("Checking for heartbeat timeout reporting...")
 
-    info = activity.info()
-    heartbeat_timeout = info.heartbeat_timeout
-    current_attempt_scheduled_time = info.current_attempt_scheduled_time
-
-    if not heartbeat_timeout:
-        logger.debug(f"No heartbeat timeout set for this activity: {heartbeat_timeout}")
-        return
-
-    if not current_attempt_scheduled_time:
-        logger.debug(f"No current attempt scheduled time set for this activity: {current_attempt_scheduled_time}")
-        return
-
-    if info.attempt < 2:
-        logger.debug(f"First attempt of activity, no heartbeat timeout to report.")
-        return
-
-    heartbeat_details = info.heartbeat_details
-    if not isinstance(heartbeat_details, tuple) or len(heartbeat_details) < 1:
-        logger.debug(f"No heartbeat details found to analyze for timeout: {heartbeat_details}")
-        return
-
-    last_heartbeat = heartbeat_details[-1]
-    logger.debug(f"Resuming activity after failure. Last heartbeat details: {last_heartbeat}")
-
-    if not isinstance(last_heartbeat, dict):
-        logger.debug(
-            f"Last heartbeat details not in expected format (dict). Found: {type(last_heartbeat)}: {last_heartbeat}"
-        )
-        return
-
-    last_heartbeat_host = last_heartbeat.get("host", None)
-    last_heartbeat_timestamp = last_heartbeat.get("ts", None)
-
-    logger.debug(f"Last heartbeat was {last_heartbeat}")
-
-    if not last_heartbeat_host or not last_heartbeat_timestamp:
-        logger.debug(f"Incomplete heartbeat details. No host or timestamp found.")
-        return
-
     try:
-        last_heartbeat_timestamp = float(last_heartbeat_timestamp)
-    except (TypeError, ValueError):
-        logger.debug(f"Last heartbeat timestamp could not be converted to float: {last_heartbeat_timestamp}")
-        return
+        info = activity.info()
+        heartbeat_timeout = info.heartbeat_timeout
+        current_attempt_scheduled_time = info.current_attempt_scheduled_time
 
-    gap_between_beats = current_attempt_scheduled_time.timestamp() - float(last_heartbeat_timestamp)
-    if gap_between_beats > heartbeat_timeout.total_seconds():
-        logger.debug(
-            "Last heartbeat was longer ago than the heartbeat timeout allows. Likely due to a pod OOM or restart.",
-            last_heartbeat_host=last_heartbeat_host,
-            last_heartbeat_timestamp=last_heartbeat_timestamp,
-            gap_between_beats=gap_between_beats,
-            heartbeat_timeout_seconds=heartbeat_timeout.total_seconds(),
-        )
+        if not heartbeat_timeout:
+            logger.debug(f"No heartbeat timeout set for this activity: {heartbeat_timeout}")
+            return
 
-        posthoganalytics.capture(
-            "dwh_pod_heartbeat_timeout",
-            distinct_id=None,
-            properties={
-                "team_id": inputs.team_id,
-                "schema_id": str(inputs.schema_id),
-                "source_id": str(inputs.source_id),
-                "run_id": inputs.run_id,
-                "host": last_heartbeat_host,
-                "gap_between_beats": gap_between_beats,
-                "heartbeat_timeout_seconds": heartbeat_timeout.total_seconds(),
-                "task_queue": info.task_queue,
-                "workflow_id": info.workflow_id,
-                "workflow_run_id": info.workflow_run_id,
-                "workflow_type": info.workflow_type,
-                "attempt": info.attempt,
-            },
-        )
-    else:
-        logger.debug("Last heartbeat was within the heartbeat timeout window. No action needed.")
+        if not current_attempt_scheduled_time:
+            logger.debug(f"No current attempt scheduled time set for this activity: {current_attempt_scheduled_time}")
+            return
+
+        if info.attempt < 2:
+            logger.debug(f"First attempt of activity, no heartbeat timeout to report.")
+            return
+
+        heartbeat_details = info.heartbeat_details
+        if not isinstance(heartbeat_details, tuple) or len(heartbeat_details) < 1:
+            logger.debug(f"No heartbeat details found to analyze for timeout: {heartbeat_details}")
+            return
+
+        last_heartbeat = heartbeat_details[-1]
+        logger.debug(f"Resuming activity after failure. Last heartbeat details: {last_heartbeat}")
+
+        if not isinstance(last_heartbeat, dict):
+            logger.debug(
+                f"Last heartbeat details not in expected format (dict). Found: {type(last_heartbeat)}: {last_heartbeat}"
+            )
+            return
+
+        last_heartbeat_host = last_heartbeat.get("host", None)
+        last_heartbeat_timestamp = last_heartbeat.get("ts", None)
+
+        logger.debug(f"Last heartbeat was {last_heartbeat}")
+
+        if not last_heartbeat_host or not last_heartbeat_timestamp:
+            logger.debug(f"Incomplete heartbeat details. No host or timestamp found.")
+            return
+
+        try:
+            last_heartbeat_timestamp = float(last_heartbeat_timestamp)
+        except (TypeError, ValueError):
+            logger.debug(f"Last heartbeat timestamp could not be converted to float: {last_heartbeat_timestamp}")
+            return
+
+        gap_between_beats = current_attempt_scheduled_time.timestamp() - float(last_heartbeat_timestamp)
+        if gap_between_beats > heartbeat_timeout.total_seconds():
+            logger.debug(
+                "Last heartbeat was longer ago than the heartbeat timeout allows. Likely due to a pod OOM or restart.",
+                last_heartbeat_host=last_heartbeat_host,
+                last_heartbeat_timestamp=last_heartbeat_timestamp,
+                gap_between_beats=gap_between_beats,
+                heartbeat_timeout_seconds=heartbeat_timeout.total_seconds(),
+            )
+
+            posthoganalytics.capture(
+                "dwh_pod_heartbeat_timeout",
+                distinct_id=None,
+                properties={
+                    "team_id": inputs.team_id,
+                    "schema_id": str(inputs.schema_id),
+                    "source_id": str(inputs.source_id),
+                    "run_id": inputs.run_id,
+                    "host": last_heartbeat_host,
+                    "gap_between_beats": gap_between_beats,
+                    "heartbeat_timeout_seconds": heartbeat_timeout.total_seconds(),
+                    "task_queue": info.task_queue,
+                    "workflow_id": info.workflow_id,
+                    "workflow_run_id": info.workflow_run_id,
+                    "workflow_type": info.workflow_type,
+                    "attempt": info.attempt,
+                },
+            )
+        else:
+            logger.debug("Last heartbeat was within the heartbeat timeout window. No action needed.")
+    except Exception as e:
+        logger.debug(f"Error while reporting heartbeat timeout: {e}", exc_info=e)
 
 
 @activity.defn
