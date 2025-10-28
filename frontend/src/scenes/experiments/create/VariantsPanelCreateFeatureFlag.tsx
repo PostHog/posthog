@@ -46,14 +46,12 @@ interface VariantsPanelCreateFeatureFlagProps {
             ensure_experience_continuity?: boolean
         }
     }) => void
-    readOnly?: boolean
     disabled?: boolean
 }
 
 export const VariantsPanelCreateFeatureFlag = ({
     experiment,
     onChange,
-    readOnly = false,
     disabled = false,
 }: VariantsPanelCreateFeatureFlagProps): JSX.Element => {
     const { featureFlagKeyValidation, featureFlagKeyValidationLoading } = useValues(
@@ -152,7 +150,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                         placeholder="examples: new-landing-page, betaFeature, ab_test_1"
                         value={experiment.feature_flag_key || ''}
                         onChange={
-                            readOnly
+                            disabled
                                 ? undefined
                                 : (value) => {
                                       /**
@@ -168,7 +166,9 @@ export const VariantsPanelCreateFeatureFlag = ({
                                       debouncedValidateFeatureFlagKey(normalizedValue)
                                   }
                         }
-                        disabled={readOnly}
+                        disabledReason={
+                            disabled ? 'You cannot change the feature flag key when editing an experiment.' : undefined
+                        }
                         suffix={
                             featureFlagKeyValidationLoading ? (
                                 <Spinner size="small" />
@@ -199,7 +199,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                         <div className="col-span-6">Description</div>
                         <div className="col-span-3 flex justify-between items-center gap-1">
                             <span>Rollout</span>
-                            {!readOnly && (
+                            {!disabled && (
                                 <LemonButton
                                     onClick={() => distributeVariantsEqually()}
                                     tooltip="Normalize variant rollout percentages"
@@ -225,7 +225,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                                 <LemonInput
                                     value={variant.key}
                                     disabledReason={
-                                        readOnly
+                                        disabled
                                             ? 'Cannot edit feature flag in edit mode'
                                             : variant.key === 'control'
                                               ? 'Control variant cannot be changed'
@@ -246,7 +246,11 @@ export const VariantsPanelCreateFeatureFlag = ({
                                 <LemonInput
                                     value={variant.name || ''}
                                     onChange={(value) => updateVariant(index, { name: value })}
-                                    disabled={readOnly}
+                                    disabledReason={
+                                        disabled
+                                            ? 'You cannot change the variant name when editing an experiment.'
+                                            : undefined
+                                    }
                                     data-attr="experiment-variant-name"
                                     className="ph-ignore-input"
                                     placeholder="Description"
@@ -265,13 +269,17 @@ export const VariantsPanelCreateFeatureFlag = ({
                                                 : 0
                                         updateVariant(index, { rollout_percentage: valueInt })
                                     }}
-                                    disabled={readOnly}
+                                    disabledReason={
+                                        disabled
+                                            ? 'You cannot change the variant rollout percentage when editing an experiment.'
+                                            : undefined
+                                    }
                                     suffix={<span>%</span>}
                                     data-attr="experiment-variant-rollout-percentage-input"
                                 />
                             </div>
                             <div className="flex items-center justify-center">
-                                {!readOnly && variants.length > 2 && index > 0 && (
+                                {!disabled && variants.length > 2 && index > 0 && (
                                     <LemonButton
                                         icon={<IconTrash />}
                                         data-attr={`delete-prop-filter-${index}`}
@@ -294,7 +302,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                     {variants.length > 0 && hasDuplicateKeys && (
                         <p className="text-danger">Variant keys must be unique.</p>
                     )}
-                    {!readOnly && variants.length < MAX_EXPERIMENT_VARIANTS && (
+                    {!disabled && variants.length < MAX_EXPERIMENT_VARIANTS && (
                         <LemonButton type="secondary" onClick={addVariant} icon={<IconPlus />} center>
                             Add variant
                         </LemonButton>
@@ -315,7 +323,11 @@ export const VariantsPanelCreateFeatureFlag = ({
                     }}
                     fullWidth
                     checked={ensureExperienceContinuity}
-                    disabled={readOnly}
+                    disabledReason={
+                        disabled
+                            ? 'You cannot change the persist flag across authentication steps when editing an experiment.'
+                            : undefined
+                    }
                 />
                 <div className="text-secondary text-sm pl-6 mt-2">
                     If your feature flag is evaluated for anonymous users, use this option to ensure the flag value

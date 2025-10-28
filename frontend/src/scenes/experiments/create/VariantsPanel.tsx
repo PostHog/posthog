@@ -36,7 +36,6 @@ export function VariantsPanel({
     onNext,
     disabled = false,
 }: VariantsPanelProps): JSX.Element {
-    const isEditMode = disabled
     const { mode, linkedFeatureFlag } = useValues(variantsPanelLogic({ experiment, disabled }))
     const { setMode, setLinkedFeatureFlag } = useActions(variantsPanelLogic({ experiment, disabled }))
 
@@ -73,7 +72,6 @@ export function VariantsPanel({
                     <VariantsPanelCreateFeatureFlag
                         experiment={experiment}
                         onChange={updateFeatureFlag}
-                        readOnly={isEditMode}
                         disabled={disabled}
                     />
                 ))
@@ -81,7 +79,7 @@ export function VariantsPanel({
                     <VariantsPanelLinkFeatureFlag
                         linkedFeatureFlag={linkedFeatureFlag}
                         setShowFeatureFlagSelector={openSelectExistingFeatureFlagModal}
-                        readOnly={isEditMode}
+                        disabled={disabled}
                     />
                 ))
                 .exhaustive()}

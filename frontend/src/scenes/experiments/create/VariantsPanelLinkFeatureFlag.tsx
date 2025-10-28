@@ -14,7 +14,7 @@ import type { FeatureFlagType } from '~/types'
 interface VariantsPanelLinkFeatureFlagProps {
     linkedFeatureFlag: FeatureFlagType | null
     setShowFeatureFlagSelector: () => void
-    readOnly?: boolean
+    disabled?: boolean
 }
 
 const getTargetingSummary = (flag: FeatureFlagType): string[] => {
@@ -74,12 +74,15 @@ const TargetingSummary = ({ flag }: { flag: FeatureFlagType }): JSX.Element => {
 export const VariantsPanelLinkFeatureFlag = ({
     linkedFeatureFlag,
     setShowFeatureFlagSelector,
-    readOnly = false,
+    disabled = false,
 }: VariantsPanelLinkFeatureFlagProps): JSX.Element => {
     if (!linkedFeatureFlag) {
-        if (readOnly) {
-            // Defensive: shouldn't happen in edit mode
-            return <div className="text-danger text-sm">No feature flag linked to this experiment</div>
+        if (disabled) {
+            return (
+                <div className="text-danger text-sm">
+                    You cannot change the feature flag when editing an experiment.
+                </div>
+            )
         }
         return (
             <div>
@@ -121,11 +124,17 @@ export const VariantsPanelLinkFeatureFlag = ({
                         </Link>
                     </div>
                     {/* Only show Change button when not read-only */}
-                    {!readOnly && (
-                        <LemonButton type="secondary" size="small" onClick={setShowFeatureFlagSelector}>
-                            Change
-                        </LemonButton>
-                    )}
+
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={setShowFeatureFlagSelector}
+                        disabledReason={
+                            disabled ? 'You cannot change the feature flag when editing an experiment.' : undefined
+                        }
+                    >
+                        Change
+                    </LemonButton>
                 </div>
 
                 {/* Status */}

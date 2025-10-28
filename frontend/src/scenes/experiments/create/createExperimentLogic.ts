@@ -272,6 +272,9 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 return
             }
 
+            // Set loading state after all validation passes
+            actions.saveExperimentStarted()
+
             // Check if async validation is still loading
             if (values.featureFlagKeyValidationLoading) {
                 lemonToast.error('Please wait for validation to complete')
@@ -304,9 +307,6 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 actions.saveExperimentFailure()
                 return
             }
-
-            // Set loading state after all validation passes
-            actions.saveExperimentStarted()
 
             try {
                 const isEditMode = values.isEditMode
