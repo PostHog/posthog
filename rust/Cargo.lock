@@ -2834,7 +2834,7 @@ dependencies = [
  "dateparser",
  "envconfig",
  "futures",
- "governor 0.5.1",
+ "governor",
  "health",
  "hex",
  "json5",
@@ -2868,7 +2868,6 @@ dependencies = [
  "tokio-retry",
  "tower 0.4.13",
  "tower-http",
- "tower_governor",
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
@@ -3264,26 +3263,6 @@ dependencies = [
  "quanta 0.9.3",
  "rand 0.8.5",
  "smallvec",
-]
-
-[[package]]
-name = "governor"
-version = "0.6.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68a7f542ee6b35af73b06abc0dad1c1bae89964e4e253bc4b587b91c9637867b"
-dependencies = [
- "cfg-if",
- "dashmap 5.5.3",
- "futures",
- "futures-timer",
- "no-std-compat",
- "nonzero_ext",
- "parking_lot",
- "portable-atomic",
- "quanta 0.12.2",
- "rand 0.8.5",
- "smallvec",
- "spinning_top",
 ]
 
 [[package]]
@@ -4510,7 +4489,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "common-redis",
- "governor 0.5.1",
+ "governor",
  "metrics",
  "rand 0.8.5",
  "strum 0.26.3",
@@ -7350,15 +7329,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "spinning_top"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d96d2d1d716fb500937168cc09353ffdc7a012be8475ac7308e1bdf0e3923300"
-dependencies = [
- "lock_api",
-]
-
-[[package]]
 name = "spki"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8528,22 +8498,6 @@ name = "tower-service"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3"
-
-[[package]]
-name = "tower_governor"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aea939ea6cfa7c4880f3e7422616624f97a567c16df67b53b11f0d03917a8e46"
-dependencies = [
- "axum 0.7.5",
- "forwarded-header-value",
- "governor 0.6.3",
- "http 1.1.0",
- "pin-project",
- "thiserror 1.0.69",
- "tower 0.5.2",
- "tracing",
-]
 
 [[package]]
 name = "tracing"

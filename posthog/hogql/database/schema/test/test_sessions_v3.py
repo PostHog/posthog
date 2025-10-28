@@ -744,6 +744,7 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
                 "$screen_count",
                 "$session_duration",
                 "$start_timestamp",
+                "$has_replay_events",
             },
         )
         self.assertEqual(
