@@ -1680,9 +1680,9 @@ def surveys(request: Request):
             # Do the comparison here
             try:
                 if hypercache_response == response:
-                    COUNTER_SURVEYS_API_REMOTE_CONFIG_COMPARISOM.labels(result="same")
+                    COUNTER_SURVEYS_API_REMOTE_CONFIG_COMPARISON.labels(result="same").inc()
                 else:
-                    COUNTER_SURVEYS_API_REMOTE_CONFIG_COMPARISOM.labels(result="different")
+                    COUNTER_SURVEYS_API_REMOTE_CONFIG_COMPARISON.labels(result="different").inc()
                     logger.warning(
                         "SurveyHypercacheResponseDifferentFromAPIResponse",
                         hypercache_response=hypercache_response,
