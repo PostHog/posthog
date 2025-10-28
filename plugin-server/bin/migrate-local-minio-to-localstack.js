@@ -67,11 +67,25 @@ function ensureLocalDevelopmentOnly(minioEndpoint, localstackEndpoint) {
         process.exit(1)
     }
 
-    // Check 2: Environment must be development
-    const env = process.env.NODE_ENV || 'development'
-    if (env === 'production') {
-        console.error('❌ SAFETY CHECK FAILED: NODE_ENV is set to production')
+    // Check 2: Environment must be development (matches plugin-server's isDevEnv logic)
+    const nodeEnv = process.env.NODE_ENV?.toLowerCase()
+    const isDebug = ['y', 'yes', 't', 'true', 'on', '1'].includes(String(process.env.DEBUG).toLowerCase())
+
+    let isDev = false
+    if (nodeEnv) {
+        // Check if starts with 'dev' or 'test'
+        isDev = nodeEnv.startsWith('dev') || nodeEnv.startsWith('test')
+    } else if (isDebug) {
+        // If NODE_ENV not set but DEBUG is truthy, consider it dev
+        isDev = true
+    }
+
+    if (!isDev) {
+        console.error('❌ SAFETY CHECK FAILED: Not running in development environment')
+        console.error(`   NODE_ENV: ${process.env.NODE_ENV || 'not set'}`)
+        console.error(`   DEBUG: ${process.env.DEBUG || 'not set'}`)
         console.error('   This script is for LOCAL DEVELOPMENT ONLY.')
+        console.error('   Set NODE_ENV=development or DEBUG=1 to run.')
         process.exit(1)
     }
 
