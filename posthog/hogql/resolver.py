@@ -330,7 +330,7 @@ class Resolver(CloningVisitor):
             if table_alias in scope.tables:
                 raise QueryError(f'Already have joined a table called "{table_alias}". Can\'t redefine.')
 
-            database_table = self.database.get_table_by_chain(table_name_chain)
+            database_table = self.database.get_table(table_name_chain)  # type: ignore
 
             if isinstance(database_table, SavedQuery):
                 self.current_view_depth += 1
