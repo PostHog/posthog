@@ -4,30 +4,14 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { asDisplay } from 'scenes/persons/person-utils'
-import { getDisplayColumnName } from 'scenes/web-analytics/common'
 
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode } from '~/queries/schema/schema-general'
-import {
-    isEventsQuery,
-    isHogQLQuery,
-    isMarketingAnalyticsTableQuery,
-    isPersonsNode,
-    isWebExternalClicksQuery,
-    isWebGoalsQuery,
-    isWebStatsTableQuery,
-} from '~/queries/utils'
+import { isEventsQuery, isHogQLQuery, isMarketingAnalyticsTableQuery, isPersonsNode } from '~/queries/utils'
 
 import { DataTableRow } from './dataTableLogic'
 
-const columnDisallowList = [
-    'person.$delete',
-    '*',
-    'cross_sell',
-    'ui_fill_fraction',
-    'context.columns.cross_sell',
-    'context.columns.ui_fill_fraction',
-]
+const columnDisallowList = ['person.$delete', '*']
 
 // Helper function to recursively flatten objects for CSV export
 export const flattenObject = (obj: any, prefix?: string, separator = '.'): Record<string, any> => {
@@ -67,13 +51,7 @@ export const flattenObject = (obj: any, prefix?: string, separator = '.'): Recor
 const processRowData = (row: DataTableRow, columns: string[], query: DataTableNode): Record<string, any> => {
     const flattenedRecord: Record<string, any> = {}
 
-    if (
-        isHogQLQuery(query.source) ||
-        isMarketingAnalyticsTableQuery(query.source) ||
-        isWebStatsTableQuery(query.source) ||
-        isWebGoalsQuery(query.source) ||
-        isWebExternalClicksQuery(query.source)
-    ) {
+    if (isHogQLQuery(query.source) || isMarketingAnalyticsTableQuery(query.source)) {
         const data = row.result ?? {}
         columns.forEach((col, index) => {
             const value = Array.isArray(data) ? data[index] : (data as Record<string, any>)[index]
@@ -121,59 +99,30 @@ const processRowData = (row: DataTableRow, columns: string[], query: DataTableNo
     return flattenedRecord
 }
 
-export const getCsvTableData = (
-    dataTableRows: DataTableRow[],
-    columns: string[],
-    query: DataTableNode,
-    preferredColumnOrder?: string[]
-): string[][] => {
+export const getCsvTableData = (dataTableRows: DataTableRow[], columns: string[], query: DataTableNode): string[][] => {
     // Handle empty data or unsupported query types
     if (dataTableRows.length === 0) {
         return []
     }
 
     // Process all rows and collect all possible columns
-    const allColumnsSet = new Set<string>()
+    const allColumns = new Set<string>()
     const processedRows = dataTableRows.map((row) => {
         const flattenedRecord = processRowData(row, columns, query)
-        Object.keys(flattenedRecord).forEach((col) => allColumnsSet.add(col))
+        Object.keys(flattenedRecord).forEach((col) => allColumns.add(col))
         return flattenedRecord
     })
 
     // If no columns were discovered, return empty result
-    if (allColumnsSet.size === 0) {
+    if (allColumns.size === 0) {
         return []
     }
 
-    // Determine column order: use preferred order if provided, otherwise alphabetical sort
-    let orderedColumns: string[]
-    if (preferredColumnOrder) {
-        // Use preferred order, filtering out disallowed columns and non-existent columns
-        orderedColumns = preferredColumnOrder.filter(
-            (col) => !columnDisallowList.includes(col) && allColumnsSet.has(col)
-        )
-    } else {
-        // Default behavior: alphabetically sort all discovered columns
-        orderedColumns = Array.from(allColumnsSet)
-            .filter((col) => !columnDisallowList.includes(col))
-            .sort()
-    }
+    // Create consistent CSV structure with all discovered columns
+    const sortedColumns = Array.from(allColumns).sort()
+    const csvData = processedRows.map((flattenedRecord) => sortedColumns.map((col) => flattenedRecord[col] ?? ''))
 
-    // If no valid columns remain, return empty result
-    if (orderedColumns.length === 0) {
-        return []
-    }
-
-    // Apply UI-friendly column names for web analytics queries
-    let displayColumns = orderedColumns
-    if (isWebStatsTableQuery(query.source) || isWebGoalsQuery(query.source) || isWebExternalClicksQuery(query.source)) {
-        const breakdownBy = isWebStatsTableQuery(query.source) ? query.source.breakdownBy : undefined
-        displayColumns = orderedColumns.map((col) => getDisplayColumnName(col, breakdownBy))
-    }
-
-    const csvData = processedRows.map((flattenedRecord) => orderedColumns.map((col) => flattenedRecord[col] ?? ''))
-
-    return [displayColumns, ...csvData]
+    return [sortedColumns, ...csvData]
 }
 
 export const getJsonTableData = (
@@ -226,20 +175,11 @@ export const getJsonTableData = (
         })
     }
 
-    if (
-        isHogQLQuery(query.source) ||
-        isMarketingAnalyticsTableQuery(query.source) ||
-        isWebStatsTableQuery(query.source) ||
-        isWebGoalsQuery(query.source) ||
-        isWebExternalClicksQuery(query.source)
-    ) {
+    if (isHogQLQuery(query.source) || isMarketingAnalyticsTableQuery(query.source)) {
         return dataTableRows.map((n) => {
             const data = n.result ?? {}
             return columns.reduce(
                 (acc, cur, index) => {
-                    if (columnDisallowList.includes(cur)) {
-                        return acc
-                    }
                     acc[cur] = Array.isArray(data) ? data[index] : (data as Record<string, any>)[index]
                     return acc
                 },
@@ -251,14 +191,9 @@ export const getJsonTableData = (
     return []
 }
 
-export function copyTableToCsv(
-    dataTableRows: DataTableRow[],
-    columns: string[],
-    query: DataTableNode,
-    preferredColumnOrder?: string[]
-): void {
+export function copyTableToCsv(dataTableRows: DataTableRow[], columns: string[], query: DataTableNode): void {
     try {
-        const tableData = getCsvTableData(dataTableRows, columns, query, preferredColumnOrder)
+        const tableData = getCsvTableData(dataTableRows, columns, query)
 
         const csv = Papa.unparse(tableData)
 
@@ -280,14 +215,9 @@ export function copyTableToJson(dataTableRows: DataTableRow[], columns: string[]
     }
 }
 
-export function copyTableToExcel(
-    dataTableRows: DataTableRow[],
-    columns: string[],
-    query: DataTableNode,
-    preferredColumnOrder?: string[]
-): void {
+export function copyTableToExcel(dataTableRows: DataTableRow[], columns: string[], query: DataTableNode): void {
     try {
-        const tableData = getCsvTableData(dataTableRows, columns, query, preferredColumnOrder)
+        const tableData = getCsvTableData(dataTableRows, columns, query)
 
         const tsv = Papa.unparse(tableData, { delimiter: '\t' })
 
