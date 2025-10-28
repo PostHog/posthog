@@ -1,7 +1,18 @@
 #!/bin/bash
 set -e
 
-MIGRATION_TYPE="${1:-all}"
+MIGRATION_TYPE="$1"
+
+if [ -z "$MIGRATION_TYPE" ]; then
+    echo "Error: No migration type specified"
+    echo ""
+    echo "Usage: $0 <all|persons|cyclotron|behavioral-cohorts>"
+    echo "  all                - Run all migrations"
+    echo "  persons            - Run only persons migrations"
+    echo "  cyclotron          - Run only cyclotron migrations"
+    echo "  behavioral-cohorts - Run only behavioral cohorts migrations"
+    exit 1
+fi
 
 # Determine the base directory for migrations
 # In Docker, we use /migrations; locally, we use the parent directory
@@ -80,8 +91,8 @@ case "$MIGRATION_TYPE" in
         run_behavioral_cohorts_migrations
         ;;
     *)
-        echo "Usage: $0 [all|persons|cyclotron|behavioral-cohorts]"
-        echo "  all                - Run all migrations (default)"
+        echo "Usage: $0 <all|persons|cyclotron|behavioral-cohorts>"
+        echo "  all                - Run all migrations"
         echo "  persons            - Run only persons migrations"
         echo "  cyclotron          - Run only cyclotron migrations"
         echo "  behavioral-cohorts - Run only behavioral cohorts migrations"
