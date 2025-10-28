@@ -25,7 +25,8 @@ import { validateVariants } from './variantsPanelValidation'
 
 const validateExperiment = (
     experiment: Experiment,
-    featureFlagKeyValidation: { valid: boolean; error: string | null } | null
+    featureFlagKeyValidation: { valid: boolean; error: string | null } | null,
+    mode?: 'create' | 'link'
 ): boolean => {
     const validExperimentName = experiment.name !== null && experiment.name.trim().length > 0
 
@@ -33,6 +34,7 @@ const validateExperiment = (
         flagKey: experiment.feature_flag_key,
         variants: experiment.parameters.feature_flag_variants,
         featureFlagKeyValidation,
+        mode,
     })
 
     return validExperimentName && !variantsValidation.hasErrors
@@ -110,7 +112,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 featureFlagLogic,
                 ['featureFlags'],
                 variantsPanelLogicInstance,
-                ['featureFlagKeyDirty', 'featureFlagKeyValidation', 'featureFlagKeyValidationLoading'],
+                ['featureFlagKeyDirty', 'featureFlagKeyValidation', 'featureFlagKeyValidationLoading', 'mode'],
             ],
             actions: [
                 eventUsageLogic,
@@ -229,9 +231,12 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
     })),
     selectors(() => ({
         canSubmitExperiment: [
-            (s) => [s.experiment, s.featureFlagKeyValidation],
-            (experiment: Experiment, featureFlagKeyValidation: { valid: boolean; error: string | null } | null) =>
-                validateExperiment(experiment, featureFlagKeyValidation),
+            (s) => [s.experiment, s.featureFlagKeyValidation, s.mode],
+            (
+                experiment: Experiment,
+                featureFlagKeyValidation: { valid: boolean; error: string | null } | null,
+                mode: 'create' | 'link'
+            ) => validateExperiment(experiment, featureFlagKeyValidation, mode),
         ],
         isEditMode: [
             (s) => [s.experiment],
@@ -288,6 +293,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     flagKey: values.experiment.feature_flag_key,
                     variants: values.experiment.parameters.feature_flag_variants,
                     featureFlagKeyValidation: values.featureFlagKeyValidation,
+                    mode: values.mode,
                 })
                 if (validation.hasErrors) {
                     lemonToast.error('Please fix variants configuration')

@@ -27,6 +27,7 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
     actions: {
         setMode: (mode: 'create' | 'link') => ({ mode }),
         validateFeatureFlagKey: (key: string) => ({ key }),
+        clearFeatureFlagKeyValidation: true,
 
         setFeatureFlagKeyDirty: true,
         setLinkedFeatureFlag: (flag: FeatureFlagType | null) => ({ flag }),
@@ -96,6 +97,7 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
 
                     return { valid: true, error: null }
                 },
+                clearFeatureFlagKeyValidation: () => null,
             },
         ],
     }),
@@ -113,12 +115,21 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
     },
     listeners: ({ props, actions }) => ({
         setMode: ({ mode }) => {
-            // When switching from link to create, validate the current key to show it's taken
-            // Note: We use values.experiment (from createExperimentLogic connection) instead of props.experiment
-            // because props are captured at mount time and don't update when the parent logic changes state
-            if (mode === 'create' && props.experiment.feature_flag_key) {
+            if (mode === 'link') {
+                // When switching to link mode, clear validation
+                // In link mode, we're using an existing flag, so the key validation doesn't apply
+                actions.clearFeatureFlagKeyValidation()
+            } else if (mode === 'create' && props.experiment.feature_flag_key) {
+                // When switching from link to create, validate the current key to show it's taken
+                // Note: We use values.experiment (from createExperimentLogic connection) instead of props.experiment
+                // because props are captured at mount time and don't update when the parent logic changes state
                 actions.validateFeatureFlagKey(props.experiment.feature_flag_key)
             }
+        },
+        setLinkedFeatureFlag: () => {
+            // When selecting a linked flag, clear validation
+            // The linked flag's key already exists (that's the point!), so validation doesn't apply
+            actions.clearFeatureFlagKeyValidation()
         },
     }),
 })

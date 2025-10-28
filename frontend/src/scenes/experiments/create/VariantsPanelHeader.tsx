@@ -26,12 +26,12 @@ export const VariantsPanelHeader = ({
     experiment: Experiment
     disabled: boolean
 }): JSX.Element => {
-    const { featureFlagKeyValidation } = useValues(variantsPanelLogic({ experiment, disabled }))
+    const { featureFlagKeyValidation, mode } = useValues(variantsPanelLogic({ experiment, disabled }))
 
     const flagKey = experiment.feature_flag_key
     const variants = experiment.parameters?.feature_flag_variants || []
 
-    const result = validateVariants({ flagKey, variants, featureFlagKeyValidation })
+    const result = validateVariants({ flagKey, variants, featureFlagKeyValidation, mode })
 
     const { hasErrors, hasWarnings, rules } = result
     const { hasFlagKey, hasFlagKeyError } = rules
