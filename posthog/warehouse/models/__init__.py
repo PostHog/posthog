@@ -1,3 +1,4 @@
+from .connection import *
 from .credential import *
 from .data_modeling_job import *
 from .datawarehouse_managed_viewset import *
