@@ -476,7 +476,7 @@ services:
             - DEBUG=${DEBUG:-0}
         volumes:
             - '/var/run/docker.sock:/var/run/docker.sock'
-            - './docker/localstack/init-aws.sh:/etc/localstack/init/ready.d/init-aws.sh'
+            - './docker/localstack/init-localstack.sh:/etc/localstack/init/ready.d/init-localstack.sh'
 
 networks:
     otel_network:
