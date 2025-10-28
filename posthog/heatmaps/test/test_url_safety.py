@@ -5,6 +5,12 @@ import pytest
 from posthog.heatmaps import heatmaps_utils as us
 
 
+@pytest.fixture(autouse=True)
+def force_prod(monkeypatch):
+    # Ensure tests run with production-like SSRF behavior unless overridden in a test
+    monkeypatch.setattr(us, "is_dev_mode", lambda: False)
+
+
 class TestUrlSafety:
     def test_is_url_allowed_disallowed_scheme(self):
         ok, err = us.is_url_allowed("javascript:alert(1)")
@@ -21,6 +27,12 @@ class TestUrlSafety:
     def test_is_url_allowed_metadata_host(self):
         ok, err = us.is_url_allowed("http://169.254.169.254/latest/meta-data/")
         assert not ok and "Local/metadata" in (err or "")
+
+    def test_dev_mode_allows_everything(self, monkeypatch):
+        monkeypatch.setattr(us, "is_dev_mode", lambda: True)
+        ok, err = us.is_url_allowed("http://localhost")
+        assert ok and err is None
+        assert us.should_block_url("http://localhost/x") is False
 
     def test_is_url_allowed_private_resolution_blocked(self, monkeypatch):
         def fake_resolve(host: str):
