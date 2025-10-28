@@ -335,7 +335,9 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 recreate_model_paths(view)
 
         if was_sync_frequency_updated:
-            view.enable_materialization(unpause=before_update and before_update.sync_frequency_interval is None)
+            view.enable_materialization(
+                unpause=before_update is not None and before_update.sync_frequency_interval is None
+            )
 
         return view
 
