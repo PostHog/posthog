@@ -433,17 +433,17 @@ class ProgressTracker {
         const elapsed = (Date.now() - this.startTime) / 1000
         const processed = this.completed + this.failed + this.skipped
         const percent = Math.round((processed / this.total) * 100)
-        const rate = processed / elapsed
-        const remaining = (this.total - processed) / rate
+        const rate = elapsed > 0 ? processed / elapsed : 0
+        const remaining = rate > 0 ? (this.total - processed) / rate : 0
         const mbTransferred = (this.bytesTransferred / 1024 / 1024).toFixed(2)
-        const mbPerSec = (this.bytesTransferred / 1024 / 1024 / elapsed).toFixed(2)
+        const mbPerSec = elapsed > 0 ? (this.bytesTransferred / 1024 / 1024 / elapsed).toFixed(2) : '0.00'
 
         const bar = '█'.repeat(Math.floor(percent / 2)) + '░'.repeat(50 - Math.floor(percent / 2))
 
         process.stdout.write(
             `\r[${bar}] ${percent}% | ${processed}/${this.total} objects | ` +
                 `⏱ ${Math.floor(elapsed)}s | Est. ${Math.floor(remaining)}s remaining | ` +
-                `📊 ${mbPerSec} MB/s | ✓ ${this.completed} | ✗ ${this.failed} | ⊘ ${this.skipped}`
+                `📊 ${mbTransferred} MB (${mbPerSec} MB/s) | ✓ ${this.completed} | ✗ ${this.failed} | ⊘ ${this.skipped}`
         )
     }
 
@@ -578,7 +578,7 @@ async function migrateService(serviceName, config, options, checkpoint) {
     for (let i = 0; i < options.workers; i++) {
         workers.push(
             (async () => {
-                while (queue.length > 0) {
+                while (true) {
                     const obj = queue.shift()
                     if (!obj) break
 
