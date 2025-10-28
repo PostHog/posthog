@@ -23,9 +23,9 @@ import { availableSourcesDataLogic } from '../new/availableSourcesDataLogic'
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
 export function DataWarehouseManagedSourcesTable(): JSX.Element {
-    const { filteredManagedSources, dataWarehouseSourcesLoading, sourceReloadingById, searchTerm } =
+    const { filteredManagedSources, dataWarehouseSourcesLoading, sourceReloadingById, managedSearchTerm } =
         useValues(dataWarehouseSettingsLogic)
-    const { deleteSource, reloadSource, setSearchTerm } = useActions(dataWarehouseSettingsLogic)
+    const { deleteSource, reloadSource, setManagedSearchTerm } = useActions(dataWarehouseSettingsLogic)
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesDataLogic)
 
     if (availableSourcesLoading || !availableSources) {
@@ -36,7 +36,12 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
         <>
             <FireSaleBanner />
             <div className="flex gap-2 justify-between items-center mb-4">
-                <LemonInput type="search" placeholder="Search..." onChange={setSearchTerm} value={searchTerm} />
+                <LemonInput
+                    type="search"
+                    placeholder="Search..."
+                    onChange={setManagedSearchTerm}
+                    value={managedSearchTerm}
+                />
             </div>
             <LemonTable
                 id="managed-sources"

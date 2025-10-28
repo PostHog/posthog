@@ -43,6 +43,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         deleteSelfManagedTable: (tableId: string) => ({ tableId }),
         refreshSelfManagedTableSchema: (tableId: string) => ({ tableId }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setManagedSearchTerm: (managedSearchTerm: string) => ({ managedSearchTerm }),
         deleteJoin: (join: DataWarehouseViewLink) => ({ join }),
     }),
     loaders(({ actions, values }) => ({
@@ -104,6 +105,12 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
             },
         ],
+        managedSearchTerm: [
+            '' as string,
+            {
+                setManagedSearchTerm: (_, { managedSearchTerm }) => managedSearchTerm,
+            },
+        ],
     })),
     selectors({
         selfManagedTables: [
@@ -126,13 +133,13 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             },
         ],
         filteredManagedSources: [
-            (s) => [s.dataWarehouseSources, s.searchTerm],
-            (dataWarehouseSources, searchTerm): ExternalDataSource[] => {
+            (s) => [s.dataWarehouseSources, s.managedSearchTerm],
+            (dataWarehouseSources, managedSearchTerm): ExternalDataSource[] => {
                 const sources = dataWarehouseSources?.results ?? []
-                if (!searchTerm?.trim()) {
+                if (!managedSearchTerm?.trim()) {
                     return sources
                 }
-                const normalizedSearch = searchTerm.toLowerCase()
+                const normalizedSearch = managedSearchTerm.toLowerCase()
                 return sources.filter(
                     (source) =>
                         source.source_type.toLowerCase().includes(normalizedSearch) ||
