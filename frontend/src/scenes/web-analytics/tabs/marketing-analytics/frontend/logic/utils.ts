@@ -417,7 +417,6 @@ export function createMarketingTile(
         }
     }
 
-    // Handle cost column with currency conversion
     if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.Cost) {
         const mappings = config.columnMappings
         const costColumn = mappings.cost
@@ -425,22 +424,17 @@ export function createMarketingTile(
         const fallbackCurrency = mappings.fallbackCurrency
         const needsDivision = mappings.costNeedsDivision
 
-        // Build cost expression with optional division
         let costExpr = needsDivision ? `toFloat(${costColumn} / 1000000)` : `toFloat(${costColumn})`
 
         let mathHogql: string
 
-        // Check if currency column exists in table
         const hasCurrencyColumn = currencyColumn && table.fields && currencyColumn in table.fields
 
         if (hasCurrencyColumn) {
-            // Convert each row's cost, then sum: SUM(toFloat(convertCurrency(currencyColumn, baseCurrency, costExpr)))
             mathHogql = `SUM(toFloat(convertCurrency(${currencyColumn}, '${baseCurrency}', ${costExpr})))`
         } else if (fallbackCurrency) {
-            // No currency column but has fallback: toFloat(convertCurrency('fallbackCurrency', baseCurrency, SUM(costExpr)))
             mathHogql = `toFloat(convertCurrency('${fallbackCurrency}', '${baseCurrency}', SUM(${costExpr})))`
         } else {
-            // No currency column and no fallback: just sum
             mathHogql = `SUM(${costExpr})`
         }
 
