@@ -84,7 +84,6 @@ dependencies = [
     "orjson==3.10.15",
     "pandas~=2.2.2",
     "paramiko==3.4.0",
-    "pdpyras==5.4.1",
     "phonenumberslite==8.13.6",
     "pillow==10.2.0",
     "posthoganalytics>=6.7.4",

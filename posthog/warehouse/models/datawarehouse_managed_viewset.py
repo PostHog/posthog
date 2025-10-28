@@ -93,7 +93,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 saved_query.columns = view.columns
                 saved_query.external_tables = saved_query.s3_tables
                 saved_query.is_materialized = True
-                saved_query.sync_frequency_interval = timedelta(hours=6)
+                saved_query.sync_frequency_interval = timedelta(hours=12)
                 saved_query.save()
 
                 # Make sure paths properly exist both on creation and update
@@ -188,7 +188,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
 
     def _get_expected_views_for_revenue_analytics(self) -> list[ExpectedView]:
         """
-        Reuses build_all_revenue_analytics_views() from create_hogql_database logic.
+        Reuses build_all_revenue_analytics_views() from Database.create_for logic.
         For each source (events + external data sources):
           - Creates 5 views: customer, charge, subscription, revenue_item, product
         """
