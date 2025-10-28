@@ -4,7 +4,7 @@ import { createTrackedRE2 } from '../tracked-re2'
 import { escapeQuotes } from './utils'
 
 // Below splits all elements by ;, while ignoring escaped quotes and semicolons within quotes
-const splitChainRegex = createTrackedRE2(/(?:[^\s;"]|"(?:\\.|[^"])*")+/g, undefined, 'elements-chain:split')
+const splitChainRegex = createTrackedRE2(/(?:[^\s;"]|"(?:[^"\\]|\\.)*")+/g, undefined, 'elements-chain:split')
 // Below splits the tag/classes from attributes
 // Needs a regex because classes can have : too
 const splitClassAttributes = createTrackedRE2(/(.*?)($|:([a-zA-Z\-_0-9]*=.*))/g, undefined, 'elements-chain:splitClass')
