@@ -1,5 +1,4 @@
 import { PostHog } from 'posthog-node'
-import { SeverityLevel } from 'posthog-node/src/extensions/error-tracking/types'
 
 import { defaultConfig } from '../config/config'
 import { Team } from '../types'
@@ -75,7 +74,6 @@ export function flush(): void {
 // so define a type for them that we can flatten internally
 type Primitive = number | string | boolean | bigint | symbol | null | undefined
 interface ExceptionHint {
-    level: SeverityLevel
     tags: Record<string, Primitive>
     extra: Record<string, any>
 }
@@ -85,11 +83,11 @@ export function captureException(exception: any, hint?: Partial<ExceptionHint>):
         let additionalProperties = {}
         if (hint) {
             additionalProperties = {
-                ...(hint.level ? { level: hint.level } : {}),
                 ...(hint.tags || {}),
                 ...(hint.extra || {}),
             }
         }
+
         posthog.captureException(exception, undefined, additionalProperties)
     }
 }
