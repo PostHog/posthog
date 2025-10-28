@@ -1807,6 +1807,7 @@ class IntegrationKind(StrEnum):
 
 
 class IntervalType(StrEnum):
+    SECOND = "second"
     MINUTE = "minute"
     HOUR = "hour"
     DAY = "day"
