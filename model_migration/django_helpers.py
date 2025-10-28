@@ -150,21 +150,18 @@ def ensure_model_db_tables(models_path: Path) -> bool:
     return True
 
 
-def update_foreign_key_references(line: str, model_names: Set[str]) -> str:
+def update_foreign_key_references(line: str, model_names: Set[str], app_label: str) -> str:
     """
     Update ForeignKey references to include app label prefix.
 
     Args:
         line: Line of Python code
         model_names: Set of model names being moved (don't prefix these)
+        app_label: Target app label (e.g., "data_warehouse")
 
     Returns:
         Updated line with proper app label prefixes
     """
-    # Only update references in ForeignKey, ManyToManyField, OneToOneField lines
-    if not any(field_type in line for field_type in ["ForeignKey", "ManyToManyField", "OneToOneField"]):
-        return line
-
     # First handle direct class references: ForeignKey(ClassName, ...)
     direct_pattern = r"\b(ForeignKey|ManyToManyField|OneToOneField)\(([A-Z][a-zA-Z]*)([\),])"
 
@@ -182,9 +179,39 @@ def update_foreign_key_references(line: str, model_names: Set[str]) -> str:
 
     line = re.sub(direct_pattern, replace_direct, line)
 
-    # Then handle existing string references
+    # Handle "posthog.ModelName" references - change to "datawarehouse.ModelName" if model is moving
+    posthog_prefixed_pattern = r'"posthog\.([A-Z][a-zA-Z]*)"'
+
+    def replace_posthog_prefixed(match):
+        model_ref = match.group(1)
+        # If this model is being moved, change to target app label
+        if model_ref in model_names:
+            return f'"{app_label}.{model_ref}"'
+        # Otherwise keep posthog prefix
+        return match.group(0)
+
+    line = re.sub(posthog_prefixed_pattern, replace_posthog_prefixed, line)
+
+    # Handle existing incorrect app label references (e.g., "datawarehouse." → "data_warehouse.")
+    # This catches any app label that doesn't match the current one
+    incorrect_label_pattern = r'"([a-z_]+)\.([A-Z][a-zA-Z]*)"'
+
+    def replace_incorrect_label(match):
+        old_label = match.group(1)
+        model_ref = match.group(2)
+
+        # If this model is one we're managing and the label is wrong, fix it
+        if model_ref in model_names and old_label != app_label:
+            return f'"{app_label}.{model_ref}"'
+
+        # Otherwise keep as is
+        return match.group(0)
+
+    line = re.sub(incorrect_label_pattern, replace_incorrect_label, line)
+
+    # Then handle existing unprefixed string references
     # Pattern to match quoted model references in field definitions
-    # Matches: "ModelName" but not "posthog.ModelName" (already prefixed)
+    # Matches: "ModelName" but not "posthog.ModelName" or "datawarehouse.ModelName"
     pattern = r'"([A-Z][a-zA-Z]*)"'
 
     def replace_reference(match):
@@ -198,9 +225,14 @@ def update_foreign_key_references(line: str, model_names: Set[str]) -> str:
     return re.sub(pattern, replace_reference, line)
 
 
-def fix_foreign_keys_in_file(file_path: Path, model_names: Set[str]) -> bool:
+def fix_foreign_keys_in_file(file_path: Path, model_names: Set[str], app_label: str) -> bool:
     """
     Update ForeignKey references in a Python file.
+
+    Args:
+        file_path: Path to Python file
+        model_names: Set of model names being moved
+        app_label: Target app label (e.g., "data_warehouse")
 
     Returns True if file was modified.
     """
@@ -213,7 +245,7 @@ def fix_foreign_keys_in_file(file_path: Path, model_names: Set[str]) -> bool:
     updated_lines = []
 
     for line in lines:
-        updated_line = update_foreign_key_references(line, model_names)
+        updated_line = update_foreign_key_references(line, model_names, app_label)
         if updated_line != line:
             modified = True
         updated_lines.append(updated_line)

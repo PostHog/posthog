@@ -34,6 +34,7 @@ PHASE_NAMES = [
     "prepare_structure",
     "move_files",
     "update_imports",
+    "prepare_models",  # NEW: Fix ForeignKeys, db_table before validation
     "validate_django",
     "generate_migrations",
 ]
@@ -113,7 +114,7 @@ def phase_1_prepare_structure(config: dict, tracker: PhaseTracker) -> None:
 
     # Create AppConfig
     apps_file = target_dir / "apps.py"
-    app_label = product.replace("_", "")
+    app_label = product  # Keep underscores, e.g., "data_warehouse"
     class_name = "".join(word.capitalize() for word in product.split("_")) + "Config"
 
     if not apps_file.exists():
@@ -165,6 +166,12 @@ def phase_2_move_files(config: dict, tracker: PhaseTracker) -> None:
 
         # Create parent directory for target
         target.parent.mkdir(parents=True, exist_ok=True)
+
+        # If target exists, remove it first (handles __init__.py created by Phase 1)
+        if target.exists():
+            print(f"  ⚠ Target exists, removing: {target}")
+            target.unlink()
+            operations.append(f"rm {target}")
 
         # Execute git mv
         try:
@@ -228,59 +235,28 @@ def phase_3_update_imports(config: dict, tracker: PhaseTracker) -> None:
         raise
 
 
-def phase_4_validate_django(config: dict, tracker: PhaseTracker) -> None:
+def phase_4_prepare_models(config: dict, tracker: PhaseTracker) -> None:
     """
-    Phase 4: Validate with Django.
-    - Run python manage.py migrate --plan
-    - Ensure Django loads without errors
+    Phase 4: Prepare Django models for validation.
+    - Extract model names from moved files
+    - Fix ForeignKey string references
+    - Ensure db_table declarations
+
+    This prepares models so Phase 5 validation will pass.
     """
     print("\n" + "=" * 80)
-    print("PHASE 4: Validate Django")
+    print("PHASE 4: Prepare Django Models")
     print("=" * 80)
 
     tracker.start_phase(4)
-
-    try:
-        result = run_command(
-            ["python", "manage.py", "migrate", "--plan"],
-            "Validate Django with migrate --plan",
-            check=False,
-        )
-
-        if result.returncode != 0:
-            error = f"Django validation failed with exit code {result.returncode}\n{result.stderr}"
-            print(f"❌ {error}")
-            tracker.fail_phase(4, error)
-            return
-
-        tracker.complete_phase(4, operations=["python manage.py migrate --plan"])
-        print("\n✓ Phase 4 completed - Django validation passed")
-
-    except Exception as e:
-        print(f"❌ Django validation failed: {e}")
-        tracker.fail_phase(4, str(e))
-        raise
-
-
-def phase_5_generate_migrations(config: dict, tracker: PhaseTracker) -> None:
-    """
-    Phase 5: Generate Django migrations.
-    - Extract model names from moved files
-    - Ensure db_table declarations
-    - Fix ForeignKey references
-    - Generate migrations for product app (ContentType updates)
-    - Generate posthog removal migration
-    """
-    print("\n" + "=" * 80)
-    print("PHASE 5: Generate Django Migrations")
-    print("=" * 80)
-
-    tracker.start_phase(5)
 
     product = config["product"]
     target_base = config["target"]
     target_dir = Path(target_base.replace(".", "/"))
     models_dir = target_dir / "models"
+
+    # Get app label from apps.py (should match product name with underscores)
+    app_label = product  # e.g., "data_warehouse"
 
     operations = []
 
@@ -302,13 +278,28 @@ def phase_5_generate_migrations(config: dict, tracker: PhaseTracker) -> None:
         operations.append(f"Discovered {len(model_names)} models")
 
         if not model_names:
-            print("⚠️  No models found - skipping migration generation")
-            tracker.complete_phase(5, operations=operations)
+            print("⚠️  No models found - skipping preparation")
+            tracker.complete_phase(4, operations=operations)
             return
 
-        # Step 2: Ensure db_table declarations
-        print("\n2. Ensuring db_table declarations...")
-        modified_count = 0
+        # Step 2: Fix ForeignKey references
+        print("\n2. Fixing ForeignKey references...")
+        fk_modified_count = 0
+
+        if models_dir.exists():
+            for py_file in models_dir.glob("*.py"):
+                if py_file.name.startswith("__"):
+                    continue
+                if django_helpers.fix_foreign_keys_in_file(py_file, model_names, app_label):
+                    print(f"   ✓ Fixed ForeignKeys in {py_file.name}")
+                    fk_modified_count += 1
+
+        print(f"   Modified {fk_modified_count} files with ForeignKey updates")
+        operations.append(f"Fixed ForeignKeys in {fk_modified_count} files")
+
+        # Step 3: Ensure db_table declarations
+        print("\n3. Ensuring db_table declarations...")
+        db_table_modified_count = 0
 
         if models_dir.exists():
             for py_file in models_dir.glob("*.py"):
@@ -316,28 +307,98 @@ def phase_5_generate_migrations(config: dict, tracker: PhaseTracker) -> None:
                     continue
                 if django_helpers.ensure_model_db_tables(py_file):
                     print(f"   ✓ Updated {py_file.name}")
-                    modified_count += 1
+                    db_table_modified_count += 1
 
-        print(f"   Modified {modified_count} files with db_table declarations")
-        operations.append(f"Added db_table to {modified_count} files")
+        print(f"   Modified {db_table_modified_count} files with db_table declarations")
+        operations.append(f"Added db_table to {db_table_modified_count} files")
 
-        # Step 3: Fix ForeignKey references
-        print("\n3. Fixing ForeignKey references...")
-        fk_modified_count = 0
+        tracker.complete_phase(4, operations=operations)
+        print("\n✓ Phase 4 completed - models prepared for Django validation")
+
+    except Exception as e:
+        print(f"❌ Model preparation failed: {e}")
+        tracker.fail_phase(4, str(e))
+        raise
+
+
+def phase_5_validate_django(config: dict, tracker: PhaseTracker) -> None:
+    """
+    Phase 5: Validate with Django.
+    - Run python manage.py migrate --plan
+    - Ensure Django loads without errors
+    """
+    print("\n" + "=" * 80)
+    print("PHASE 5: Validate Django")
+    print("=" * 80)
+
+    tracker.start_phase(5)
+
+    try:
+        result = run_command(
+            ["python", "manage.py", "migrate", "--plan"],
+            "Validate Django with migrate --plan",
+            check=False,
+        )
+
+        if result.returncode != 0:
+            error = f"Django validation failed with exit code {result.returncode}\n{result.stderr}"
+            print(f"❌ {error}")
+            tracker.fail_phase(5, error)
+            return
+
+        tracker.complete_phase(5, operations=["python manage.py migrate --plan"])
+        print("\n✓ Phase 5 completed - Django validation passed")
+
+    except Exception as e:
+        print(f"❌ Django validation failed: {e}")
+        tracker.fail_phase(5, str(e))
+        raise
+
+
+def phase_6_generate_migrations(config: dict, tracker: PhaseTracker) -> None:
+    """
+    Phase 6: Generate Django migrations (postprocess).
+    - Discover model names (for LLM editing)
+    - Generate product app migration
+    - Generate posthog removal migration
+    - LLM edit both migrations
+
+    Note: Model preparation (ForeignKeys, db_table) was done in Phase 4.
+    """
+    print("\n" + "=" * 80)
+    print("PHASE 6: Generate Django Migrations")
+    print("=" * 80)
+
+    tracker.start_phase(6)
+
+    product = config["product"]
+    target_base = config["target"]
+    target_dir = Path(target_base.replace(".", "/"))
+    models_dir = target_dir / "models"
+
+    operations = []
+
+    try:
+        # Step 1: Discover model names (needed for LLM editing)
+        print("\n1. Discovering model classes for LLM editing...")
+        model_names = set()
 
         if models_dir.exists():
             for py_file in models_dir.glob("*.py"):
                 if py_file.name.startswith("__"):
                     continue
-                if django_helpers.fix_foreign_keys_in_file(py_file, model_names):
-                    print(f"   ✓ Fixed ForeignKeys in {py_file.name}")
-                    fk_modified_count += 1
+                models = django_helpers.extract_model_names(py_file)
+                model_names.update(models)
 
-        print(f"   Modified {fk_modified_count} files with ForeignKey updates")
-        operations.append(f"Fixed ForeignKeys in {fk_modified_count} files")
+        print(f"   Found {len(model_names)} models")
 
-        # Step 4: Generate product app migration
-        print(f"\n4. Generating migration for {product}...")
+        if not model_names:
+            print("⚠️  No models found - skipping migration generation")
+            tracker.complete_phase(6, operations=operations)
+            return
+
+        # Step 2: Generate product app migration
+        print(f"\n2. Generating migration for {product}...")
         result = run_command(
             ["python", "manage.py", "makemigrations", product, "-n", f"migrate_{product}_models"],
             f"Generate migration for {product}",
@@ -347,13 +408,13 @@ def phase_5_generate_migrations(config: dict, tracker: PhaseTracker) -> None:
         if result.returncode != 0:
             error = f"Product migration generation failed: {result.stderr}"
             print(f"❌ {error}")
-            tracker.fail_phase(5, error)
+            tracker.fail_phase(6, error)
             return
 
         operations.append(f"Generated {product} migration")
 
-        # Step 5: Generate posthog removal migration
-        print(f"\n5. Generating posthog removal migration...")
+        # Step 3: Generate posthog removal migration
+        print(f"\n3. Generating posthog removal migration...")
         result = run_command(
             ["python", "manage.py", "makemigrations", "posthog", "-n", f"remove_{product}_models"],
             "Generate posthog removal migration",
@@ -363,13 +424,13 @@ def phase_5_generate_migrations(config: dict, tracker: PhaseTracker) -> None:
         if result.returncode != 0:
             error = f"Posthog migration generation failed: {result.stderr}"
             print(f"❌ {error}")
-            tracker.fail_phase(5, error)
+            tracker.fail_phase(6, error)
             return
 
         operations.append("Generated posthog removal migration")
 
-        # Step 6: Edit migrations with LLM
-        print(f"\n6. Editing migrations with Claude CLI...")
+        # Step 4: Edit migrations with LLM
+        print(f"\n4. Editing migrations with Claude CLI...")
 
         # Determine app label (lowercase, no underscores)
         app_label = product.replace("_", "")
@@ -403,9 +464,9 @@ def phase_5_generate_migrations(config: dict, tracker: PhaseTracker) -> None:
             print(f"\n⚠️  LLM editing error: {e}")
             operations.append(f"LLM editing error: {e}")
 
-        # Step 7: Provide next steps
+        # Step 5: Provide next steps
         print("\n" + "=" * 80)
-        print("✓ Phase 5 completed - migrations generated and edited")
+        print("✓ Phase 6 completed - migrations generated and edited")
         print("=" * 80)
         print("\n📋 Next steps:")
         print("\n1. Review edited migrations:")
@@ -418,11 +479,11 @@ def phase_5_generate_migrations(config: dict, tracker: PhaseTracker) -> None:
         print("   python manage.py migrate --plan")
         print("\n4. If migrations look good, you can apply them or create PR")
 
-        tracker.complete_phase(5, operations=operations)
+        tracker.complete_phase(6, operations=operations)
 
     except Exception as e:
         print(f"❌ Migration generation failed: {e}")
-        tracker.fail_phase(5, str(e))
+        tracker.fail_phase(6, str(e))
         raise
 
 
@@ -431,8 +492,9 @@ PHASE_FUNCTIONS = {
     1: phase_1_prepare_structure,
     2: phase_2_move_files,
     3: phase_3_update_imports,
-    4: phase_4_validate_django,
-    5: phase_5_generate_migrations,
+    4: phase_4_prepare_models,
+    5: phase_5_validate_django,
+    6: phase_6_generate_migrations,
 }
 
 
