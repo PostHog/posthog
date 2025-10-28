@@ -85,3 +85,129 @@ class TestSessionGroupSummaryStringifier:
         stringifier = SessionGroupSummaryStringifier(input_data)
         stringified_data = stringifier.stringify_patterns()
         assert stringified_data.strip() == output_data.strip()
+
+    def test_segment_with_empty_previous_and_next_events(self):
+        """Test that segments with no previous/next events show appropriate placeholder text."""
+        pattern_data = {
+            "patterns": [
+                {
+                    "pattern_id": 1,
+                    "pattern_name": "Empty Context Pattern",
+                    "pattern_description": "Testing empty event lists",
+                    "severity": "low",
+                    "indicators": ["Test indicator"],
+                    "events": [
+                        {
+                            "segment_name": "Isolated Event",
+                            "segment_outcome": "Event occurred in isolation",
+                            "segment_success": True,
+                            "segment_index": 0,
+                            "previous_events_in_segment": [],
+                            "target_event": {
+                                "session_id": "test-session-123",
+                                "description": "Isolated button click",
+                                "abandonment": False,
+                                "confusion": False,
+                                "exception": None,
+                                "milliseconds_since_start": 1000,
+                                "event": "$autocapture",
+                                "event_type": "click",
+                                "event_uuid": "event-uuid-1",
+                            },
+                            "next_events_in_segment": [],
+                        }
+                    ],
+                    "stats": {"occurences": 1, "sessions_affected": 1, "sessions_affected_ratio": 1.0},
+                }
+            ]
+        }
+        stringifier = SessionGroupSummaryStringifier(pattern_data)
+        result = stringifier.stringify_patterns()
+        assert "Nothing, start of the segment." in result
+        assert "Nothing, end of the segment." in result
+        assert "Isolated button click" in result
+
+    def test_examples_per_pattern_limit_applied(self):
+        """Test that only the first N segment examples are included when limit is set."""
+        events = [
+            {
+                "segment_name": f"Segment {i}",
+                "segment_outcome": f"Outcome {i}",
+                "segment_success": True,
+                "segment_index": i,
+                "previous_events_in_segment": [],
+                "target_event": {
+                    "session_id": f"session-{i}",
+                    "description": f"Event {i}",
+                    "abandonment": False,
+                    "confusion": False,
+                    "exception": None,
+                    "milliseconds_since_start": 1000 * i,
+                    "event": "$pageview",
+                    "event_type": None,
+                    "event_uuid": f"uuid-{i}",
+                },
+                "next_events_in_segment": [],
+            }
+            for i in range(10)
+        ]
+        pattern_data = {
+            "patterns": [
+                {
+                    "pattern_id": 1,
+                    "pattern_name": "Multiple Events Pattern",
+                    "pattern_description": "Testing limit",
+                    "severity": "medium",
+                    "indicators": ["Test"],
+                    "events": events,
+                    "stats": {"occurences": 10, "sessions_affected": 10, "sessions_affected_ratio": 1.0},
+                }
+            ]
+        }
+        stringifier = SessionGroupSummaryStringifier(pattern_data, examples_per_pattern_limit=3)
+        result = stringifier.stringify_patterns()
+        # Should include first 3 segments
+        for i in range(3):
+            assert f"Session `session-{i}`" in result
+            assert f"Event {i}" in result
+        # Should NOT include segments 3-9
+        for i in range(3, 10):
+            assert f"Session `session-{i}`" not in result
+
+    def test_missing_session_id_raises_error(self):
+        """Test that missing session_id in target_event raises ValueError."""
+        pattern_data = {
+            "patterns": [
+                {
+                    "pattern_id": 1,
+                    "pattern_name": "Bad Pattern",
+                    "pattern_description": "Missing session ID",
+                    "severity": "high",
+                    "indicators": ["Test"],
+                    "events": [
+                        {
+                            "segment_name": "Bad Segment",
+                            "segment_outcome": "Should fail",
+                            "segment_success": False,
+                            "segment_index": 0,
+                            "previous_events_in_segment": [],
+                            "target_event": {
+                                "description": "Event without session_id",
+                                "abandonment": False,
+                                "confusion": False,
+                                "exception": None,
+                                "milliseconds_since_start": 1000,
+                                "event": "$pageview",
+                                "event_type": None,
+                                "event_uuid": "uuid-1",
+                            },
+                            "next_events_in_segment": [],
+                        }
+                    ],
+                    "stats": {"occurences": 1, "sessions_affected": 1, "sessions_affected_ratio": 1.0},
+                }
+            ]
+        }
+        stringifier = SessionGroupSummaryStringifier(pattern_data)
+        with pytest.raises(ValueError, match="Session ID not found"):
+            stringifier.stringify_patterns()
