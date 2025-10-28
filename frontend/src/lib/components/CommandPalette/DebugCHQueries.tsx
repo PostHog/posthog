@@ -4,7 +4,7 @@ import { actions, afterMount, kea, path, reducers, selectors, useActions, useVal
 import { loaders } from 'kea-loaders'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconCodeInsert, IconCopy } from '@posthog/icons'
+import { IconCodeInsert, IconCopy, IconRefresh } from '@posthog/icons'
 
 import { ChartConfiguration, ChartDataset } from 'lib/Chart'
 import { Chart, ChartItem } from 'lib/Chart'
@@ -16,7 +16,6 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
-import { IconRefresh } from 'lib/lemon-ui/icons'
 import { humanizeBytes } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'

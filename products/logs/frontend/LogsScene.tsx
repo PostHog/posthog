@@ -2,7 +2,7 @@ import colors from 'ansi-colors'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconClock, IconFilter, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
+import { IconClock, IconFilter, IconMinusSquare, IconPlusSquare, IconRefresh } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -16,7 +16,6 @@ import {
 
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
-import { IconRefresh } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'

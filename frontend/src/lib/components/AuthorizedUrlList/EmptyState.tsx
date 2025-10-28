@@ -2,8 +2,9 @@ import { useActions } from 'kea'
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { IconRefresh } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconRefresh } from 'lib/lemon-ui/icons'
 
 import { ExperimentIdType } from '~/types'
 

@@ -1,12 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconTrash } from '@posthog/icons'
+import { IconRefresh, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { IconRefresh } from 'lib/lemon-ui/icons'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { DefaultEvaluationEnvironments } from './DefaultEvaluationEnvironments'

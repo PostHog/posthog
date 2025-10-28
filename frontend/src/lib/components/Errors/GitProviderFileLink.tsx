@@ -1,11 +1,10 @@
 import { useRef } from 'react'
 
-import { IconExternal } from '@posthog/icons'
+import { IconExternal, IconGithub } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { Link } from 'lib/lemon-ui/Link'
-import { IconGithub } from 'lib/lemon-ui/icons'
 
 import { SourceData } from './framesCodeSourceLogic'
 

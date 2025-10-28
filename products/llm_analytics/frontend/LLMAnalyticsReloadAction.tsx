@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 
+import { IconRefresh } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { IconRefresh } from 'lib/lemon-ui/icons'
 
 import { llmAnalyticsLogic } from './llmAnalyticsLogic'
 

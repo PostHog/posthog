@@ -4,10 +4,9 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
+import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { gradateColor, range } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
