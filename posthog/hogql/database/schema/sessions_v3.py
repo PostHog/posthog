@@ -139,7 +139,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
         name="duration"
     ),  # alias of $session_duration, deprecated but included for backwards compatibility
     "$is_bounce": BooleanDatabaseField(name="$is_bounce"),
-    "has_replay_events": BooleanDatabaseField(name="has_replay_events", nullable=False),
+    "$has_replay_events": BooleanDatabaseField(name="$has_replay_events", nullable=False),
 }
 
 
@@ -251,7 +251,7 @@ def select_from_sessions_table_v3(
         "$entry_ad_ids_map": arg_min_merge_field("entry_ad_ids_map"),
         "$entry_ad_ids_set": arg_min_merge_field("entry_ad_ids_set"),
         "$entry_channel_type_properties": arg_min_merge_field("entry_channel_type_properties"),
-        "has_replay_events": ast.Call(name="max", args=[ast.Field(chain=[table_name, "has_replay_events"])]),
+        "$has_replay_events": ast.Call(name="max", args=[ast.Field(chain=[table_name, "has_replay_events"])]),
     }
 
     # Alias
