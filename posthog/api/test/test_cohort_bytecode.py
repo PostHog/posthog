@@ -76,3 +76,48 @@ class TestCohortBytecode(APIBaseTest):
         self.assertIsNotNone(person_filter1.conditionHash)
         self.assertIsNotNone(person_filter2.conditionHash)
         self.assertEqual(person_filter1.conditionHash, person_filter2.conditionHash)
+
+    def test_cohort_filters_realtime_supported_all_valid_bytecode(self):
+        """Test that CohortFilters has realtimeSupported=True when all filters have valid bytecode"""
+        from posthog.api.cohort import CohortFilters
+
+        filters_data = {
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {"type": "person", "key": "email", "operator": "exact", "value": "test@example.com"},
+                    {"type": "realtime", "key": "event_name", "value": "performed_event", "event_type": "events"},
+                ],
+            }
+        }
+
+        cohort_filters = CohortFilters.model_validate(filters_data, context={"team": self.team})
+
+        # Should be realtime supported since all filters can generate bytecode
+        self.assertTrue(cohort_filters.realtimeSupported)
+
+    def test_cohort_filters_realtime_not_supported_with_behavioral_filter(self):
+        """Test that CohortFilters has realtimeSupported=False when it contains behavioral filters"""
+        from posthog.api.cohort import CohortFilters
+
+        filters_data = {
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {"type": "person", "key": "email", "operator": "exact", "value": "test@example.com"},
+                    {
+                        "type": "behavioral",
+                        "key": "event_name",
+                        "value": "performed_event",
+                        "event_type": "events",
+                        "time_value": 30,
+                        "time_interval": "day",
+                    },
+                ],
+            }
+        }
+
+        cohort_filters = CohortFilters.model_validate(filters_data, context={"team": self.team})
+
+        # Should not be realtime supported since behavioral filters don't generate bytecode
+        self.assertFalse(cohort_filters.realtimeSupported)
