@@ -2,6 +2,8 @@ import socket
 import ipaddress
 import urllib.parse as urlparse
 
+from posthog.cloud_utils import is_dev_mode
+
 # Shared constants
 DEFAULT_TARGET_WIDTHS = [320, 375, 425, 768, 1024, 1440, 1920]
 
@@ -26,6 +28,8 @@ def resolve_host_ips(host: str) -> set[ipaddress.IPv4Address | ipaddress.IPv6Add
 
 
 def is_url_allowed(raw_url: str) -> tuple[bool, str | None]:
+    if is_dev_mode():
+        return True, None
     try:
         u = urlparse.urlparse(raw_url)
     except Exception:
@@ -35,10 +39,10 @@ def is_url_allowed(raw_url: str) -> tuple[bool, str | None]:
     if not u.netloc:
         return False, "Missing host"
     host = (u.hostname or "").lower()
-    if host in {"localhost"} or host in METADATA_HOSTS:
+    if host in METADATA_HOSTS:
         return False, "Local/metadata host"
-    if host in {"127.0.0.1", "::1"}:
-        return False, "Loopback"
+    if host in {"localhost", "127.0.0.1", "::1"}:
+        return False, "Loopback/localhost not allowed"
     ips = resolve_host_ips(host)
     for ip in ips:
         if any(
@@ -56,12 +60,16 @@ def is_url_allowed(raw_url: str) -> tuple[bool, str | None]:
 
 
 def should_block_url(u: str) -> bool:
+    if is_dev_mode():
+        return False
     try:
         parsed = urlparse.urlparse(u)
     except Exception:
         return True
     host = (parsed.hostname or "").lower()
-    if host in {"localhost", "127.0.0.1", "::1"} or host in METADATA_HOSTS:
+    if host in METADATA_HOSTS:
+        return True
+    if host in {"localhost", "127.0.0.1", "::1"}:
         return True
     # Quick checks for RFC1918 and link-local ranges (handles redirect chains without DNS)
     if (
