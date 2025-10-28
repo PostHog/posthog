@@ -189,10 +189,9 @@ class WarehouseConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response(
                 {
                     "status": "error",
-                    "message": error_message or "Connection failed",
+                    "message": "Connection failed",
                     "last_tested_at": connection.last_tested_at,
                     "last_test_status": connection.last_test_status,
-                    "last_test_error": connection.last_test_error,
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -267,7 +266,7 @@ class WarehouseConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 exc_info=True,
             )
             return Response(
-                {"error": f"Failed to fetch schema: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {"error": "Failed to fetch schema"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
     @action(detail=True, methods=["post"])
@@ -336,5 +335,5 @@ class WarehouseConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 exc_info=True,
             )
             return Response(
-                {"error": f"Failed to estimate cost: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {"error": "Failed to estimate cost"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
