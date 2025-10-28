@@ -153,6 +153,7 @@ const dashboardActionsMapping: Record<
     _highlight: () => null,
     last_refresh: () => null,
     tiles: () => null,
+    last_viewed_at: () => null,
 }
 
 export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {

@@ -109,12 +109,14 @@ class Command(BaseCommand):
         now = options.get("now") or dt.datetime.now(dt.UTC)
         existing_team_id = options.get("team_id")
         existing_team: Optional[Team] = None
+
         if existing_team_id is not None and existing_team_id != 0:
             try:
                 existing_team = Team.objects.get(pk=existing_team_id)
             except Team.DoesNotExist:
                 print(f"Team with ID {options['team_id']} does not exist!")
                 return
+
         print("Instantiating the Matrix...")
         try:
             RelevantMatrix = {"hedgebox": HedgeboxMatrix, "spikegpt": SpikeGPTMatrix}[options["product"]]

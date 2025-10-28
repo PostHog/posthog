@@ -720,13 +720,6 @@ class CSPMiddleware:
                 resource_url = "https://*.dev.posthog.dev"
 
             connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
-            frame_ancestors = "frame-ancestors https://posthog.com https://preview.posthog.com"
-            if request.path.startswith("/render_query"):
-                if settings.DEBUG or settings.TEST:
-                    frame_ancestors = "frame-ancestors https: http:"
-                else:
-                    frame_ancestors = "frame-ancestors https:"
-
             csp_parts = [
                 "default-src 'self'",
                 f"style-src 'self' 'unsafe-inline' {resource_url} https://fonts.googleapis.com",
@@ -736,7 +729,7 @@ class CSPMiddleware:
                 "child-src 'none'",
                 "object-src 'none'",
                 f"img-src 'self' data: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com",
-                frame_ancestors,
+                "frame-ancestors https://posthog.com https://preview.posthog.com",
                 f"connect-src 'self' https://status.posthog.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
                 # allow all sites for displaying heatmaps
                 "frame-src https:",

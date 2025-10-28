@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
@@ -18,9 +18,10 @@ import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
 type ExposureCriteriaPanelProps = {
     experiment: Experiment
     onChange: (exposureCriteria: ExperimentExposureCriteria) => void
+    onNext: () => void
 }
 
-export function ExposureCriteriaPanel({ experiment, onChange }: ExposureCriteriaPanelProps): JSX.Element {
+export function ExposureCriteriaPanel({ experiment, onChange, onNext }: ExposureCriteriaPanelProps): JSX.Element {
     // Derive exposure type from experiment state
     const selectedExposureType = experiment.exposure_criteria?.exposure_config ? 'custom' : 'default'
 
@@ -153,6 +154,13 @@ export function ExposureCriteriaPanel({ experiment, onChange }: ExposureCriteria
                     }}
                     fullWidth
                 />
+            </div>
+
+            <LemonDivider />
+            <div className="flex justify-end pt-2">
+                <LemonButton type="primary" size="small" onClick={onNext}>
+                    Next
+                </LemonButton>
             </div>
         </div>
     )

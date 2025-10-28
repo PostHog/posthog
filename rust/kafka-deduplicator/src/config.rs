@@ -131,11 +131,19 @@ pub struct Config {
     #[envconfig(default = "0")]
     pub checkpoint_full_upload_interval: u32,
 
+    // number of hours prior to "now" that the checkpoint import mechanism
+    // will search for valid checkpoint attempts in a DR recovery scenario
+    #[envconfig(default = "24")]
+    pub checkpoint_import_window_hours: u32,
+
     #[envconfig(default = "us-east-1")]
     pub aws_region: String,
 
-    #[envconfig(default = "300")] // 5 minutes in seconds
-    pub s3_timeout_secs: u64,
+    #[envconfig(default = "120")] // 2 minutes
+    pub s3_operation_timeout_secs: u64,
+
+    #[envconfig(default = "20")] // 20 seconds
+    pub s3_attempt_timeout_secs: u64,
 
     #[envconfig(default = "true")]
     pub export_prometheus: bool,
@@ -298,9 +306,14 @@ impl Config {
         Duration::from_secs(self.checkpoint_worker_shutdown_timeout_secs)
     }
 
-    /// Get S3 timeout as Duration
-    pub fn s3_timeout(&self) -> Duration {
-        Duration::from_secs(self.s3_timeout_secs)
+    /// Get S3 per-operation (including all retries) timeout as Duration
+    pub fn s3_operation_timeout(&self) -> Duration {
+        Duration::from_secs(self.s3_operation_timeout_secs)
+    }
+
+    /// Get S3 per-attempt timeout as Duration
+    pub fn s3_attempt_timeout(&self) -> Duration {
+        Duration::from_secs(self.s3_attempt_timeout_secs)
     }
 
     /// Build Kafka producer configuration
