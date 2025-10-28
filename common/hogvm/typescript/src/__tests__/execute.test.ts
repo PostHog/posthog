@@ -61,6 +61,9 @@ describe('hogvm execute', () => {
         expect(execSync(['_h', op.STRING, 'b', op.STRING, 'a', op.NOT_ILIKE], options)).toBe(true)
         expect(execSync(['_h', op.STRING, 'car', op.STRING, 'a', op.IN], options)).toBe(true)
         expect(execSync(['_h', op.STRING, 'car', op.STRING, 'a', op.NOT_IN], options)).toBe(false)
+        // Test null handling for IN and NOT_IN operations - fixes "Cannot use 'in' operator" error
+        expect(execSync(['_h', op.STRING, 'a', op.NULL, op.IN], options)).toBe(false) // 'a' in null = false
+        expect(execSync(['_h', op.STRING, 'a', op.NULL, op.NOT_IN], options)).toBe(true) // 'a' not in null = true
         expect(execSync(['_h', op.STRING, '.*', op.STRING, 'a', op.REGEX], options)).toBe(true)
         expect(execSync(['_h', op.STRING, 'b', op.STRING, 'a', op.REGEX], options)).toBe(false)
         expect(execSync(['_h', op.STRING, '.*', op.STRING, 'a', op.NOT_REGEX], options)).toBe(false)
