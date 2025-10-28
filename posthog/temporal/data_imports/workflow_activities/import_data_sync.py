@@ -99,7 +99,7 @@ def _report_heartbeat_timeout(inputs: ImportDataActivityInputs, logger: Filterin
 
         logger.debug(f"Last heartbeat was {last_heartbeat}")
 
-        if not last_heartbeat_host or not last_heartbeat_timestamp:
+        if last_heartbeat_host is None or last_heartbeat_timestamp is None:
             logger.debug(f"Incomplete heartbeat details. No host or timestamp found.")
             return
 

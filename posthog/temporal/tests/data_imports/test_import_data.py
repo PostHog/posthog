@@ -515,7 +515,7 @@ def test_report_heartbeat_timeout_heartbeat_not_within_timeout(team):
                     "source_id": str(activity_inputs.source_id),
                     "run_id": activity_inputs.run_id,
                     "host": "value",
-                    "gap_between_beats": 30,
+                    "gap_between_beats": 30.0,
                     "heartbeat_timeout_seconds": mock_info.heartbeat_timeout.total_seconds(),
                     "task_queue": mock_info.task_queue,
                     "workflow_id": mock_info.workflow_id,
