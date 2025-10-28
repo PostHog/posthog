@@ -25,11 +25,18 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttributes>): JSX.Element | null => {
     const { expanded } = useValues(notebookNodeLogic)
-    const { personId, nodeId } = attributes
+    const { groupKey, groupTypeIndex, personId, nodeId } = attributes
     const logic = llmAnalyticsLogic({ logicKey: nodeId })
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setTracesQuery, setPersonId } = useActions(logic)
-    setPersonId(personId)
-    const { tracesQuery } = useValues(logic)
+    const { setDates, setGroup, setShouldFilterTestAccounts, setPropertyFilters, setTracesQuery, setPersonId } =
+        useActions(logic)
+    const { group, tracesQuery, personId: logicPersonId } = useValues(logic)
+
+    if (personId && !logicPersonId) {
+        setPersonId(personId)
+    } else if (groupKey && groupTypeIndex !== undefined && !group) {
+        setGroup({ groupKey, groupTypeIndex })
+    }
+
     const context = useTracesQueryContext()
 
     if (!expanded) {
@@ -133,6 +140,8 @@ const Settings = ({ attributes }: NotebookNodeAttributeProperties<NotebookNodeLL
 
 type NotebookNodeLLMTraceAttributes = {
     personId?: string
+    groupKey?: string
+    groupTypeIndex?: number
 }
 
 export const NotebookNodeLLMTrace = createPostHogWidgetNode<NotebookNodeLLMTraceAttributes>({
@@ -145,5 +154,7 @@ export const NotebookNodeLLMTrace = createPostHogWidgetNode<NotebookNodeLLMTrace
     startExpanded: true,
     attributes: {
         personId: {},
+        groupKey: {},
+        groupTypeIndex: {},
     },
 })
