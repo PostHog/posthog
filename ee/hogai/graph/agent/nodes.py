@@ -25,10 +25,18 @@ from posthog.models import Team, User
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.conversation_summarizer.nodes import AnthropicConversationSummarizer
-from ee.hogai.graph.root.compaction_manager import AnthropicConversationCompactionManager
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool import ToolMessagesArtifact
+from ee.hogai.tools import (
+    CreateAndQueryInsightTool,
+    CreateDashboardTool,
+    ReadDataTool,
+    ReadTaxonomyTool,
+    SearchTool,
+    SessionSummarizationTool,
+    TodoWriteTool,
+)
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages, normalize_ai_anthropic_message
 from ee.hogai.utils.helpers import convert_tool_messages_to_dict
 from ee.hogai.utils.prompt import format_prompt_string
@@ -40,6 +48,7 @@ from ee.hogai.utils.types import (
     ReplaceMessages,
 )
 
+from .compaction_manager import AnthropicConversationCompactionManager
 from .prompts import (
     AGENT_PROMPT,
     BASIC_FUNCTIONALITY_PROMPT,
@@ -58,15 +67,6 @@ from .prompts import (
     TONE_AND_STYLE_PROMPT,
     TOOL_USAGE_POLICY_PROMPT,
     WRITING_STYLE_PROMPT,
-)
-from .tools import (
-    CreateAndQueryInsightTool,
-    CreateDashboardTool,
-    ReadDataTool,
-    ReadTaxonomyTool,
-    SearchTool,
-    SessionSummarizationTool,
-    TodoWriteTool,
 )
 
 if TYPE_CHECKING:
