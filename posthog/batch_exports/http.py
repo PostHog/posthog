@@ -466,7 +466,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 existing_config = instance.destination.config
             else:
                 existing_config = {}
-            merged_config = {**existing_config, **config}
+            merged_config = recursive_dict_merge(existing_config, config)
 
             mode = merged_config.get("mode")
 
