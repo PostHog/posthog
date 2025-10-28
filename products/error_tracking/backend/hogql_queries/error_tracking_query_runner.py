@@ -472,6 +472,15 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                 )
             )
 
+        if self.query.groupKey and self.query.groupTypeIndex is not None:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=[f"$group_{self.query.groupTypeIndex}"]),
+                    right=ast.Constant(value=self.query.groupKey),
+                )
+            )
+
         if self.query.searchQuery:
             # TODO: Refine this so it only searches the frames inside $exception_list
             # TODO: We'd eventually need a more efficient searching strategy
