@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from pydantic import BaseModel
 
@@ -37,7 +37,7 @@ class AgentDefinition:
     """A custom node class to use for the agent."""
     tools_node_class: type[AgentToolsNode] = AgentToolsNode
     """A custom tools node class to use for the agent."""
-    positive_todo_examples: list[AgentExample] = []
+    positive_todo_examples: list[AgentExample] = field(default_factory=list)
     """Positive examples that will be injected into the `todo_write` tool. Use this field to explain the agent how it should orchestrate complex tasks using provided tools."""
-    negative_todo_examples: list[AgentExample] = []
+    negative_todo_examples: list[AgentExample] = field(default_factory=list)
     """Negative examples that will be injected into the `todo_write` tool. Use this field to explain the agent how it should **NOT** orchestrate tasks using provided tools."""

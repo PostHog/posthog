@@ -267,6 +267,8 @@ export type AssistantContextualTool =
     | 'read_data'
     | 'todo_write'
     | 'filter_revenue_analytics'
+    | 'execute_sql'
+    | 'switch_mode'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',

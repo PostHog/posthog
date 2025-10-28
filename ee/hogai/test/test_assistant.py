@@ -2358,7 +2358,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         new=AsyncMock(return_value="Summary"),
     )
     @patch("ee.hogai.graph.root.compaction_manager.AnthropicConversationCompactionManager.should_compact_conversation")
-    @patch("ee.hogai.graph.root.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
     async def test_compacting_conversation_on_the_second_turn(self, mock_model, mock_tool, mock_should_compact):
         mock_model.side_effect = cycle(  # Changed from return_value to side_effect
@@ -2411,9 +2411,9 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         # should be equal to the summary message, minus reasoning message
         self.assertEqual(state.root_conversation_start_id, state.messages[3].id)
 
-    @patch("ee.hogai.graph.root.tools.search.SearchTool._arun_impl", return_value=("Docs doubt it", None))
+    @patch("ee.hogai.tools.search.SearchTool._arun_impl", return_value=("Docs doubt it", None))
     @patch(
-        "ee.hogai.graph.root.tools.read_taxonomy.ReadTaxonomyTool._run_impl",
+        "ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl",
         return_value=("Hedgehogs have not talked yet", None),
     )
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")

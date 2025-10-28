@@ -102,6 +102,8 @@ class AssistantContextualTool(StrEnum):
     READ_DATA = "read_data"
     TODO_WRITE = "todo_write"
     FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
+    EXECUTE_SQL = "execute_sql"
+    SWITCH_MODE = "switch_mode"
 
 
 class AssistantDateRange(BaseModel):

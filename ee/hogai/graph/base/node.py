@@ -9,7 +9,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.config import get_stream_writer
 from langgraph.types import StreamWriter
 
-from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage, ReasoningMessage
+from posthog.schema import AssistantMessage, AssistantToolCall, ReasoningMessage
 
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
@@ -17,7 +17,6 @@ from posthog.sync import database_sync_to_async
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.graph.mixins import AssistantContextMixin, ReasoningNodeMixin
 from ee.hogai.utils.exceptions import GenerationCanceled
-from ee.hogai.utils.helpers import find_start_message
 from ee.hogai.utils.state import LangGraphState
 from ee.hogai.utils.types import (
     AssistantMessageUnion,
@@ -132,12 +131,6 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
         Streams a reasoning message to the stream writer.
         """
         await self._write_message(ReasoningMessage(content=content, substeps=substeps))
-
-    def _is_first_turn(self, state: AssistantState) -> bool:
-        last_message = state.messages[-1]
-        if isinstance(last_message, HumanMessage):
-            return last_message == find_start_message(state.messages, start_id=state.start_id)
-        return False
 
 
 AssistantNode = BaseAssistantNode[AssistantState, PartialAssistantState]

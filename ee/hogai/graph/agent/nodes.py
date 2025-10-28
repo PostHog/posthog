@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, TypeVar
 from uuid import uuid4
 
 import structlog
-import posthoganalytics
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     BaseMessage,
@@ -28,15 +27,7 @@ from ee.hogai.graph.conversation_summarizer.nodes import AnthropicConversationSu
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool import ToolMessagesArtifact
-from ee.hogai.tools import (
-    CreateAndQueryInsightTool,
-    CreateDashboardTool,
-    ReadDataTool,
-    ReadTaxonomyTool,
-    SearchTool,
-    SessionSummarizationTool,
-    TodoWriteTool,
-)
+from ee.hogai.tools import ReadDataTool, ReadTaxonomyTool, SearchTool, SwitchModeTool, TodoWriteTool
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages, normalize_ai_anthropic_message
 from ee.hogai.utils.helpers import convert_tool_messages_to_dict
 from ee.hogai.utils.prompt import format_prompt_string
@@ -63,6 +54,7 @@ from .prompts import (
     ROOT_GROUPS_PROMPT,
     ROOT_HARD_LIMIT_REACHED_PROMPT,
     ROOT_TOOL_DOES_NOT_EXIST,
+    SWITCHING_MODES_PROMPT,
     TASK_MANAGEMENT_PROMPT,
     TONE_AND_STYLE_PROMPT,
     TOOL_USAGE_POLICY_PROMPT,
@@ -80,6 +72,14 @@ T = TypeVar("T", RootMessageUnion, BaseMessage)
 
 logger = structlog.get_logger(__name__)
 
+DEFAULT_TOOLS: list[type["MaxTool"]] = [
+    ReadTaxonomyTool,
+    ReadDataTool,
+    SearchTool,
+    TodoWriteTool,
+    SwitchModeTool,
+]
+
 
 class AgentToolkit:
     def __init__(self, team: Team, user: User, context_manager: AssistantContextManager):
@@ -88,34 +88,20 @@ class AgentToolkit:
         self._context_manager = context_manager
 
     @property
-    def default_tools(self) -> list[type[MaxTool]]:
-        # Static toolkit
-        default_tools: list[type[MaxTool]] = [
-            ReadTaxonomyTool,
-            ReadDataTool,
-            SearchTool,
-            TodoWriteTool,
-        ]
+    def default_tools(self) -> list[type["MaxTool"]]:
+        return DEFAULT_TOOLS.copy()
 
-        # The contextual insights tool overrides the static tool. Only inject if it's injected.
-        if not CreateAndQueryInsightTool.is_editing_mode(self._context_manager):
-            default_tools.append(CreateAndQueryInsightTool)
+    @property
+    def custom_tools(self) -> list[type["MaxTool"]]:
+        """
+        Custom tools are tools that are not part of the default toolkit.
+        """
+        return []
 
-        # Add session summarization tool if enabled
-        if self._has_session_summarization_feature_flag():
-            default_tools.append(SessionSummarizationTool)
-
-        # Add other lower-priority tools
-        default_tools.extend(
-            [
-                CreateDashboardTool,
-            ]
-        )
-
-        return default_tools
-
-    async def get_tools(self, state: AssistantState, config: RunnableConfig) -> list[MaxTool]:
+    async def get_tools(self, state: AssistantState, config: RunnableConfig) -> list["MaxTool"]:
         from ee.hogai.tool import get_contextual_tool_class
+
+        tool_classes: list[type[MaxTool]] = [*self.default_tools, *self.custom_tools]
 
         # Processed tools
         available_tools: list[MaxTool] = []
@@ -123,7 +109,7 @@ class AgentToolkit:
         # Initialize the static toolkit
         dynamic_tools = (
             tool_class.create_tool_class(team=self._team, user=self._user, state=state, config=config)
-            for tool_class in self.default_tools
+            for tool_class in tool_classes
         )
         available_tools.extend(await asyncio.gather(*dynamic_tools))
 
@@ -141,18 +127,6 @@ class AgentToolkit:
         available_tools.extend(await asyncio.gather(*awaited_contextual_tools))
 
         return available_tools
-
-    def _has_session_summarization_feature_flag(self) -> bool:
-        """
-        Check if the user has the session summarization feature flag enabled.
-        """
-        return posthoganalytics.feature_enabled(
-            "max-session-summarization",
-            str(self._user.distinct_id),
-            groups={"organization": str(self._team.organization_id)},
-            group_properties={"organization": {"id": str(self._team.organization_id)}},
-            send_feature_flag_events=False,
-        )
 
 
 class BaseAgentNode(AssistantNode):
@@ -174,6 +148,10 @@ class AgentNode(BaseAgentNode):
     def __init__(self, team: Team, user: User, toolkit_class: type[AgentToolkit]):
         super().__init__(team, user, toolkit_class)
         self._window_manager = AnthropicConversationCompactionManager()
+
+    @property
+    def node_name(self):
+        return None  # TODO:
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         toolkit = self._toolkit_class(self._team, self._user, self.context_manager)
@@ -275,6 +253,7 @@ class AgentNode(BaseAgentNode):
         - `{{{writing_style}}}`
         - `{{{proactiveness}}}`
         - `{{{basic_functionality}}}`
+        - `{{{switching_modes}}}`
         - `{{{task_management}}}`
         - `{{{doing_tasks}}}`
         - `{{{tool_usage_policy}}}`
@@ -303,6 +282,7 @@ class AgentNode(BaseAgentNode):
             writing_style=WRITING_STYLE_PROMPT,
             proactiveness=PROACTIVENESS_PROMPT,
             basic_functionality=BASIC_FUNCTIONALITY_PROMPT,
+            switching_modes=SWITCHING_MODES_PROMPT,
             task_management=TASK_MANAGEMENT_PROMPT,
             doing_tasks=DOING_TASKS_PROMPT,
             tool_usage_policy=TOOL_USAGE_POLICY_PROMPT,
@@ -327,7 +307,7 @@ class AgentNode(BaseAgentNode):
         )
         return prompt
 
-    def _get_model(self, state: AssistantState, tools: list[MaxTool]):
+    def _get_model(self, state: AssistantState, tools: list["MaxTool"]):
         base_model = MaxChatAnthropic(
             model="claude-sonnet-4-5",
             streaming=True,
@@ -418,12 +398,16 @@ class AgentNode(BaseAgentNode):
     def _is_hard_limit_reached(self, tool_calls_count: int | None) -> bool:
         return tool_calls_count is not None and tool_calls_count >= self.MAX_TOOL_CALLS
 
-    def _process_output_message(self, message: AssistantMessage) -> AssistantMessage:
+    def _process_output_message(self, message: LangchainAIMessage) -> AssistantMessage:
         """Process the output message."""
         return normalize_ai_anthropic_message(message)
 
 
 class AgentToolsNode(BaseAgentNode):
+    @property
+    def node_name(self):
+        return None  # TODO:
+
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_message = state.messages[-1]
 

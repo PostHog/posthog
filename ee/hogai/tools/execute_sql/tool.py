@@ -16,15 +16,16 @@ from ee.hogai.graph.sql.prompts import (
     SQL_SUPPORTED_FUNCTIONS_DOCS,
 )
 from ee.hogai.tool import MaxTool
-from ee.hogai.tools.generate_sql_query.prompts import (
-    EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT,
-    EXECUTE_SQL_SYSTEM_PROMPT,
-    EXECUTE_SQL_UNRECOVERABLE_ERROR_PROMPT,
-)
 
 # from ee.hogai.graph.sql.prompts import
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types import AssistantState
+
+from .prompts import (
+    EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT,
+    EXECUTE_SQL_SYSTEM_PROMPT,
+    EXECUTE_SQL_UNRECOVERABLE_ERROR_PROMPT,
+)
 
 
 class ExecuteSQLToolArgs(BaseModel):
@@ -56,7 +57,7 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         return cls(team=team, user=user, state=state, config=config, description=prompt)
 
     async def _arun_impl(self, query: str) -> tuple[str, str]:
-        parsed_query = self._parse_output(query)
+        parsed_query = self._parse_output({"query": query})
         try:
             await self._quality_check_output(
                 output=parsed_query,

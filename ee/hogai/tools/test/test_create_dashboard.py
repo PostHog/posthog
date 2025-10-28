@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from posthog.schema import AssistantMessage
 
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.graph.root.tools.create_dashboard import CreateDashboardTool
+from ee.hogai.tools.create_dashboard import CreateDashboardTool
 from ee.hogai.utils.types import AssistantState, InsightQuery, PartialAssistantState
 
 
@@ -33,7 +33,7 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         with patch("ee.hogai.graph.dashboards.nodes.DashboardCreationNode", return_value=mock_node_instance):
-            with patch("ee.hogai.graph.root.tools.create_dashboard.RunnableLambda") as mock_runnable:
+            with patch("ee.hogai.tools.create_dashboard.RunnableLambda") as mock_runnable:
                 mock_chain = MagicMock()
                 mock_chain.ainvoke = AsyncMock(return_value=mock_result)
                 mock_runnable.return_value = mock_chain
@@ -75,7 +75,7 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain.ainvoke = mock_ainvoke
 
         with patch("ee.hogai.graph.dashboards.nodes.DashboardCreationNode"):
-            with patch("ee.hogai.graph.root.tools.create_dashboard.RunnableLambda", return_value=mock_chain):
+            with patch("ee.hogai.tools.create_dashboard.RunnableLambda", return_value=mock_chain):
                 await self.tool._arun_impl(
                     search_insights_queries=insight_queries,
                     dashboard_name="Executive Summary Q4",
@@ -98,7 +98,7 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain.ainvoke = mock_ainvoke
 
         with patch("ee.hogai.graph.dashboards.nodes.DashboardCreationNode"):
-            with patch("ee.hogai.graph.root.tools.create_dashboard.RunnableLambda", return_value=mock_chain):
+            with patch("ee.hogai.tools.create_dashboard.RunnableLambda", return_value=mock_chain):
                 result, artifact = await self.tool._arun_impl(
                     search_insights_queries=insight_queries,
                     dashboard_name="User Activity Dashboard",
@@ -126,7 +126,7 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain.ainvoke = mock_ainvoke
 
         with patch("ee.hogai.graph.dashboards.nodes.DashboardCreationNode"):
-            with patch("ee.hogai.graph.root.tools.create_dashboard.RunnableLambda", return_value=mock_chain):
+            with patch("ee.hogai.tools.create_dashboard.RunnableLambda", return_value=mock_chain):
                 result, artifact = await self.tool._arun_impl(
                     search_insights_queries=insight_queries,
                     dashboard_name="Comprehensive Dashboard",
@@ -144,7 +144,7 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain.ainvoke = mock_ainvoke
 
         with patch("ee.hogai.graph.dashboards.nodes.DashboardCreationNode"):
-            with patch("ee.hogai.graph.root.tools.create_dashboard.RunnableLambda", return_value=mock_chain):
+            with patch("ee.hogai.tools.create_dashboard.RunnableLambda", return_value=mock_chain):
                 result, artifact = await self.tool._arun_impl(
                     search_insights_queries=[InsightQuery(name="Test", description="Test insight")],
                     dashboard_name="Test Dashboard",
@@ -164,7 +164,7 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain.ainvoke = mock_ainvoke
 
         with patch("ee.hogai.graph.dashboards.nodes.DashboardCreationNode"):
-            with patch("ee.hogai.graph.root.tools.create_dashboard.RunnableLambda", return_value=mock_chain):
+            with patch("ee.hogai.tools.create_dashboard.RunnableLambda", return_value=mock_chain):
                 result, artifact = await self.tool._arun_impl(
                     search_insights_queries=[InsightQuery(name="Test", description="Test insight")],
                     dashboard_name="Test Dashboard",
@@ -206,7 +206,7 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain.ainvoke = mock_ainvoke
 
         with patch("ee.hogai.graph.dashboards.nodes.DashboardCreationNode"):
-            with patch("ee.hogai.graph.root.tools.create_dashboard.RunnableLambda", return_value=mock_chain):
+            with patch("ee.hogai.tools.create_dashboard.RunnableLambda", return_value=mock_chain):
                 await tool._arun_impl(
                     search_insights_queries=new_queries,
                     dashboard_name="New Dashboard",
@@ -243,7 +243,7 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain.ainvoke = mock_ainvoke
 
         with patch("ee.hogai.graph.dashboards.nodes.DashboardCreationNode"):
-            with patch("ee.hogai.graph.root.tools.create_dashboard.RunnableLambda", return_value=mock_chain):
+            with patch("ee.hogai.tools.create_dashboard.RunnableLambda", return_value=mock_chain):
                 result, artifact = await self.tool._arun_impl(
                     search_insights_queries=insight_queries,
                     dashboard_name="Complex Dashboard",

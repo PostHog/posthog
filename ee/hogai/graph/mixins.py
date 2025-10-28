@@ -7,14 +7,15 @@ from django.utils import timezone
 
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import CurrencyCode, ReasoningMessage
+from posthog.schema import CurrencyCode, HumanMessage, ReasoningMessage
 
 from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.user import User
 
-from ee.hogai.utils.types.base import BaseState, BaseStateWithIntermediateSteps
+from ee.hogai.utils.helpers import find_start_message
+from ee.hogai.utils.types.base import AssistantState, BaseState, BaseStateWithIntermediateSteps
 from ee.models import Conversation, CoreMemory
 
 
@@ -130,6 +131,12 @@ class AssistantContextMixin(ABC):
         Extracts the thread ID from the runnable config.
         """
         return (config.get("configurable") or {}).get("thread_id") or None
+
+    def _is_first_turn(self, state: AssistantState) -> bool:
+        last_message = state.messages[-1]
+        if isinstance(last_message, HumanMessage):
+            return last_message == find_start_message(state.messages, start_id=state.start_id)
+        return False
 
 
 class StateClassMixin:

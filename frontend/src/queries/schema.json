@@ -816,7 +816,9 @@
                 "search",
                 "read_data",
                 "todo_write",
-                "filter_revenue_analytics"
+                "filter_revenue_analytics",
+                "execute_sql",
+                "switch_mode"
             ],
             "type": "string"
         },

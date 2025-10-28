@@ -6,8 +6,8 @@ from django.conf import settings
 from parameterized import parameterized
 
 from ee.hogai.context import AssistantContextManager
-from ee.hogai.graph.root.tools.full_text_search.tool import ENTITY_MAP, EntitySearchTool, FTSKind
 from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
+from ee.hogai.tools.full_text_search.tool import ENTITY_MAP, EntitySearchTool, FTSKind
 from ee.hogai.utils.types.base import AssistantState
 
 
@@ -98,8 +98,8 @@ class TestEntitySearchToolkit(BaseTest):
 
         assert "No search query was provided" in result
 
-    @patch("ee.hogai.graph.root.tools.full_text_search.tool.search_entities")
-    @patch("ee.hogai.graph.root.tools.full_text_search.tool.database_sync_to_async")
+    @patch("ee.hogai.tools.full_text_search.tool.search_entities")
+    @patch("ee.hogai.tools.full_text_search.tool.database_sync_to_async")
     async def test_search_no_entity_types(self, mock_db_sync, mock_search_entities):
         all_results: list[dict] = [
             {"type": "cohort", "result_id": "123", "extra_fields": {"name": "Test cohort"}, "rank": 0.95},
@@ -125,8 +125,8 @@ class TestEntitySearchToolkit(BaseTest):
             set(ENTITY_MAP.keys()), "test query", self.team.project_id, self.toolkit, ENTITY_MAP
         )
 
-    @patch("ee.hogai.graph.root.tools.full_text_search.tool.search_entities")
-    @patch("ee.hogai.graph.root.tools.full_text_search.tool.database_sync_to_async")
+    @patch("ee.hogai.tools.full_text_search.tool.search_entities")
+    @patch("ee.hogai.tools.full_text_search.tool.database_sync_to_async")
     async def test_arun_with_results(self, mock_db_sync, mock_search_entities):
         all_results: list[dict] = [
             {
@@ -172,8 +172,8 @@ class TestEntitySearchToolkit(BaseTest):
             assert self.toolkit._build_url(expected_result["type"], expected_result["result_id"]) in result
             assert HYPERLINK_USAGE_INSTRUCTIONS in result
 
-    @patch("ee.hogai.graph.root.tools.full_text_search.tool.database_sync_to_async")
-    @patch("ee.hogai.graph.root.tools.full_text_search.tool.capture_exception")
+    @patch("ee.hogai.tools.full_text_search.tool.database_sync_to_async")
+    @patch("ee.hogai.tools.full_text_search.tool.capture_exception")
     async def test_arun_exception_handling(self, mock_capture, mock_db_sync):
         mock_db_sync.side_effect = Exception("Database error")
 

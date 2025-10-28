@@ -844,7 +844,7 @@ class TestRootNodeTools(BaseTest):
         result = await node.arun(state, {})
         self.assertEqual(result, PartialAssistantState(root_tool_call_id=None))
 
-    @patch("ee.hogai.graph.root.tools.create_and_query_insight.CreateAndQueryInsightTool._arun_impl")
+    @patch("ee.hogai.tools.create_and_query_insight.CreateAndQueryInsightTool._arun_impl")
     async def test_run_valid_tool_call(self, create_and_query_insight_mock):
         test_message = AssistantToolCallMessage(content="Tool result", tool_call_id="xyz", id="msg-1")
         create_and_query_insight_mock.return_value = ("", ToolMessagesArtifact(messages=[test_message]))

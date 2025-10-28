@@ -6,10 +6,13 @@ from .nodes import AgentNode, AgentToolsNode
 
 
 class AgentModeManager:
-    def __init__(self, team: Team, user: User, mode: AgentMode = AgentMode.PRODUCT_ANALYTICS):
+    __node: AgentNode | None = None
+    __tools_node: AgentToolsNode | None = None
+
+    def __init__(self, team: Team, user: User, mode: AgentMode | None = None):
         self._team = team
         self._user = user
-        self._mode = mode
+        self._mode = mode or AgentMode.PRODUCT_ANALYTICS
 
     @property
     def node(self) -> AgentNode:
