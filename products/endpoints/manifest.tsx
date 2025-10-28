@@ -91,6 +91,7 @@ export const manifest: ProductManifest = {
             iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
             href: urls.endpoints(),
             sceneKey: 'EndpointsScene',
+            flag: FEATURE_FLAGS.ENDPOINTS,
             tags: ['alpha'],
         },
     ],
