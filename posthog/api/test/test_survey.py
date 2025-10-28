@@ -28,7 +28,7 @@ from rest_framework import status
 from posthog.api.survey import nh3_clean_with_allow_list
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.constants import AvailableFeature
-from posthog.models import Action, FeatureFlag, Person, RemoteConfig, Team
+from posthog.models import Action, FeatureFlag, Person, Team
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.organization import Organization
 from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey

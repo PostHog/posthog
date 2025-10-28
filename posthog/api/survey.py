@@ -16,13 +16,13 @@ from django.views.decorators.csrf import csrf_exempt
 
 import nh3
 import orjson
-from prometheus_client import Counter
 import structlog
 import posthoganalytics
 from axes.decorators import axes_dispatch
 from loginas.utils import is_impersonated_session
 from nanoid import generate
 from posthoganalytics import capture_exception
+from prometheus_client import Counter
 from rest_framework import exceptions, filters, request, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -61,6 +61,10 @@ from posthog.utils_cors import cors_response
 
 from ee.surveys.summaries.summarize_surveys import summarize_survey_responses
 
+# Constants for better maintainability
+logger = structlog.get_logger(__name__)
+CACHE_TIMEOUT_SECONDS = 300
+
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
 FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
@@ -89,6 +93,12 @@ else:
 COUNTER_SURVEYS_API_USE_REMOTE_CONFIG = Counter(
     "posthog_surveys_api_use_remote_config",
     "Number of times the surveys API has been used with remote config",
+    labelnames=["result"],
+)
+
+COUNTER_SURVEYS_API_REMOTE_CONFIG_COMPARISOM = Counter(
+    "posthog_surveys_api_remote_config_comparison",
+    "Comparison of surveys response equality",
     labelnames=["result"],
 )
 
@@ -1630,6 +1640,9 @@ def surveys(request: Request):
             ),
         )
 
+    hypercache_response = None
+    response = None
+
     if settings.SURVEYS_API_USE_REMOTE_CONFIG_TOKENS and (
         settings.SURVEYS_API_USE_REMOTE_CONFIG_TOKENS == "*" or token in settings.SURVEYS_API_USE_REMOTE_CONFIG_TOKENS
     ):
@@ -1637,36 +1650,49 @@ def surveys(request: Request):
             config = RemoteConfig.get_config_via_token(token, request=request)
             COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="found").inc()
             surveys = config.get("surveys")
-            response = {
+            hypercache_response = {
                 "surveys": [] if surveys is False else surveys,
                 "survey_config": config.get("survey_config", None),
             }
-
-            return cors_response(request, JsonResponse(response))
+            response = hypercache_response
 
         except RemoteConfig.DoesNotExist:
             COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="not_found").inc()
             pass  # For now fallback
 
-    team = Team.objects.get_team_from_cache_or_token(token)
-    if team is None:
-        return cors_response(
-            request,
-            generate_exception_response(
-                "surveys",
-                "Project API key invalid. You can find your project API key in your PostHog project settings.",
-                type="authentication_error",
-                code="invalid_api_key",
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            ),
-        )
+    # If we didn't get a hypercache response or we are comparing then load the normal response to compare
+    if not hypercache_response or settings.SURVEYS_API_USE_REMOTE_CONFIG_COMPARE:
+        team = Team.objects.get_team_from_cache_or_token(token)
+        if team is None:
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "surveys",
+                    "Project API key invalid. You can find your project API key in your PostHog project settings.",
+                    type="authentication_error",
+                    code="invalid_api_key",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                ),
+            )
+        response = get_surveys_response(team)
 
-    return cors_response(request, JsonResponse(get_surveys_response(team)))
+        if hypercache_response:
+            # Do the comparison here
+            try:
+                if hypercache_response == response:
+                    COUNTER_SURVEYS_API_REMOTE_CONFIG_COMPARISOM.labels(result="same")
+                else:
+                    COUNTER_SURVEYS_API_REMOTE_CONFIG_COMPARISOM.labels(result="different")
+                    logger.warning(
+                        "SurveyHypercacheResponseDifferentFromAPIResponse",
+                        hypercache_response=hypercache_response,
+                        response=response,
+                    )
 
+            except Exception as e:
+                capture_exception(e)
 
-# Constants for better maintainability
-logger = structlog.get_logger(__name__)
-CACHE_TIMEOUT_SECONDS = 300
+    return cors_response(request, JsonResponse(response))
 
 
 @csrf_exempt
