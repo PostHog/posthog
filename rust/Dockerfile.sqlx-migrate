@@ -32,5 +32,3 @@ RUN chmod +x /migrations/bin/migrate-all && \
     chmod +x /migrations/bin/migrate-behavioral-cohorts
 
 ENTRYPOINT ["/migrations/bin/migrate-all"]
-
-CMD ["all"]

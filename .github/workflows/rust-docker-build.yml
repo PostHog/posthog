@@ -30,6 +30,9 @@ jobs:
                     - image: hook-migrator
                       dockerfile: ./rust/Dockerfile.migrate-hooks
                       project: c1bwj4j4qg
+                    - image: sqlx-migrate
+                      dockerfile: ./rust/Dockerfile.sqlx-migrate
+                      project: jmsz6gms8g
                     - image: cyclotron-janitor
                       dockerfile: ./rust/Dockerfile
                       project: r4zm8vtlbw
