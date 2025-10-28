@@ -3,6 +3,15 @@ COUNT_FRAGMENT = """{
     precision
 }"""
 
+EMAIL_ADDRESS_FRAGMENT = """{
+    emailAddress
+    marketingOptInLevel
+    marketingState
+    marketingUpdatedAt
+    openTrackingLevel
+    validFormat
+}"""
+
 KV_FRAGMENT = """{
     key
     value
@@ -56,3 +65,11 @@ MONEY_BAG_FRAGMENT = f"""{{
     presentmentMoney {MONEY_V2_FRAGMENT}
     shopMoney {MONEY_V2_FRAGMENT}
 }}"""
+
+PHONE_NUMBER_FRAGMENT = """{
+    marketingCollectedFrom
+    marketingOptInLevel
+    marketingState
+    marketingUpdatedAt
+    phoneNumber
+}"""

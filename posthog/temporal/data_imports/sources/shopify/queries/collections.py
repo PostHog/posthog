@@ -34,7 +34,6 @@ query PaginatedCollections($pageSize: Int!, $cursor: String, $query: String) {{
             }}
             handle
             id
-            legacyResourceId
             metafields(first: 250) {METAFIELD_CONNECTIONS_FRAGMENT}
             products(first: 250) {{
                 nodes {{

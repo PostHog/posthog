@@ -8,7 +8,8 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.sources.shopify.settings import INCREMENTAL_SETTINGS
+from posthog.temporal.data_imports.sources.shopify.constants import ID
+from posthog.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
 from posthog.temporal.data_imports.sources.shopify.utils import ShopifyGraphQLObject, safe_unwrap, unwrap
 
 from .constants import (
@@ -130,8 +131,9 @@ def shopify_source(
             yield from _make_paginated_shopify_request(api_url, sess, graphql_object, logger)
             return
 
-        incremental = INCREMENTAL_SETTINGS.get(graphql_object_name)
-        query_filter = incremental.query_filter if incremental else "created_at"
+        endpoint_config = ENDPOINT_CONFIGS.get(graphql_object_name)
+        # query_filer is ignored if the key isn't present in the endpoint's available query filters
+        query_filter = endpoint_config.query_filter if endpoint_config else "created_at"
 
         # check for any objects less than the minimum object we already have
         if db_incremental_field_earliest_value is not None:
@@ -149,18 +151,18 @@ def shopify_source(
             query = f"{query_filter}:>'{db_incremental_field_last_value}'"
             yield from _make_paginated_shopify_request(api_url, sess, graphql_object, logger, query=query)
 
-    incremental = INCREMENTAL_SETTINGS.get(graphql_object_name)
-    partition_key = incremental.partition_keys[0] if incremental and incremental.partition_keys else "created_at"
-
+    endpoint_config = ENDPOINT_CONFIGS.get(graphql_object_name)
+    if not endpoint_config:
+        raise ValueError(f"Endpoint {graphql_object_name} has no config in shopify/settings.py")
     return SourceResponse(
         items=get_rows(),
-        primary_keys=["id"],
+        primary_keys=[ID],
         name=graphql_object_name,
-        partition_count=1,  # this enables partitioning
-        partition_size=1,  # this enables partitioning
-        partition_mode="datetime",
-        partition_format="month",
-        partition_keys=[partition_key],
+        partition_count=endpoint_config.partition_count,
+        partition_size=endpoint_config.partition_size,
+        partition_mode=endpoint_config.partition_mode,
+        partition_format=endpoint_config.partition_format,
+        partition_keys=endpoint_config.partition_keys,
     )
 
 
