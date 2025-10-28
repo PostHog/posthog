@@ -33,7 +33,7 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
     }
 
     return (
-        <>
+        <div>
             <FireSaleBanner />
             <div className="flex gap-2 justify-between items-center mb-4">
                 <LemonInput
@@ -163,7 +163,7 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                     },
                 ]}
             />
-        </>
+        </div>
     )
 }
 
