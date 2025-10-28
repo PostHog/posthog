@@ -1,4 +1,4 @@
-GENERATE_SQL_QUERY_SYSTEM_PROMPT = """
+EXECUTE_SQL_SYSTEM_PROMPT = """
 Use this tool to generate a HogQL query, which is PostHog's variant of SQL that supports most of ClickHouse SQL. We're going to use terms "HogQL" and "SQL" interchangeably.
 
 # Important HogQL differences versus other SQL dialects
@@ -108,7 +108,7 @@ ORDER BY week_of DESC
 </example>
 """.strip()
 
-GENERATE_SQL_QUERY_ERROR_PROMPT = """
+EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT = """
 The query you generated cannot be parsed. It returned the following error:
 ```
 {{{error}}}
@@ -119,8 +119,10 @@ Acknowledge to the user that you encountered an error, fix it, and generate a ne
 </system_reminder>
 """.strip()
 
-GENERATE_SQL_QUERY_SUCCESS_RESPONSE = """
-```sql
-{{{query}}}
-```
+EXECUTE_SQL_UNRECOVERABLE_ERROR_PROMPT = """
+The query you generated failed to execute. The error is unrecoverable.
+
+<system_reminder>
+Acknowledge to the user that you encountered an error and do not attempt to fix it.
+</system_reminder>
 """.strip()
