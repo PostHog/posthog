@@ -285,7 +285,10 @@ function MessageGroup({ messages, isFinal: isFinalGroup, streamingActive }: Mess
                     <MessageTemplate type="ai" boxClassName="border-warning">
                         <div className="flex items-center gap-1.5">
                             <IconWarning className="text-xl text-warning" />
-                            <i>Max is generating this answer one more time because the previous attempt has failed.</i>
+                            <i>
+                                PostHog AI is generating this answer one more time because the previous attempt has
+                                failed.
+                            </i>
                         </div>
                     </MessageTemplate>
                 )}
@@ -398,7 +401,7 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
                 <MarkdownMessage content={message.content} id={message.id || 'in-progress'} />
             ) : (
                 <MarkdownMessage
-                    content={message.content || '*Max has failed to generate an answer. Please try again.*'}
+                    content={message.content || '*PostHog AI has failed to generate an answer. Please try again.*'}
                     id={message.id || 'error'}
                 />
             )}
@@ -1083,7 +1086,7 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                     {feedbackInputStatus === 'pending' && (
                         <div className="flex w-full gap-1.5 items-center mt-1.5">
                             <LemonInput
-                                placeholder="Help us improve Max…"
+                                placeholder="Help us improve PostHog AI…"
                                 fullWidth
                                 value={feedback}
                                 onChange={(newValue) => setFeedback(newValue)}
