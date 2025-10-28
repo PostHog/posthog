@@ -29,6 +29,7 @@ const REFRESH_INTERVAL = 10000
 export enum DataWarehouseTab {
     OVERVIEW = 'overview',
     SOURCES = 'sources',
+    CONNECTIONS = 'connections',
 }
 
 export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
