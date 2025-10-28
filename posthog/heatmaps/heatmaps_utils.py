@@ -42,7 +42,7 @@ def is_url_allowed(raw_url: str) -> tuple[bool, str | None]:
     if host in METADATA_HOSTS:
         return False, "Local/metadata host"
     if host in {"localhost", "127.0.0.1", "::1"}:
-        return False, "Local/loopback host not allowed"
+        return False, "Local/Loopback host not allowed"
     ips = resolve_host_ips(host)
     for ip in ips:
         if any(
