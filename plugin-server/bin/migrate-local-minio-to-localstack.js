@@ -92,7 +92,7 @@ function ensureLocalDevelopmentOnly(minioEndpoint, localstackEndpoint) {
 function parseArgs() {
     const args = process.argv.slice(2)
     const options = {
-        service: null,
+        service: 'session-recordings',
         minioEndpoint: 'http://localhost:19000',
         localstackEndpoint: 'http://localhost:4566',
         minioAccessKey: 'object_storage_root_user',
