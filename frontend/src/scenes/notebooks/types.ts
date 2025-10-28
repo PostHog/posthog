@@ -62,6 +62,7 @@ export enum NotebookNodeType {
     Issues = 'ph-issues',
     UsageMetrics = 'ph-usage-metrics',
     ZendeskTickets = 'ph-zendesk-tickets',
+    RelatedGroups = 'ph-related-groups',
 }
 
 export type NotebookNodeResource = {

@@ -6,7 +6,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models.integration import GitHubIntegration, Integration, LinearIntegration
+from posthog.models.integration import GitHubIntegration, GitLabIntegration, Integration, LinearIntegration
 
 from products.error_tracking.backend.models import ErrorTrackingExternalReference, ErrorTrackingIssue
 
@@ -42,6 +42,9 @@ class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
         elif reference.integration.kind == Integration.IntegrationKind.GITHUB:
             org = GitHubIntegration(reference.integration).organization()
             return f"https://github.com/{org}/{external_context['repository']}/issues/{external_context['number']}"
+        elif reference.integration.kind == Integration.IntegrationKind.GITLAB:
+            gitlab = GitLabIntegration(reference.integration)
+            return f"{gitlab.hostname}/{gitlab.project_path}/issues/{external_context['issue_id']}"
         raise ValidationError("Provider not supported")
 
     def validate(self, data):
@@ -66,6 +69,8 @@ class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
 
         if integration.kind == "github":
             external_context = GitHubIntegration(integration).create_issue(config)
+        elif integration.kind == "gitlab":
+            external_context = GitLabIntegration(integration).create_issue(config)
         elif integration.kind == "linear":
             external_context = LinearIntegration(integration).create_issue(team.pk, issue.id, config)
         else:
