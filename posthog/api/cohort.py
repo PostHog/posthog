@@ -139,8 +139,28 @@ class HogQLFilter(BaseModel, extra="forbid"):
     value: Any | None = None
 
 
-class BehavioralFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
+class BehavioralFilter(BaseModel, extra="forbid"):
     type: Literal["behavioral"]
+    key: Union[str, int]  # action IDs can be ints
+    value: str
+    event_type: str
+    time_value: int | None = None
+    time_interval: str | None = None
+    negation: bool = False
+    operator: str | None = None
+    operator_value: int | None = None
+    seq_time_interval: str | None = None
+    seq_time_value: int | None = None
+    seq_event: Union[str, int] | None = None  # Allow both string and int for seq_event
+    seq_event_type: str | None = None
+    total_periods: int | None = None
+    min_periods: int | None = None
+    event_filters: list[Union[EventPropFilter, HogQLFilter]] | None = None
+    explicit_datetime: str | None = None
+
+
+class RealtimeFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
+    type: Literal["realtime"]
     key: Union[str, int]  # action IDs can be ints
     value: str
     event_type: str
@@ -193,7 +213,7 @@ class PersonFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
 
 
 PropertyFilter = Annotated[
-    Union[BehavioralFilter, CohortFilter, PersonFilter],
+    Union[BehavioralFilter, RealtimeFilter, CohortFilter, PersonFilter],
     Field(discriminator="type"),
 ]
 
@@ -595,7 +615,6 @@ class CohortSerializer(serializers.ModelSerializer):
             # Validate structure
             team = self.context.get("get_team", lambda: None)()
             validated = CohortFilters.model_validate(raw, context={"team": team})
-            print(validated.model_dump())
             raw = validated.model_dump()
 
         except PydanticValidationError as exc:
