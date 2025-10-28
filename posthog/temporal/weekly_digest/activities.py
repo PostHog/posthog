@@ -257,7 +257,7 @@ async def generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None
                     "python_now": datetime.now(UTC),
                     "ttl_days": await database_sync_to_async(ttl_days)(team),
                     "ttl_threshold": TTL_THRESHOLD,
-                    "limit": 100,
+                    "limit": 10,
                 }
 
                 raw_response: bytes = b""
