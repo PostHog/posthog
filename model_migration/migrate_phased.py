@@ -26,6 +26,7 @@ import yaml
 from phase_tracker import PhaseTracker, PhaseStatus
 import import_rewriter
 import django_helpers
+import llm_migration_editor
 
 
 # Phase definitions
@@ -367,20 +368,55 @@ def phase_5_generate_migrations(config: dict, tracker: PhaseTracker) -> None:
 
         operations.append("Generated posthog removal migration")
 
-        # Step 6: Provide next steps
+        # Step 6: Edit migrations with LLM
+        print(f"\n6. Editing migrations with Claude CLI...")
+
+        # Determine app label (lowercase, no underscores)
+        app_label = product.replace("_", "")
+
+        # Get migration directories
+        product_migrations_dir = target_dir / "migrations"
+        posthog_migrations_dir = Path("posthog/migrations")
+
+        # Convert model names to list
+        model_names_list = sorted(model_names)
+
+        try:
+            product_success, posthog_success = llm_migration_editor.edit_migrations(
+                product=product,
+                target_app=app_label,
+                model_names=model_names_list,
+                product_migrations_dir=product_migrations_dir,
+                posthog_migrations_dir=posthog_migrations_dir,
+            )
+
+            if product_success and posthog_success:
+                operations.append("Successfully edited both migrations with Claude")
+                print("\n✅ Both migrations edited successfully")
+            elif product_success or posthog_success:
+                operations.append("Partially edited migrations with Claude")
+                print("\n⚠️  Some migrations edited successfully, others need manual review")
+            else:
+                operations.append("LLM editing failed - manual review required")
+                print("\n⚠️  LLM editing failed - manual review of migrations required")
+        except Exception as e:
+            print(f"\n⚠️  LLM editing error: {e}")
+            operations.append(f"LLM editing error: {e}")
+
+        # Step 7: Provide next steps
         print("\n" + "=" * 80)
-        print("✓ Phase 5 completed - migrations generated")
+        print("✓ Phase 5 completed - migrations generated and edited")
         print("=" * 80)
-        print("\n⚠️  Manual steps required:")
-        print("\n1. Review generated migrations:")
+        print("\n📋 Next steps:")
+        print("\n1. Review edited migrations:")
         print(f"   - products/{product}/backend/migrations/")
         print("   - posthog/migrations/")
-        print("\n2. Edit migrations to follow pattern:")
-        print("   - Product migration: Use SeparateDatabaseAndState")
-        print("   - Posthog migration: Add ContentType update (RunPython)")
-        print("\n3. See WORKFLOW.md for migration editing patterns")
-        print("\n4. Test migrations:")
+        print("\n2. Verify migration patterns:")
+        print("   - Product migration: Uses SeparateDatabaseAndState")
+        print("   - Posthog migration: Contains ContentType update (RunPython)")
+        print("\n3. Test migrations:")
         print("   python manage.py migrate --plan")
+        print("\n4. If migrations look good, you can apply them or create PR")
 
         tracker.complete_phase(5, operations=operations)
 
