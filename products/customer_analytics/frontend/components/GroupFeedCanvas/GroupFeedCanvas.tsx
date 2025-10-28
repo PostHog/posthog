@@ -42,6 +42,16 @@ const GroupFeedCanvas = ({ group }: GroupFeedCanvas): JSX.Element => {
                                         nodeId: uuid(),
                                     },
                                 },
+                                {
+                                    type: 'ph-related-groups',
+                                    attrs: {
+                                        id: groupKey,
+                                        groupTypeIndex: group.group_type_index,
+                                        nodeId: uuid(),
+                                        title: 'Related people',
+                                        type: 'person',
+                                    },
+                                },
                             ],
                         },
                     },
