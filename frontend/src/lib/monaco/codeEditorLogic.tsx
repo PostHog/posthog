@@ -179,11 +179,10 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                 }
 
                 const regex = new RegExp(`\\b${tableName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi')
-                let match: RegExpExecArray | null
 
-                while ((match = regex.exec(query)) !== null) {
-                    const startPos = model.getPositionAt(match.index)
-                    const endPos = model.getPositionAt(match.index + match[0].length)
+                for (const match of query.matchAll(regex)) {
+                    const startPos = model.getPositionAt(match.index!)
+                    const endPos = model.getPositionAt(match.index! + match[0].length)
 
                     const className = viewInfo.is_materialized
                         ? 'hogql-materialized-view-decoration'
