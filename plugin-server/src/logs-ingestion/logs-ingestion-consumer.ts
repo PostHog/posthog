@@ -102,9 +102,9 @@ export class LogsIngestionConsumer {
                     const token = headers.token
 
                     if (!token) {
-                        logger.error('missing_token_or_distinct_id')
+                        logger.error('missing_token')
                         // Write to DLQ topic maybe?
-                        logMessageDroppedCounter.inc({ reason: 'missing_token_or_distinct_id' })
+                        logMessageDroppedCounter.inc({ reason: 'missing_token' })
                         return
                     }
 
