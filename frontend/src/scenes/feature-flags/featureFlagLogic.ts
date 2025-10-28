@@ -1344,7 +1344,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 {
                     key: [Scene.FeatureFlag, featureFlag.id || 'unknown'],
                     name: featureFlag.key || (!featureFlag.id ? 'New feature flag' : 'Unnamed'),
-                    iconType: 'feature_flag',
+                    iconType: featureFlag.active ? 'feature_flag' : 'feature_flag_off',
                 },
             ],
         ],
