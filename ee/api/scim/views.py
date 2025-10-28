@@ -32,9 +32,25 @@ SCIM_GROUP_ATTR_MAP = {
 class PostHogUserFilterQuery(UserFilterQuery):
     attr_map = SCIM_USER_ATTR_MAP
 
+    @classmethod
+    def search(cls, filter_query, request, organization):
+        raw_queryset = super().search(filter_query, request)
+        # Filter results to only include users from the specified organization
+        user_ids = [u.id for u in list(raw_queryset)]
+        queryset = User.objects.filter(id__in=user_ids, organization_membership__organization=organization)
+        return queryset
+
 
 class PostHogGroupFilterQuery(GroupFilterQuery):
     attr_map = SCIM_GROUP_ATTR_MAP
+
+    @classmethod
+    def search(cls, filter_query, request, organization):
+        raw_queryset = super().search(filter_query, request)
+        # Filter results to only include roles from the specified organization
+        role_ids = [r.id for r in list(raw_queryset)]
+        queryset = Role.objects.filter(id__in=role_ids, organization=organization)
+        return queryset
 
 
 class SCIMUsersView(APIView):
@@ -46,14 +62,7 @@ class SCIMUsersView(APIView):
 
         if filter_param:
             try:
-                raw_queryset = PostHogUserFilterQuery.search(filter_param, request)
-                filtered_users_list = list(raw_queryset)
-                user_ids = [u.id for u in filtered_users_list]
-
-                queryset = User.objects.filter(
-                    id__in=user_ids, organization_membership__organization=organization_domain.organization
-                )
-
+                queryset = PostHogUserFilterQuery.search(filter_param, request, organization_domain.organization)
                 users = [PostHogSCIMUser(u, organization_domain) for u in queryset]
             except Exception as e:
                 capture_exception(e, additional_properties={"scim_operation": "filter_users", "filter": filter_param})
@@ -134,12 +143,7 @@ class SCIMGroupsView(APIView):
 
         if filter_param:
             try:
-                raw_queryset = PostHogGroupFilterQuery.search(filter_param, request)
-                filtered_roles_list = list(raw_queryset)
-                role_ids = [r.id for r in filtered_roles_list]
-
-                queryset = Role.objects.filter(id__in=role_ids, organization=organization_domain.organization)
-
+                queryset = PostHogGroupFilterQuery.search(filter_param, request, organization_domain.organization)
                 groups = [PostHogSCIMGroup(role, organization_domain) for role in queryset]
             except Exception as e:
                 capture_exception(e, additional_properties={"scim_operation": "filter_groups", "filter": filter_param})

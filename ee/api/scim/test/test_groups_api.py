@@ -3,7 +3,7 @@ import uuid
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, User
+from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.scim.auth import generate_scim_token
@@ -63,6 +63,23 @@ class TestSCIMGroupsAPI(APILicensedTest):
         assert data["totalResults"] == 1
         assert data["itemsPerPage"] == 1
         assert data["Resources"][0]["displayName"] == "Engineering"
+
+    def test_groups_list_filter_excludes_groups_from_other_orgs(self):
+        # Create role with same name in different organization
+        other_org = Organization.objects.create(name="Other Org")
+        Role.objects.create(name="Engineering", organization=other_org)
+
+        # Filter for role from other org should return nothing
+        response = self.client.get(
+            f"/scim/v2/{self.domain.id}/Groups",
+            {"filter": 'displayName eq "Engineering"'},
+            **self.scim_headers,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["totalResults"] == 0
+        assert data["Resources"] == []
 
     def test_groups_list_filter_no_match_returns_empty_list(self):
         Role.objects.create(name="Engineering", organization=self.organization)

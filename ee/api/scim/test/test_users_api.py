@@ -76,6 +76,32 @@ class TestSCIMUsersAPI(APILicensedTest):
         assert data["itemsPerPage"] == 1
         assert data["Resources"][0]["userName"] == "engineering@example.com"
 
+    def test_users_list_filter_excludes_users_from_other_orgs(self):
+        # Create user that belongs only to a different organization
+        other_org = Organization.objects.create(name="Other Org")
+        user_other_org = User.objects.create_user(
+            email="engineering@example.com",
+            password=None,
+            first_name="Other",
+            last_name="User",
+            is_email_verified=True,
+        )
+        OrganizationMembership.objects.create(
+            user=user_other_org, organization=other_org, level=OrganizationMembership.Level.MEMBER
+        )
+
+        # Filter for user from other org should return nothing
+        response = self.client.get(
+            f"/scim/v2/{self.domain.id}/Users",
+            {"filter": 'userName eq "engineering@example.com"'},
+            **self.scim_headers,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["totalResults"] == 0
+        assert data["Resources"] == []
+
     def test_users_list_filter_no_match_returns_empty_list(self):
         response = self.client.get(
             f"/scim/v2/{self.domain.id}/Users",
