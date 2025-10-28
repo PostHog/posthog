@@ -96,7 +96,7 @@ COUNTER_SURVEYS_API_USE_REMOTE_CONFIG = Counter(
     labelnames=["result"],
 )
 
-COUNTER_SURVEYS_API_REMOTE_CONFIG_COMPARISOM = Counter(
+COUNTER_SURVEYS_API_REMOTE_CONFIG_COMPARISON = Counter(
     "posthog_surveys_api_remote_config_comparison",
     "Comparison of surveys response equality",
     labelnames=["result"],
