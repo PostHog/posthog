@@ -146,9 +146,13 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
         viewDecorations: [
             [] as string[],
             {
-                reloadMetadataSuccess: ({ metadata }) => {
+                reloadMetadataSuccess: (previousDecorationIds, { metadata }) => {
                     const model = props.editor?.getModel()
                     if (!model || !metadata || !props.editor) {
+                        // Clear previous decorations if editor is not available
+                        if (previousDecorationIds.length > 0 && props.editor) {
+                            props.editor.deltaDecorations(previousDecorationIds, [])
+                        }
                         return []
                     }
                     const [query, metadataResponse] = metadata
@@ -156,7 +160,9 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                     const tableNames = metadataResponse?.table_names
 
                     if (!viewMetadata || Object.keys(viewMetadata).length === 0 || !tableNames) {
-                        return []
+                        // Clear previous decorations if no views
+                        const decorationIds = props.editor.deltaDecorations(previousDecorationIds, [])
+                        return decorationIds
                     }
 
                     // Only decorate views that are actually in the table_names list from the query
@@ -205,8 +211,8 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                         }
                     }
 
-                    // Apply decorations and return the decoration IDs
-                    const decorationIds = props.editor.deltaDecorations([], decorations)
+                    // Apply decorations, replacing the previous ones, and return the new decoration IDs
+                    const decorationIds = props.editor.deltaDecorations(previousDecorationIds, decorations)
                     return decorationIds
                 },
             },
