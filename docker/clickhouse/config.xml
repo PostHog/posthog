@@ -300,9 +300,6 @@
         <database>system</database>
         <table>opentelemetry_span_log</table>
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
-
-        <ttl>event_date + INTERVAL 5 DAY</ttl>
-        <ttl_only_drop_parts>1</ttl_only_drop_parts>
     </opentelemetry_span_log>
 
 
