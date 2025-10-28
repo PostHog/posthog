@@ -74,7 +74,7 @@ class OverridableAuthenticationMiddleware(AuthenticationMiddleware):
     def process_request(self, request):
         if settings.DEBUG and settings.DEBUG_LOG_IN_AS_EMAIL:
             # This check for debug should have zero performance hit - and it does
-            request.user = SimpleLazyObject(lambda: User.objects.get(email=settings.DEBUG_LOG_IN_AS_EMAIL))  # type: ignore
+            request.user = SimpleLazyObject(lambda: User.objects.get(email=settings.DEBUG_LOG_IN_AS_EMAIL))
             return
         super().process_request(request)
 

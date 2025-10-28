@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from enum import StrEnum
 from functools import cache
 
-import django.conf.settings
+import django.conf
 from django.conf import settings
 
 from clickhouse_connect import get_client
