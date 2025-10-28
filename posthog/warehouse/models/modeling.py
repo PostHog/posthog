@@ -433,7 +433,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         the transaction and clean them up.
         """
         parents = get_parents_from_model_query(query)
-        posthog_tables = self.get_hogql_database(team).get_posthog_tables()
+        posthog_table_names = self.get_hogql_database(team).get_posthog_table_names()
 
         base_params = {
             "team_id": team.pk,
@@ -446,7 +446,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
                 cursor.execute("SET CONSTRAINTS ALL DEFERRED")
 
                 for parent in parents:
-                    if parent in posthog_tables:
+                    if parent in posthog_table_names:
                         parent_id = parent
                     else:
                         try:
