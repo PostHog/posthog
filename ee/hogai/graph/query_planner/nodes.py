@@ -21,7 +21,7 @@ from posthog.schema import (
 
 from posthog.hogql.ai import SCHEMA_MESSAGE
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database, serialize_database
+from posthog.hogql.database.database import Database
 
 from posthog.models.group_type_mapping import GroupTypeMapping
 
@@ -196,8 +196,8 @@ class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
         and continuation with intermediate steps.
         """
         # Initial conversation setup
-        database = create_hogql_database(team=self._team)
-        serialized_database = serialize_database(
+        database = Database.create_for(team=self._team)
+        serialized_database = database.serialize(
             HogQLContext(team=self._team, enable_select_queries=True, database=database)
         )
         hogql_schema_description = "\n\n".join(
@@ -206,7 +206,7 @@ class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
                 + "\n".join(f"- {field.name} ({field.type})" for field in table.fields.values())
                 for table_name, table in serialized_database.items()
                 # Only the most important core tables, plus all warehouse tables
-                if table_name in ["events", "groups", "persons"] or table_name in database.get_warehouse_tables()
+                if table_name in ["events", "groups", "persons"] or table_name in database.get_warehouse_table_names()
             )
         )
         conversation = ChatPromptTemplate(

@@ -17,7 +17,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.base import AST, CTE, ConstantType
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import HOGQL_CHARACTERS_TO_BE_WRAPPED, Database, create_hogql_database
+from posthog.hogql.database.database import HOGQL_CHARACTERS_TO_BE_WRAPPED, Database
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
@@ -218,7 +218,7 @@ def get_table(context: HogQLContext, join_expr: ast.JoinExpr, ctes: Optional[dic
         # Handle a base table
         table_chain = [str(e) for e in join_expr.table.chain]
         if context.database.has_table(table_chain):
-            return context.database.get_table_by_chain(table_chain)
+            return context.database.get_table(table_chain)
     elif isinstance(join_expr.table, ast.SelectQuery):
         if join_expr.table.select_from is None:
             return None
@@ -393,7 +393,7 @@ def get_hogql_autocomplete(
     if database_arg is not None:
         database = database_arg
     else:
-        database = create_hogql_database(team=team, timings=timings)
+        database = Database.create_for(team=team, timings=timings)
 
     context = HogQLContext(team_id=team.pk, team=team, database=database, timings=timings)
     if query.sourceQuery:
@@ -652,8 +652,8 @@ def get_hogql_autocomplete(
             elif isinstance(node, ast.Field) and isinstance(parent_node, ast.JoinExpr):
                 # Handle table names
                 with timings.measure("table_name"):
-                    table_names = database.get_all_tables()
-                    posthog_table_names = database.get_posthog_tables()
+                    table_names = database.get_all_table_names()
+                    posthog_table_names = database.get_posthog_table_names()
 
                     if len(node.chain) == 1:
                         extend_responses(
