@@ -88,7 +88,7 @@ export function OverviewTab(): JSX.Element {
                                 </Tooltip>
                             </div>
                             <div className="text-2xl font-semibold mt-1 flex items-center gap-2">
-                                {totalRowsStatsLoading ? (
+                                {totalRowsStatsLoading && !totalRowsStats?.total_rows ? (
                                     <Spinner className="text-muted" />
                                 ) : (
                                     (totalRowsStats?.total_rows ?? 0).toLocaleString()
@@ -98,7 +98,7 @@ export function OverviewTab(): JSX.Element {
                         <div>
                             <div className="text-sm text-muted">Currently running source syncs</div>
                             <div className="text-2xl font-semibold mt-1 flex items-center gap-2">
-                                {jobStatsLoading ? (
+                                {jobStatsLoading && !jobStats ? (
                                     <Spinner className="text-muted" />
                                 ) : (
                                     jobStats?.external_data_jobs.running ?? 0
@@ -108,7 +108,7 @@ export function OverviewTab(): JSX.Element {
                         <div>
                             <div className="text-sm text-muted">Currently running materialized views</div>
                             <div className="text-2xl font-semibold mt-1 flex items-center gap-2">
-                                {jobStatsLoading ? (
+                                {jobStatsLoading && !jobStats ? (
                                     <Spinner className="text-muted" />
                                 ) : (
                                     jobStats?.modeling_jobs.running ?? 0
