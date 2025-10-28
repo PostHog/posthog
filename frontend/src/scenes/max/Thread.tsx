@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useLayoutEffect, useMemo, useState } from 'react'
 import { twMerge } from 'tailwind-merge'
 
 import {
@@ -66,7 +66,7 @@ import {
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { isHogQLQuery } from '~/queries/utils'
+import { isFunnelsQuery, isHogQLQuery } from '~/queries/utils'
 import { InsightShortId } from '~/types'
 
 import { ContextSummary } from './Context'
@@ -174,6 +174,7 @@ interface MessageProps {
 
 function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element {
     const { editInsightToolRegistered } = useValues(maxGlobalLogic)
+    const { activeTabId, activeSceneId } = useValues(sceneLogic)
     const { threadLoading } = useValues(maxThreadLogic)
 
     const groupType = message.type === 'human' ? 'human' : 'ai'
@@ -316,6 +317,8 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                                 message={message}
                                 status={message.status}
                                 isEditingInsight={editInsightToolRegistered}
+                                activeTabId={activeTabId}
+                                activeSceneId={activeSceneId}
                             />
                         )
                     } else if (isMultiVisualizationMessage(message)) {
@@ -581,7 +584,7 @@ interface PlanningAnswerProps {
 function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnswerProps): JSX.Element {
     const [isExpanded, setIsExpanded] = useState(isLastPlanningMessage)
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         setIsExpanded(isLastPlanningMessage)
     }, [isLastPlanningMessage])
 
@@ -719,7 +722,7 @@ function AssistantActionComponent({
     // Initialize with the same logic as the effect to prevent flickering
     const [isExpanded, setIsExpanded] = useState(showChevron && !(isCompleted || isFailed))
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         setIsExpanded(showChevron && !(isCompleted || isFailed))
     }, [showChevron, isCompleted, isFailed])
 
@@ -983,16 +986,19 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
     message,
     status,
     isEditingInsight,
+    activeTabId,
+    activeSceneId,
 }: {
     message: VisualizationMessage
     status?: MessageStatus
     isEditingInsight: boolean
+    activeTabId?: string | null
+    activeSceneId?: string | null
 }): JSX.Element | null {
     const [isSummaryShown, setIsSummaryShown] = useState(false)
     const [isCollapsed, setIsCollapsed] = useState(isEditingInsight)
-    const { activeTabId, activeSceneId } = useValues(sceneLogic)
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         setIsCollapsed(isEditingInsight)
     }, [isEditingInsight])
 
@@ -1005,7 +1011,8 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                   <MessageTemplate
                       type="ai"
                       className="w-full"
-                      boxClassName={clsx('flex flex-col w-full', !isCollapsed && 'min-h-60')}
+                      wrapperClassName="w-full"
+                      boxClassName={clsx('flex flex-col w-full', isFunnelsQuery(message.answer) ? 'h-[580px]' : 'h-96')}
                   >
                       {!isCollapsed && <Query query={query} readOnly embedded />}
                       <div className={clsx('flex items-center justify-between', !isCollapsed && 'mt-2')}>
