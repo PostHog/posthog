@@ -41,7 +41,7 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
         ],
         mode: [
             // if disabled, we've default to 'link' mode
-            props.disabled ? ('link' as const) : ('create' as const),
+            (props.disabled ? 'link' : 'create') as 'create' | 'link',
             {
                 setMode: (state: 'create' | 'link', { mode }: { mode: 'create' | 'link' }) => {
                     // Prevent mode changes when editing

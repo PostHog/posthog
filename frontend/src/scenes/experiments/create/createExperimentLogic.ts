@@ -112,7 +112,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 featureFlagLogic,
                 ['featureFlags'],
                 variantsPanelLogicInstance,
-                ['featureFlagKeyDirty', 'featureFlagKeyValidation', 'featureFlagKeyValidationLoading', 'mode'],
+                ['featureFlagKeyDirty', 'featureFlagKeyValidation', 'featureFlagKeyValidationLoading'],
             ],
             actions: [
                 eventUsageLogic,
@@ -243,6 +243,14 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             (experiment: Experiment) => experiment.id !== 'new' && experiment.id !== null,
         ],
         isCreateMode: [(s) => [s.isEditMode], (isEditMode: boolean) => !isEditMode],
+        mode: [
+            (s) => [s.experiment, (_, props) => props],
+            (experiment: Experiment, props: CreateExperimentLogicProps): 'create' | 'link' => {
+                const disabled = experiment.id !== 'new' && experiment.id !== null
+                return variantsPanelLogic({ experiment: props.experiment || { ...NEW_EXPERIMENT }, disabled }).values
+                    .mode
+            },
+        ],
     })),
     listeners(({ values, actions }) => ({
         setExperiment: () => {},
