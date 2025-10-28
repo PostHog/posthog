@@ -298,7 +298,6 @@ posthog/hogql/autocomplete.py:0: warning: Attribute `query` on type `(EventsNode
 posthog/hogql/autocomplete.py:0: warning: Attribute `query` on type `(EventsNode & ~AlwaysFalsy) | (ActionsNode & ~AlwaysFalsy) | (PersonsNode & ~AlwaysFalsy) | ... omitted 40 union elements` may be missing  [possibly-missing-attribute]
 posthog/hogql/autocomplete.py:0: warning: Value is already of type `SelectQuery`  [redundant-cast]
 posthog/hogql/database/database.py:0: error: Argument `schema` does not match any known parameter  [unknown-argument]
-posthog/hogql/database/models.py:0: warning: Value is already of type `TableGroup`  [redundant-cast]
 posthog/hogql/database/schema/persons.py:0: warning: Value is already of type `And`  [redundant-cast]
 posthog/hogql/filters.py:0: error: Default value of type `None` is not assignable to annotated parameter type `Team`  [invalid-parameter-default]
 posthog/hogql/parser.py:0: error: Return type does not match returned value: expected `Call`, found `Unknown | Expr`  [invalid-return-type]

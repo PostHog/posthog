@@ -20,7 +20,7 @@ from temporalio.client import (
     ScheduleState,
 )
 
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.hogql import HogQLContext
 
 from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun
@@ -742,7 +742,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
         enable_select_queries=True,
         limit_top_select=False,
     )
-    context.database = create_hogql_database(team=batch_export.team, modifiers=context.modifiers)
+    context.database = Database.create_for(team=batch_export.team, modifiers=context.modifiers)
 
     temporal = sync_connect()
     schedule = Schedule(
