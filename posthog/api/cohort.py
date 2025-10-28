@@ -90,26 +90,40 @@ from posthog.renderers import SafeJSONRenderer
 from posthog.utils import format_query_params_absolute_url
 
 
-def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> [list[Any] | None, str | None]:
+def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list[Any] | None, str | None, str | None]:
     """
     Generate HogQL bytecode for cohort filter data.
     Similar to generate_template_bytecode in validation.py but for cohort-specific filters.
+    Returns tuple of (bytecode, error, conditionHash)
     """
     try:
+        import json
+        import hashlib
+
         from posthog.models.property.property import Property
 
         # Convert the filter data to a Property object for bytecode generation
         property_obj = Property(**filter_data)
         expr = property_to_expr(property_obj, team)
-        return create_bytecode(expr, cohort_membership_supported=True).bytecode, None
+        bytecode = create_bytecode(expr, cohort_membership_supported=True).bytecode
+
+        # Generate conditionHash from bytecode
+        condition_hash = None
+        if bytecode:
+            # Create a stable hash of the bytecode by converting to JSON string
+            bytecode_str = json.dumps(bytecode, sort_keys=True)
+            condition_hash = hashlib.sha256(bytecode_str.encode()).hexdigest()[:16]
+
+        return bytecode, None, condition_hash
     except Exception as e:
         logger.warning(f"Failed to generate bytecode for cohort filter: {e}")
-        return None, str(e)
+        return None, str(e), None
 
 
 class FilterBytecodeMixin(BaseModel):
     bytecode: list[Any] | None = None
     bytecode_error: str | None = None
+    conditionHash: str | None = None
 
     @model_validator(mode="after")
     def _generate_bytecode(self, info):
@@ -118,9 +132,11 @@ class FilterBytecodeMixin(BaseModel):
         if info and info.context:
             team = info.context.get("team")
             if team:
-                bytecode, error = generate_cohort_filter_bytecode(self.model_dump(), team)
+                bytecode, error, condition_hash = generate_cohort_filter_bytecode(self.model_dump(), team)
                 if bytecode:
                     self.bytecode = bytecode
+                if condition_hash:
+                    self.conditionHash = condition_hash
                 if error:
                     self.bytecode_error = error
         return self
