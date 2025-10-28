@@ -68,8 +68,8 @@ impl RawFrame {
             RawFrame::Custom(frame) => (Ok(frame.into()), "custom"),
             RawFrame::Go(frame) => (Ok(frame.into()), "go"),
             RawFrame::Hermes(frame) => (frame.resolve(team_id, catalog).await, "hermes"),
-            RawFrame::Java(frame) => (Ok(frame.into()), "java"),
             RawFrame::Dart(frame) => (Ok(frame.into()), "dart"),
+            RawFrame::Java(frame) => (frame.resolve(team_id, catalog).await, "java"),
         };
 
         // The raw id of the frame is set after it's resolved
@@ -93,16 +93,14 @@ impl RawFrame {
         match self {
             RawFrame::JavaScriptWeb(frame) | RawFrame::LegacyJS(frame) => frame.symbol_set_ref(),
             RawFrame::JavaScriptNode(frame) => frame.chunk_id.clone(),
-            RawFrame::Hermes(frame) => frame.chunk_id.clone(),
-            // TODO - Python and Go frames don't use symbol sets for frame resolution, but could still use "marker" symbol set
-            // to associate a given frame with a given release (basically, a symbol set with no data, just some id,
-            // which we'd then use to do a join on the releases table to get release information)
+            RawFrame::Hermes(frame) => frame.symbol_set_ref(),
+            RawFrame::Java(frame) => frame.symbol_set_ref(),
+            // Frames with no symbol sets
             RawFrame::Python(_)
             | RawFrame::Ruby(_)
             | RawFrame::Go(_)
-            | RawFrame::Java(_)
-            | RawFrame::Dart(_) => None,
-            RawFrame::Custom(_) => None,
+            | RawFrame::Dart(_)
+            | RawFrame::Custom(_) => None,
         }
     }
 

@@ -119,6 +119,7 @@ mod test {
         symbol_store::{
             chunk_id::ChunkIdFetcher,
             hermesmap::HermesMapProvider,
+            proguard::ProguardProvider,
             saving::{Saving, SymbolSetRecord},
             sourcemap::SourcemapProvider,
             Catalog, S3Client,
@@ -180,7 +181,14 @@ mod test {
             config.object_storage_bucket.clone(),
         );
 
-        let catalog = Catalog::new(saving_smp, hmp);
+        let pgp = ChunkIdFetcher::new(
+            ProguardProvider {},
+            client.clone(),
+            pool.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let catalog = Catalog::new(saving_smp, hmp, pgp);
 
         (config, catalog, server)
     }

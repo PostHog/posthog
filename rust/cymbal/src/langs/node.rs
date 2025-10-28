@@ -50,9 +50,9 @@ impl RawNodeFrame {
             Err(ResolveError::ResolutionError(FrameError::MissingChunkIdData(chunk_id))) => {
                 Ok((self, JsResolveErr::NoSourcemapUploaded(chunk_id)).into())
             }
-            Err(ResolveError::ResolutionError(FrameError::Hermes(e))) => {
-                // TODO - should be unreachable, specialize Error to encode that
-                Err(UnhandledError::from(FrameError::from(e)))
+            Err(ResolveError::ResolutionError(e)) => {
+                // TODO - other kinds of errors here should be unreachable, we need to specialize ResolveError to encode that
+                unreachable!("Should not have received error {:?}", e)
             }
             Err(ResolveError::UnhandledError(e)) => Err(e),
         }
