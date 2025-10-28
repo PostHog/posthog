@@ -195,6 +195,7 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
         "field_names": [
             "id",
             "account_id",
+            "account_currency",
             "name",
             "status",
             "configured_status",

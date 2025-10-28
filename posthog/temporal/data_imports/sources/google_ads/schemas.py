@@ -273,6 +273,7 @@ RESOURCE_SCHEMAS = {
         "field_names": [
             "campaign.id",
             "customer.id",
+            "customer.currency_code",
             "campaign.base_campaign",
             "metrics.active_view_cpm",
             "metrics.active_view_ctr",

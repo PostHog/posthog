@@ -75,7 +75,29 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
 
     def _get_cost_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        sum = ast.Call(name="SUM", args=[ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "spend"])])])
+        base_currency = self.context.base_currency
+
+        # Get cost
+        spend_field = ast.Field(chain=[stats_table_name, "spend"])
+        spend_float = ast.Call(name="toFloat", args=[spend_field])
+        sum = ast.Call(name="SUM", args=[spend_float])
+
+        # Check if currency column exists in stats table
+        try:
+            columns = getattr(self.config.stats_table, "columns", None)
+            if columns and hasattr(columns, "__contains__") and "account_currency" in columns:
+                # Get currency field from stats table (use any() since all rows in a campaign have same currency)
+                currency_field = ast.Call(name="any", args=[ast.Field(chain=[stats_table_name, "account_currency"])])
+
+                # Apply currency conversion
+                convert_currency = ast.Call(
+                    name="convertCurrency", args=[currency_field, ast.Constant(value=base_currency), sum]
+                )
+                return ast.Call(name="toFloat", args=[convert_currency])
+        except (TypeError, AttributeError, KeyError):
+            pass
+
+        # Currency column doesn't exist, return cost without conversion
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_reported_conversion_field(self) -> ast.Expr:
