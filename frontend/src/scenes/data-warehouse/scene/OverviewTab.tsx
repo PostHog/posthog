@@ -145,18 +145,18 @@ export function OverviewTab(): JSX.Element {
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                 <div>
                                     <div className="text-xs text-muted">Total Jobs</div>
-                                    <div className="text-xl font-semibold">{jobStats.total_jobs}</div>
+                                    <div className="text-xl font-semibold">{jobStats.total_jobs.toLocaleString()}</div>
                                 </div>
                                 <div>
                                     <div className="text-xs text-muted">Successful</div>
                                     <div className="text-xl font-semibold text-success flex items-center gap-1">
-                                        {jobStats.successful_jobs}
+                                        {jobStats.successful_jobs.toLocaleString()}
                                     </div>
                                 </div>
                                 <div>
                                     <div className="text-xs text-muted">Failed</div>
                                     <div className="text-xl font-semibold text-danger flex items-center gap-1">
-                                        {jobStats.failed_jobs}
+                                        {jobStats.failed_jobs.toLocaleString()}
                                     </div>
                                 </div>
                             </div>
