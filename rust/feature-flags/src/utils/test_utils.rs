@@ -38,6 +38,7 @@ pub async fn insert_new_team_in_redis(
         project_id: i64::from(id),
         name: "team".to_string(),
         api_token: token,
+        organization_id: Some(uuid::Uuid::new_v4()),
         cookieless_server_hash_mode: 0,
         timezone: "UTC".to_string(),
         ..Default::default()

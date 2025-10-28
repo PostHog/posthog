@@ -6,7 +6,7 @@ use crate::{
         FLAG_CACHE_HIT_COUNTER, TEAM_CACHE_ERRORS_COUNTER, TEAM_CACHE_HIT_COUNTER,
         TOKEN_VALIDATION_ERRORS_COUNTER,
     },
-    team::team_models::Team,
+    team::{team_models::Team, team_operations},
 };
 use common_database::PostgresReader;
 use common_metrics::inc;
@@ -89,38 +89,25 @@ impl FlagService {
     /// Fetches the team from the cache or the database.
     /// If the team is not found in the cache, it will be fetched from the database and stored in the cache.
     /// Returns the team if found, otherwise an error.
+    ///
+    /// Note: This now uses the consolidated helper `fetch_team_from_redis_with_fallback`.
+    /// DB reads are tracked via DB_TEAM_READS_COUNTER. Cache hit/miss and cache error
+    /// metrics (TEAM_CACHE_HIT_COUNTER, TEAM_CACHE_ERRORS_COUNTER) are no longer tracked
+    /// to avoid duplicate Redis fetches and maintain consistency with flag_definitions.rs.
     pub async fn get_team_from_cache_or_pg(&self, token: &str) -> Result<Team, FlagError> {
-        let (team_result, cache_hit) =
-            match Team::from_redis(self.redis_reader.clone(), token).await {
-                Ok(team) => (Ok(team), true),
-                Err(_) => match Team::from_pg(self.pg_client.clone(), token).await {
-                    Ok(team) => {
-                        inc(DB_TEAM_READS_COUNTER, &[], 1);
-                        // If we have the team in postgres, but not redis, update redis so we're faster next time
-                        if Team::update_redis_cache(self.redis_writer.clone(), &team)
-                            .await
-                            .is_err()
-                        {
-                            inc(
-                                TEAM_CACHE_ERRORS_COUNTER,
-                                &[("reason".to_string(), "redis_update_failed".to_string())],
-                                1,
-                            );
-                        }
-                        (Ok(team), false)
-                    }
-                    // TODO what kind of error should we return here?
-                    Err(e) => (Err(e), false),
-                },
-            };
+        let pg_client = self.pg_client.clone();
+        let token_str = token.to_string();
 
-        inc(
-            TEAM_CACHE_HIT_COUNTER,
-            &[("cache_hit".to_string(), cache_hit.to_string())],
-            1,
-        );
-
-        team_result
+        team_operations::fetch_team_from_redis_with_fallback(
+            self.redis_reader.clone(),
+            self.redis_writer.clone(),
+            token,
+            || async move {
+                inc(DB_TEAM_READS_COUNTER, &[], 1);
+                Team::from_pg(pg_client, &token_str).await
+            },
+        )
+        .await
     }
 
     /// Fetches the flags from the cache or the database. Returns a tuple containing
