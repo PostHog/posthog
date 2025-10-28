@@ -74,7 +74,7 @@ class TaxonomyAgentNode(
 
     def _get_model(self, state: TaxonomyStateType):
         return MaxChatOpenAI(
-            model="gpt-4.1", streaming=False, temperature=0.3, user=self._user, team=self._team
+            model="gpt-4.1", streaming=False, temperature=0.3, user=self._user, team=self._team, disable_streaming=True
         ).bind_tools(
             self._toolkit.get_tools(),
             tool_choice="required",

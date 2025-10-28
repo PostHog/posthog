@@ -441,7 +441,6 @@ class DashboardCreationNode(AssistantNode):
             model="gpt-4.1-mini",
             temperature=0.3,
             max_completion_tokens=500,
-            streaming=True,
-            stream_usage=True,
             max_retries=3,
+            disable_streaming=True,
         )

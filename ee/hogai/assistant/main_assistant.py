@@ -22,7 +22,7 @@ from ee.hogai.graph import (
     TrendsGeneratorNode,
 )
 from ee.hogai.graph.base import BaseAssistantNode
-from ee.hogai.graph.taxonomy.types import TaxonomyNodeName
+from ee.hogai.graph.insights.nodes import InsightSearchNode
 from ee.hogai.utils.state import GraphValueUpdateTuple, validate_value_update
 from ee.hogai.utils.types import (
     AssistantMode,
@@ -78,6 +78,7 @@ class MainAssistant(BaseAssistant):
             AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
             AssistantNodeName.RETENTION_GENERATOR: RetentionGeneratorNode,
             AssistantNodeName.SQL_GENERATOR: SQLGeneratorNode,
+            AssistantNodeName.INSIGHTS_SEARCH: InsightSearchNode,
         }
 
     @property
@@ -89,9 +90,6 @@ class MainAssistant(BaseAssistant):
             AssistantNodeName.MEMORY_INITIALIZER,
             AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
             AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
-            TaxonomyNodeName.LOOP_NODE,
-            AssistantNodeName.SESSION_SUMMARIZATION,
-            AssistantNodeName.INSIGHTS_SEARCH,
             AssistantNodeName.DASHBOARD_CREATION,
         }
 
