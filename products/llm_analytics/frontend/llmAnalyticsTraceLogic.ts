@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
@@ -72,6 +72,8 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         applySearchResults: (inputMatches: boolean[], outputMatches: boolean[]) => ({ inputMatches, outputMatches }),
         setDisplayOption: (displayOption: DisplayOption) => ({ displayOption }),
         toggleEventTypeExpanded: (eventType: string) => ({ eventType }),
+        toggleEditMode: true,
+        setEditModeJSON: (json: string) => ({ json }),
     }),
 
     reducers({
@@ -84,6 +86,22 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                     dateFrom: dateFrom ?? null,
                     dateTo: dateTo ?? null,
                 }),
+            },
+        ],
+        editMode: [
+            false as boolean,
+            {
+                toggleEditMode: (state) => !state,
+            },
+        ],
+        editModeJSON: [
+            '' as string,
+            {
+                setEditModeJSON: (_, { json }) => json,
+                toggleEditMode: () => {
+                    // Clear JSON when toggling edit mode
+                    return ''
+                },
             },
         ],
         searchQuery: ['' as string, { setSearchQuery: (_, { searchQuery }) => String(searchQuery || '') }],
@@ -240,7 +258,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         },
         setSearchQuery: ({ searchQuery }) => {
             // Skip router actions in debug mode
-            if (props.debugMode) {
+            if (props?.debugMode === true) {
                 return
             }
 

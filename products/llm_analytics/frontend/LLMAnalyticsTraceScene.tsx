@@ -15,6 +15,7 @@ import {
     LemonTabs,
     LemonTag,
     LemonTagProps,
+    LemonTextArea,
     Link,
     SpinnerOverlay,
     Tooltip,
@@ -28,6 +29,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, isObject, pluralize } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -71,7 +73,6 @@ enum TraceViewMode {
 
 export const scene: SceneExport = {
     component: LLMAnalyticsTraceScene,
-    logic: llmAnalyticsTraceLogic,
 }
 
 export function LLMAnalyticsTraceScene(): JSX.Element {
@@ -100,7 +101,9 @@ function getSessionFilterUrl(sessionId: string): string {
 }
 
 export function TraceSceneWrapper(): JSX.Element {
-    const { eventId } = useValues(llmAnalyticsTraceLogic)
+    const { eventId, editMode } = useValues(llmAnalyticsTraceLogic)
+    const { toggleEditMode } = useActions(llmAnalyticsTraceLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const {
         enrichedTree,
         trace,
@@ -112,6 +115,8 @@ export function TraceSceneWrapper(): JSX.Element {
         searchQuery,
         eventMetadata,
     } = useValues(llmAnalyticsTraceDataLogic)
+
+    const showEditMode = featureFlags[FEATURE_FLAGS.LLMA_TRACE_EDIT_ENABLED] ?? true
 
     return (
         <>
@@ -132,22 +137,169 @@ export function TraceSceneWrapper(): JSX.Element {
                         />
                         <div className="flex flex-wrap justify-end items-center gap-x-2 gap-y-1">
                             <DisplayOptionsSelect />
+                            {showEditMode && (
+                                <LemonButton
+                                    type={editMode ? 'primary' : 'secondary'}
+                                    size="xsmall"
+                                    onClick={toggleEditMode}
+                                    tooltip="Enter edit mode to paste and test different trace JSON"
+                                >
+                                    {editMode ? 'Exit Edit Mode' : 'Edit Mode'}
+                                </LemonButton>
+                            )}
                             <CopyTraceButton trace={trace} tree={enrichedTree} />
                         </div>
                     </div>
                     <div className="flex flex-1 min-h-0 gap-3 flex-col md:flex-row">
-                        <TraceSidebar trace={trace} eventId={eventId} tree={enrichedTree} />
-                        <EventContent
-                            trace={trace}
-                            event={event}
-                            tree={enrichedTree}
-                            searchQuery={searchQuery}
-                            eventMetadata={eventMetadata}
-                        />
+                        {editMode ? (
+                            <TraceEditModeView trace={trace} tree={enrichedTree} />
+                        ) : (
+                            <>
+                                <TraceSidebar trace={trace} eventId={eventId} tree={enrichedTree} />
+                                <EventContent
+                                    trace={trace}
+                                    event={event}
+                                    tree={enrichedTree}
+                                    searchQuery={searchQuery}
+                                    eventMetadata={eventMetadata}
+                                />
+                            </>
+                        )}
                     </div>
                 </div>
             )}
         </>
+    )
+}
+
+function TraceEditModeView({ trace, tree }: { trace: LLMTrace; tree: EnrichedTraceTreeNode[] }): JSX.Element {
+    const { editModeJSON } = useValues(llmAnalyticsTraceLogic)
+    const { setEditModeJSON } = useActions(llmAnalyticsTraceLogic)
+    const [jsonInput, setJsonInput] = useState('')
+    const [parseError, setParseError] = useState<string | null>(null)
+    const [parsedData, setParsedData] = useState<{
+        trace: LLMTrace
+        tree: EnrichedTraceTreeNode[]
+    } | null>(null)
+
+    // Initialize with current trace on mount
+    useEffect(() => {
+        if (!editModeJSON) {
+            const initialJSON = JSON.stringify(
+                {
+                    id: trace.id,
+                    createdAt: trace.createdAt,
+                    traceName: trace.traceName,
+                    inputTokens: trace.inputTokens,
+                    outputTokens: trace.outputTokens,
+                    totalCost: trace.totalCost,
+                    totalLatency: trace.totalLatency,
+                    events: tree.map((node) => node.event),
+                },
+                null,
+                2
+            )
+            setJsonInput(initialJSON)
+        } else {
+            setJsonInput(editModeJSON)
+        }
+    }, [])
+
+    const handleParse = (): void => {
+        try {
+            const parsed = JSON.parse(jsonInput)
+
+            // Validate that it looks like trace data
+            if (!parsed.id || !parsed.createdAt) {
+                throw new Error('Invalid trace format: missing id or createdAt')
+            }
+
+            // Convert to the expected format
+            const mockTrace: LLMTrace = {
+                id: parsed.id,
+                createdAt: parsed.createdAt,
+                traceName: parsed.traceName,
+                inputTokens: parsed.inputTokens || 0,
+                outputTokens: parsed.outputTokens || 0,
+                totalCost: parsed.totalCost,
+                totalLatency: parsed.totalLatency,
+                aiSessionId: parsed.aiSessionId,
+                events: parsed.events || [],
+                person: parsed.person,
+            }
+
+            const mockTree: EnrichedTraceTreeNode[] = (parsed.events || []).map((event: any) => ({
+                event: event,
+                displayTotalCost: event.properties?.$ai_total_cost_usd || 0,
+                displayLatency: event.properties?.$ai_latency || 0,
+                displayUsage:
+                    event.properties?.$ai_input_tokens || event.properties?.$ai_output_tokens
+                        ? `${event.properties.$ai_input_tokens || 0} → ${event.properties.$ai_output_tokens || 0}`
+                        : null,
+                children: [],
+            }))
+
+            setParsedData({ trace: mockTrace, tree: mockTree })
+            setEditModeJSON(jsonInput)
+            setParseError(null)
+        } catch (error) {
+            setParseError(error instanceof Error ? error.message : 'Failed to parse JSON')
+            setParsedData(null)
+        }
+    }
+
+    const displayTrace = parsedData?.trace || trace
+    const displayTree = parsedData?.tree || tree
+    const displayEvent = displayTree.length > 0 ? displayTree[0].event : displayTrace
+
+    return (
+        <div className="flex flex-1 gap-3 flex-col">
+            <div className="flex gap-3 flex-col lg:flex-row">
+                <div className="flex-1 flex flex-col gap-2">
+                    <div className="p-2 bg-warning-highlight border border-warning rounded">
+                        <p className="text-sm font-semibold">Edit Mode Active</p>
+                        <p className="text-xs">
+                            Paste or edit trace JSON below. Click "Render" to preview how it will display.
+                        </p>
+                    </div>
+                    <LemonTextArea
+                        placeholder="Paste trace JSON here..."
+                        value={jsonInput}
+                        onChange={setJsonInput}
+                        minRows={15}
+                        className="font-mono text-xs"
+                    />
+                    <div className="flex gap-2">
+                        <LemonButton type="primary" onClick={handleParse}>
+                            Render preview
+                        </LemonButton>
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconCopy />}
+                            onClick={() => copyToClipboard(jsonInput, 'trace JSON')}
+                        >
+                            Copy JSON
+                        </LemonButton>
+                    </div>
+                    {parseError && (
+                        <div className="p-3 bg-danger-highlight border border-danger rounded">
+                            <p className="font-semibold text-danger">Parse Error:</p>
+                            <p className="text-sm text-danger">{parseError}</p>
+                        </div>
+                    )}
+                </div>
+            </div>
+            <div className="flex-1 flex gap-3 flex-col md:flex-row overflow-hidden">
+                <TraceSidebar trace={displayTrace} eventId={null} tree={displayTree} />
+                <EventContent
+                    trace={displayTrace}
+                    event={displayEvent}
+                    tree={displayTree}
+                    searchQuery=""
+                    eventMetadata={{}}
+                />
+            </div>
+        </div>
     )
 }
 
