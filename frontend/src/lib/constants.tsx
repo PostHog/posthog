@@ -268,7 +268,6 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_EVALUATIONS: 'llm-analytics-evaluations', // owner: #team-llm-analytics
     USAGE_SPEND_DASHBOARDS: 'usage-spend-dashboards', // owner: @pawel-cebula #team-billing
     CDP_HOG_SOURCES: 'cdp-hog-sources', // owner #team-workflows-cdp
-    PERSON_READ_TEST_FLAG: 'person-read-test-flag', // owner: @nickbest - #team-ingestion
     CDP_PERSON_UPDATES: 'cdp-person-updates', // owner: #team-workflows-cdp
     ACTIVITY_OR_EXPLORE: 'activity-or-explore', // owner: @pauldambra #team-replay
     LINEAGE_DEPENDENCY_VIEW: 'lineage-dependency-view', // owner: @phixMe #team-data-warehouse
