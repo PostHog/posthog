@@ -27,7 +27,6 @@ from products.data_warehouse.backend.data_load.saved_query_service import (
     sync_saved_query_workflow,
     unpause_saved_query_schedule,
 )
-from products.data_warehouse.backend.models.modeling import DataWarehouseModelPath
 from products.data_warehouse.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
@@ -128,6 +127,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         return self.name.split(".")
 
     def setup_model_paths(self):
+        from products.data_warehouse.backend.models.modeling import DataWarehouseModelPath
+
         if not DataWarehouseModelPath.objects.filter(team=self.team, saved_query=self).exists():
             DataWarehouseModelPath.objects.create_from_saved_query(self)
         else:
@@ -163,7 +164,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
 
     def revert_materialization(self):
         from products.data_warehouse.backend.data_load.saved_query_service import delete_saved_query_schedule
-        from products.data_warehouse.backend.models import DataWarehouseModelPath
+        from products.data_warehouse.backend.models.modeling import DataWarehouseModelPath
 
         with transaction.atomic():
             self.sync_frequency_interval = None
