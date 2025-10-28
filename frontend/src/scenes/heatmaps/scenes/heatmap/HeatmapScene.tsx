@@ -106,7 +106,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                         onLoad={() => {
                                             setScreenshotLoaded(true)
                                         }}
-                                        className="rounded-b-lg"
+                                        className="rounded-b-lg border-l border-r border-b"
                                         onError={() => {
                                             console.error('Failed to load screenshot')
                                         }}
