@@ -1426,12 +1426,9 @@ describe('BatchWritingPersonStore', () => {
             expect(mockPersonProfileBatchUpdateOutcomeCounter.labels({ outcome: 'ignored' }).inc).toHaveBeenCalledTimes(
                 1
             )
-            expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledTimes(2)
+            expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledTimes(1)
             expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
                 property: '$geoip_city_name',
-            })
-            expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
-                property: '$geoip_country_code',
             })
             // personPropertyKeyUpdateCounter should NOT be called for 'ignored' outcomes
             expect(mockPersonPropertyKeyUpdateCounter.labels).not.toHaveBeenCalled()

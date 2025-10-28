@@ -191,10 +191,17 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         const ignoredProperties: string[] = []
         const hasPropertyTriggeringUpdate = Object.keys(update.properties_to_set).some((key) => {
             // Check if this is a new property (not in current properties)
-            if (!(key in update.properties)) {
+            const isNewProperty = !(key in update.properties)
+            const valueChanged = update.properties[key] !== update.properties_to_set[key]
+
+            if (!valueChanged) {
+                return false
+            }
+
+            if (isNewProperty) {
                 return true
             }
-            // Check if this property should trigger an update
+
             const isFiltered = eventToPersonProperties.has(key) || key.startsWith('$geoip_')
             if (isFiltered) {
                 ignoredProperties.push(key)
