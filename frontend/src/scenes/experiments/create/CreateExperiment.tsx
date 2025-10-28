@@ -2,14 +2,15 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { useState } from 'react'
-import { useDebouncedCallback } from 'use-debounce'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -17,6 +18,7 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import type { Experiment } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ExposureCriteriaPanel } from './ExposureCriteriaPanel'
 import { ExposureCriteriaPanelHeader } from './ExposureCriteriaPanelHeader'
@@ -40,17 +42,13 @@ type CreateExperimentProps = Partial<{
 export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JSX.Element => {
     const { HogfettiComponent } = useHogfetti({ count: 100, duration: 3000 })
 
-    const { experiment, experimentErrors, sharedMetrics } = useValues(
+    const { experiment, experimentErrors, sharedMetrics, isExperimentSubmitting } = useValues(
         createExperimentLogic({ experiment: draftExperiment })
     )
     const { setExperimentValue, setExperiment, setSharedMetrics, setExposureCriteria, setFeatureFlagConfig } =
         useActions(createExperimentLogic({ experiment: draftExperiment }))
 
     const [selectedPanel, setSelectedPanel] = useState<string | null>(null)
-
-    const debouncedOnNameChange = useDebouncedCallback((name: string) => {
-        setExperimentValue('name', name)
-    }, 500)
 
     return (
         <div className="flex flex-col xl:grid xl:grid-cols-[1fr_400px] gap-x-4 h-full">
@@ -63,9 +61,13 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
                         resourceType={{
                             type: 'experiment',
                         }}
-                        canEdit
+                        canEdit={userHasAccess(
+                            AccessControlResourceType.Experiment,
+                            AccessControlLevel.Editor,
+                            experiment.user_access_level
+                        )}
                         forceEdit
-                        onNameChange={debouncedOnNameChange}
+                        onNameChange={(name) => setExperimentValue('name', name)}
                         actions={
                             <>
                                 <LemonButton
@@ -78,9 +80,22 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
                                 >
                                     Cancel
                                 </LemonButton>
-                                <LemonButton data-attr="save-experiment" type="primary" size="small" htmlType="submit">
-                                    Save as draft
-                                </LemonButton>
+
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Experiment}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={experiment.user_access_level}
+                                >
+                                    <LemonButton
+                                        loading={isExperimentSubmitting}
+                                        data-attr="save-experiment"
+                                        type="primary"
+                                        size="small"
+                                        htmlType="submit"
+                                    >
+                                        Save as draft
+                                    </LemonButton>
+                                </AccessControlAction>
                             </>
                         }
                     />
@@ -132,7 +147,7 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
                             },
                             {
                                 key: 'experiment-metrics',
-                                header: <MetricsPanelHeader experiment={experiment} />,
+                                header: <MetricsPanelHeader experiment={experiment} sharedMetrics={sharedMetrics} />,
                                 content: (
                                     <MetricsPanel
                                         experiment={experiment}
@@ -162,6 +177,10 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
                                                     [context.orderingField]: (
                                                         experiment[context.orderingField] ?? []
                                                     ).filter((uuid) => uuid !== metric.uuid),
+                                                    saved_metrics: (experiment.saved_metrics ?? []).filter(
+                                                        (savedMetric) =>
+                                                            savedMetric.saved_metric !== metric.sharedMetricId
+                                                    ),
                                                 })
                                                 setSharedMetrics({
                                                     ...sharedMetrics,

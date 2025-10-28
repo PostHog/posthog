@@ -32,7 +32,6 @@ from posthog.api.feature_flag import (
     FeatureFlagSerializer,
     MinimalFeatureFlagSerializer,
 )
-from posthog.api.mixins import FileSystemViewSetMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action, get_token
@@ -809,7 +808,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 raise serializers.ValidationError("Targeting flag for survey failed, invalid parameters.")
 
 
-class SurveyViewSet(FileSystemViewSetMixin, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
+class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "survey"
     queryset = Survey.objects.select_related("linked_flag", "targeting_flag", "internal_targeting_flag").all()
     filter_backends = [filters.SearchFilter]
