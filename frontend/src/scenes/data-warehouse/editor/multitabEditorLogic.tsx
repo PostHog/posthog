@@ -1223,6 +1223,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     // only when opening the tab
                     actions.createTab(hashParams.q)
                     tabAdded = true
+                } else {
+                    actions.createTab('')
+                    tabAdded = true
                 }
             }
 
