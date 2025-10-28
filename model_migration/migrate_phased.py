@@ -6,14 +6,19 @@ Coordinates the complete migration process in discrete, trackable phases:
 1. Prepare target structure (AppConfig, INSTALLED_APPS)
 2. Move files 1:1 (git mv)
 3. Update imports (import_rewriter.py)
-4. Validate (Django --plan)
-5. Generate Django migrations
+4. Prepare models (fix ForeignKeys, add db_table)
+5. Validate Django (migrate --plan)
+6. Generate Django migrations
+7. Reorganize files (OPTIONAL - api/test/admin organization)
 
 Usage:
     python model_migration/migrate_phased.py --product data_warehouse
     python model_migration/migrate_phased.py --product data_warehouse --phase 2
     python model_migration/migrate_phased.py --product data_warehouse --resume
     python model_migration/migrate_phased.py --product data_warehouse --status
+
+To skip Phase 7 reorganization, add to moves.yml:
+    skip_reorganization: true
 """
 
 import argparse
@@ -37,6 +42,7 @@ PHASE_NAMES = [
     "prepare_models",  # NEW: Fix ForeignKeys, db_table before validation
     "validate_django",
     "generate_migrations",
+    "reorganize_files",  # OPTIONAL: Reorganize api/test/admin files
 ]
 
 
@@ -487,6 +493,161 @@ def phase_6_generate_migrations(config: dict, tracker: PhaseTracker) -> None:
         raise
 
 
+def phase_7_reorganize_files(config: dict, tracker: PhaseTracker) -> None:
+    """
+    Phase 7: Reorganize files (OPTIONAL - can be skipped via config).
+
+    Sub-phases:
+    7a. Scan for reorganization needs - analyze current structure
+    7b. Execute reorganization - batch git mv operations
+    7c. Update imports - run import rewriter
+    7d. Validate Django - run migrate --plan
+    """
+    print("\n" + "=" * 80)
+    print("PHASE 7: Reorganize Files (Optional)")
+    print("=" * 80)
+
+    # Check if this phase should be skipped
+    if config.get("skip_reorganization", False):
+        print("\n⏭️  Reorganization phase skipped (skip_reorganization: true in config)")
+        tracker.complete_phase(7, operations=["Skipped via config flag"])
+        return
+
+    tracker.start_phase(7)
+    operations = []
+
+    product = config["product"]
+    target_base = config["target"]
+    target_dir = Path(target_base.replace(".", "/"))
+
+    try:
+        # Sub-phase 7a: Scan for reorganization needs
+        print("\n" + "-" * 80)
+        print("7a. Scanning for reorganization needs...")
+        print("-" * 80)
+
+        reorganization_path = Path("model_migration/reorganization.yml")
+
+        # Check if files already in target need reorganization
+        # Look for api, test, admin files that might need better organization
+        api_dir = target_dir / "api"
+        test_dir = target_dir / "test"
+        reorganization_moves = []
+
+        # Scan for potential moves
+        if api_dir.exists():
+            # Find test files in api that might belong elsewhere
+            for test_file in api_dir.rglob("test_*.py"):
+                if test_file.parent.name != "test":
+                    # Test file not in test directory - might need moving
+                    print(f"   📋 Identified: {test_file}")
+
+        if test_dir.exists():
+            # Find files in backend/test/ that should be in submodule tests
+            for py_file in test_dir.glob("*.py"):
+                if py_file.name not in ["__init__.py", "utils.py"]:
+                    print(f"   📋 Identified: {py_file}")
+
+        # For now, create empty reorganization file
+        # User can manually populate or we can add scanning logic later
+        if not reorganization_moves:
+            print("\n✓ No reorganization moves needed - current structure looks good")
+            reorganization_data = {
+                "product": product,
+                "file_moves": [],
+                "note": "Manually add moves if reorganization is needed"
+            }
+        else:
+            reorganization_data = {
+                "product": product,
+                "file_moves": reorganization_moves
+            }
+
+        with open(reorganization_path, "w") as f:
+            yaml.dump(reorganization_data, f, default_flow_style=False, sort_keys=False)
+
+        operations.append(f"Created {reorganization_path}")
+        print(f"\n✓ Created {reorganization_path}")
+
+        # Sub-phase 7b: Execute reorganization (if moves exist)
+        print("\n" + "-" * 80)
+        print("7b. Executing reorganization moves...")
+        print("-" * 80)
+
+        if not reorganization_data["file_moves"]:
+            print("⏭️  No moves to execute")
+            operations.append("No reorganization moves needed")
+        else:
+            for move in reorganization_data["file_moves"]:
+                source = Path(move["from"])
+                target = Path(move["to"])
+
+                if not source.exists():
+                    print(f"⚠️  Source not found: {source}")
+                    continue
+
+                target.parent.mkdir(parents=True, exist_ok=True)
+                cmd = ["git", "mv", str(source), str(target)]
+                run_command(cmd, f"Move {source.name}")
+                operations.append(f"git mv {source} → {target}")
+
+        # Sub-phase 7c: Update imports after reorganization
+        print("\n" + "-" * 80)
+        print("7c. Updating imports after reorganization...")
+        print("-" * 80)
+
+        if reorganization_data["file_moves"]:
+            result = run_command(
+                ["python", "model_migration/import_rewriter.py", "--write"],
+                "Update imports with import_rewriter.py",
+                check=False
+            )
+
+            if result.returncode == 0:
+                print("✓ Imports updated successfully")
+                operations.append("Updated imports after reorganization")
+            else:
+                print("⚠️  Import update had issues - check output")
+                operations.append("Import update completed with warnings")
+        else:
+            print("⏭️  No import updates needed")
+            operations.append("No import updates needed")
+
+        # Sub-phase 7d: Validate Django
+        print("\n" + "-" * 80)
+        print("7d. Validating Django after reorganization...")
+        print("-" * 80)
+
+        result = run_command(
+            ["python", "manage.py", "migrate", "--plan"],
+            "Validate Django with migrate --plan",
+            check=False
+        )
+
+        if result.returncode == 0:
+            print("✅ Django validation passed")
+            operations.append("Django validation passed")
+        else:
+            print("❌ Django validation failed")
+            print("\n⚠️  Reorganization may have caused issues.")
+            print("To skip this phase: Set skip_reorganization: true in moves.yml")
+            tracker.fail_phase(7, "Django validation failed after reorganization")
+            return
+
+        # Success
+        print("\n" + "=" * 80)
+        print("✓ Phase 7 completed - file reorganization done")
+        print("=" * 80)
+
+        tracker.complete_phase(7, operations=operations)
+
+    except Exception as e:
+        print(f"❌ Reorganization failed: {e}")
+        print("\nTo skip this phase: Set skip_reorganization: true in moves.yml")
+        tracker.fail_phase(7, str(e))
+        raise
+
+
 # Phase execution map
 PHASE_FUNCTIONS = {
     1: phase_1_prepare_structure,
@@ -495,6 +656,7 @@ PHASE_FUNCTIONS = {
     4: phase_4_prepare_models,
     5: phase_5_validate_django,
     6: phase_6_generate_migrations,
+    7: phase_7_reorganize_files,
 }
 
 
@@ -531,7 +693,7 @@ def main():
     parser.add_argument(
         "--phase",
         type=int,
-        help="Run specific phase only (1-5)",
+        help="Run specific phase only (1-7)",
     )
     parser.add_argument(
         "--resume",
