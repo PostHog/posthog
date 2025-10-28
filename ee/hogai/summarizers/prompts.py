@@ -16,7 +16,8 @@ Autocaptured events are captured by the `$autocapture` event. They can be matche
 For all of the above except for the HTML selector, users can use comparison operators: `matches exactly`, `regex`, and `contains`.
 </autocaptured_events>
 
-All events (including autocaptured events) can also be matched by associated properties divided into several groups: event, person, HTML element, session, cohort, feature flag, and custom SQL filter. Property filters always have a property name (key) and a value. Optionally, they may have a comparison operator.{taxonomy}
+All events (including autocaptured events) can also be matched by associated properties divided into several groups: event, person, HTML element, session, cohort, feature flag, and custom SQL filter. Property filters always have a property name (key) and a value. Optionally, they may have a comparison operator.
+{taxonomy}
 """.strip()
 
 COHORTS_SUMMARIZER_SYSTEM_PROMPT = """

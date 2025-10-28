@@ -11,6 +11,7 @@ from posthog.temporal.ai.sync_entity_vectors import EntityConfig
 
 from ee.hogai.summarizers.actions import ActionSummarizer
 from ee.hogai.summarizers.chains import abatch_summarize_entity
+from ee.hogai.summarizers.cohorts import CohortSummarizer
 from ee.hogai.summarizers.prompts import ACTIONS_SUMMARIZER_SYSTEM_PROMPT, COHORTS_SUMMARIZER_SYSTEM_PROMPT
 
 
@@ -70,6 +71,9 @@ class CohortEntityConfig(EntityConfig[Cohort]):
     @property
     def model_class(self) -> type[Cohort]:
         return Cohort
+
+    def create_summarizer(self, entity: Cohort) -> CohortSummarizer:
+        return CohortSummarizer(entity.team, entity)
 
     def get_queryset_filter(self, start_dt: datetime) -> Q:
         return Q(

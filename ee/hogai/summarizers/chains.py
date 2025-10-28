@@ -66,26 +66,23 @@ async def abatch_summarize_entity(
         if hasattr(summarizer, "taxonomy_description"):
             taxonomy_prompt = await sync_to_async(lambda s=summarizer: s.taxonomy_description)()
 
-        # Create prompt based on whether we have taxonomy or not
-        if taxonomy_prompt:
-            prompt = ChatPromptTemplate.from_messages(
-                [
-                    ("system", system_prompt),
-                    ("user", "{entity_description}"),
-                ]
-            ).format_prompt(
-                taxonomy=f"\n\n{taxonomy_prompt}" if taxonomy_prompt else "",
-                entity_description=summary,
-            )
-        else:
-            prompt = ChatPromptTemplate.from_messages(
-                [
-                    ("system", system_prompt),
-                    ("user", "{entity_description}"),
-                ]
-            ).format_prompt(
-                entity_description=summary,
-            )
+        logger.info(f"taxonomy_prompt: {taxonomy_prompt}")
+        logger.info(f"system_prompt: {system_prompt}")
+
+        prompt_template = ChatPromptTemplate.from_messages(
+            [
+                ("system", system_prompt),
+                ("user", "{entity_description}"),
+            ]
+        )
+
+        # Prepare parameters based on what the template needs
+        format_params = {"entity_description": summary}
+        if "{taxonomy}" in system_prompt and taxonomy_prompt != "":
+            format_params["taxonomy"] = f"\n\n{taxonomy_prompt}"
+
+        prompt = prompt_template.format_prompt(**format_params)
+        logger.info(prompt.to_string())
         prompts.append(prompt)
 
     chain = ChatOpenAI(model="gpt-4.1-mini", temperature=0.1, streaming=False, max_retries=3) | StrOutputParser()

@@ -24,7 +24,9 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import ClickHouseClient, get_client
 from posthog.temporal.common.utils import get_scheduled_start_time
 
-from ee.hogai.summarizers.chains import abatch_summarize_actions
+from ee.hogai.summarizers.actions import ActionSummarizer
+from ee.hogai.summarizers.chains import abatch_summarize_entity
+from ee.hogai.summarizers.prompts import ACTIONS_SUMMARIZER_SYSTEM_PROMPT
 from ee.hogai.utils.embeddings import aembed_documents, get_async_azure_embeddings_client
 
 logger = structlog.get_logger(__name__)
@@ -97,8 +99,12 @@ async def batch_summarize_actions(inputs: BatchSummarizeActionsInputs):
         actions_count=len(actions),
     )
 
-    summaries = await abatch_summarize_actions(
+    summaries = await abatch_summarize_entity(
         actions,
+        summarizer_factory=lambda action: ActionSummarizer(action.team, action),
+        system_prompt=ACTIONS_SUMMARIZER_SYSTEM_PROMPT,
+        domain="action",
+        entity_id_attr="id",
         start_dt=inputs.start_dt,
         properties={"offset": inputs.offset, "batch_size": inputs.batch_size, "start_dt": inputs.start_dt},
     )

@@ -24,7 +24,8 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import ClickHouseClient, get_client
 from posthog.temporal.common.utils import get_scheduled_start_time
 
-from ee.hogai.summarizers.chains import abatch_summarize_cohorts
+from ee.hogai.summarizers.chains import abatch_summarize_entity
+from ee.hogai.summarizers.cohorts import CohortSummarizer
 from ee.hogai.utils.embeddings import aembed_documents, get_async_azure_embeddings_client
 
 logger = structlog.get_logger(__name__)
@@ -98,8 +99,12 @@ async def batch_summarize_cohorts(inputs: BatchSummarizeCohortsInputs):
         cohorts_count=len(cohorts),
     )
 
-    summaries = await abatch_summarize_cohorts(
+    summaries = await abatch_summarize_entity(
         cohorts,
+        summarizer_factory=lambda cohort: CohortSummarizer(team=cohort.team, cohort=cohort),
+        system_prompt="You will be given a description of a cohort containing filters that define a group of users. Your goal is to summarize the cohort in a maximum of three sentences.",
+        domain="cohort",
+        entity_id_attr="id",
         start_dt=inputs.start_dt,
         properties={"offset": inputs.offset, "batch_size": inputs.batch_size, "start_dt": inputs.start_dt},
     )
@@ -122,7 +127,7 @@ async def batch_summarize_cohorts(inputs: BatchSummarizeCohortsInputs):
     await Cohort.objects.abulk_update(models_to_update, ["last_summarized_at", "summary"])
 
 
-# abatch_summarize_cohorts is now imported from ee.hogai.summarizers.chains
+# abatch_summarize_entity is imported from ee.hogai.summarizers.chains
 
 
 async def batch_embed_cohorts(
