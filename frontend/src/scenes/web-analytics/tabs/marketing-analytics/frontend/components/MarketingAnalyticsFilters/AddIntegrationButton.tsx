@@ -1,3 +1,4 @@
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
@@ -22,6 +23,9 @@ interface AddIntegrationButtonProps {
 }
 
 export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButtonProps = {}): JSX.Element {
+    const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { sidePanelOpen } = useValues(sidePanelStateLogic)
+
     const [showPopover, setShowPopover] = useState(false)
     const [pendingNavigation, setPendingNavigation] = useState<{
         integrationId: string
@@ -65,31 +69,25 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
 
     const handleIntegrateClick = (integrationId: string, sourceType: 'native' | 'external' | 'self-managed'): void => {
         // Open docs in side panel
-        const mountedSidePanelLogic = sidePanelStateLogic.findMounted()
-        if (mountedSidePanelLogic) {
-            const { openSidePanel } = mountedSidePanelLogic.actions
-            const { sidePanelOpen } = mountedSidePanelLogic.values
-            let docFragment = ''
-            if (sourceType === 'native') {
-                docFragment = '#native-sources'
-            } else if (sourceType === 'external') {
-                docFragment = '#data-warehouse-sources'
-            } else if (sourceType === 'self-managed') {
-                docFragment = '#self-managed-sources'
-            }
+        let docFragment = ''
+        if (sourceType === 'native') {
+            docFragment = '#native-sources'
+        } else if (sourceType === 'external') {
+            docFragment = '#data-warehouse-sources'
+        } else if (sourceType === 'self-managed') {
+            docFragment = '#self-managed-sources'
+        }
+        openSidePanel(SidePanelTab.Docs, `/docs/web-analytics/marketing-analytics${docFragment}`)
 
-            openSidePanel(SidePanelTab.Docs, `/docs/web-analytics/marketing-analytics${docFragment}`)
-
-            // If panel wasn't open, wait for docs to load before navigating otherwise
-            // there will be a race condition where the panel is opened, then docs are loaded
-            // and the dw source will fail to load because of the url params + fragments conflict
-            if (!sidePanelOpen) {
-                setPendingNavigation({ integrationId, onIntegrationSelect })
-                return
-            }
+        // If panel wasn't open, wait for docs to load before navigating otherwise
+        // there will be a race condition where the panel is opened, then docs are loaded
+        // and the dw source will fail to load because of the url params + fragments conflict
+        if (!sidePanelOpen) {
+            setPendingNavigation({ integrationId, onIntegrationSelect })
+            return
         }
 
-        // Panel was already open or doesn't exist, navigate immediately
+        // Panel was already open, navigate immediately
         if (onIntegrationSelect) {
             onIntegrationSelect(integrationId)
         } else {
