@@ -204,7 +204,7 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentId, experiment, usesNewQueryRunner, isExperimentDraft } =
+    const { experimentLoading, experimentId, experiment, usesNewQueryRunner, isExperimentDraft, exposureCriteria } =
         useValues(experimentLogic)
     const { setExperiment, updateExperimentMetrics, addSharedMetricsToExperiment, removeSharedMetricFromExperiment } =
         useActions(experimentLogic)
@@ -280,6 +280,7 @@ export function ExperimentView(): JSX.Element {
                             <MetricSourceModal />
                             <ExperimentMetricModal
                                 experiment={experiment}
+                                exposureCriteria={exposureCriteria}
                                 onSave={(metric, context) => {
                                     const metrics = experiment[context.field]
                                     const isNew = !metrics.some(({ uuid }) => uuid === metric.uuid)
