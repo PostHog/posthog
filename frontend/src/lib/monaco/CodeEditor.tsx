@@ -300,6 +300,55 @@ export function CodeEditor({
             }
         }
 
+        // Handle ctrl+click on views to open them in new tabs
+        if (editorProps.language === 'hogQL' || editorProps.language === 'hogQLExpr') {
+            monacoDisposables.current.push(
+                editor.onMouseDown((e) => {
+                    if (e.event.ctrlKey || e.event.metaKey) {
+                        const position = e.target.position
+                        if (position) {
+                            const model = editor.getModel()
+                            const builtLogic = (model as any)?.codeEditorLogic
+                            if (builtLogic?.isMounted()) {
+                                const metadata = builtLogic.values.metadata
+                                if (metadata) {
+                                    const [query, metadataResponse] = metadata
+                                    const viewMetadata = metadataResponse?.view_metadata
+
+                                    if (viewMetadata) {
+                                        const offset = model?.getOffsetAt(position)
+                                        if (offset !== undefined) {
+                                            // Check if we're clicking on a view
+                                            for (const [viewName, viewInfo] of Object.entries(viewMetadata)) {
+                                                const regex = new RegExp(
+                                                    `\\b${viewName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`,
+                                                    'gi'
+                                                )
+                                                let match: RegExpExecArray | null
+
+                                                while ((match = regex.exec(query)) !== null) {
+                                                    if (offset >= match.index && offset < match.index + match[0].length) {
+                                                        // Dispatch a custom event that will be handled by the multitabEditorLogic
+                                                        window.dispatchEvent(
+                                                            new CustomEvent('hogql-open-view', {
+                                                                detail: { viewId: viewInfo.id, viewName },
+                                                            })
+                                                        )
+                                                        e.event.preventDefault()
+                                                        return
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                })
+            )
+        }
+
         onMount?.(editor, monaco)
     }
 

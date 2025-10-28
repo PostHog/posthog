@@ -535,6 +535,14 @@ export interface HogQLMetadataResponse {
     query_status?: never
     table_names?: string[]
     ch_table_names?: string[]
+    view_metadata?: Record<
+        string,
+        {
+            id: string
+            is_view: boolean
+            is_materialized: boolean
+        }
+    >
 }
 
 export type AutocompleteCompletionItemKind =

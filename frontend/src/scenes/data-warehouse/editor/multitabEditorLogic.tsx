@@ -1,5 +1,5 @@
 import { Monaco } from '@monaco-editor/react'
-import { actions, beforeUnmount, connect, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -1252,8 +1252,26 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
         },
     })),
+    afterMount(({ actions, values, cache }) => {
+        // Listen for view open events from the editor
+        const handleOpenView = (event: CustomEvent<{ viewId: string; viewName: string }>): void => {
+            const { viewId } = event.detail
+            const view = values.dataWarehouseSavedQueryMapById[viewId]
+            if (view) {
+                actions.editView(view.query.query || '', view)
+            }
+        }
+
+        window.addEventListener('hogql-open-view', handleOpenView as EventListener)
+        cache.viewOpenListener = handleOpenView
+    }),
     beforeUnmount(({ cache }) => {
         cache.umountDataNode?.()
+
+        // Clean up view open listener
+        if (cache.viewOpenListener) {
+            window.removeEventListener('hogql-open-view', cache.viewOpenListener as EventListener)
+        }
 
         cache.createdModels?.forEach((m: editor.ITextModel) => {
             try {

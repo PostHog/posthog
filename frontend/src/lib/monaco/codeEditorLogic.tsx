@@ -143,6 +143,62 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                 },
             },
         ],
+        viewDecorations: [
+            [] as string[],
+            {
+                reloadMetadataSuccess: ({ metadata }) => {
+                    const model = props.editor?.getModel()
+                    if (!model || !metadata || !props.editor) {
+                        return []
+                    }
+                    const [query, metadataResponse] = metadata
+                    const viewMetadata = metadataResponse?.view_metadata
+
+                    if (!viewMetadata || Object.keys(viewMetadata).length === 0) {
+                        return []
+                    }
+
+                    // Find all occurrences of view names in the query and create decorations
+                    const decorations: editor.IModelDeltaDecoration[] = []
+
+                    for (const [viewName, viewInfo] of Object.entries(viewMetadata)) {
+                        // Find all occurrences of this view name in the query
+                        const regex = new RegExp(`\\b${viewName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi')
+                        let match: RegExpExecArray | null
+
+                        while ((match = regex.exec(query)) !== null) {
+                            const startPos = model.getPositionAt(match.index)
+                            const endPos = model.getPositionAt(match.index + match[0].length)
+
+                            const className = viewInfo.is_materialized
+                                ? 'hogql-materialized-view-decoration'
+                                : 'hogql-view-decoration'
+
+                            decorations.push({
+                                range: {
+                                    startLineNumber: startPos.lineNumber,
+                                    startColumn: startPos.column,
+                                    endLineNumber: endPos.lineNumber,
+                                    endColumn: endPos.column,
+                                },
+                                options: {
+                                    inlineClassName: className,
+                                    hoverMessage: {
+                                        value: viewInfo.is_materialized
+                                            ? `Materialized view: **${viewName}** (Ctrl+Click to open)`
+                                            : `View: **${viewName}** (Ctrl+Click to open)`,
+                                    },
+                                },
+                            })
+                        }
+                    }
+
+                    // Apply decorations and return the decoration IDs
+                    const decorationIds = props.editor.deltaDecorations([], decorations)
+                    return decorationIds
+                },
+            },
+        ],
     })),
     selectors({
         hasErrors: [

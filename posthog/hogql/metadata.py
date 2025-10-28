@@ -1,4 +1,4 @@
-from typing import Optional, Union, cast
+from typing import Union, cast
 
 from django.conf import settings
 
@@ -25,9 +25,9 @@ from posthog.models import Team
 def get_hogql_metadata(
     query: HogQLMetadata,
     team: Team,
-    hogql_ast: Optional[Union[ast.SelectQuery, ast.SelectSetQuery]] = None,
-    clickhouse_prepared_ast: Optional[ast.AST] = None,
-    clickhouse_sql: Optional[str] = None,
+    hogql_ast: Union[ast.SelectQuery, ast.SelectSetQuery] | None = None,
+    clickhouse_prepared_ast: ast.AST | None = None,
+    clickhouse_sql: str | None = None,
 ) -> HogQLMetadataResponse:
     response = HogQLMetadataResponse(
         isValid=True,
@@ -36,6 +36,7 @@ def get_hogql_metadata(
         warnings=[],
         notices=[],
         table_names=[],
+        view_metadata={},
     )
 
     query_modifiers = create_default_modifiers_for_team(team, query.modifiers)
@@ -74,6 +75,9 @@ def get_hogql_metadata(
 
             hogql_table_names = get_table_names(hogql_ast)
             response.table_names = hogql_table_names
+
+            # Fetch view metadata for the referenced tables
+            response.view_metadata = get_view_metadata(hogql_table_names, team)
 
             if not clickhouse_sql or not clickhouse_prepared_ast:
                 clickhouse_sql, clickhouse_prepared_ast = prepare_and_print_ast(
@@ -126,7 +130,7 @@ def get_hogql_metadata(
 def process_expr_on_table(
     node: ast.Expr,
     context: HogQLContext,
-    source_query: Optional[ast.SelectQuery | ast.SelectSetQuery] = None,
+    source_query: ast.SelectQuery | ast.SelectSetQuery | None = None,
 ):
     try:
         if source_query is not None:
@@ -164,3 +168,26 @@ class TableCollector(TraversingVisitor):
             self.visit(node.table)
 
         self.visit(node.next_join)
+
+
+def get_view_metadata(table_names: list[str], team: Team) -> dict[str, dict[str, any]]:
+    """Fetch metadata about views/materialized views for the given table names."""
+    from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    if not table_names:
+        return {}
+
+    # Query all saved queries (views) for this team that match the table names
+    saved_queries = DataWarehouseSavedQuery.objects.filter(team=team, name__in=table_names, deleted=False).only(
+        "id", "name", "is_materialized"
+    )
+
+    view_metadata = {}
+    for saved_query in saved_queries:
+        view_metadata[saved_query.name] = {
+            "id": str(saved_query.id),
+            "is_view": True,
+            "is_materialized": saved_query.is_materialized or False,
+        }
+
+    return view_metadata
