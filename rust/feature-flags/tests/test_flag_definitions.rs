@@ -1145,22 +1145,22 @@ async fn test_flag_definitions_custom_rate_limit_overrides_default() {
     let client = reqwest::Client::new();
 
     // Test custom rate limit (2/second)
-    let mut success_count = 0;
-    for _ in 0..3 {
-        let response = client
+    // Send all 3 requests concurrently to ensure they hit the rate limiter simultaneously
+    let requests = (0..3).map(|_| {
+        client
             .get(format!(
                 "http://{}/flags/definitions?token={}",
                 server.addr, custom_team.api_token
             ))
             .header("Authorization", format!("Bearer {custom_secret}"))
             .send()
-            .await
-            .unwrap();
+    });
 
-        if response.status() == 200 {
-            success_count += 1;
-        }
-    }
+    let responses = futures::future::join_all(requests).await;
+    let success_count = responses
+        .into_iter()
+        .filter(|r| r.as_ref().unwrap().status() == 200)
+        .count();
 
     assert_eq!(
         success_count, 2,
@@ -1172,22 +1172,22 @@ async fn test_flag_definitions_custom_rate_limit_overrides_default() {
 
     // Test default rate limit (600/minute = 10/second)
     // Should allow more requests than custom limit
-    let mut default_success_count = 0;
-    for _ in 0..5 {
-        let response = client
+    // Send all 5 requests concurrently to ensure they hit the rate limiter simultaneously
+    let requests = (0..5).map(|_| {
+        client
             .get(format!(
                 "http://{}/flags/definitions?token={}",
                 server.addr, default_team.api_token
             ))
             .header("Authorization", format!("Bearer {default_secret}"))
             .send()
-            .await
-            .unwrap();
+    });
 
-        if response.status() == 200 {
-            default_success_count += 1;
-        }
-    }
+    let responses = futures::future::join_all(requests).await;
+    let default_success_count = responses
+        .into_iter()
+        .filter(|r| r.as_ref().unwrap().status() == 200)
+        .count();
 
     assert!(
         default_success_count > 2,

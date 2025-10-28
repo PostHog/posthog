@@ -147,7 +147,9 @@ class _KafkaProducer:
         return b
 
     def on_send_success(self, record_metadata: RecordMetadata):
-        statsd.incr("posthog_cloud_kafka_send_success", tags={"topic": record_metadata.topic})
+        statsd.incr(
+            "posthog_cloud_kafka_send_success", tags={"topic": record_metadata.topic if record_metadata else None}
+        )
 
     def on_send_failure(self, topic: str, exc: Exception):
         statsd.incr(
