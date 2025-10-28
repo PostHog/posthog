@@ -2126,8 +2126,8 @@ importers:
         specifier: ^0.7.4
         version: 0.7.4
       posthog-node:
-        specifier: ^4.18.0
-        version: 4.18.0
+        specifier: ^5.10.4
+        version: 5.10.4
       uuid:
         specifier: ^11.1.0
         version: 11.1.0
@@ -16395,10 +16395,6 @@ packages:
 
   posthog-js@1.281.0:
     resolution: {integrity: sha512-t3sAlgVozpU1W1ppiF5zLG6eBRPUs0hmtxN8R1V7P0qZFmnECshAAk2cBxCsxEanadT3iUpS8Z7crBytATqWQQ==}
-
-  posthog-node@4.18.0:
-    resolution: {integrity: sha512-XROs1h+DNatgKh/AlIlCtDxWzwrKdYDb2mOs58n4yN8BkGN9ewqeQwG5ApS4/IzwCb7HPttUkOVulkYatd2PIw==}
-    engines: {node: '>=15.0.0'}
 
   posthog-node@5.10.4:
     resolution: {integrity: sha512-sy020/Q4mt18eCkVo/cGEJD+wgdxeg5DTgNUaA85awBCbuEP43BOdCTOOw/K2Tvgw2oZfag3PFyhkVuQ6nJfBg==}
@@ -38216,12 +38212,6 @@ snapshots:
       fflate: 0.4.8
       preact: 10.27.2
       web-vitals: 4.2.4
-
-  posthog-node@4.18.0:
-    dependencies:
-      axios: 1.9.0
-    transitivePeerDependencies:
-      - debug
 
   posthog-node@5.10.4:
     dependencies:
