@@ -839,7 +839,15 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 }
             }
         },
-        updateDataWarehouseSavedQuerySuccess: () => {
+        updateDataWarehouseSavedQuerySuccess: ({ dataWarehouseSavedQueries, payload: view }) => {
+            // Update the tab with the refreshed view data
+            const tab = values.activeTab
+            if (tab?.view && view) {
+                const updatedView = dataWarehouseSavedQueries.find((v) => v.id === view.id)
+                if (updatedView) {
+                    actions.updateTab({ ...tab, view: updatedView })
+                }
+            }
             lemonToast.success('View updated')
         },
         updateView: async ({ view, draftId }) => {
