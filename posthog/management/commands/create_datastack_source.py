@@ -120,7 +120,7 @@ class Command(BaseCommand):
         if not name:
             name = input("What source are you scaffolding? (e.g. Stripe, Meta Ads): ").strip()
         if not name:
-            raise CommandError("You entered a non-empty name for this source. Aborting...")
+            raise CommandError("You entered an empty name for this source. Aborting...")
 
         site_url = options.get("site")
         if not site_url:
@@ -235,7 +235,7 @@ class Command(BaseCommand):
         unstaged_changes = [item.a_path for item in repo.index.diff(None) if item.a_path]
         unstaged_changes += [item.b_path for item in repo.index.diff(None) if item.b_path]
         staged_changes = [item.a_path for item in repo.index.diff("HEAD") if item.a_path]
-        staged_changes = [item.b_path for item in repo.index.diff("HEAD") if item.b_path]
+        staged_changes += [item.b_path for item in repo.index.diff("HEAD") if item.b_path]
         migration_file = "max_migration.txt"
         for file_path in unstaged_changes:
             if migration_file in file_path:
