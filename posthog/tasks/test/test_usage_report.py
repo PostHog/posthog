@@ -1688,7 +1688,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             assert org_1_report["rows_synced_in_period"] == 50
             assert org_1_report["free_historical_rows_synced_in_period"] == 50
 
-            # Team 3 is still in free period
+            # Team 3 has a new pipeline (< 7 days old), gets free historical rows
             assert org_1_report["teams"]["3"]["rows_synced_in_period"] == 0
             assert org_1_report["teams"]["3"]["free_historical_rows_synced_in_period"] == 50
 
