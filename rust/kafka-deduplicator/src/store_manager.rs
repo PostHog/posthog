@@ -289,7 +289,7 @@ impl StoreManager {
     /// This method checks the total size across all stores and triggers cleanup
     /// on individual stores if the global capacity is exceeded. Cleanup is distributed
     /// across all stores by removing a percentage of each store's time range.
-    pub fn cleanup_old_entries_if_needed(&self) -> Result<u64> {
+    pub async fn cleanup_old_entries_if_needed(&self) -> Result<u64> {
         // COMMENTED OUT FOR TESTING: Disable cleanup to isolate performance issues
         info!("cleanup_old_entries_if_needed() called but disabled for testing");
         return Ok(0);
@@ -321,7 +321,7 @@ impl StoreManager {
         for entry in self.stores.iter() {
             let store = entry.value();
             // Get size of all column families for this store
-            if let Ok(size) = store.get_total_size() {
+            if let Ok(size) = store.get_total_size().await {
                 total_size += size;
             }
         }
@@ -356,7 +356,7 @@ impl StoreManager {
         // Clean up all stores with the same percentage to ensure fair distribution
         for entry in self.stores.iter() {
             let store = entry.value();
-            match store.cleanup_old_entries_with_percentage(cleanup_percentage) {
+            match store.cleanup_old_entries_with_percentage(cleanup_percentage).await {
                 Ok(bytes_freed) => {
                     total_bytes_freed += bytes_freed;
                     if bytes_freed > 0 {
@@ -400,7 +400,7 @@ impl StoreManager {
     }
 
     /// Check if cleanup is needed based on current global size
-    pub fn needs_cleanup(&self) -> bool {
+    pub async fn needs_cleanup(&self) -> bool {
         // COMMENTED OUT FOR TESTING: Disable cleanup to isolate performance issues
         info!("needs_cleanup() called but disabled for testing, returning false");
         return false;
@@ -414,7 +414,7 @@ impl StoreManager {
 
         // let mut total_size = 0u64;
         // for entry in self.stores.iter() {
-        //     if let Ok(size) = entry.value().get_total_size() {
+        //     if let Ok(size) = entry.value().get_total_size().await {
         //         total_size += size;
         //     }
         // }
@@ -466,9 +466,9 @@ impl StoreManager {
                         // }
 
                         // // Then check if we need capacity-based cleanup
-                        // if manager.needs_cleanup() {
+                        // if manager.needs_cleanup().await {
                         //     info!("Global capacity exceeded, triggering cleanup");
-                        //     match manager.cleanup_old_entries_if_needed() {
+                        //     match manager.cleanup_old_entries_if_needed().await {
                         //         Ok(0) => {
                         //             debug!("Cleanup skipped (may be already running or no data to clean)");
                         //         }
@@ -756,7 +756,7 @@ mod tests {
 
         // Test that needs_cleanup works correctly
         assert!(
-            !manager.needs_cleanup(),
+            !manager.needs_cleanup().await,
             "Should not need cleanup when empty"
         );
 
@@ -778,11 +778,11 @@ mod tests {
             // Add test data directly to the store
             let key = TimestampKey::from(&event);
             let metadata = TimestampMetadata::new(&event);
-            store1.put_timestamp_record(&key, &metadata).unwrap();
+            store1.put_timestamp_record(&key, &metadata).await.unwrap();
         }
 
         // Test that cleanup can be called without error
-        let result = manager.cleanup_old_entries_if_needed();
+        let result = manager.cleanup_old_entries_if_needed().await;
         assert!(result.is_ok(), "Cleanup should not error");
 
         // Test with zero capacity
@@ -792,7 +792,7 @@ mod tests {
         };
         let zero_manager = Arc::new(StoreManager::new(zero_config));
         assert!(
-            !zero_manager.needs_cleanup(),
+            !zero_manager.needs_cleanup().await,
             "Should never need cleanup with zero capacity"
         );
     }
@@ -832,10 +832,10 @@ mod tests {
             // Add test data directly to the store
             let key = TimestampKey::from(&event);
             let metadata = TimestampMetadata::new(&event);
-            store.put_timestamp_record(&key, &metadata).unwrap();
+            store.put_timestamp_record(&key, &metadata).await.unwrap();
         }
 
-        store.flush().unwrap();
+        store.flush().await.unwrap();
 
         // Wait for cleanup task to run at least once
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -882,10 +882,10 @@ mod tests {
         let manager = Arc::new(StoreManager::new(config));
 
         // Should never need cleanup with unlimited capacity
-        assert!(!manager.needs_cleanup());
+        assert!(!manager.needs_cleanup().await);
 
         // Cleanup should return 0 bytes freed
-        let bytes_freed = manager.cleanup_old_entries_if_needed().unwrap();
+        let bytes_freed = manager.cleanup_old_entries_if_needed().await.unwrap();
         assert_eq!(bytes_freed, 0);
     }
 
@@ -920,14 +920,14 @@ mod tests {
         let metadata = TimestampMetadata::new(&event);
 
         // Store1 shouldn't have it yet
-        assert!(store1.get_timestamp_record(&key).unwrap().is_none());
+        assert!(store1.get_timestamp_record(&key).await.unwrap().is_none());
 
         // Add to store1
-        store1.put_timestamp_record(&key, &metadata).unwrap();
+        store1.put_timestamp_record(&key, &metadata).await.unwrap();
 
         // Now both store1 and store2 should have it (proving they're the same store instance)
-        assert!(store1.get_timestamp_record(&key).unwrap().is_some());
-        assert!(store2.get_timestamp_record(&key).unwrap().is_some());
+        assert!(store1.get_timestamp_record(&key).await.unwrap().is_some());
+        assert!(store2.get_timestamp_record(&key).await.unwrap().is_some());
     }
 
     #[tokio::test]
@@ -973,14 +973,14 @@ mod tests {
         let metadata = TimestampMetadata::new(&event);
 
         // First store shouldn't have it yet
-        assert!(stores[0].get_timestamp_record(&key).unwrap().is_none());
+        assert!(stores[0].get_timestamp_record(&key).await.unwrap().is_none());
 
         // Add to first store
-        stores[0].put_timestamp_record(&key, &metadata).unwrap();
+        stores[0].put_timestamp_record(&key, &metadata).await.unwrap();
 
         // All stores should now have it (proving they're all the same store instance)
         for store in &stores {
-            assert!(store.get_timestamp_record(&key).unwrap().is_some());
+            assert!(store.get_timestamp_record(&key).await.unwrap().is_some());
         }
     }
 }

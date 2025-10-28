@@ -203,7 +203,7 @@ async fn test_unavailable_uploader() {
     for event in &events {
         let key = event.into();
         let metadata = TimestampMetadata::new(event);
-        store.put_timestamp_record(&key, &metadata).unwrap();
+        store.put_timestamp_record(&key, &metadata).await.unwrap();
     }
 
     let tmp_checkpoint_dir = TempDir::new().unwrap();
@@ -261,7 +261,7 @@ async fn test_unpopulated_exporter() {
     for event in &events {
         let key = event.into();
         let metadata = TimestampMetadata::new(event);
-        store.put_timestamp_record(&key, &metadata).unwrap();
+        store.put_timestamp_record(&key, &metadata).await.unwrap();
     }
 
     let tmp_checkpoint_dir = TempDir::new().unwrap();
@@ -311,7 +311,7 @@ async fn test_checkpoint_from_plan_with_no_previous_metadata() {
     for event in &events {
         let key = event.into();
         let metadata = TimestampMetadata::new(event);
-        store.put_timestamp_record(&key, &metadata).unwrap();
+        store.put_timestamp_record(&key, &metadata).await.unwrap();
     }
 
     let tmp_checkpoint_dir = TempDir::new().unwrap();
@@ -396,7 +396,7 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
     for event in &events {
         let key = event.into();
         let metadata = TimestampMetadata::new(event);
-        store.put_timestamp_record(&key, &metadata).unwrap();
+        store.put_timestamp_record(&key, &metadata).await.unwrap();
     }
 
     let tmp_checkpoint_dir = TempDir::new().unwrap();
