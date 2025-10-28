@@ -1,5 +1,5 @@
 import type { Monaco } from '@monaco-editor/react'
-import { actions, connect, kea, key, path, props, propsChanged, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, propsChanged, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 // Note: we can oly import types and not values from monaco-editor, because otherwise some Monaco code breaks
@@ -48,6 +48,9 @@ export interface CodeEditorLogicProps {
     onMetadata?: (metadata: HogQLMetadataResponse | null) => void
     onMetadataLoading?: (loading: boolean) => void
 }
+
+// Store decorations collection outside the logic to persist across logic instances
+let viewDecorationsCollection: editor.IEditorDecorationsCollection | null = null
 
 export const codeEditorLogic = kea<codeEditorLogicType>([
     path(['lib', 'monaco', 'hogQLMetadataProvider']),
@@ -143,80 +146,70 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                 },
             },
         ],
-        viewDecorations: [
-            [] as string[],
-            {
-                reloadMetadataSuccess: (previousDecorationIds, { metadata }) => {
-                    const model = props.editor?.getModel()
-                    if (!model || !metadata || !props.editor) {
-                        // Clear previous decorations if editor is not available
-                        if (previousDecorationIds.length > 0 && props.editor) {
-                            props.editor.deltaDecorations(previousDecorationIds, [])
-                        }
-                        return []
-                    }
-                    const [query, metadataResponse] = metadata
-                    const viewMetadata = metadataResponse?.view_metadata
-                    const tableNames = metadataResponse?.table_names
+    })),
+    listeners(({ props }) => ({
+        reloadMetadataSuccess: ({ metadata }) => {
+            const model = props.editor?.getModel()
+            if (!model || !metadata || !props.editor) {
+                if (viewDecorationsCollection) {
+                    viewDecorationsCollection.clear()
+                }
+                return
+            }
 
-                    if (!viewMetadata || Object.keys(viewMetadata).length === 0 || !tableNames) {
-                        // Clear previous decorations if no views
-                        const decorationIds = props.editor.deltaDecorations(previousDecorationIds, [])
-                        return decorationIds
-                    }
+            if (!viewDecorationsCollection) {
+                viewDecorationsCollection = props.editor.createDecorationsCollection()
+            }
 
-                    // Only decorate views that are actually in the table_names list from the query
-                    // This ensures we only highlight views that were detected in the parsed query
-                    const decorations: editor.IModelDeltaDecoration[] = []
+            const [query, metadataResponse] = metadata
+            const viewMetadata = metadataResponse?.view_metadata
+            const tableNames = metadataResponse?.table_names
 
-                    for (const tableName of tableNames) {
-                        const viewInfo = viewMetadata[tableName]
-                        if (!viewInfo) {
-                            // This table is not a view, skip it
-                            continue
-                        }
+            if (!viewMetadata || Object.keys(viewMetadata).length === 0 || !tableNames) {
+                viewDecorationsCollection.clear()
+                return
+            }
 
-                        // Find all exact occurrences of this specific table name in the query
-                        // Using word boundaries to ensure we match complete table names only
-                        const regex = new RegExp(
-                            `\\b${tableName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`,
-                            'gi'
-                        )
-                        let match: RegExpExecArray | null
+            const decorations: editor.IModelDeltaDecoration[] = []
 
-                        while ((match = regex.exec(query)) !== null) {
-                            const startPos = model.getPositionAt(match.index)
-                            const endPos = model.getPositionAt(match.index + match[0].length)
+            for (const tableName of tableNames) {
+                const viewInfo = viewMetadata[tableName]
+                if (!viewInfo) {
+                    continue
+                }
 
-                            const className = viewInfo.is_materialized
-                                ? 'hogql-materialized-view-decoration'
-                                : 'hogql-view-decoration'
+                const regex = new RegExp(`\\b${tableName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi')
+                let match: RegExpExecArray | null
 
-                            decorations.push({
-                                range: {
-                                    startLineNumber: startPos.lineNumber,
-                                    startColumn: startPos.column,
-                                    endLineNumber: endPos.lineNumber,
-                                    endColumn: endPos.column,
-                                },
-                                options: {
-                                    inlineClassName: className,
-                                    hoverMessage: {
-                                        value: viewInfo.is_materialized
-                                            ? `Materialized view: **${tableName}** (Ctrl+Click to open in new tab)`
-                                            : `View: **${tableName}** (Ctrl+Click to open in new tab)`,
-                                    },
-                                },
-                            })
-                        }
-                    }
+                while ((match = regex.exec(query)) !== null) {
+                    const startPos = model.getPositionAt(match.index)
+                    const endPos = model.getPositionAt(match.index + match[0].length)
 
-                    // Apply decorations, replacing the previous ones, and return the new decoration IDs
-                    const decorationIds = props.editor.deltaDecorations(previousDecorationIds, decorations)
-                    return decorationIds
-                },
-            },
-        ],
+                    const className = viewInfo.is_materialized
+                        ? 'hogql-materialized-view-decoration'
+                        : 'hogql-view-decoration'
+
+                    decorations.push({
+                        range: {
+                            startLineNumber: startPos.lineNumber,
+                            startColumn: startPos.column,
+                            endLineNumber: endPos.lineNumber,
+                            endColumn: endPos.column,
+                        },
+                        options: {
+                            inlineClassName: className,
+                            hoverMessage: {
+                                value: viewInfo.is_materialized
+                                    ? `Materialized view: **${tableName}** (Ctrl+Click to open in new tab)`
+                                    : `View: **${tableName}** (Ctrl+Click to open in new tab)`,
+                            },
+                        },
+                    })
+                }
+            }
+
+            viewDecorationsCollection.set(decorations)
+        },
     })),
     selectors({
         hasErrors: [

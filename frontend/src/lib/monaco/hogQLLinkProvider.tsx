@@ -54,7 +54,6 @@ export const hogQLLinkProvider: () => languages.LinkProvider = () => ({
                     url: `#view:${viewInfo.id}`,
                     tooltip: `Open ${viewInfo.is_materialized ? 'materialized view' : 'view'}: ${tableName} in new tab`,
                 })
-                break
             }
         }
 
