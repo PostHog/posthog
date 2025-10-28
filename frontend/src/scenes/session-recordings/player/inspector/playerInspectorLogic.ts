@@ -275,7 +275,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             sessionRecordingDataCoordinatorLogic(props),
             ['loadFullEventData', 'setTrackedWindow'],
             sessionRecordingPlayerLogic(props),
-            ['seekToTime'],
+            ['seekToTime', 'setSkippingToMatchingEvent'],
         ],
         values: [
             miniFiltersLogic,
@@ -352,7 +352,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                 )
                             const { timeInRecording } = timeRelativeToStart(earliestMatchingEvent, values.start)
                             const seekTime = ceilMsToClosestSecond(timeInRecording) - 1000
+                            actions.setSkippingToMatchingEvent(true)
                             actions.seekToTime(seekTime)
+                            setTimeout(() => {
+                                actions.setSkippingToMatchingEvent(false)
+                            }, 1500)
                         }
                     }
 
