@@ -239,10 +239,10 @@ export enum ProductKey {
     ERROR_TRACKING = 'error_tracking',
     REVENUE_ANALYTICS = 'revenue_analytics',
     MARKETING_ANALYTICS = 'marketing_analytics',
+    LLM_ANALYTICS = 'llm_analytics',
     MAX = 'max',
     LINKS = 'links',
     ENDPOINTS = 'endpoints',
-    LLM_ANALYTICS = 'llm_analytics',
 }
 
 type ProductKeyUnion = `${ProductKey}`
