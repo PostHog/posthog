@@ -306,8 +306,6 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                         checked={evaluation.enabled}
                         onChange={() => toggleEvaluationEnabled(evaluation.id)}
                         size="small"
-                        disabled={true}
-                        disabledReason="The evaluations backend is still WIP"
                     />
                     <span className={evaluation.enabled ? 'text-success' : 'text-muted'}>
                         {evaluation.enabled ? 'Enabled' : 'Disabled'}
@@ -322,7 +320,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
             render: (_, evaluation) => (
                 <div className="max-w-md">
                     <div className="text-sm font-mono bg-bg-light border rounded px-2 py-1 truncate">
-                        {evaluation.prompt || '(No prompt)'}
+                        {evaluation.evaluation_config.prompt || '(No prompt)'}
                     </div>
                 </div>
             ),

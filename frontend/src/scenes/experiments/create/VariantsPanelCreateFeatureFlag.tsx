@@ -18,7 +18,7 @@ import type { Experiment, MultivariateFlagVariant } from '~/types'
 import { percentageDistribution } from '../utils'
 import { variantsPanelLogic } from './variantsPanelLogic'
 
-const generateFeatureFlagKey = (name: string, unavailableFeatureFlagKeys?: Set<string>): string => {
+export const generateFeatureFlagKey = (name: string, unavailableFeatureFlagKeys?: Set<string>): string => {
     const baseKey = name
         .toLowerCase()
         .replace(/[^A-Za-z0-9-_]+/g, '-')
@@ -52,12 +52,7 @@ export const VariantsPanelCreateFeatureFlag = ({
     experiment,
     onChange,
 }: VariantsPanelCreateFeatureFlagProps): JSX.Element => {
-    const {
-        featureFlagKeyDirty,
-        unavailableFeatureFlagKeys,
-        featureFlagKeyValidation,
-        featureFlagKeyValidationLoading,
-    } = useValues(variantsPanelLogic)
+    const { featureFlagKeyValidation, featureFlagKeyValidationLoading } = useValues(variantsPanelLogic)
     const { setFeatureFlagKeyDirty, validateFeatureFlagKey } = useActions(variantsPanelLogic)
 
     const variants = experiment.parameters?.feature_flag_variants || [
@@ -76,16 +71,13 @@ export const VariantsPanelCreateFeatureFlag = ({
     const areVariantKeysValid = variants.every(({ key }) => key && key.trim().length > 0)
     const variantKeys = variants.map(({ key }) => key)
     const hasDuplicateKeys = variantKeys.length !== new Set(variantKeys).size
-    const hasZeroRolloutVariants =
-        variants.some(({ rollout_percentage }) => rollout_percentage === 0) && variantRolloutSum !== 100
 
     // Check if specific variant has an error
     const hasVariantError = (index: number): boolean => {
         const variant = variants[index]
         const isEmpty = !variant.key || variant.key.trim().length === 0
         const isDuplicate = variantKeys.filter((k) => k === variant.key).length > 1
-        const hasZeroRollout = variant.rollout_percentage === 0 && variantRolloutSum !== 100
-        return isEmpty || isDuplicate || hasZeroRollout
+        return isEmpty || isDuplicate
     }
 
     const updateVariant = (index: number, updates: Partial<MultivariateFlagVariant>): void => {
@@ -143,7 +135,7 @@ export const VariantsPanelCreateFeatureFlag = ({
         if (key) {
             validateFeatureFlagKey(key)
         }
-    }, 300)
+    }, 100)
 
     return (
         <div className="flex flex-col gap-4">
@@ -165,16 +157,6 @@ export const VariantsPanelCreateFeatureFlag = ({
                                 feature_flag_key: normalizedValue,
                             })
                             debouncedValidateFeatureFlagKey(normalizedValue)
-                        }}
-                        onFocus={() => {
-                            if (experiment.name && !featureFlagKeyDirty) {
-                                onChange({
-                                    feature_flag_key: generateFeatureFlagKey(
-                                        experiment.name,
-                                        unavailableFeatureFlagKeys
-                                    ),
-                                })
-                            }
                         }}
                         suffix={
                             featureFlagKeyValidationLoading ? (
@@ -292,9 +274,6 @@ export const VariantsPanelCreateFeatureFlag = ({
                     )}
                     {variants.length > 0 && hasDuplicateKeys && (
                         <p className="text-danger">Variant keys must be unique.</p>
-                    )}
-                    {variants.length > 0 && hasZeroRolloutVariants && (
-                        <p className="text-danger">All variants must have a rollout percentage greater than 0.</p>
                     )}
                     {variants.length < MAX_EXPERIMENT_VARIANTS && (
                         <LemonButton type="secondary" onClick={addVariant} icon={<IconPlus />} center>
