@@ -68,7 +68,7 @@ export interface QueryTile {
 }
 
 export interface LLMAnalyticsLogicProps {
-    personId?: string
+    logicKey?: string
     tabId?: string
 }
 
@@ -88,7 +88,7 @@ function getDayDateRange(day: string): { date_from: string; date_to: string } {
 export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'llmAnalyticsLogic']),
     props({} as LLMAnalyticsLogicProps),
-    key((props: LLMAnalyticsLogicProps) => props?.personId || 'llmAnalyticsScene'),
+    key(({ logicKey }: LLMAnalyticsLogicProps) => logicKey || 'llmAnalyticsScene'),
     connect(() => ({
         values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']],
         actions: [teamLogic, ['addProductIntent']],
@@ -107,6 +107,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         toggleGenerationExpanded: (uuid: string, traceId: string) => ({ uuid, traceId }),
         setLoadedTrace: (traceId: string, trace: LLMTrace) => ({ traceId, trace }),
         clearExpandedGenerations: true,
+        setPersonId: (personId: string) => ({ personId }),
     }),
 
     reducers({
@@ -213,6 +214,13 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 setDates: () => ({}),
                 setPropertyFilters: () => ({}),
                 setShouldFilterTestAccounts: () => ({}),
+            },
+        ],
+
+        personId: [
+            null as string | null,
+            {
+                setPersonId: (_, { personId }) => personId,
             },
         ],
     }),
@@ -687,7 +695,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 s.dateFilter,
                 s.shouldFilterTestAccounts,
                 s.propertyFilters,
-                (_, props) => props.personId,
+                s.personId,
                 groupsModel.selectors.groupsTaxonomicTypes,
                 featureFlagLogic.selectors.featureFlags,
             ],

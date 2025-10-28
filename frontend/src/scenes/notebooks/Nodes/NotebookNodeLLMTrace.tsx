@@ -25,11 +25,11 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttributes>): JSX.Element | null => {
     const { expanded } = useValues(notebookNodeLogic)
-    const { personId } = attributes
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setTracesQuery } = useActions(
-        llmAnalyticsLogic({ personId })
-    )
-    const { tracesQuery } = useValues(llmAnalyticsLogic({ personId }))
+    const { personId, nodeId } = attributes
+    const logic = llmAnalyticsLogic({ logicKey: nodeId })
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setTracesQuery, setPersonId } = useActions(logic)
+    setPersonId(personId)
+    const { tracesQuery } = useValues(logic)
     const context = useTracesQueryContext()
 
     if (!expanded) {
@@ -68,8 +68,9 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttribu
 
 const Settings = ({ attributes }: NotebookNodeAttributeProperties<NotebookNodeLLMTraceAttributes>): JSX.Element => {
     const { personId, nodeId } = attributes
-    const { setDates, setPropertyFilters, setTracesQuery } = useActions(llmAnalyticsLogic({ personId }))
-    const { tracesQuery } = useValues(llmAnalyticsLogic({ personId }))
+    const logic = llmAnalyticsLogic({ logicKey: nodeId })
+    const { setDates, setPropertyFilters, setTracesQuery } = useActions(logic)
+    const { tracesQuery } = useValues(logic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     return (
