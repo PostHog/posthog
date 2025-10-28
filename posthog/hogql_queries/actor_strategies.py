@@ -113,12 +113,12 @@ class PersonStrategy(ActorStrategy):
                     exprs=[
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
-                            left=ast.Field(chain=["properties", "email"]),
+                            left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "email"])]),
                             right=ast.Constant(value=f"%{self.query.search}%"),
                         ),
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
-                            left=ast.Field(chain=["properties", "name"]),
+                            left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "name"])]),
                             right=ast.Constant(value=f"%{self.query.search}%"),
                         ),
                         ast.CompareOperation(

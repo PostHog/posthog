@@ -8,7 +8,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.db import connection, models, transaction
 
 from posthog.hogql import ast
-from posthog.hogql.database.database import Database, create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
@@ -326,7 +326,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
 
     def get_hogql_database(self, team: Team) -> Database:
         """Get the HogQL database for given team."""
-        return create_hogql_database(team=team)
+        return Database.create_for(team=team)
 
     def get_or_create_root_path_for_data_warehouse_table(
         self, data_warehouse_table: DataWarehouseTable
@@ -433,7 +433,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         the transaction and clean them up.
         """
         parents = get_parents_from_model_query(query)
-        posthog_tables = self.get_hogql_database(team).get_posthog_tables()
+        posthog_table_names = self.get_hogql_database(team).get_posthog_table_names()
 
         base_params = {
             "team_id": team.pk,
@@ -446,7 +446,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
                 cursor.execute("SET CONSTRAINTS ALL DEFERRED")
 
                 for parent in parents:
-                    if parent in posthog_tables:
+                    if parent in posthog_table_names:
                         parent_id = parent
                     else:
                         try:

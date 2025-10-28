@@ -204,7 +204,7 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentId, experiment, usesNewQueryRunner, isExperimentDraft } =
+    const { experimentLoading, experimentId, experiment, usesNewQueryRunner, isExperimentDraft, exposureCriteria } =
         useValues(experimentLogic)
     const { setExperiment, updateExperimentMetrics, addSharedMetricsToExperiment, removeSharedMetricFromExperiment } =
         useActions(experimentLogic)
@@ -218,10 +218,19 @@ export function ExperimentView(): JSX.Element {
      * this is temporary, for testing purposes only.
      * this has to be migrated into a scene with a proper path, and paramsToProps
      * so it works seamlesly with the toolbar and tab bar navigation.
+     *
+     * We show the create form if the experiment is draft + has no metrics. Otherwise,
+     * we show the experiment view.
      */
     const isUnifiedCreateFormEnabled = useFeatureFlag('EXPERIMENTS_UNIFIED_CREATE_FORM', 'test')
+    const allPrimaryMetrics = [...(experiment.metrics || []), ...(experiment.saved_metrics || [])]
 
-    if (!experimentLoading && getExperimentStatus(experiment) === ProgressStatus.Draft && isUnifiedCreateFormEnabled) {
+    if (
+        !experimentLoading &&
+        isUnifiedCreateFormEnabled &&
+        getExperimentStatus(experiment) === ProgressStatus.Draft &&
+        allPrimaryMetrics.length === 0
+    ) {
         return <CreateExperiment draftExperiment={experiment} />
     }
 
@@ -271,6 +280,7 @@ export function ExperimentView(): JSX.Element {
                             <MetricSourceModal />
                             <ExperimentMetricModal
                                 experiment={experiment}
+                                exposureCriteria={exposureCriteria}
                                 onSave={(metric, context) => {
                                     const metrics = experiment[context.field]
                                     const isNew = !metrics.some(({ uuid }) => uuid === metric.uuid)
