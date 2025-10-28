@@ -1,7 +1,28 @@
 from dataclasses import dataclass
 
+from pydantic import BaseModel
+
 from ee.hogai.graph.agent.nodes import AgentNode, AgentToolkit, AgentToolsNode
 from ee.hogai.utils.types.base import AgentMode
+
+
+class AgentExample(BaseModel):
+    """
+    Custom agent example to correct the agent's behavior through few-shot prompting.
+    The example will be formatted as follows:
+    ```
+    <example>
+    {example}
+
+    <reasoning>
+    {reasoning}
+    </reasoning>
+    </example>
+    ```
+    """
+
+    example: str
+    reasoning: str | None = None
 
 
 @dataclass
@@ -16,3 +37,7 @@ class AgentDefinition:
     """A custom node class to use for the agent."""
     tools_node_class: type[AgentToolsNode] = AgentToolsNode
     """A custom tools node class to use for the agent."""
+    positive_todo_examples: list[AgentExample] = []
+    """Positive examples that will be injected into the `todo_write` tool. Use this field to explain the agent how it should orchestrate complex tasks using provided tools."""
+    negative_todo_examples: list[AgentExample] = []
+    """Negative examples that will be injected into the `todo_write` tool. Use this field to explain the agent how it should **NOT** orchestrate tasks using provided tools."""
