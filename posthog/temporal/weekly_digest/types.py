@@ -12,6 +12,7 @@ class CommonInput:
     redis_host: str | None = None
     redis_port: int | None = None
     batch_size: int = 1000
+    django_redis_url: str | None = None
 
 
 @dataclass
@@ -90,6 +91,19 @@ class DigestFeatureFlag(BaseModel):
     key: str
 
 
+class DigestFilter(BaseModel):
+    name: str
+    short_id: str
+    view_count: int
+    recording_count: int = 0
+    more_available: bool = False
+
+
+class DigestRecording(BaseModel):
+    session_id: str
+    recording_ttl: int
+
+
 class DigestSurvey(BaseModel):
     name: str
     id: UUID
@@ -117,6 +131,17 @@ class FeatureFlagList(RootModel):
     root: list[DigestFeatureFlag]
 
 
+class FilterList(RootModel):
+    root: list[DigestFilter]
+
+    def order_by_recording_count(self) -> "FilterList":
+        return FilterList(root=sorted(self.root, key=lambda f: f.recording_count, reverse=True))
+
+
+class RecordingList(RootModel):
+    root: list[DigestRecording]
+
+
 class SurveyList(RootModel):
     root: list[DigestSurvey]
 
@@ -130,6 +155,8 @@ DigestResourceType: TypeAlias = (
     | type[ExperimentList]
     | type[ExternalDataSourceList]
     | type[FeatureFlagList]
+    | type[FilterList]
+    | type[RecordingList]
     | type[SurveyList]
 )
 
@@ -142,8 +169,10 @@ class TeamDigest(BaseModel):
     experiments_launched: ExperimentList
     experiments_completed: ExperimentList
     external_data_sources: ExternalDataSourceList
-    surveys_launched: SurveyList
     feature_flags: FeatureFlagList
+    filters: FilterList
+    recordings: RecordingList
+    surveys_launched: SurveyList
 
     def is_empty(self) -> bool:
         return (
@@ -154,8 +183,10 @@ class TeamDigest(BaseModel):
                     len(self.experiments_launched.root),
                     len(self.experiments_completed.root),
                     len(self.external_data_sources.root),
-                    len(self.surveys_launched.root),
                     len(self.feature_flags.root),
+                    len(self.filters.root),
+                    len(self.recordings.root),
+                    len(self.surveys_launched.root),
                 ]
             )
             == 0
@@ -181,3 +212,19 @@ class OrganizationDigest(BaseModel):
 
     def is_empty(self) -> bool:
         return all(digest.is_empty() for digest in self.team_digests)
+
+
+class PlaylistCount(BaseModel):
+    session_ids: list[str] = []
+    has_more: bool
+    previous_ids: Optional[list[str]]
+    refreshed_at: datetime
+    error_count: int
+    errored_at: Optional[datetime]
+
+
+class ClickHouseResponse(BaseModel):
+    meta: list
+    data: list
+    statistics: dict
+    rows: int

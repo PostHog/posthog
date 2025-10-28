@@ -4,6 +4,8 @@ import asyncio
 import itertools
 from datetime import UTC, datetime, timedelta
 
+from django.conf import settings
+
 from temporalio import common, workflow
 
 from posthog.temporal.common.base import PostHogWorkflow
@@ -16,7 +18,9 @@ from posthog.temporal.weekly_digest.activities import (
     generate_experiment_launched_lookup,
     generate_external_data_source_lookup,
     generate_feature_flag_lookup,
+    generate_filter_lookup,
     generate_organization_digest_batch,
+    generate_recording_lookup,
     generate_survey_lookup,
     generate_user_notification_lookup,
     send_weekly_digest_batch,
@@ -38,7 +42,12 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
     def parse_inputs(input: list[str]) -> WeeklyDigestInput:
         """Parse input from the management command CLI."""
         loaded = json.loads(input[0])
-        return WeeklyDigestInput(**loaded)
+        parsed_input = WeeklyDigestInput(**loaded)
+
+        if parsed_input.common.django_redis_url is None:
+            parsed_input.common.django_redis_url = settings.REDIS_URL
+
+        return parsed_input
 
     @workflow.run
     async def run(self, input: WeeklyDigestInput) -> None:
@@ -123,6 +132,8 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
             generate_survey_lookup,
             generate_feature_flag_lookup,
             generate_user_notification_lookup,
+            generate_filter_lookup,
+            generate_recording_lookup,
         ]
 
         await asyncio.gather(
