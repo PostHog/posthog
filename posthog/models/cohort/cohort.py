@@ -182,6 +182,13 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         help_text="Type of cohort based on filter complexity",
     )
 
+    # Realtime evaluation support flag
+    realtime_supported = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="True if all filters support bytecode compilation and can be evaluated in realtime.",
+    )
+
     # deprecated in favor of filters
     groups = models.JSONField(default=list)
 
