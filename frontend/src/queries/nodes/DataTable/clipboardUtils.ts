@@ -4,7 +4,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { asDisplay } from 'scenes/persons/person-utils'
-import { getDisplayColumnName } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
+import { getDisplayColumnName } from 'scenes/web-analytics/common'
 
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode } from '~/queries/schema/schema-general'

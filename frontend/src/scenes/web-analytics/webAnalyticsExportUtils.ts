@@ -29,7 +29,7 @@ import {
     isWebStatsTableQuery,
     isWebTrendsQuery,
 } from '~/queries/utils'
-import { getDisplayColumnName } from '~/scenes/web-analytics/tiles/WebAnalyticsTile'
+import { getDisplayColumnName } from '~/scenes/web-analytics/common'
 import { ChartDisplayType, ExporterFormat } from '~/types'
 
 export const webTrendsMetricDisplayNames: Record<WebTrendsMetric, string> = {
@@ -79,6 +79,8 @@ export function exportTableData(tableData: string[][], format: ExporterFormat): 
     }
 }
 
+// Export transformation functions separately for easier unit testing.
+// Each adapter class delegates to these functions for the actual data transformation logic.
 export function getCalendarHeatmapTableData(
     response: TrendsQueryResponse,
     rowLabels: string[],
@@ -91,7 +93,7 @@ export function getCalendarHeatmapTableData(
         return []
     }
 
-    const data = heatmapData.data || []
+    const data = heatmapData.data
     const rowAggregations = heatmapData.rowAggregations || []
     const columnAggregations = heatmapData.columnAggregations || []
     const allAggregations = heatmapData.allAggregations || 0
@@ -99,7 +101,6 @@ export function getCalendarHeatmapTableData(
     const numRows = rowLabels.length
     const numCols = columnLabels.length
 
-    // Create matrix from sparse data
     const matrix: number[][] = Array(numRows)
         .fill(0)
         .map(() => Array(numCols).fill(0))
@@ -109,13 +110,11 @@ export function getCalendarHeatmapTableData(
         }
     })
 
-    // Create row aggregations map
     const rowAggMap: Record<number, number> = {}
     rowAggregations.forEach((item: EventsHeatMapRowAggregationResult) => {
         rowAggMap[item.row] = item.value
     })
 
-    // Create column aggregations array
     const colAggArray: number[] = Array(numCols).fill(0)
     columnAggregations.forEach((item: EventsHeatMapColumnAggregationResult) => {
         if (item.column < numCols) {
@@ -123,7 +122,6 @@ export function getCalendarHeatmapTableData(
         }
     })
 
-    // Build table with headers
     const headers = ['', ...columnLabels, 'All']
     const dataRows = rowLabels.map((rowLabel, rowIndex) => {
         const rowValues = matrix[rowIndex].map(String)
@@ -175,7 +173,6 @@ export function getWebAnalyticsTableData(
     const hasComparison = query.compareFilter?.compare === true
     const breakdownBy = isWebStatsTableQuery(query) ? query.breakdownBy : undefined
 
-    // Check which columns have array values (comparison data) by examining the first row
     const firstRow = response.results[0] as any[]
     const columnHasComparison = columns.map((_, colIndex) => Array.isArray(firstRow[colIndex]))
 
@@ -300,7 +297,6 @@ export function getWorldMapTableData(response: TrendsQueryResponse): string[][] 
         return []
     }
 
-    // World Map shows breakdown by country with aggregated values
     const headers = ['Country', 'Visitors']
     const dataRows = response.results.map((series) => {
         const countryCode = series.label ?? ''
@@ -324,7 +320,6 @@ export function getTrendsTableData(response: TrendsQueryResponse): string[][] {
         return []
     }
 
-    // Create headers: Date + each series label
     const seriesLabels = response.results.map((series) => {
         // Use breakdown value if available, otherwise use action name or label
         const breakdownValue = (series as any).breakdown_value
@@ -334,7 +329,6 @@ export function getTrendsTableData(response: TrendsQueryResponse): string[][] {
     })
     const headers = ['Date', ...seriesLabels]
 
-    // Create data rows: each row is a date with values from all series
     const dataRows = dateLabels.map((date, dateIndex) => {
         const values = response.results.map((series) => {
             const data = series.data as number[]
@@ -361,7 +355,6 @@ class WorldMapAdapter implements ExportAdapter {
             return false
         }
 
-        // Check if it's a World Map display
         const isWorldMap = (source as TrendsQuery)?.trendsFilter?.display === ChartDisplayType.WorldMap
         if (!isWorldMap) {
             return false
