@@ -141,4 +141,4 @@ async def test_upload_manifest_file_raises_on_client_error(minio_client, bucket_
                 endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
             )
         assert all(isinstance(exc, botocore.exceptions.ClientError) for exc in exc_info.value.exceptions)
-        assert exc_info.value.ops == {"list_objects_v2": {"AccessDenied"}}
+        assert exc_info.value.ops == {"list_objects_v2": {"AccessDenied"}}  # type: ignore

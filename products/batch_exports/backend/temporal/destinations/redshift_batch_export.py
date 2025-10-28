@@ -159,7 +159,10 @@ class ClientErrorGroup(ExceptionGroup):
                 exceptions,
             )
 
-        self.ops = ops
+        # This __new__ is based on the documentation on subclassing exception groups:
+        # https://docs.python.org/3.12/library/exceptions.html#ExceptionGroup
+        # Not sure how to tell mypy this is "fine".
+        self.ops = ops  # type: ignore
 
         return self
 
