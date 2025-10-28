@@ -62,10 +62,6 @@ SCIM 2.0 (System for Cross-domain Identity Management) enables automated user pr
 
 - `ee/api/scim/test/test_scim_api.py` - Comprehensive SCIM endpoint tests
 
-### Migration
-
-- `posthog/migrations/0868_add_scim_fields_to_organization_domain.py` - Database migration
-
 ## API Endpoints
 
 ### SCIM Endpoints (IdP Integration)
@@ -185,11 +181,12 @@ SCIM is a licensed feature that requires `AvailableFeature.SCIM` to be enabled f
 
 ### Testing Locally
 
-To enable SCIM feature for local development via Django shell:
+Enabling SCIM via Django shell:
 
 ```python
 from posthog.constants import AvailableFeature
 from posthog.models.organization_domain import OrganizationDomain
+
 domain = OrganizationDomain.objects.get(domain="posthog.com")
 org = domain.organization
 
@@ -201,23 +198,14 @@ org.available_product_features.append({
 org.save()
 ```
 
-### Enabling SCIM via Django Shell
-
-To enable SCIM and get the bearer token via Django shell:
+Get the bearer token and base URL from Settings → Authentication domains or via Django shell:
 
 ```python
-from posthog.models.organization_domain import OrganizationDomain
-from ee.api.scim.utils import enable_scim_for_domain, get_scim_base_url
-
-domain = OrganizationDomain.objects.get(domain="posthog.com")
-
 token = enable_scim_for_domain(domain)
 print(f"Bearer Token: {token}")
 
 scim_url = get_scim_base_url(domain)
 print(f"SCIM Base URL: {scim_url}")
-
-# Now you can use this to make requests via Postman
 ```
 
 ## User Lifecycle Examples
@@ -281,7 +269,7 @@ PATCH /scim/v2/{domain_id}/Users/{id}
 POST /scim/v2/{domain_id}/Groups
 {
   "displayName": "Engineering",
-  "members": [{"value": "user-uuid"}]
+  "members": [{"value": "user-id"}]
 }
 ```
 
@@ -296,7 +284,7 @@ POST /scim/v2/{domain_id}/Groups
 PATCH /scim/v2/{domain_id}/Groups/{id}
 {
   "Operations": [
-    {"op": "replace", "value": {"members": [{"value": "user-uuid-1"}, {"value": "user-uuid-2"}]}}
+    {"op": "replace", "value": {"members": [{"value": "user-id-1"}, {"value": "user-id-2"}]}}
   ]
 }
 ```
@@ -330,43 +318,31 @@ This allows for a hybrid approach where users can access the organization immedi
 Run tests:
 
 ```bash
-pytest ee/api/scim/test/test_scim_api.py -v
+pytest ee/api/scim/test/test_scim_api.py
+pytest ee/api/scim/test/test_users_api.py
+pytest ee/api/scim/test/test_groups_api.py
 ```
-
-Test coverage:
-
-- ✅ User CRUD operations
-- ✅ Group CRUD operations
-- ✅ Token authentication (valid/invalid/missing)
-- ✅ Existing user handling
-- ✅ Multi-org scenarios
-- ✅ Member deactivation
-- ✅ Group membership sync
-- ✅ Service provider config
-- ✅ PATCH operations (replace, add, remove)
 
 ## IdP Configuration Guide
 
-### Okta
+### OneLogin
 
-1. Applications → Create SCIM Integration
-2. SCIM Base URL: `https://app.posthog.com/scim/v2/{domain_id}`
-3. Auth: OAuth Bearer Token (paste generated token)
-4. Supported features: Push New Users, Push Profile Updates, Push Groups
-5. Attribute mappings:
-    - userName → email
-    - name.givenName → firstName
-    - name.familyName → lastName
-
-### Azure AD
-
-1. Enterprise Apps → Provision User Accounts
-2. Tenant URL: `https://app.posthog.com/scim/v2/{domain_id}`
-3. Secret Token: (paste generated token)
-4. Mappings:
-    - userPrincipalName → userName
-    - givenName → name.givenName
-    - surname → name.familyName
+1. Go to Applications → Applications → Add App → Search for **"SCIM Provisioner with SAML (SCIM v2 full SAML)"**
+2. SCIM Base URL: For cloud, use `https://app.posthog.com/scim/v2/{domain_id}`. For local testing, use your ngrok URL, e.g. `https://<ngrok-subdomain>.ngrok.io/scim/v2/{domain_id}`. The `{domain_id}` can be copied directly from the SCIM configuration screen in PostHog.
+3. Bearer Token: Paste the generated Bearer Token from PostHog. It's only shown on first enable or when regenerating.
+4. Enable provisioning in the Configuration and Provisioning tabs (otherwise, OneLogin won't push any updates).
+5. In the "Parameters" tab, map:
+    - `email` → Email (custom parameter)
+    - `first_name` → First Name
+    - `last_name` → Last Name
+    - `groups` (optional, but useful for pushing group memberships)
+6. Make sure you check "Include in User Provisioning" for _all_ attributes above. If you don't, OneLogin won't actually send them in SCIM updates.
+7. In "Rules", you can sync Role membership by: - Mapping OneLogin roles or groups directly to existing groups in PostHog (by matching names), or - Mapping OneLogin roles/groups that will be upserted in PostHog as needed
+   In most cases you'll want the second - it pushes OneLogin roles to PostHog.
+   To configure this, set the condition to: "Match `any` of the following conditions" and select the roles you want to provision by choosing "Roles include <ONELOGIN-ROLE-NAME>".
+   Then set the actions to "Map from OneLogin" and "For each `roles` with a value that matches `.*`"
+8. Add users to the App if they weren't added automatically
+9. Save, and test by adding or updating users/roles
 
 ## Frontend UI
 
@@ -376,11 +352,11 @@ The SCIM configuration interface is available in the PostHog settings:
 
 **Features**:
 
-- Enable/disable SCIM toggle with confirmation dialogs
+- 'Configure SCIM' button is only visible if `AvailableFeature.SCIM` is enabled
+- Enable/disable SCIM toggle
 - Display SCIM base URL (with copy button)
 - Display bearer token (one-time, shown only after enable/regenerate)
-- Regenerate token button with warning confirmation
-- Feature flag gating - button only visible if `AvailableFeature.SCIM` is enabled
+- Regenerate token button with confirmation
 
 **Implementation**:
 
@@ -389,19 +365,16 @@ The SCIM configuration interface is available in the PostHog settings:
 
 ## Remaining Nice-to-Haves:
 
-1. **Activity Logging**:
+1. **Pagination**:
+    - Support `startIndex` and `count` params
+
+2. **Bulk Operations**:
+    - `POST /Bulk` endpoint
+
+3. **Activity Logging**:
     - Log SCIM user create/update/delete events
     - Track which IdP made changes
 
-2. **Rate Limiting**:
+4. **Rate Limiting**:
     - Add per-domain rate limits
     - Protect against aggressive IdP sync
-
-3. **Filtering Support**:
-    - `GET /Users?filter=userName eq "user@example.com"`
-
-4. **Pagination**:
-    - Support `startIndex` and `count` params
-
-5. **Bulk Operations**:
-    - `POST /Bulk` endpoint
