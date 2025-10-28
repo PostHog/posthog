@@ -76,8 +76,14 @@ def get_hogql_metadata(
             hogql_table_names = get_table_names(hogql_ast)
             response.table_names = hogql_table_names
 
-            # Fetch view metadata for the referenced tables
-            response.view_metadata = get_view_metadata(hogql_table_names, team)
+            # Ensure database is created so we can extract view metadata
+            if context.database is None:
+                from posthog.hogql.database.database import Database
+
+                context.database = Database.create_for(context.team_id, modifiers=context.modifiers, team=team)
+
+            # Fetch view metadata for the referenced tables from the virtual database (no DB queries)
+            response.view_metadata = get_view_metadata_from_database(hogql_table_names, context)
 
             if not clickhouse_sql or not clickhouse_prepared_ast:
                 clickhouse_sql, clickhouse_prepared_ast = prepare_and_print_ast(
@@ -170,24 +176,28 @@ class TableCollector(TraversingVisitor):
         self.visit(node.next_join)
 
 
-def get_view_metadata(table_names: list[str], team: Team) -> dict[str, dict[str, any]]:
-    """Fetch metadata about views/materialized views for the given table names."""
-    from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+def get_view_metadata_from_database(table_names: list[str], context: HogQLContext) -> dict[str, dict[str, any]]:
+    """Extract view metadata from the virtual database (no DB queries)."""
+    from posthog.hogql.database.models import SavedQuery
 
-    if not table_names:
+    if not table_names or not context.database:
         return {}
 
-    # Query all saved queries (views) for this team that match the table names
-    saved_queries = DataWarehouseSavedQuery.objects.filter(team=team, name__in=table_names, deleted=False).only(
-        "id", "name", "is_materialized"
-    )
-
     view_metadata = {}
-    for saved_query in saved_queries:
-        view_metadata[saved_query.name] = {
-            "id": str(saved_query.id),
-            "is_view": True,
-            "is_materialized": saved_query.is_materialized or False,
-        }
+
+    # Iterate through the table names and check if they're views in the database
+    for table_name in table_names:
+        if not context.database.has_table(table_name):
+            continue
+
+        table = context.database.get_table(table_name)
+
+        # Check if this table is a SavedQuery (view)
+        if isinstance(table, SavedQuery):
+            view_metadata[table_name] = {
+                "id": table.id,
+                "is_view": True,
+                "is_materialized": table.is_materialized,
+            }
 
     return view_metadata
