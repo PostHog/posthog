@@ -118,7 +118,7 @@ class OverridesSnapshotDictionary(ABC, Generic[TOverridesSnapshotTable]):
         while not self.__is_loaded(client):
             time.sleep(5.0)
 
-        return self.get_checksum()
+        return self.get_checksum(client)
 
     @property
     def update_table(self):
