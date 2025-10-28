@@ -7,6 +7,9 @@ import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { SidePanelTab } from '~/types'
+
 import {
     VALID_NATIVE_MARKETING_SOURCES,
     VALID_NON_NATIVE_MARKETING_SOURCES,
@@ -26,7 +29,22 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
         'self-managed': VALID_SELF_MANAGED_MARKETING_SOURCES,
     }
 
-    const handleIntegrateClick = (integrationId: string): void => {
+    const handleIntegrateClick = (integrationId: string, sourceType: 'native' | 'external' | 'self-managed'): void => {
+        // Open docs in side panel
+        const mountedSidePanelLogic = sidePanelStateLogic.findMounted()
+        if (mountedSidePanelLogic) {
+            const { openSidePanel } = mountedSidePanelLogic.actions
+            let docFragment = ''
+            if (sourceType === 'native') {
+                docFragment = '#native-sources'
+            } else if (sourceType === 'external') {
+                docFragment = '#data-warehouse-sources'
+            } else if (sourceType === 'self-managed') {
+                docFragment = '#self-managed-sources'
+            }
+            openSidePanel(SidePanelTab.Docs, `/docs/web-analytics/marketing-analytics${docFragment}`)
+        }
+
         if (onIntegrationSelect) {
             onIntegrationSelect(integrationId)
         } else {
@@ -49,7 +67,9 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
                         key={integrationId}
                         fullWidth
                         size="small"
-                        onClick={() => handleIntegrateClick(integrationId)}
+                        onClick={() =>
+                            handleIntegrateClick(integrationId, type as 'native' | 'external' | 'self-managed')
+                        }
                         className="justify-start"
                     >
                         <span className="flex items-center gap-2">
