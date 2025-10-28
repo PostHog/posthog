@@ -2,10 +2,10 @@
  * Text view display component for generation events
  * Shows a formatted text representation with copy functionality and expandable truncated sections
  */
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconCopy } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
@@ -153,6 +153,8 @@ export function TextViewDisplay({ event }: { event: LLMTraceEvent }): JSX.Elemen
     const textRepr = formatGenerationTextRepr(event)
     const segments = parseTextSegments(textRepr)
     const [expandedSegments, setExpandedSegments] = useState<Set<number>>(new Set())
+    const [hoverSegment, setHoverSegment] = useState<number | null>(null)
+    const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
     // Get indices of all truncated segments
     const truncatedIndices = segments
@@ -160,6 +162,15 @@ export function TextViewDisplay({ event }: { event: LLMTraceEvent }): JSX.Elemen
         .filter((idx) => idx !== -1)
 
     const allExpanded = truncatedIndices.length > 0 && truncatedIndices.every((idx) => expandedSegments.has(idx))
+
+    // Cleanup timeout on unmount
+    useEffect(() => {
+        return () => {
+            if (hoverTimeoutRef.current) {
+                clearTimeout(hoverTimeoutRef.current)
+            }
+        }
+    }, [])
 
     const handleCopy = (): void => {
         const plainText = getPlainText(segments)
@@ -188,6 +199,40 @@ export function TextViewDisplay({ event }: { event: LLMTraceEvent }): JSX.Elemen
             // Expand all
             setExpandedSegments(new Set(truncatedIndices))
         }
+    }
+
+    const handleMouseEnter = (index: number): void => {
+        // Clear any existing timeout
+        if (hoverTimeoutRef.current) {
+            clearTimeout(hoverTimeoutRef.current)
+        }
+        // Set a 2-second delay before showing the tooltip
+        hoverTimeoutRef.current = setTimeout(() => {
+            setHoverSegment(index)
+        }, 2000)
+    }
+
+    const handleMouseLeave = (index: number): void => {
+        // Clear the timeout if user leaves before 2 seconds
+        if (hoverTimeoutRef.current) {
+            clearTimeout(hoverTimeoutRef.current)
+        }
+        // Only hide if not already showing (so it stays when hovering on tooltip)
+        if (hoverSegment !== index) {
+            setHoverSegment(null)
+        }
+    }
+
+    const handleTooltipMouseEnter = (): void => {
+        // Keep tooltip open when hovering over it
+        if (hoverTimeoutRef.current) {
+            clearTimeout(hoverTimeoutRef.current)
+        }
+    }
+
+    const handleTooltipMouseLeave = (): void => {
+        // Close tooltip when leaving the tooltip area
+        setHoverSegment(null)
     }
 
     return (
@@ -232,12 +277,30 @@ export function TextViewDisplay({ event }: { event: LLMTraceEvent }): JSX.Elemen
                                     </button>
                                 </>
                             ) : (
-                                <button
-                                    onClick={() => toggleSegment(index)}
-                                    className="text-link hover:underline cursor-pointer"
+                                <Tooltip
+                                    title={
+                                        hoverSegment === index ? (
+                                            <div
+                                                className="max-w-2xl max-h-96 overflow-auto whitespace-pre-wrap font-mono text-xs"
+                                                onMouseEnter={handleTooltipMouseEnter}
+                                                onMouseLeave={handleTooltipMouseLeave}
+                                            >
+                                                {segment.fullContent}
+                                            </div>
+                                        ) : null
+                                    }
+                                    placement="top"
+                                    delayMs={0}
                                 >
-                                    {segment.content}
-                                </button>
+                                    <button
+                                        onClick={() => toggleSegment(index)}
+                                        onMouseEnter={() => handleMouseEnter(index)}
+                                        onMouseLeave={() => handleMouseLeave(index)}
+                                        className="text-link hover:underline cursor-pointer"
+                                    >
+                                        {segment.content}
+                                    </button>
+                                </Tooltip>
                             )}
                         </span>
                     )
