@@ -5,12 +5,24 @@ import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { copyTableToCsv, copyTableToExcel, copyTableToJson } from '~/queries/nodes/DataTable/clipboardUtils'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
-import { DataTableNode, NodeKind, QuerySchema, WebStatsTableQueryResponse } from '~/queries/schema/schema-general'
+import {
+    DataTableNode,
+    NodeKind,
+    QuerySchema,
+    TrendsQueryResponse,
+    WebStatsTableQueryResponse,
+} from '~/queries/schema/schema-general'
 import { isWebExternalClicksQuery, isWebGoalsQuery, isWebStatsTableQuery } from '~/queries/utils'
 import { ExporterFormat, InsightLogicProps } from '~/types'
 
 import { insightDataLogic } from '../insights/insightDataLogic'
-import { adapters, exportTableData } from './webAnalyticsExportUtils'
+import {
+    CalendarHeatmapAdapter,
+    TrendsAdapter,
+    WebAnalyticsTableAdapter,
+    WorldMapAdapter,
+    exportTableData,
+} from './webAnalyticsExportUtils'
 
 interface WebAnalyticsExportProps {
     query: QuerySchema
@@ -26,8 +38,14 @@ export function WebAnalyticsExport({ query, insightProps }: WebAnalyticsExportPr
         return null
     }
 
-    // Find the appropriate adapter for this query and response
-    const adapter = adapters.find((a) => a.canHandle(query, insightDataRaw))
+    // Try to find an appropriate adapter for this query and response
+    const adapters = [
+        new CalendarHeatmapAdapter(insightDataRaw as TrendsQueryResponse, query),
+        new WorldMapAdapter(insightDataRaw as TrendsQueryResponse, query),
+        new WebAnalyticsTableAdapter(insightDataRaw as WebStatsTableQueryResponse, query),
+        new TrendsAdapter(insightDataRaw as TrendsQueryResponse, query),
+    ]
+    const adapter = adapters.find((a) => a.canHandle())
 
     if (!adapter) {
         // Check if we need to handle non-web-analytics table queries
@@ -94,7 +112,7 @@ export function WebAnalyticsExport({ query, insightProps }: WebAnalyticsExportPr
     }
 
     const handleCopy = (format: ExporterFormat): void => {
-        const tableData = adapter.toTableData(insightDataRaw, query)
+        const tableData = adapter.toTableData()
         exportTableData(tableData, format)
     }
 

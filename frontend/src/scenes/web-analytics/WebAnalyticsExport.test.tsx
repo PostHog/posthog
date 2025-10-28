@@ -1,29 +1,26 @@
 import {
+    DataTableNode,
     EventsHeatMapDataResult,
+    InsightVizNode,
     NodeKind,
     TrendsQueryResponse,
     WebStatsBreakdown,
-    WebStatsTableQuery,
     WebStatsTableQueryResponse,
-    WebTrendsMetric,
-    WebTrendsQuery,
-    WebTrendsQueryResponse,
 } from '~/queries/schema/schema-general'
 
 import {
-    getCalendarHeatmapTableData,
-    getTrendsTableData,
-    getWebAnalyticsTableData,
-    getWebTrendsTableData,
-    getWorldMapTableData,
+    CalendarHeatmapAdapter,
+    TrendsAdapter,
+    WebAnalyticsTableAdapter,
+    WorldMapAdapter,
 } from './webAnalyticsExportUtils'
 
-describe('WebAnalyticsExport helper functions', () => {
+describe('WebAnalyticsExport adapters', () => {
     beforeEach(() => {
         jest.clearAllMocks()
     })
 
-    describe('getCalendarHeatmapTableData', () => {
+    describe('CalendarHeatmapAdapter', () => {
         it('converts calendar heatmap data to table format', () => {
             const response: TrendsQueryResponse = {
                 results: [
@@ -48,16 +45,270 @@ describe('WebAnalyticsExport helper functions', () => {
                     },
                 ],
             }
-            const rowLabels = ['Sun', 'Mon']
-            const columnLabels = ['0', '1']
+            const query: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                },
+            }
 
-            const result = getCalendarHeatmapTableData(response, rowLabels, columnLabels)
+            const adapter = new CalendarHeatmapAdapter(response, query)
+            const result = adapter.toTableData()
 
             expect(result).toEqual([
-                ['', '0', '1', 'All'],
-                ['Sun', '10', '15', '25'],
-                ['Mon', '20', '25', '45'],
-                ['All', '30', '40', '70'],
+                [
+                    '',
+                    '0',
+                    '1',
+                    '2',
+                    '3',
+                    '4',
+                    '5',
+                    '6',
+                    '7',
+                    '8',
+                    '9',
+                    '10',
+                    '11',
+                    '12',
+                    '13',
+                    '14',
+                    '15',
+                    '16',
+                    '17',
+                    '18',
+                    '19',
+                    '20',
+                    '21',
+                    '22',
+                    '23',
+                    'All',
+                ],
+                [
+                    'Sun',
+                    '10',
+                    '15',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '25',
+                ],
+                [
+                    'Mon',
+                    '20',
+                    '25',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '45',
+                ],
+                [
+                    'Tue',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '',
+                ],
+                [
+                    'Wed',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '',
+                ],
+                [
+                    'Thu',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '',
+                ],
+                [
+                    'Fri',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '',
+                ],
+                [
+                    'Sat',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '',
+                ],
+                [
+                    'All',
+                    '30',
+                    '40',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '0',
+                    '70',
+                ],
             ])
         })
 
@@ -74,17 +325,22 @@ describe('WebAnalyticsExport helper functions', () => {
                     },
                 ],
             }
-            const rowLabels = ['Sun', 'Mon']
-            const columnLabels = ['0', '1']
+            const query: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                },
+            }
 
-            const result = getCalendarHeatmapTableData(response, rowLabels, columnLabels)
+            const adapter = new CalendarHeatmapAdapter(response, query)
+            const result = adapter.toTableData()
 
-            expect(result).toEqual([
-                ['', '0', '1', 'All'],
-                ['Sun', '0', '15', '15'],
-                ['Mon', '0', '0', ''],
-                ['All', '0', '15', '15'],
-            ])
+            expect(result).toHaveLength(9) // 1 header + 7 data rows + 1 aggregation row
+            expect(result[0]).toHaveLength(26) // empty + 24 hours + All
+            expect(result[1][1]).toBe('0') // Sun, hour 0
+            expect(result[1][2]).toBe('15') // Sun, hour 1
+            expect(result[1][25]).toBe('15') // Sun, row total
         })
 
         it('handles empty heatmap data', () => {
@@ -100,27 +356,36 @@ describe('WebAnalyticsExport helper functions', () => {
                     },
                 ],
             }
-            const rowLabels = ['Sun', 'Mon']
-            const columnLabels = ['0', '1']
+            const query: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                },
+            }
 
-            const result = getCalendarHeatmapTableData(response, rowLabels, columnLabels)
+            const adapter = new CalendarHeatmapAdapter(response, query)
+            const result = adapter.toTableData()
 
-            expect(result).toEqual([
-                ['', '0', '1', 'All'],
-                ['Sun', '0', '0', ''],
-                ['Mon', '0', '0', ''],
-                ['All', '0', '0', '0'],
-            ])
+            expect(result).toHaveLength(9) // 1 header + 7 data rows + 1 aggregation row
+            expect(result[0]).toHaveLength(26) // empty + 24 hours + All
+            expect(result[8][25]).toBe('0') // All row, All column
         })
 
         it('returns empty array when heatmap data is missing', () => {
             const response: TrendsQueryResponse = {
                 results: [{}],
             }
-            const rowLabels = ['Sun', 'Mon']
-            const columnLabels = ['0', '1']
+            const query: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                },
+            }
 
-            const result = getCalendarHeatmapTableData(response, rowLabels, columnLabels)
+            const adapter = new CalendarHeatmapAdapter(response, query)
+            const result = adapter.toTableData()
 
             expect(result).toEqual([])
         })
@@ -148,10 +413,16 @@ describe('WebAnalyticsExport helper functions', () => {
                     },
                 ],
             }
-            const rowLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-            const columnLabels = Array.from({ length: 24 }, (_, i) => String(i))
+            const query: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                },
+            }
 
-            const result = getCalendarHeatmapTableData(response, rowLabels, columnLabels)
+            const adapter = new CalendarHeatmapAdapter(response, query)
+            const result = adapter.toTableData()
 
             expect(result.length).toBe(9) // 1 header + 7 data rows + 1 aggregation row
             expect(result[0].length).toBe(26) // empty + 24 hours + All
@@ -162,7 +433,7 @@ describe('WebAnalyticsExport helper functions', () => {
         })
     })
 
-    describe('getWebAnalyticsTableData', () => {
+    describe('WebAnalyticsTableAdapter', () => {
         it('converts web analytics table data without comparison', () => {
             const response: WebStatsTableQueryResponse = {
                 results: [
@@ -171,15 +442,18 @@ describe('WebAnalyticsExport helper functions', () => {
                 ],
                 columns: ['context.columns.pathname', 'context.columns.visitors', 'context.columns.views'],
             }
-            const columns = ['context.columns.pathname', 'context.columns.visitors', 'context.columns.views']
-            const query: WebStatsTableQuery = {
-                kind: NodeKind.WebStatsTableQuery,
-                breakdownBy: WebStatsBreakdown.Page,
-                dateRange: { date_from: '-7d' },
-                properties: [],
+            const query: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.WebStatsTableQuery,
+                    breakdownBy: WebStatsBreakdown.Page,
+                    dateRange: { date_from: '-7d' },
+                    properties: [],
+                },
             }
 
-            const result = getWebAnalyticsTableData(response, columns, query)
+            const adapter = new WebAnalyticsTableAdapter(response, query)
+            const result = adapter.toTableData()
 
             expect(result).toEqual([
                 ['pathname', 'Visitors', 'Views'],
@@ -196,16 +470,19 @@ describe('WebAnalyticsExport helper functions', () => {
                 ],
                 columns: ['context.columns.pathname', 'context.columns.visitors', 'context.columns.views'],
             }
-            const columns = ['context.columns.pathname', 'context.columns.visitors', 'context.columns.views']
-            const query: WebStatsTableQuery = {
-                kind: NodeKind.WebStatsTableQuery,
-                breakdownBy: WebStatsBreakdown.Page,
-                dateRange: { date_from: '-7d' },
-                properties: [],
-                compareFilter: { compare: true },
+            const query: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.WebStatsTableQuery,
+                    breakdownBy: WebStatsBreakdown.Page,
+                    dateRange: { date_from: '-7d' },
+                    properties: [],
+                    compareFilter: { compare: true },
+                },
             }
 
-            const result = getWebAnalyticsTableData(response, columns, query)
+            const adapter = new WebAnalyticsTableAdapter(response, query)
+            const result = adapter.toTableData()
 
             expect(result).toEqual([
                 ['pathname', 'Visitors (current)', 'Visitors (previous)', 'Views (current)', 'Views (previous)'],
@@ -219,14 +496,18 @@ describe('WebAnalyticsExport helper functions', () => {
                 results: [],
                 columns: [],
             }
-            const query: WebStatsTableQuery = {
-                kind: NodeKind.WebStatsTableQuery,
-                breakdownBy: WebStatsBreakdown.Page,
-                dateRange: { date_from: '-7d' },
-                properties: [],
+            const query: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.WebStatsTableQuery,
+                    breakdownBy: WebStatsBreakdown.Page,
+                    dateRange: { date_from: '-7d' },
+                    properties: [],
+                },
             }
 
-            const result = getWebAnalyticsTableData(response, [], query)
+            const adapter = new WebAnalyticsTableAdapter(response, query)
+            const result = adapter.toTableData()
 
             expect(result).toEqual([])
         })
@@ -236,15 +517,18 @@ describe('WebAnalyticsExport helper functions', () => {
                 results: [['/home', null, 50]],
                 columns: ['context.columns.pathname', 'context.columns.visitors', 'context.columns.views'],
             }
-            const columns = ['context.columns.pathname', 'context.columns.visitors', 'context.columns.views']
-            const query: WebStatsTableQuery = {
-                kind: NodeKind.WebStatsTableQuery,
-                breakdownBy: WebStatsBreakdown.Page,
-                dateRange: { date_from: '-7d' },
-                properties: [],
+            const query: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.WebStatsTableQuery,
+                    breakdownBy: WebStatsBreakdown.Page,
+                    dateRange: { date_from: '-7d' },
+                    properties: [],
+                },
             }
 
-            const result = getWebAnalyticsTableData(response, columns, query)
+            const adapter = new WebAnalyticsTableAdapter(response, query)
+            const result = adapter.toTableData()
 
             expect(result).toEqual([
                 ['pathname', 'Visitors', 'Views'],
@@ -253,166 +537,7 @@ describe('WebAnalyticsExport helper functions', () => {
         })
     })
 
-    describe('getWebTrendsTableData', () => {
-        it('converts web trends data without comparison', () => {
-            const response: WebTrendsQueryResponse = {
-                results: [
-                    {
-                        bucket: '2024-01-01',
-                        metrics: {
-                            [WebTrendsMetric.UNIQUE_USERS]: 100,
-                            [WebTrendsMetric.PAGE_VIEWS]: 250,
-                        },
-                    },
-                    {
-                        bucket: '2024-01-02',
-                        metrics: {
-                            [WebTrendsMetric.UNIQUE_USERS]: 120,
-                            [WebTrendsMetric.PAGE_VIEWS]: 300,
-                        },
-                    },
-                ],
-            }
-            const query: WebTrendsQuery = {
-                kind: NodeKind.WebTrendsQuery,
-                dateRange: { date_from: '-7d' },
-                properties: [],
-                compareFilter: { compare: false },
-                interval: 'day',
-                metrics: [WebTrendsMetric.UNIQUE_USERS, WebTrendsMetric.PAGE_VIEWS],
-            }
-
-            const result = getWebTrendsTableData(response, query)
-
-            expect(result).toEqual([
-                ['Date', 'Views', 'Visitors'],
-                ['2024-01-01', '250', '100'],
-                ['2024-01-02', '300', '120'],
-            ])
-        })
-
-        it('converts web trends data with comparison', () => {
-            const response: WebTrendsQueryResponse = {
-                results: [
-                    {
-                        bucket: '2024-01-01',
-                        metrics: {
-                            [WebTrendsMetric.UNIQUE_USERS]: [100, 90] as any,
-                            [WebTrendsMetric.PAGE_VIEWS]: [250, 230] as any,
-                        },
-                    },
-                    {
-                        bucket: '2024-01-02',
-                        metrics: {
-                            [WebTrendsMetric.UNIQUE_USERS]: [120, 110] as any,
-                            [WebTrendsMetric.PAGE_VIEWS]: [300, 280] as any,
-                        },
-                    },
-                ],
-            }
-            const query: WebTrendsQuery = {
-                kind: NodeKind.WebTrendsQuery,
-                dateRange: { date_from: '-7d' },
-                properties: [],
-                compareFilter: { compare: true },
-                interval: 'day',
-                metrics: [WebTrendsMetric.UNIQUE_USERS, WebTrendsMetric.PAGE_VIEWS],
-            }
-
-            const result = getWebTrendsTableData(response, query)
-
-            expect(result).toEqual([
-                ['Date', 'Views (current)', 'Views (previous)', 'Visitors (current)', 'Visitors (previous)'],
-                ['2024-01-01', '250', '230', '100', '90'],
-                ['2024-01-02', '300', '280', '120', '110'],
-            ])
-        })
-
-        it('handles all metric types', () => {
-            const response: WebTrendsQueryResponse = {
-                results: [
-                    {
-                        bucket: '2024-01-01',
-                        metrics: {
-                            [WebTrendsMetric.UNIQUE_USERS]: 100,
-                            [WebTrendsMetric.PAGE_VIEWS]: 250,
-                            [WebTrendsMetric.SESSIONS]: 80,
-                            [WebTrendsMetric.BOUNCES]: 20,
-                            [WebTrendsMetric.SESSION_DURATION]: 180,
-                            [WebTrendsMetric.TOTAL_SESSIONS]: 80,
-                        },
-                    },
-                ],
-            }
-            const query: WebTrendsQuery = {
-                kind: NodeKind.WebTrendsQuery,
-                dateRange: { date_from: '-7d' },
-                properties: [],
-                interval: 'day',
-                metrics: Object.values(WebTrendsMetric),
-            }
-
-            const result = getWebTrendsTableData(response, query)
-
-            expect(result[0]).toEqual([
-                'Date',
-                'Bounces',
-                'Views',
-                'Session duration',
-                'Sessions',
-                'Total sessions',
-                'Visitors',
-            ])
-            expect(result[1]).toEqual(['2024-01-01', '20', '250', '180', '80', '80', '100'])
-        })
-
-        it('returns empty array for empty results', () => {
-            const response: WebTrendsQueryResponse = {
-                results: [],
-            }
-            const query: WebTrendsQuery = {
-                kind: NodeKind.WebTrendsQuery,
-                dateRange: { date_from: '-7d' },
-                properties: [],
-                interval: 'day',
-                metrics: [WebTrendsMetric.UNIQUE_USERS, WebTrendsMetric.PAGE_VIEWS],
-            }
-
-            const result = getWebTrendsTableData(response, query)
-
-            expect(result).toEqual([])
-        })
-
-        it('handles null metric values', () => {
-            const response: WebTrendsQueryResponse = {
-                results: [
-                    {
-                        bucket: '2024-01-01',
-                        metrics: {
-                            [WebTrendsMetric.UNIQUE_USERS]: null as any,
-                            [WebTrendsMetric.PAGE_VIEWS]: 250,
-                        },
-                    },
-                ],
-            }
-            const query: WebTrendsQuery = {
-                kind: NodeKind.WebTrendsQuery,
-                dateRange: { date_from: '-7d' },
-                properties: [],
-                interval: 'day',
-                metrics: [WebTrendsMetric.UNIQUE_USERS, WebTrendsMetric.PAGE_VIEWS],
-            }
-
-            const result = getWebTrendsTableData(response, query)
-
-            expect(result).toEqual([
-                ['Date', 'Views', 'Visitors'],
-                ['2024-01-01', '250', ''],
-            ])
-        })
-    })
-
-    describe('getTrendsTableData', () => {
+    describe('TrendsAdapter', () => {
         it('converts trends data to table format', () => {
             const response: TrendsQueryResponse = {
                 results: [
@@ -428,8 +553,16 @@ describe('WebAnalyticsExport helper functions', () => {
                     },
                 ],
             }
+            const query: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                },
+            }
 
-            const result = getTrendsTableData(response)
+            const adapter = new TrendsAdapter(response, query)
+            const result = adapter.toTableData()
 
             expect(result).toEqual([
                 ['Date', 'Pageview', 'Button Click'],
@@ -450,8 +583,16 @@ describe('WebAnalyticsExport helper functions', () => {
                     },
                 ],
             }
+            const query: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                },
+            }
 
-            const result = getTrendsTableData(response)
+            const adapter = new TrendsAdapter(response, query)
+            const result = adapter.toTableData()
 
             expect(result[0]).toEqual(['Date', 'Page Views'])
         })
@@ -473,8 +614,16 @@ describe('WebAnalyticsExport helper functions', () => {
                     },
                 ],
             }
+            const query: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                },
+            }
 
-            const result = getTrendsTableData(response)
+            const adapter = new TrendsAdapter(response, query)
+            const result = adapter.toTableData()
 
             expect(result[0]).toEqual(['Date', 'Pageview (current)', 'Pageview (previous)'])
         })
@@ -489,8 +638,16 @@ describe('WebAnalyticsExport helper functions', () => {
                     },
                 ],
             }
+            const query: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                },
+            }
 
-            const result = getTrendsTableData(response)
+            const adapter = new TrendsAdapter(response, query)
+            const result = adapter.toTableData()
 
             expect(result[1]).toEqual(['2024-01-01', '10'])
             expect(result[2]).toEqual(['2024-01-02', '15'])
@@ -500,8 +657,16 @@ describe('WebAnalyticsExport helper functions', () => {
             const response: TrendsQueryResponse = {
                 results: [],
             }
+            const query: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                },
+            }
 
-            const result = getTrendsTableData(response)
+            const adapter = new TrendsAdapter(response, query)
+            const result = adapter.toTableData()
 
             expect(result).toEqual([])
         })
@@ -515,8 +680,16 @@ describe('WebAnalyticsExport helper functions', () => {
                     },
                 ],
             }
+            const query: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                },
+            }
 
-            const result = getTrendsTableData(response)
+            const adapter = new TrendsAdapter(response, query)
+            const result = adapter.toTableData()
 
             expect(result).toEqual([])
         })
@@ -531,8 +704,16 @@ describe('WebAnalyticsExport helper functions', () => {
                     },
                 ],
             }
+            const query: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                },
+            }
 
-            const result = getTrendsTableData(response)
+            const adapter = new TrendsAdapter(response, query)
+            const result = adapter.toTableData()
 
             expect(result).toEqual([
                 ['Date', 'Event'],
@@ -571,8 +752,16 @@ describe('WebAnalyticsExport helper functions', () => {
                     } as any,
                 ],
             }
+            const query: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                },
+            }
 
-            const result = getTrendsTableData(response)
+            const adapter = new TrendsAdapter(response, query)
+            const result = adapter.toTableData()
 
             expect(result[0]).toEqual(['Date', 'Organic Search', 'Unknown', 'Organic Video', 'Direct'])
             expect(result[1]).toEqual(['2024-01-01', '335', '133', '1', '0'])
@@ -580,7 +769,7 @@ describe('WebAnalyticsExport helper functions', () => {
         })
     })
 
-    describe('getWorldMapTableData', () => {
+    describe('WorldMapAdapter', () => {
         it('converts world map data to table format', () => {
             const response: TrendsQueryResponse = {
                 results: [
@@ -604,8 +793,16 @@ describe('WebAnalyticsExport helper functions', () => {
                     } as any,
                 ],
             }
+            const query: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                },
+            }
 
-            const result = getWorldMapTableData(response)
+            const adapter = new WorldMapAdapter(response, query)
+            const result = adapter.toTableData()
 
             expect(result).toEqual([
                 ['Country', 'Visitors'],
@@ -619,8 +816,16 @@ describe('WebAnalyticsExport helper functions', () => {
             const response: TrendsQueryResponse = {
                 results: [],
             }
+            const query: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                },
+            }
 
-            const result = getWorldMapTableData(response)
+            const adapter = new WorldMapAdapter(response, query)
+            const result = adapter.toTableData()
 
             expect(result).toEqual([])
         })
@@ -636,8 +841,16 @@ describe('WebAnalyticsExport helper functions', () => {
                     } as any,
                 ],
             }
+            const query: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                },
+            }
 
-            const result = getWorldMapTableData(response)
+            const adapter = new WorldMapAdapter(response, query)
+            const result = adapter.toTableData()
 
             expect(result).toEqual([
                 ['Country', 'Visitors'],
@@ -655,8 +868,16 @@ describe('WebAnalyticsExport helper functions', () => {
                     } as any,
                 ],
             }
+            const query: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                },
+            }
 
-            const result = getWorldMapTableData(response)
+            const adapter = new WorldMapAdapter(response, query)
+            const result = adapter.toTableData()
 
             expect(result).toEqual([
                 ['Country', 'Visitors'],
