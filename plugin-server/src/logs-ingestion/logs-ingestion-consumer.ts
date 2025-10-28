@@ -95,6 +95,9 @@ export class LogsIngestionConsumer {
         await Promise.all(
             messages.map(async (message) => {
                 try {
+                    logger.info('🔁', 'Parsing Kafka message', {
+                        headers: message.headers,
+                    })
                     const headers = parseKafkaHeaders(message.headers)
                     const token = headers.token
 
