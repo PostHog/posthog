@@ -5,7 +5,7 @@
 import { useState } from 'react'
 
 import { IconCopy } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
@@ -79,6 +79,75 @@ function getPlainText(segments: TextSegment[]): string {
     return segments.map((seg) => (seg.type === 'truncated' ? seg.content : seg.content)).join('')
 }
 
+interface TextPart {
+    type: 'text' | 'url'
+    content: string
+}
+
+/**
+ * Parse text to find URLs and split into text/URL parts
+ */
+function parseUrls(text: string): TextPart[] {
+    const parts: TextPart[] = []
+    // Match URLs (http, https, ftp protocols)
+    const urlRegex = /(https?:\/\/[^\s]+)/g
+    let lastIndex = 0
+    let match: RegExpExecArray | null
+
+    while ((match = urlRegex.exec(text)) !== null) {
+        // Add text before the URL
+        if (match.index > lastIndex) {
+            parts.push({
+                type: 'text',
+                content: text.slice(lastIndex, match.index),
+            })
+        }
+
+        // Add URL
+        parts.push({
+            type: 'url',
+            content: match[0],
+        })
+
+        lastIndex = match.index + match[0].length
+    }
+
+    // Add remaining text
+    if (lastIndex < text.length) {
+        parts.push({
+            type: 'text',
+            content: text.slice(lastIndex),
+        })
+    }
+
+    // If no URLs found, return the whole text as one part
+    if (parts.length === 0) {
+        parts.push({
+            type: 'text',
+            content: text,
+        })
+    }
+
+    return parts
+}
+
+/**
+ * Render text with clickable URLs
+ */
+function renderTextWithLinks(text: string): JSX.Element[] {
+    const parts = parseUrls(text)
+    return parts.map((part, i) => {
+        if (part.type === 'url') {
+            return (
+                <Link key={i} to={part.content} target="_blank" targetBlankIcon>
+                    {part.content}
+                </Link>
+            )
+        }
+        return <span key={i}>{part.content}</span>
+    })
+}
+
 export function TextViewDisplay({ event }: { event: LLMTraceEvent }): JSX.Element {
     const [copied, setCopied] = useState(false)
     const textRepr = formatGenerationTextRepr(event)
@@ -147,14 +216,14 @@ export function TextViewDisplay({ event }: { event: LLMTraceEvent }): JSX.Elemen
             <pre className="font-mono text-xs whitespace-pre-wrap p-4 bg-bg-light rounded border border-border overflow-auto max-h-[70vh]">
                 {segments.map((segment, index) => {
                     if (segment.type === 'text') {
-                        return <span key={index}>{segment.content}</span>
+                        return <span key={index}>{renderTextWithLinks(segment.content)}</span>
                     }
                     const isExpanded = expandedSegments.has(index)
                     return (
                         <span key={index}>
                             {isExpanded ? (
                                 <>
-                                    {segment.fullContent}
+                                    {renderTextWithLinks(segment.fullContent || '')}
                                     <button
                                         onClick={() => toggleSegment(index)}
                                         className="text-link hover:underline cursor-pointer ml-1"

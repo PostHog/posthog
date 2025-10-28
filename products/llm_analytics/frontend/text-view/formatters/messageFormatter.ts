@@ -46,6 +46,37 @@ function truncateContent(content: string, maxLength = 1000): { lines: string[]; 
 }
 
 /**
+ * Format a single tool call as a function signature
+ */
+function formatSingleToolCall(name: string, args: any): string {
+    // Parse args into object if needed
+    let parsedArgs: Record<string, any> | null = null
+    if (typeof args === 'object' && args !== null) {
+        parsedArgs = args
+    } else if (typeof args === 'string' && args) {
+        try {
+            parsedArgs = JSON.parse(args)
+        } catch {
+            // If parsing fails, will show raw string
+        }
+    }
+
+    // Format as function call
+    if (parsedArgs && typeof parsedArgs === 'object') {
+        const argEntries = Object.entries(parsedArgs)
+        if (argEntries.length > 0) {
+            const argStrings = argEntries.map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+            return `${name}(${argStrings.join(', ')})`
+        }
+        return `${name}()`
+    } else if (args) {
+        // Fallback for unparseable args
+        return `${name}(${args})`
+    }
+    return `${name}()`
+}
+
+/**
  * Format tool calls for display
  */
 function formatToolCalls(toolCalls: ToolCall[]): string[] {
@@ -66,40 +97,7 @@ function formatToolCalls(toolCalls: ToolCall[]): string[] {
             args = tc.args || ''
         }
 
-        // Parse args into object if needed
-        let parsedArgs: Record<string, any> | null = null
-        if (typeof args === 'object') {
-            parsedArgs = args
-        } else if (typeof args === 'string' && args) {
-            try {
-                parsedArgs = JSON.parse(args)
-            } catch {
-                // If parsing fails, will show raw string
-            }
-        }
-
-        // Format as function call
-        if (parsedArgs && typeof parsedArgs === 'object') {
-            const argEntries = Object.entries(parsedArgs)
-            if (argEntries.length > 1) {
-                // Multiline for multiple args
-                lines.push(`  - ${name}(`)
-                for (const [k, v] of argEntries) {
-                    lines.push(`      ${k}=${JSON.stringify(v)},`)
-                }
-                lines.push('    )')
-            } else if (argEntries.length === 1) {
-                // Single line for one arg
-                const [k, v] = argEntries[0]
-                lines.push(`  - ${name}(${k}=${JSON.stringify(v)})`)
-            } else {
-                // No args
-                lines.push(`  - ${name}()`)
-            }
-        } else {
-            // Fallback for unparseable args
-            lines.push(`  - ${name}(${args || ''})`)
-        }
+        lines.push(`  - ${formatSingleToolCall(name, args)}`)
     }
 
     return lines
@@ -113,13 +111,53 @@ function extractTextContent(content: any): string {
         return content
     }
 
+    // Handle object with text property (e.g., { text: "...", type: "text" })
+    if (isObject(content) && 'text' in content && typeof content.text === 'string') {
+        return content.text
+    }
+
+    // Handle object with content property (nested content)
+    if (isObject(content) && 'content' in content) {
+        return extractTextContent(content.content)
+    }
+
     if (Array.isArray(content)) {
         const textParts: string[] = []
         for (const block of content) {
             if (isObject(block)) {
-                if ('text' in block) {
+                // Handle nested content property
+                if ('content' in block) {
+                    const blockContent = block.content
+
+                    // Handle text content
+                    if (typeof blockContent === 'string') {
+                        textParts.push(blockContent)
+                    }
+                    // Handle tool-call content
+                    else if (isObject(blockContent) && 'toolName' in blockContent) {
+                        const toolName = blockContent.toolName || 'unknown'
+                        const args = blockContent.args || {}
+                        textParts.push(formatSingleToolCall(toolName, args))
+                    }
+                    // Handle tool-result content
+                    else if (isObject(blockContent) && 'result' in blockContent) {
+                        const toolName = blockContent.toolName || 'unknown'
+                        textParts.push(`[Tool result: ${toolName}]`)
+                    }
+                    // Recursively extract from nested content
+                    else {
+                        const extracted = extractTextContent(blockContent)
+                        if (extracted) {
+                            textParts.push(extracted)
+                        }
+                    }
+                }
+                // Handle direct text property
+                else if ('text' in block) {
                     textParts.push(block.text)
-                } else if ('type' in block && block.type === 'tool_use') {
+                }
+                // Handle tool_use type (Anthropic format)
+                else if ('type' in block && block.type === 'tool_use') {
                     textParts.push(`[Tool use: ${block.name || 'unknown'}]`)
                 }
             } else {
@@ -127,6 +165,11 @@ function extractTextContent(content: any): string {
             }
         }
         return textParts.join('\n')
+    }
+
+    // Fallback for other object types - don't stringify
+    if (isObject(content)) {
+        return ''
     }
 
     return String(content)
