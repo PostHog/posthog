@@ -1528,6 +1528,7 @@ dependencies = [
  "lz-str",
  "metrics",
  "metrics-exporter-prometheus",
+ "multer",
  "once_cell",
  "opentelemetry 0.22.0",
  "opentelemetry-otlp",
@@ -2839,6 +2840,7 @@ dependencies = [
  "json5",
  "limiters",
  "md5",
+ "metrics",
  "moka",
  "once_cell",
  "opentelemetry 0.22.0",
@@ -4291,6 +4293,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serve-metrics",
+ "sha2",
  "strum 0.27.2",
  "strum_macros 0.27.2",
  "tempfile",
@@ -4551,6 +4554,7 @@ dependencies = [
  "apache-avro",
  "axum 0.7.5",
  "base64 0.22.1",
+ "bytes",
  "capture",
  "chrono",
  "clickhouse",
@@ -4561,6 +4565,7 @@ dependencies = [
  "jsonwebtoken",
  "metrics",
  "opentelemetry-proto 0.29.0",
+ "prost 0.13.5",
  "rdkafka",
  "serde",
  "serde_derive",
@@ -4569,8 +4574,6 @@ dependencies = [
  "thiserror 2.0.16",
  "tokio",
  "tonic 0.12.3",
- "tonic-web",
- "tower 0.4.13",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -4847,6 +4850,23 @@ dependencies = [
  "tagptr",
  "thiserror 1.0.69",
  "uuid",
+]
+
+[[package]]
+name = "multer"
+version = "3.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "83e87776546dc87511aa5ee218730c92b666d7264ab6ed41f9d215af9cd5224b"
+dependencies = [
+ "bytes",
+ "encoding_rs",
+ "futures-util",
+ "http 1.1.0",
+ "httparse",
+ "memchr",
+ "mime",
+ "spin 0.9.8",
+ "version_check",
 ]
 
 [[package]]
@@ -6405,6 +6425,7 @@ dependencies = [
  "js-sys",
  "log",
  "mime",
+ "mime_guess",
  "native-tls",
  "once_cell",
  "percent-encoding",
@@ -7077,9 +7098,9 @@ checksum = "ae1a47186c03a32177042e55dbc5fd5aee900b8e0069a8d70fba96a9375cd012"
 
 [[package]]
 name = "sha2"
-version = "0.10.8"
+version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "793db75ad2bcafc3ffa7c68b215fee268f537982cd901d132f89c6343f3a3dc8"
+checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
 dependencies = [
  "cfg-if",
  "cpufeatures",
@@ -8409,26 +8430,6 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tower 0.4.13",
- "tower-layer",
- "tower-service",
- "tracing",
-]
-
-[[package]]
-name = "tonic-web"
-version = "0.12.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5299dd20801ad736dccb4a5ea0da7376e59cd98f213bf1c3d478cf53f4834b58"
-dependencies = [
- "base64 0.22.1",
- "bytes",
- "http 1.1.0",
- "http-body 1.0.0",
- "http-body-util",
- "pin-project",
- "tokio-stream",
- "tonic 0.12.3",
- "tower-http",
  "tower-layer",
  "tower-service",
  "tracing",

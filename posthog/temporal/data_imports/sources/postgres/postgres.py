@@ -16,11 +16,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
-from posthog.temporal.data_imports.pipelines.pipeline.consts import (
-    DEFAULT_CHUNK_SIZE,
-    DEFAULT_TABLE_SIZE_BYTES,
-    INCREASED_DEFAULT_CHUNK_SIZE,
-)
+from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_PRECISION,
@@ -341,17 +337,12 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
             return DEFAULT_CHUNK_SIZE
 
         row_size_bytes = row[0] or 1
-
         chunk_size = int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes)
-
-        # If we get a result back from postgres, then increase the max chunk cap to the increased value
-        min_chunk_size = min(chunk_size, INCREASED_DEFAULT_CHUNK_SIZE)
-
         logger.debug(
-            f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={min_chunk_size}"
+            f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={chunk_size}"
         )
 
-        return min_chunk_size
+        return chunk_size
     except psycopg.errors.QueryCanceled:
         raise
     except Exception as e:
@@ -853,7 +844,7 @@ def postgres_source(
                             offset += len(rows)
             except psycopg.errors.SerializationFailure as e:
                 # If we hit a SerializationFailure and we're reading from a read replica, we fallback to offset chunking
-                if using_read_replica and "terminating connection due to conflict with recovery" in "".join(e.args):
+                if using_read_replica and "conflict with recovery" in "".join(e.args):
                     logger.debug(f"Falling back to offset chunking for table due to SerializationFailure error: {e}.")
                     yield from offset_chunking(offset, chunk_size)
                     return

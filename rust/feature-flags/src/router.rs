@@ -19,7 +19,11 @@ use tower_http::{
 };
 
 use crate::{
-    api::{endpoint, flag_definitions, rate_limiter::FlagDefinitionsRateLimiter},
+    api::{
+        endpoint, flag_definitions,
+        flag_definitions_rate_limiter::FlagDefinitionsRateLimiter,
+        flags_rate_limiter::{FlagsRateLimiter, IpRateLimiter},
+    },
     cohorts::cohort_cache_manager::CohortCacheManager,
     config::{Config, TeamIdCollection},
     metrics::{
@@ -41,6 +45,8 @@ pub struct State {
     pub cookieless_manager: Arc<CookielessManager>,
     pub flag_definitions_limiter: FlagDefinitionsRateLimiter,
     pub config: Config,
+    pub flags_rate_limiter: FlagsRateLimiter,
+    pub ip_rate_limiter: IpRateLimiter,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -69,6 +75,34 @@ where
     )
     .expect("Failed to initialize flag definitions rate limiter");
 
+    // Initialize token-based rate limiter with configuration
+    let flags_rate_limiter = FlagsRateLimiter::new(
+        *config.flags_rate_limit_enabled,
+        *config.flags_rate_limit_log_only,
+        config.flags_bucket_replenish_rate,
+        config.flags_bucket_capacity,
+    )
+    .unwrap_or_else(|e| {
+        panic!(
+            "Invalid token-based rate limit configuration: {e}. \
+             Check FLAGS_BUCKET_REPLENISH_RATE (must be > 0) and FLAGS_BUCKET_CAPACITY (must be > 0)"
+        )
+    });
+
+    // Initialize IP-based rate limiter with configuration
+    let ip_rate_limiter = IpRateLimiter::new(
+        *config.flags_ip_rate_limit_enabled,
+        *config.flags_ip_rate_limit_log_only,
+        config.flags_ip_replenish_rate,
+        config.flags_ip_burst_size,
+    )
+    .unwrap_or_else(|e| {
+        panic!(
+            "Invalid IP-based rate limit configuration: {e}. \
+             Check FLAGS_IP_REPLENISH_RATE (must be > 0) and FLAGS_IP_BURST_SIZE (must be > 0)"
+        )
+    });
+
     let state = State {
         redis_reader,
         redis_writer,
@@ -81,6 +115,8 @@ where
         cookieless_manager,
         flag_definitions_limiter,
         config: config.clone(),
+        flags_rate_limiter,
+        ip_rate_limiter,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -98,6 +134,7 @@ where
         .route("/_liveness", get(move || ready(liveness.get_status())));
 
     // flags endpoint
+    // IP rate limiting is now handled in the endpoint handler for better control and log-only mode support
     let flags_router = Router::new()
         .route("/flags", any(endpoint::flags))
         .route("/flags/", any(endpoint::flags))
