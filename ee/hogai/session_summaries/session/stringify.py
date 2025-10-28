@@ -13,7 +13,7 @@ SESSION_STRING_FORMAT = """
 
 SEGMENT_STRING_FORMAT = """
 ## Segment #{{ segment_index }}
-{{ segment_name }}. User spent {{ relative_timestamp }}, performing {{ segment_events_count }} events.
+{{ segment_name }}. User spent {{ duration }}s, performing {{ segment_events_count }} events.
 
 ### What the user did {{ events_str }}
 
@@ -32,6 +32,8 @@ class SessionSummaryEventStringifier:
         issues_noticed = []
         for issue in ["abandonment", "confusion", "exception"]:
             if event[issue]:
+                if issue == "exception":
+                    issue = f'{event["exception"]} exception'
                 issues_noticed.append(issue)
         context = {
             "issues_noticed": ", ".join(issues_noticed),
@@ -109,7 +111,7 @@ class SingleSessionSummaryStringifier(SessionSummaryEventStringifier):
         context = {
             "segment_index": segment["index"],
             "segment_name": segment["name"],
-            "relative_timestamp": self._ms_to_hh_mm_ss(segment["meta"]["duration"]),
+            "duration": segment["meta"]["duration"],
             "segment_events_count": segment["meta"]["events_count"],
             "events_str": events_str,
             "success": success,

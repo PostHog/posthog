@@ -15,7 +15,7 @@ PATTERNS_STRING_FORMAT = """
 """
 
 PATTERN_STRING_FORMAT = """
-## Pattern - {{ pattern_name }} ({{ severity }})
+## Pattern: {{ pattern_name }} ({{ severity }})
 {{ pattern_description }}
 
 ### Potential indicators
