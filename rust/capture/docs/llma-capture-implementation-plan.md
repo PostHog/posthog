@@ -17,7 +17,7 @@ This document outlines the implementation steps for the LLM Analytics capture pi
 
 - [x] Implement Rust integration tests for multipart parsing and validation
 - [x] Create Python acceptance test scenarios with multipart requests and blob data
-- [ ] Test Kafka message output and S3 storage integration
+- [x] Test Kafka message output and S3 storage integration
 - [ ] Set up automated test suite for continuous validation
 
 ### Phase 1: HTTP Endpoint
@@ -28,7 +28,7 @@ This document outlines the implementation steps for the LLM Analytics capture pi
 - [x] Add server-side boundary validation
 - [x] Support separate `event.properties` multipart part
 - [x] Implement gzip decompression for compressed requests
-- [ ] Output events with blob placeholders to Kafka
+- [x] Output events with blob placeholders to Kafka
 - [x] Implement error schema
 
 #### 1.2 Basic Validation
