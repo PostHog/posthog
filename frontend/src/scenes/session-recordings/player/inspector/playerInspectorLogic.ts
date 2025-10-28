@@ -352,11 +352,16 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                 )
                             const { timeInRecording } = timeRelativeToStart(earliestMatchingEvent, values.start)
                             const seekTime = ceilMsToClosestSecond(timeInRecording) - 1000
-                            actions.setSkippingToMatchingEvent(true)
+
+                            // Only show the "skipping to matching event" overlay if we're actually skipping (> 1 second from start)
+                            if (seekTime > 1000) {
+                                actions.setSkippingToMatchingEvent(true)
+                                setTimeout(() => {
+                                    actions.setSkippingToMatchingEvent(false)
+                                }, 1500)
+                            }
+
                             actions.seekToTime(seekTime)
-                            setTimeout(() => {
-                                actions.setSkippingToMatchingEvent(false)
-                            }, 1500)
                         }
                     }
 
