@@ -65,7 +65,15 @@ class SCIMUsersView(APIView):
                 queryset = PostHogUserFilterQuery.search(filter_param, request, organization_domain.organization)
                 users = [PostHogSCIMUser(u, organization_domain) for u in queryset]
             except Exception as e:
-                capture_exception(e, additional_properties={"scim_operation": "filter_users", "filter": filter_param})
+                capture_exception(
+                    e,
+                    additional_properties={
+                        "scim_operation": "filter_users",
+                        "filter": filter_param,
+                        "domain_id": domain_id,
+                        "organization_id": organization_domain.organization.id,
+                    },
+                )
                 users = []
         else:
             users = PostHogSCIMUser.get_for_organization(organization_domain)
@@ -86,7 +94,15 @@ class SCIMUsersView(APIView):
             scim_user = PostHogSCIMUser.from_dict(request.data, organization_domain)
             return Response(scim_user.to_dict(), status=status.HTTP_201_CREATED)
         except ValueError as e:
-            capture_exception(e, additional_properties={"scim_operation": "create_user"})
+            capture_exception(
+                e,
+                additional_properties={
+                    "scim_operation": "create_user",
+                    "domain_id": domain_id,
+                    "organization_id": organization_domain.organization.id,
+                    "request_data": request.data,
+                },
+            )
             return Response({"detail": "Invalid user data"}, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -115,7 +131,16 @@ class SCIMUserDetailView(APIView):
             scim_user.put(request.data)
             return Response(scim_user.to_dict())
         except ValueError as e:
-            capture_exception(e, additional_properties={"scim_operation": "replace_user", "user_id": user_id})
+            capture_exception(
+                e,
+                additional_properties={
+                    "scim_operation": "replace_user",
+                    "user_id": user_id,
+                    "domain_id": domain_id,
+                    "organization_id": request.auth.organization.id,
+                    "request_data": request.data,
+                },
+            )
             return Response({"detail": "Invalid user data"}, status=status.HTTP_400_BAD_REQUEST)
 
     def patch(self, request: Request, domain_id: str, user_id: int) -> Response:
@@ -125,7 +150,16 @@ class SCIMUserDetailView(APIView):
             scim_user.handle_operations(operations)
             return Response(scim_user.to_dict())
         except Exception as e:
-            capture_exception(e, additional_properties={"scim_operation": "update_user", "user_id": user_id})
+            capture_exception(
+                e,
+                additional_properties={
+                    "scim_operation": "update_user",
+                    "user_id": user_id,
+                    "domain_id": domain_id,
+                    "organization_id": request.auth.organization.id,
+                    "request_data": request.data,
+                },
+            )
             return Response({"detail": "Failed to update user"}, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request: Request, domain_id: str, user_id: int) -> Response:
@@ -146,7 +180,15 @@ class SCIMGroupsView(APIView):
                 queryset = PostHogGroupFilterQuery.search(filter_param, request, organization_domain.organization)
                 groups = [PostHogSCIMGroup(role, organization_domain) for role in queryset]
             except Exception as e:
-                capture_exception(e, additional_properties={"scim_operation": "filter_groups", "filter": filter_param})
+                capture_exception(
+                    e,
+                    additional_properties={
+                        "scim_operation": "filter_groups",
+                        "filter": filter_param,
+                        "domain_id": domain_id,
+                        "organization_id": organization_domain.organization.id,
+                    },
+                )
                 groups = []
         else:
             groups = PostHogSCIMGroup.get_for_organization(organization_domain)
@@ -167,7 +209,15 @@ class SCIMGroupsView(APIView):
             scim_group = PostHogSCIMGroup.from_dict(request.data, organization_domain)
             return Response(scim_group.to_dict(), status=status.HTTP_201_CREATED)
         except ValueError as e:
-            capture_exception(e, additional_properties={"scim_operation": "create_group"})
+            capture_exception(
+                e,
+                additional_properties={
+                    "scim_operation": "create_group",
+                    "domain_id": domain_id,
+                    "organization_id": organization_domain.organization.id,
+                    "request_data": request.data,
+                },
+            )
             return Response({"detail": "Invalid group data"}, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -196,7 +246,16 @@ class SCIMGroupDetailView(APIView):
             scim_group.put(request.data)
             return Response(scim_group.to_dict())
         except ValueError as e:
-            capture_exception(e, additional_properties={"scim_operation": "replace_group", "group_id": group_id})
+            capture_exception(
+                e,
+                additional_properties={
+                    "scim_operation": "replace_group",
+                    "group_id": group_id,
+                    "domain_id": domain_id,
+                    "organization_id": request.auth.organization.id,
+                    "request_data": request.data,
+                },
+            )
             return Response({"detail": "Invalid group data"}, status=status.HTTP_400_BAD_REQUEST)
 
     def patch(self, request: Request, domain_id: str, group_id: str) -> Response:
@@ -206,7 +265,16 @@ class SCIMGroupDetailView(APIView):
             scim_group.handle_operations(operations)
             return Response(scim_group.to_dict())
         except Exception as e:
-            capture_exception(e, additional_properties={"scim_operation": "update_group", "group_id": group_id})
+            capture_exception(
+                e,
+                additional_properties={
+                    "scim_operation": "update_group",
+                    "group_id": group_id,
+                    "domain_id": domain_id,
+                    "organization_id": request.auth.organization.id,
+                    "request_data": request.data,
+                },
+            )
             return Response({"detail": "Failed to update group"}, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request: Request, domain_id: str, group_id: str) -> Response:
