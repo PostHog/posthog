@@ -1,0 +1,177 @@
+product: data_warehouse
+status: completed
+phases:
+    - id: 1
+      name: prepare_structure
+      status: completed
+      timestamp: '2025-10-28T11:10:51.414330'
+      operations:
+          - mkdir -p products/data_warehouse/backend/models
+          - mkdir -p products/data_warehouse/backend/migrations
+          - touch products/data_warehouse/backend/models/__init__.py
+          - touch products/data_warehouse/backend/migrations/__init__.py
+    - id: 2
+      name: move_files
+      status: completed
+      timestamp: '2025-10-28T11:10:52.641756'
+      files_modified:
+          - products/data_warehouse/backend/__init__.py
+          - products/data_warehouse/backend/api/__init__.py
+          - products/data_warehouse/backend/api/data_modeling_job.py
+          - products/data_warehouse/backend/api/data_warehouse.py
+          - products/data_warehouse/backend/api/external_data_schema.py
+          - products/data_warehouse/backend/api/external_data_source.py
+          - products/data_warehouse/backend/api/lineage.py
+          - products/data_warehouse/backend/api/managed_viewset.py
+          - products/data_warehouse/backend/api/modeling.py
+          - products/data_warehouse/backend/api/query_tab_state.py
+          - products/data_warehouse/backend/api/saved_query.py
+          - products/data_warehouse/backend/api/saved_query_draft.py
+          - products/data_warehouse/backend/api/table.py
+          - products/data_warehouse/backend/api/test/__init__.py
+          - products/data_warehouse/backend/api/test/conftest.py
+          - products/data_warehouse/backend/api/test/test_data_warehouse.py
+          - products/data_warehouse/backend/api/test/test_datamodelingjob.py
+          - products/data_warehouse/backend/api/test/test_external_data_schema.py
+          - products/data_warehouse/backend/api/test/test_external_data_source.py
+          - products/data_warehouse/backend/api/test/test_lineage.py
+          - products/data_warehouse/backend/api/test/test_managed_viewset.py
+          - products/data_warehouse/backend/api/test/test_modeling.py
+          - products/data_warehouse/backend/api/test/test_query_tab_state.py
+          - products/data_warehouse/backend/api/test/test_saved_query.py
+          - products/data_warehouse/backend/api/test/test_saved_query_draft.py
+          - products/data_warehouse/backend/api/test/test_table.py
+          - products/data_warehouse/backend/api/test/test_view.py
+          - products/data_warehouse/backend/api/test/test_view_link.py
+          - products/data_warehouse/backend/api/test/utils.py
+          - products/data_warehouse/backend/api/view_link.py
+          - products/data_warehouse/backend/data_load/__init__.py
+          - products/data_warehouse/backend/data_load/create_table.py
+          - products/data_warehouse/backend/data_load/saved_query_service.py
+          - products/data_warehouse/backend/data_load/service.py
+          - products/data_warehouse/backend/data_load/source_templates.py
+          - products/data_warehouse/backend/data_load/test/test_service.py
+          - products/data_warehouse/backend/external_data_source/jobs.py
+          - products/data_warehouse/backend/hogql.py
+          - products/data_warehouse/backend/models/__init__.py
+          - products/data_warehouse/backend/models/credential.py
+          - products/data_warehouse/backend/models/data_modeling_job.py
+          - products/data_warehouse/backend/models/datawarehouse_managed_viewset.py
+          - products/data_warehouse/backend/models/datawarehouse_saved_query.py
+          - products/data_warehouse/backend/models/datawarehouse_saved_query_draft.py
+          - products/data_warehouse/backend/models/external_data_job.py
+          - products/data_warehouse/backend/models/external_data_schema.py
+          - products/data_warehouse/backend/models/external_data_source.py
+          - products/data_warehouse/backend/models/external_table_definitions.py
+          - products/data_warehouse/backend/models/join.py
+          - products/data_warehouse/backend/models/modeling.py
+          - products/data_warehouse/backend/models/query_tab_state.py
+          - products/data_warehouse/backend/models/revenue_analytics_config.py
+          - products/data_warehouse/backend/models/ssh_tunnel.py
+          - products/data_warehouse/backend/models/table.py
+          - products/data_warehouse/backend/models/test/__init__.py
+          - products/data_warehouse/backend/models/test/test_managed_viewset.py
+          - products/data_warehouse/backend/models/test/test_modeling.py
+          - products/data_warehouse/backend/models/test/test_ssh_tunnel.py
+          - products/data_warehouse/backend/models/test/test_table.py
+          - products/data_warehouse/backend/models/util.py
+          - products/data_warehouse/backend/s3.py
+          - products/data_warehouse/backend/test/utils.py
+          - products/data_warehouse/backend/types.py
+      operations:
+          - rm products/data_warehouse/backend/__init__.py
+          - git mv posthog/warehouse/__init__.py products/data_warehouse/backend/__init__.py
+          - rm products/data_warehouse/backend/api/__init__.py
+          - git mv posthog/warehouse/api/__init__.py products/data_warehouse/backend/api/__init__.py
+          - git mv posthog/warehouse/api/data_modeling_job.py products/data_warehouse/backend/api/data_modeling_job.py
+          - git mv posthog/warehouse/api/data_warehouse.py products/data_warehouse/backend/api/data_warehouse.py
+          - git mv posthog/warehouse/api/external_data_schema.py products/data_warehouse/backend/api/external_data_schema.py
+          - git mv posthog/warehouse/api/external_data_source.py products/data_warehouse/backend/api/external_data_source.py
+          - git mv posthog/warehouse/api/lineage.py products/data_warehouse/backend/api/lineage.py
+          - git mv posthog/warehouse/api/managed_viewset.py products/data_warehouse/backend/api/managed_viewset.py
+          - git mv posthog/warehouse/api/modeling.py products/data_warehouse/backend/api/modeling.py
+          - git mv posthog/warehouse/api/query_tab_state.py products/data_warehouse/backend/api/query_tab_state.py
+          - git mv posthog/warehouse/api/saved_query.py products/data_warehouse/backend/api/saved_query.py
+          - git mv posthog/warehouse/api/saved_query_draft.py products/data_warehouse/backend/api/saved_query_draft.py
+          - git mv posthog/warehouse/api/table.py products/data_warehouse/backend/api/table.py
+          - git mv posthog/warehouse/api/test/__init__.py products/data_warehouse/backend/api/test/__init__.py
+          - git mv posthog/warehouse/api/test/conftest.py products/data_warehouse/backend/api/test/conftest.py
+          - git mv posthog/warehouse/api/test/test_data_warehouse.py products/data_warehouse/backend/api/test/test_data_warehouse.py
+          - git mv posthog/warehouse/api/test/test_datamodelingjob.py products/data_warehouse/backend/api/test/test_datamodelingjob.py
+          - git mv posthog/warehouse/api/test/test_external_data_schema.py products/data_warehouse/backend/api/test/test_external_data_schema.py
+          - git mv posthog/warehouse/api/test/test_external_data_source.py products/data_warehouse/backend/api/test/test_external_data_source.py
+          - git mv posthog/warehouse/api/test/test_lineage.py products/data_warehouse/backend/api/test/test_lineage.py
+          - git mv posthog/warehouse/api/test/test_managed_viewset.py products/data_warehouse/backend/api/test/test_managed_viewset.py
+          - git mv posthog/warehouse/api/test/test_modeling.py products/data_warehouse/backend/api/test/test_modeling.py
+          - git mv posthog/warehouse/api/test/test_query_tab_state.py products/data_warehouse/backend/api/test/test_query_tab_state.py
+          - git mv posthog/warehouse/api/test/test_saved_query.py products/data_warehouse/backend/api/test/test_saved_query.py
+          - git mv posthog/warehouse/api/test/test_saved_query_draft.py products/data_warehouse/backend/api/test/test_saved_query_draft.py
+          - git mv posthog/warehouse/api/test/test_table.py products/data_warehouse/backend/api/test/test_table.py
+          - git mv posthog/warehouse/api/test/test_view.py products/data_warehouse/backend/api/test/test_view.py
+          - git mv posthog/warehouse/api/test/test_view_link.py products/data_warehouse/backend/api/test/test_view_link.py
+          - git mv posthog/warehouse/api/test/utils.py products/data_warehouse/backend/api/test/utils.py
+          - git mv posthog/warehouse/api/view_link.py products/data_warehouse/backend/api/view_link.py
+          - git mv posthog/warehouse/data_load/__init__.py products/data_warehouse/backend/data_load/__init__.py
+          - git mv posthog/warehouse/data_load/create_table.py products/data_warehouse/backend/data_load/create_table.py
+          - git mv posthog/warehouse/data_load/saved_query_service.py products/data_warehouse/backend/data_load/saved_query_service.py
+          - git mv posthog/warehouse/data_load/service.py products/data_warehouse/backend/data_load/service.py
+          - git mv posthog/warehouse/data_load/source_templates.py products/data_warehouse/backend/data_load/source_templates.py
+          - git mv posthog/warehouse/data_load/test/test_service.py products/data_warehouse/backend/data_load/test/test_service.py
+          - git mv posthog/warehouse/external_data_source/jobs.py products/data_warehouse/backend/external_data_source/jobs.py
+          - git mv posthog/warehouse/hogql.py products/data_warehouse/backend/hogql.py
+          - rm products/data_warehouse/backend/models/__init__.py
+          - git mv posthog/warehouse/models/__init__.py products/data_warehouse/backend/models/__init__.py
+          - git mv posthog/warehouse/models/credential.py products/data_warehouse/backend/models/credential.py
+          - git mv posthog/warehouse/models/data_modeling_job.py products/data_warehouse/backend/models/data_modeling_job.py
+          - git mv posthog/warehouse/models/datawarehouse_managed_viewset.py products/data_warehouse/backend/models/datawarehouse_managed_viewset.py
+          - git mv posthog/warehouse/models/datawarehouse_saved_query.py products/data_warehouse/backend/models/datawarehouse_saved_query.py
+          - git mv posthog/warehouse/models/datawarehouse_saved_query_draft.py products/data_warehouse/backend/models/datawarehouse_saved_query_draft.py
+          - git mv posthog/warehouse/models/external_data_job.py products/data_warehouse/backend/models/external_data_job.py
+          - git mv posthog/warehouse/models/external_data_schema.py products/data_warehouse/backend/models/external_data_schema.py
+          - git mv posthog/warehouse/models/external_data_source.py products/data_warehouse/backend/models/external_data_source.py
+          - git mv posthog/warehouse/models/external_table_definitions.py products/data_warehouse/backend/models/external_table_definitions.py
+          - git mv posthog/warehouse/models/join.py products/data_warehouse/backend/models/join.py
+          - git mv posthog/warehouse/models/modeling.py products/data_warehouse/backend/models/modeling.py
+          - git mv posthog/warehouse/models/query_tab_state.py products/data_warehouse/backend/models/query_tab_state.py
+          - git mv posthog/warehouse/models/revenue_analytics_config.py products/data_warehouse/backend/models/revenue_analytics_config.py
+          - git mv posthog/warehouse/models/ssh_tunnel.py products/data_warehouse/backend/models/ssh_tunnel.py
+          - git mv posthog/warehouse/models/table.py products/data_warehouse/backend/models/table.py
+          - git mv posthog/warehouse/models/test/__init__.py products/data_warehouse/backend/models/test/__init__.py
+          - git mv posthog/warehouse/models/test/test_managed_viewset.py products/data_warehouse/backend/models/test/test_managed_viewset.py
+          - git mv posthog/warehouse/models/test/test_modeling.py products/data_warehouse/backend/models/test/test_modeling.py
+          - git mv posthog/warehouse/models/test/test_ssh_tunnel.py products/data_warehouse/backend/models/test/test_ssh_tunnel.py
+          - git mv posthog/warehouse/models/test/test_table.py products/data_warehouse/backend/models/test/test_table.py
+          - git mv posthog/warehouse/models/util.py products/data_warehouse/backend/models/util.py
+          - git mv posthog/warehouse/s3.py products/data_warehouse/backend/s3.py
+          - git mv posthog/warehouse/test/utils.py products/data_warehouse/backend/test/utils.py
+          - git mv posthog/warehouse/types.py products/data_warehouse/backend/types.py
+    - id: 3
+      name: update_imports
+      status: completed
+      timestamp: '2025-10-28T11:14:13.475197'
+      files_modified:
+          - 294 files updated
+      operations:
+          - import_rewriter.py --write
+    - id: 4
+      name: prepare_models
+      status: completed
+      timestamp: '2025-10-28T11:14:32.998567'
+      operations:
+          - Discovered 14 models
+          - Fixed ForeignKeys in 13 files
+          - Added db_table to 13 files
+    - id: 5
+      name: validate_django
+      status: completed
+      timestamp: '2025-10-28T11:17:25.469335'
+      operations:
+          - python manage.py migrate --plan
+    - id: 6
+      name: generate_migrations
+      status: completed
+      timestamp: '2025-10-28T11:20:43.833195'
+      operations:
+          - Generated data_warehouse migration
+          - Generated posthog removal migration
+          - Successfully edited both migrations with Claude
