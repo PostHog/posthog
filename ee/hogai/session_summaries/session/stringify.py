@@ -83,9 +83,8 @@ class SingleSessionSummaryStringifier(SessionSummaryEventStringifier):
         for key_actions in self.summary["key_actions"]:
             if key_actions["segment_index"] == segment_id:
                 return key_actions["events"]
-        else:
-            # Each segment should have at least one key action
-            raise ValueError(f"Segment key actions not found for segment_id {segment_id}")
+        # Each segment should have at least one key action
+        raise ValueError(f"Segment key actions not found for segment_id {segment_id}")
 
     def _find_segment_outcome(self, segment_id: int) -> dict[str, Any]:
         for outcome in self.summary["segment_outcomes"]:
