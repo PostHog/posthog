@@ -3,6 +3,9 @@ import { useValues } from 'kea'
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+
 import { QuerySchema, TrendsQueryResponse, WebStatsTableQueryResponse } from '~/queries/schema/schema-general'
 import { ExporterFormat, InsightLogicProps } from '~/types'
 
@@ -21,9 +24,13 @@ interface WebAnalyticsExportProps {
 }
 
 export function WebAnalyticsExport({ query, insightProps }: WebAnalyticsExportProps): JSX.Element | null {
-    // For queries, use insightDataLogic - must be called before any early returns
     const builtInsightDataLogic = insightDataLogic(insightProps)
     const { insightDataRaw } = useValues(builtInsightDataLogic)
+    const { featureFlags } = useValues(featureFlagsLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.COPY_WEB_ANALYTICS_DATA]) {
+        return null
+    }
 
     if (!insightDataRaw) {
         return null
