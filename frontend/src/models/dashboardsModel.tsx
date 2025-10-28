@@ -285,7 +285,32 @@ export const dashboardsModel = kea<dashboardsModelType>([
         ],
         pinnedDashboards: [
             () => [selectors.nameSortedDashboards],
-            (nameSortedDashboards) => nameSortedDashboards.filter((d) => d.pinned),
+            (nameSortedDashboards) => {
+                const pinnedDashboards = nameSortedDashboards.filter((dashboard) => dashboard.pinned)
+
+                return [...pinnedDashboards].sort((a, b) => {
+                    const aViewedAt = a.last_viewed_at
+                    const bViewedAt = b.last_viewed_at
+
+                    if (aViewedAt && bViewedAt) {
+                        if (aViewedAt === bViewedAt) {
+                            return nameCompareFunction(a, b)
+                        }
+
+                        return aViewedAt > bViewedAt ? -1 : 1
+                    }
+
+                    if (aViewedAt) {
+                        return -1
+                    }
+
+                    if (bViewedAt) {
+                        return 1
+                    }
+
+                    return nameCompareFunction(a, b)
+                })
+            },
         ],
     })),
     listeners(({ actions, values }) => ({

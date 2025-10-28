@@ -1272,6 +1272,7 @@
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared",
+         recent_dashboard_views."viewed_at" AS "last_viewed_at",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -1301,6 +1302,10 @@
          "posthog_user"."email_opt_in"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
+  LEFT OUTER JOIN "posthog_filesystemviewlog" recent_dashboard_views ON ("posthog_team"."id" = recent_dashboard_views."team_id"
+                                                                         AND ((recent_dashboard_views."user_id" = 99999
+                                                                               AND recent_dashboard_views."type" = 'dashboard'
+                                                                               AND recent_dashboard_views."ref" = ("posthog_dashboard"."id")::varchar)))
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
   WHERE ("posthog_team"."project_id" = 99999
          AND NOT ("posthog_dashboard"."deleted")
@@ -3778,6 +3783,10 @@
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
+  LEFT OUTER JOIN "posthog_filesystemviewlog" recent_dashboard_views ON ("posthog_team"."id" = recent_dashboard_views."team_id"
+                                                                         AND ((recent_dashboard_views."user_id" = 99999
+                                                                               AND recent_dashboard_views."type" = 'dashboard'
+                                                                               AND recent_dashboard_views."ref" = ("posthog_dashboard"."id")::varchar)))
   WHERE ("posthog_team"."project_id" = 99999
          AND NOT ("posthog_dashboard"."deleted"))
   '''
@@ -3804,6 +3813,7 @@
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared",
+         recent_dashboard_views."viewed_at" AS "last_viewed_at",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -3833,6 +3843,10 @@
          "posthog_user"."email_opt_in"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
+  LEFT OUTER JOIN "posthog_filesystemviewlog" recent_dashboard_views ON ("posthog_team"."id" = recent_dashboard_views."team_id"
+                                                                         AND ((recent_dashboard_views."user_id" = 99999
+                                                                               AND recent_dashboard_views."type" = 'dashboard'
+                                                                               AND recent_dashboard_views."ref" = ("posthog_dashboard"."id")::varchar)))
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
   WHERE ("posthog_team"."project_id" = 99999
          AND NOT ("posthog_dashboard"."deleted"))
@@ -7471,6 +7485,7 @@
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared",
+         recent_dashboard_views."viewed_at" AS "last_viewed_at",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -7500,6 +7515,10 @@
          "posthog_user"."email_opt_in"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
+  LEFT OUTER JOIN "posthog_filesystemviewlog" recent_dashboard_views ON ("posthog_team"."id" = recent_dashboard_views."team_id"
+                                                                         AND ((recent_dashboard_views."user_id" = 99999
+                                                                               AND recent_dashboard_views."type" = 'dashboard'
+                                                                               AND recent_dashboard_views."ref" = ("posthog_dashboard"."id")::varchar)))
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
   WHERE ("posthog_team"."project_id" = 99999
          AND NOT ("posthog_dashboard"."deleted")
@@ -12865,6 +12884,7 @@
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared",
+         recent_dashboard_views."viewed_at" AS "last_viewed_at",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -12894,6 +12914,10 @@
          "posthog_user"."email_opt_in"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
+  LEFT OUTER JOIN "posthog_filesystemviewlog" recent_dashboard_views ON ("posthog_team"."id" = recent_dashboard_views."team_id"
+                                                                         AND ((recent_dashboard_views."user_id" = 99999
+                                                                               AND recent_dashboard_views."type" = 'dashboard'
+                                                                               AND recent_dashboard_views."ref" = ("posthog_dashboard"."id")::varchar)))
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
   WHERE ("posthog_team"."project_id" = 99999
          AND NOT ("posthog_dashboard"."deleted")
@@ -15597,6 +15621,10 @@
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
+  LEFT OUTER JOIN "posthog_filesystemviewlog" recent_dashboard_views ON ("posthog_team"."id" = recent_dashboard_views."team_id"
+                                                                         AND ((recent_dashboard_views."user_id" = 99999
+                                                                               AND recent_dashboard_views."type" = 'dashboard'
+                                                                               AND recent_dashboard_views."ref" = ("posthog_dashboard"."id")::varchar)))
   WHERE ("posthog_team"."project_id" = 99999
          AND NOT ("posthog_dashboard"."deleted"))
   '''
@@ -15623,6 +15651,7 @@
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared",
+         recent_dashboard_views."viewed_at" AS "last_viewed_at",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -15652,6 +15681,10 @@
          "posthog_user"."email_opt_in"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
+  LEFT OUTER JOIN "posthog_filesystemviewlog" recent_dashboard_views ON ("posthog_team"."id" = recent_dashboard_views."team_id"
+                                                                         AND ((recent_dashboard_views."user_id" = 99999
+                                                                               AND recent_dashboard_views."type" = 'dashboard'
+                                                                               AND recent_dashboard_views."ref" = ("posthog_dashboard"."id")::varchar)))
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
   WHERE ("posthog_team"."project_id" = 99999
          AND NOT ("posthog_dashboard"."deleted"))
