@@ -1,6 +1,6 @@
 import asyncio
 from collections.abc import Awaitable, Mapping, Sequence
-from typing import TYPE_CHECKING, Literal, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, TypeVar
 from uuid import uuid4
 
 import structlog
@@ -17,16 +17,8 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.errors import NodeInterrupt
 from langgraph.types import Send
 from posthoganalytics import capture_exception
-from pydantic import BaseModel
 
-from posthog.schema import (
-    AssistantMessage,
-    AssistantToolCallMessage,
-    ContextMessage,
-    FailureMessage,
-    HumanMessage,
-    ReasoningMessage,
-)
+from posthog.schema import AssistantMessage, AssistantToolCallMessage, ContextMessage, FailureMessage, HumanMessage
 
 from posthog.models import Team, User
 
@@ -44,11 +36,9 @@ from ee.hogai.utils.types import (
     AssistantMessageUnion,
     AssistantNodeName,
     AssistantState,
-    BaseState,
     PartialAssistantState,
     ReplaceMessages,
 )
-from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
     AGENT_PROMPT,
@@ -85,19 +75,8 @@ if TYPE_CHECKING:
 SLASH_COMMAND_INIT = "/init"
 SLASH_COMMAND_REMEMBER = "/remember"
 
-RouteName = Literal[
-    "root",
-    "end",
-    "memory_onboarding",
-    "session_summarization",
-    "create_dashboard",
-]
-
-
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage | ContextMessage
 T = TypeVar("T", RootMessageUnion, BaseMessage)
-
-RootTool = Union[type[BaseModel], "MaxTool"]
 
 logger = structlog.get_logger(__name__)
 
@@ -135,11 +114,11 @@ class AgentToolkit:
 
         return default_tools
 
-    async def get_tools(self, state: AssistantState, config: RunnableConfig) -> list[RootTool]:
+    async def get_tools(self, state: AssistantState, config: RunnableConfig) -> list[MaxTool]:
         from ee.hogai.tool import get_contextual_tool_class
 
         # Processed tools
-        available_tools: list[RootTool] = []
+        available_tools: list[MaxTool] = []
 
         # Initialize the static toolkit
         dynamic_tools = (
@@ -150,7 +129,7 @@ class AgentToolkit:
 
         # Inject contextual tools
         tool_names = self._context_manager.get_contextual_tools().keys()
-        awaited_contextual_tools: list[Awaitable[RootTool]] = []
+        awaited_contextual_tools: list[Awaitable[MaxTool]] = []
         for tool_name in tool_names:
             ContextualMaxToolClass = get_contextual_tool_class(tool_name)
             if ContextualMaxToolClass is None:
@@ -176,7 +155,13 @@ class AgentToolkit:
         )
 
 
-class AgentNode:
+class BaseAgentNode(AssistantNode):
+    def __init__(self, team: Team, user: User, toolkit_class: type[AgentToolkit]):
+        super().__init__(team, user)
+        self._toolkit_class = toolkit_class
+
+
+class AgentNode(BaseAgentNode):
     MAX_TOOL_CALLS = 24
     """
     Determines the maximum number of tool calls allowed in a single generation.
@@ -187,10 +172,7 @@ class AgentNode:
     """
 
     def __init__(self, team: Team, user: User, toolkit_class: type[AgentToolkit]):
-        super().__init__(team, user)
-        self._team = team
-        self._user = user
-        self._toolkit_class = toolkit_class
+        super().__init__(team, user, toolkit_class)
         self._window_manager = AnthropicConversationCompactionManager()
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
@@ -257,7 +239,7 @@ class AgentNode:
         add_cache_control(system_prompts[-1])
 
         message = await model.ainvoke(system_prompts + langchain_messages, config)
-        assistant_message = normalize_ai_anthropic_message(message)
+        assistant_message = self._process_output_message(message)
 
         new_messages: list[AssistantMessageUnion] = [assistant_message]
         # Replace the messages with the new message window
@@ -345,7 +327,7 @@ class AgentNode:
         )
         return prompt
 
-    def _get_model(self, state: AssistantState, tools: list[RootTool]):
+    def _get_model(self, state: AssistantState, tools: list[MaxTool]):
         base_model = MaxChatAnthropic(
             model="claude-sonnet-4-5",
             streaming=True,
@@ -436,20 +418,13 @@ class AgentNode:
     def _is_hard_limit_reached(self, tool_calls_count: int | None) -> bool:
         return tool_calls_count is not None and tool_calls_count >= self.MAX_TOOL_CALLS
 
+    def _process_output_message(self, message: AssistantMessage) -> AssistantMessage:
+        """Process the output message."""
+        return normalize_ai_anthropic_message(message)
 
-class AgentToolsNode(AssistantNode):
-    @property
-    def node_name(self) -> MaxNodeName:
-        # TODO: remove
-        return AssistantNodeName.ROOT_TOOLS
 
-    async def get_reasoning_message(
-        self, input: BaseState, default_message: Optional[str] = None
-    ) -> ReasoningMessage | None:
-        # TODO: remove
-        return None
-
-    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+class AgentToolsNode(BaseAgentNode):
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_message = state.messages[-1]
 
         reset_state = PartialAssistantState(root_tool_call_id=None)
@@ -464,9 +439,12 @@ class AgentToolsNode(AssistantNode):
         if not tool_call:
             return reset_state
 
-        from ee.hogai.tool import get_contextual_tool_class
-
-        ToolClass = get_contextual_tool_class(tool_call.name)
+        # Find the tool class in a toolkit.
+        toolkit = self._toolkit_class(self._team, self._user, self.context_manager)
+        available_tools = await toolkit.get_tools(state, config)
+        ToolClass = next(
+            (tool_class for tool_class in available_tools if tool_class.get_name() == tool_call.name), None
+        )
 
         # If the tool doesn't exist, return the message to the agent
         if not ToolClass:
