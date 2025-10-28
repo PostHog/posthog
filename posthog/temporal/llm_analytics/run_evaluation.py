@@ -118,7 +118,7 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
     output_data = extract_text_from_messages(output_raw)
 
     # Build judge prompt
-    system_prompt = f"""You are an AI evaluator. Evaluate the following AI generation according to this criteria:
+    system_prompt = f"""You are an evaluator. Evaluate the following generation according to this criteria:
 
 {evaluation["prompt"]}
 
