@@ -35,7 +35,7 @@ export default function FireSaleBanner(): JSX.Element {
 
     const expired = now.isSameOrAfter(endDate)
 
-    if (expired || (dayjs().isBefore(startDate) && !featureFlags[FEATURE_FLAGS.DWH_FREE_SYNCS])) {
+    if (expired || (now.isBefore(startDate) && !featureFlags[FEATURE_FLAGS.DWH_FREE_SYNCS])) {
         return <></>
     }
 
