@@ -306,3 +306,26 @@ class TestTaxonomyAgentToolsNode(BaseTest):
             self.assertEqual(action.tool, "test_tool")
             self.assertEqual(action.tool_input, "test output")
             self.assertIsNone(output)
+
+    @patch.object(MockTaxonomyAgentToolkit, "get_tool_input_model")
+    @patch.object(MockTaxonomyAgentToolkit, "retrieve_event_or_action_properties_parallel")
+    async def test_duplicate_event_properties_ids_are_all_mapped(self, mock_retrieve_props, mock_get_tool_input):
+        mock_input = Mock()
+        mock_input.name = "retrieve_event_properties"
+        mock_input.arguments = Mock()
+        mock_input.arguments.event_name = "$ai_generation"
+        mock_get_tool_input.return_value = mock_input
+
+        mock_retrieve_props.return_value = {"$ai_generation": "event properties for $ai_generation"}
+
+        action1 = AgentAction(tool="retrieve_event_properties", tool_input={"event_name": "$ai_generation"}, log="id1")
+        action2 = AgentAction(tool="retrieve_event_properties", tool_input={"event_name": "$ai_generation"}, log="id2")
+        state = TaxonomyAgentState(intermediate_steps=[(action1, None), (action2, None)])
+
+        # Must not raise KeyError
+        result = await self.node.arun(state, RunnableConfig())
+
+        # Verify both actions got results
+        self.assertEqual(len(result.intermediate_steps), 2)
+        self.assertEqual(result.intermediate_steps[0][0].log, "id1")
+        self.assertEqual(result.intermediate_steps[1][0].log, "id2")
