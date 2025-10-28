@@ -133,9 +133,9 @@ class SerializedField:
     name: str
     type: DatabaseSerializedFieldType
     schema_valid: bool
-    fields: Optional[list[str]] = None
-    table: Optional[str] = None
-    chain: Optional[list[str | int]] = None
+    fields: list[str] | None = None
+    table: str | None = None
+    chain: list[str | int] | None = None
 
 
 type DatabaseSchemaTable = (
@@ -223,11 +223,12 @@ class Database(BaseModel):
     _warehouse_table_names: list[str] = []
     _warehouse_self_managed_table_names: list[str] = []
     _view_table_names: list[str] = []
+    _view_metadata: dict[str, dict[str, any]] = {}
 
-    _timezone: Optional[str]
-    _week_start_day: Optional[WeekStartDay]
+    _timezone: str | None
+    _week_start_day: WeekStartDay | None
 
-    def __init__(self, timezone: Optional[str] = None, week_start_day: Optional[WeekStartDay] = None):
+    def __init__(self, timezone: str | None = None, week_start_day: WeekStartDay | None = None):
         super().__init__()
         try:
             self._timezone = str(ZoneInfo(timezone)) if timezone else None
@@ -293,6 +294,9 @@ class Database(BaseModel):
     def get_view_names(self) -> list[str]:
         return self._view_table_names
 
+    def get_view_metadata(self) -> dict[str, dict[str, any]]:
+        return self._view_metadata
+
     def _add_warehouse_tables(self, node: TableNode):
         self.tables.merge_with(node)
         for name in node.resolve_all_table_names():
@@ -303,15 +307,17 @@ class Database(BaseModel):
         for name in node.resolve_all_table_names():
             self._warehouse_self_managed_table_names.append(name)
 
-    def _add_views(self, node: TableNode):
+    def _add_views(self, node: TableNode, view_metadata: dict[str, dict[str, any]] | None = None):
         self.tables.merge_with(node)
         for name in node.resolve_all_table_names():
             self._view_table_names.append(name)
+        if view_metadata:
+            self._view_metadata.update(view_metadata)
 
     def serialize(
         self,
         context: HogQLContext,
-        include_only: Optional[set[str]] = None,
+        include_only: set[str] | None = None,
     ) -> dict[str, DatabaseSchemaTable]:
         from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
@@ -509,11 +515,11 @@ class Database(BaseModel):
     @staticmethod
     @tracer.start_as_current_span("create_hogql_database")  # Legacy name to keep backwards compatibility
     def create_for(
-        team_id: Optional[int] = None,
+        team_id: int | None = None,
         *,
         team: Optional["Team"] = None,
-        modifiers: Optional[HogQLQueryModifiers] = None,
-        timings: Optional[HogQLTimings] = None,
+        modifiers: HogQLQueryModifiers | None = None,
+        timings: HogQLTimings | None = None,
     ) -> "Database":
         from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
         from posthog.hogql.query import create_default_modifiers_for_team
@@ -661,6 +667,15 @@ class Database(BaseModel):
                     .exclude(deleted=True)
                     .select_related("table", "table__credential")
                 )
+
+            # Build view metadata mapping for ALL saved queries (including materialized ones)
+            view_metadata_mapping: dict[str, dict[str, any]] = {}
+            for saved_query in saved_queries:
+                view_metadata_mapping[saved_query.name] = {
+                    "id": str(saved_query.id),
+                    "is_view": True,
+                    "is_materialized": saved_query.is_materialized or False,
+                }
 
             for saved_query in saved_queries:
                 with timings.measure(f"saved_query_{saved_query.name}"):
@@ -870,7 +885,7 @@ class Database(BaseModel):
 
         database._add_warehouse_tables(warehouse_tables)
         database._add_warehouse_self_managed_tables(self_managed_warehouse_tables)
-        database._add_views(views)
+        database._add_views(views, view_metadata_mapping)
 
         with timings.measure("data_warehouse_joins"):
             for join in DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True):
@@ -1128,7 +1143,7 @@ def serialize_fields(
     field_input,
     context: HogQLContext,
     table_chain: list[str],
-    db_columns: Optional[DataWarehouseTableColumns] = None,
+    db_columns: DataWarehouseTableColumns | None = None,
     table_type: Literal["posthog"] | Literal["external"] = "posthog",
 ) -> list[DatabaseSchemaField]:
     from posthog.hogql.resolver import resolve_types_from_table

@@ -178,26 +178,16 @@ class TableCollector(TraversingVisitor):
 
 def get_view_metadata_from_database(table_names: list[str], context: HogQLContext) -> dict[str, dict[str, any]]:
     """Extract view metadata from the virtual database (no DB queries)."""
-    from posthog.hogql.database.models import SavedQuery
-
     if not table_names or not context.database:
         return {}
 
+    # Get all view metadata from the database
+    all_view_metadata = context.database.get_view_metadata()
+
+    # Filter to only include views that are in the query's table_names
     view_metadata = {}
-
-    # Iterate through the table names and check if they're views in the database
     for table_name in table_names:
-        if not context.database.has_table(table_name):
-            continue
-
-        table = context.database.get_table(table_name)
-
-        # Check if this table is a SavedQuery (view)
-        if isinstance(table, SavedQuery):
-            view_metadata[table_name] = {
-                "id": table.id,
-                "is_view": True,
-                "is_materialized": table.is_materialized,
-            }
+        if table_name in all_view_metadata:
+            view_metadata[table_name] = all_view_metadata[table_name]
 
     return view_metadata
