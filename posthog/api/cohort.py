@@ -246,6 +246,29 @@ Group.model_rebuild()
 
 class CohortFilters(BaseModel, extra="forbid"):
     properties: Group
+    realtimeSupported: bool = False
+
+    @model_validator(mode="after")
+    def _check_realtime_support(self):
+        """Check if all filters have valid bytecode to determine realtime support."""
+        self.realtimeSupported = self._all_filters_have_bytecode(self.properties)
+        return self
+
+    def _all_filters_have_bytecode(self, group: Group) -> bool:
+        """Recursively check if all filters in the group have valid bytecode."""
+        for value in group.values:
+            if hasattr(value, "values"):  # It's another group
+                if not self._all_filters_have_bytecode(value):
+                    return False
+            else:  # It's a filter
+                # Check if filter has FilterBytecodeMixin and valid bytecode
+                if hasattr(value, "bytecode") and hasattr(value, "bytecode_error"):
+                    if value.bytecode is None or value.bytecode_error is not None:
+                        return False
+                else:
+                    # Filter doesn't support bytecode generation
+                    return False
+        return True
 
 
 API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
