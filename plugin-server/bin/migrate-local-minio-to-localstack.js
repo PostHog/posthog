@@ -181,6 +181,10 @@ function printHelp() {
 Usage:
   ./bin/migrate-local-minio-to-localstack [options]
 
+NOTE: New users don't need to run this! The LocalStack bucket is automatically
+      created via docker-compose. This script is only for migrating existing
+      session recordings from MinIO to LocalStack.
+
 Options:
   --service <name>              Service to migrate: session-recordings (required)
   --minio-endpoint <url>        MinIO endpoint (default: http://localhost:19000)
