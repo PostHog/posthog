@@ -69,10 +69,11 @@ cookie_api_paths_to_ignore = {"decide", "api", "flags"}
 
 
 class OverridableAuthenticationMiddleware(AuthenticationMiddleware):
-    """This is exactly the plain Django AuthenticationMiddleware, but with support for a local dev-only login override."""
+    """This is the plain Django AuthenticationMiddleware, with ONLY ONE DEBUG-ONLY FEATURE: support for DEBUG_LOG_IN_AS_EMAIL."""
 
     def process_request(self, request):
         if settings.DEBUG and settings.DEBUG_LOG_IN_AS_EMAIL:
+            # This check for debug should have zero performance hit - and it does
             request.user = SimpleLazyObject(lambda: User.objects.get(email=settings.DEBUG_LOG_IN_AS_EMAIL))  # type: ignore
             return
         super().process_request(request)

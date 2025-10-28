@@ -37,8 +37,7 @@ class ReplicaRouter:
             return "replica" if model.__name__ not in MODELS_FORCED_LOCAL_IN_PROD_DEBUG else "default"
 
         if "ALL_MODELS_USE_READ_REPLICA" in self.opt_in:
-            # I don't think we could be more explicit!
-            # This could be useful during data migrations, incidents, or testing
+            # We couldn't be more explicit with this value! This can be useful during data migrations, incidents, or testing
             return "replica"
 
         return "replica" if model.__name__ in self.opt_in else "default"

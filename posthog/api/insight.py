@@ -1289,7 +1289,7 @@ When set, the specified dashboard's filters and date range override will be appl
         Expects: {"insight_ids": [1, 2, 3, ...]}
         """
         if settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG:
-            return Response(status=status.HTTP_204_NO_CONTENT)
+            return Response(status=status.HTTP_204_NO_CONTENT)  # In the prod PG in debug mode, we can't write to PG
         insight_ids = request.data.get("insight_ids")
 
         if not insight_ids or not isinstance(insight_ids, list):

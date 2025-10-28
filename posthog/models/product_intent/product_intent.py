@@ -173,7 +173,7 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
 
     def check_and_update_activation(self, skip_reporting: bool = False) -> bool:
         if settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG:
-            return True  # Skip when connected to prod PG in debug (read-only)
+            return True  # In the special prod PG in debug mode, we can't write to PG!
 
         # If the intent is already activated, we don't need to check again
         if self.activated_at:

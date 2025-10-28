@@ -74,7 +74,7 @@ class ModelActivityMixin(models.Model):
         from posthog.models.activity_logging.activity_log import ActivityScope, signal_exclusions
 
         if settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG:
-            return False, None
+            return False, None  # In the special prod PG in debug mode, we can't write to PG!
 
         model_name = cast(ActivityScope, self.__class__.__name__)
         signal_excluded_fields = signal_exclusions.get(model_name, [])

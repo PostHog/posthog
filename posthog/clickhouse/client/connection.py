@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from enum import StrEnum
 from functools import cache
 
+import django.conf.settings
 from django.conf import settings
 
 from clickhouse_connect import get_client
@@ -16,8 +17,6 @@ from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 
 from posthog.utils import patchable
-
-IS_USING_PROD_CLICKHOUSE_IN_DEV = settings.DEBUG and ".prod." in settings.CLICKHOUSE_HOST
 
 
 class Workload(StrEnum):
@@ -113,7 +112,7 @@ class ProxyClient:
             settings = {}
         if query_id:
             settings["query_id"] = query_id
-        if IS_USING_PROD_CLICKHOUSE_IN_DEV:
+        if django.conf.settings.IS_CONNECTED_TO_PROD_CH_IN_DEBUG:
             settings["readonly"] = "2"  # Even though generally queries are just SELECTs, we want to be safe
         result = self._client.query(query=query, parameters=params, settings=settings, column_oriented=columnar)
 

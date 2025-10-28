@@ -119,11 +119,9 @@ if read_host:
     DATABASES["replica"] = postgres_config(read_host)
     DATABASE_ROUTERS.append("posthog.dbrouter.ReplicaRouter")
 
-
 IS_CONNECTED_TO_PROD_PG_IN_DEBUG = DEBUG and (
     "-prod-" in DATABASES["default"]["HOST"] or "-prod-" in os.getenv("POSTHOG_POSTGRES_READ_HOST", "")
 )
-
 
 # Add the persons_db_writer database configuration using PERSONS_DB_WRITER_URL
 # For local development, default to the persons database in the main container if no URL is provided
