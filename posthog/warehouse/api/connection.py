@@ -143,8 +143,9 @@ class WarehouseConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {"status": "success", "message": "Connection successful"}, status=status.HTTP_200_OK
             )
         else:
+            # Expose only generic error message to user, log the detailed error server-side
             return Response(
-                {"status": "error", "message": error_message or "Connection failed"},
+                {"status": "error", "message": "Connection failed"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
