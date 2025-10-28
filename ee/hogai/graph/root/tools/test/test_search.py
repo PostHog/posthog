@@ -8,7 +8,7 @@ from posthog.schema import AssistantMessage
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.root.tools.search import InkeepDocsSearchTool, InsightSearchTool, SearchTool
-from ee.hogai.tool import MaxToolError, MaxToolErrorCode
+from ee.hogai.tool import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 
@@ -29,10 +29,9 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
     async def test_run_docs_search_without_api_key(self):
         with patch("ee.hogai.graph.root.tools.search.settings") as mock_settings:
             mock_settings.INKEEP_API_KEY = None
-            with self.assertRaises(MaxToolError) as context:
+            with self.assertRaises(MaxToolFatalError) as context:
                 await self.tool._arun_impl(kind="docs", query="How to use feature flags?", tool_call_id="test-id")
 
-            self.assertEqual(context.exception.code, MaxToolErrorCode.CONFIGURATION_MISSING)
             self.assertIn("INKEEP_API_KEY", str(context.exception))
 
     async def test_run_docs_search_with_api_key(self):
@@ -64,10 +63,9 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
             self.assertIsNotNone(artifact)
 
     async def test_run_unknown_kind(self):
-        with self.assertRaises(MaxToolError) as context:
+        with self.assertRaises(MaxToolRetryableError) as context:
             await self.tool._arun_impl(kind="unknown", query="test", tool_call_id="test-id")
 
-        self.assertEqual(context.exception.code, MaxToolErrorCode.INVALID_INPUT)
         self.assertIn("Invalid entity kind", str(context.exception))
 
 
@@ -173,11 +171,10 @@ class TestInsightSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         from ee.hogai.graph.insights.nodes import NoInsightsException
 
         with patch("ee.hogai.graph.insights.nodes.InsightSearchNode", side_effect=NoInsightsException()):
-            with self.assertRaises(MaxToolError) as context:
+            with self.assertRaises(MaxToolFatalError) as context:
                 await self.tool.execute("user signups", "test-tool-call-id")
 
-            self.assertEqual(context.exception.code, MaxToolErrorCode.RESOURCE_NOT_FOUND)
-            self.assertIn("No insights have been created yet", str(context.exception))
+            self.assertIn("No insights available", str(context.exception))
 
     async def test_execute_returns_none_artifact_when_result_is_none(self):
         async def mock_ainvoke(state):

@@ -8,7 +8,7 @@ from posthog.schema import AssistantMessage
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.root.tools.session_summarization import SessionSummarizationTool
-from ee.hogai.tool import MaxToolError, MaxToolErrorCode
+from ee.hogai.tool import MaxToolFatalError
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 
@@ -107,7 +107,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         with patch("ee.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
             with patch("ee.hogai.graph.root.tools.session_summarization.RunnableLambda", return_value=mock_chain):
-                with self.assertRaises(MaxToolError) as context:
+                with self.assertRaises(MaxToolFatalError) as context:
                     await self.tool._arun_impl(
                         session_summarization_query="test query",
                         should_use_current_filters=False,
@@ -115,7 +115,6 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
                         tool_call_id="test-tool-call-id",
                     )
 
-                self.assertEqual(context.exception.code, MaxToolErrorCode.INTERNAL_ERROR)
                 self.assertIn("Session summarization failed", str(context.exception))
 
     async def test_execute_raises_error_when_result_has_no_messages(self):
@@ -130,7 +129,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         with patch("ee.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
             with patch("ee.hogai.graph.root.tools.session_summarization.RunnableLambda", return_value=mock_chain):
-                with self.assertRaises(MaxToolError) as context:
+                with self.assertRaises(MaxToolFatalError) as context:
                     await self.tool._arun_impl(
                         session_summarization_query="test query",
                         should_use_current_filters=False,
@@ -138,7 +137,6 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
                         tool_call_id="test-tool-call-id",
                     )
 
-                self.assertEqual(context.exception.code, MaxToolErrorCode.INTERNAL_ERROR)
                 self.assertIn("Session summarization failed", str(context.exception))
 
     async def test_execute_with_empty_summary_title(self):

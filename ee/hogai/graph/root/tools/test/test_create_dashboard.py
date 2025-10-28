@@ -8,7 +8,7 @@ from posthog.schema import AssistantMessage
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.root.tools.create_dashboard import CreateDashboardTool
-from ee.hogai.tool import MaxToolError, MaxToolErrorCode
+from ee.hogai.tool import MaxToolFatalError
 from ee.hogai.utils.types import AssistantState, InsightQuery, PartialAssistantState
 
 
@@ -148,14 +148,13 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         with patch("ee.hogai.graph.dashboards.nodes.DashboardCreationNode"):
             with patch("ee.hogai.graph.root.tools.create_dashboard.RunnableLambda", return_value=mock_chain):
-                with self.assertRaises(MaxToolError) as context:
+                with self.assertRaises(MaxToolFatalError) as context:
                     await self.tool._arun_impl(
                         search_insights_queries=[InsightQuery(name="Test", description="Test insight")],
                         dashboard_name="Test Dashboard",
                         tool_call_id="test-tool-call-id",
                     )
 
-                self.assertEqual(context.exception.code, MaxToolErrorCode.INTERNAL_ERROR)
                 self.assertIn("Dashboard creation failed", str(context.exception))
 
     async def test_execute_raises_error_when_result_has_no_messages(self):
@@ -170,14 +169,13 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         with patch("ee.hogai.graph.dashboards.nodes.DashboardCreationNode"):
             with patch("ee.hogai.graph.root.tools.create_dashboard.RunnableLambda", return_value=mock_chain):
-                with self.assertRaises(MaxToolError) as context:
+                with self.assertRaises(MaxToolFatalError) as context:
                     await self.tool._arun_impl(
                         search_insights_queries=[InsightQuery(name="Test", description="Test insight")],
                         dashboard_name="Test Dashboard",
                         tool_call_id="test-tool-call-id",
                     )
 
-                self.assertEqual(context.exception.code, MaxToolErrorCode.INTERNAL_ERROR)
                 self.assertIn("Dashboard creation failed", str(context.exception))
 
     async def test_execute_preserves_original_state(self):
