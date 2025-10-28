@@ -268,6 +268,11 @@ export type AssistantContextualTool =
     | 'todo_write'
     | 'filter_revenue_analytics'
 
+export enum AgentMode {
+    ProductAnalytics = 'product_analytics',
+    SQL = 'sql',
+}
+
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:
 // "

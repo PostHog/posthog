@@ -10,6 +10,7 @@ from langgraph.graph import END, START
 from pydantic import BaseModel, Field
 
 from posthog.schema import (
+    AgentMode,
     AssistantEventType,
     AssistantFunnelsQuery,
     AssistantGenerationStatusEvent,
@@ -265,6 +266,11 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     The state of the root node.
     """
 
+    agent_mode: AgentMode | None = Field(default=None)
+    """
+    The mode of the agent.
+    """
+
     plan: Optional[str] = Field(default=None)
     """
     The insight generation plan.
@@ -419,8 +425,3 @@ class WithCommentary(BaseModel):
     commentary: str = Field(
         description="A commentary on what you are doing, using the first person: 'I am doing this because...'"
     )
-
-
-class AgentMode(StrEnum):
-    PRODUCT_ANALYTICS = "product_analytics"
-    SQL = "sql"
