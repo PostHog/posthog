@@ -1,0 +1,63 @@
+---
+title: ClickHouse Manual
+---
+
+Welcome to PostHog's ClickHouse manual.
+
+## About this manual
+
+PostHog uses ClickHouse to power our data analytics tooling and we've learned a lot about it over the years. The goal
+of this manual is to share that knowledge externally and raise the average level of ClickHouse understanding for
+people starting work with ClickHouse.
+
+If you have extensive ClickHouse experience, and want to contribute thoughts or tips of your own, please do by [opening an PR or issue on GitHub](https://github.com/PostHog/posthog.com)!
+
+Consider this manual a companion to other great resources out there:
+- [Designing Data-Intensive Applications](https://www.oreilly.com/library/view/designing-data-intensive-applications/9781491903063/)
+    - The chapters "Transaction Processing or Analytics" and "Column-Oriented Storage" are recommended reading for people new to the concepts
+- [ClickHouse Docs and Knowledge Base](https://clickhouse.com/docs/en/)
+- [Altinity's ClickHouse Knowledge Base](https://kb.altinity.com/)
+- [Tinybird's curated ClickHouse Knowledge Base](https://tinybird.co/clickhouse/knowledge-base/)
+
+## Why ClickHouse
+
+In 2020, we had launched PostHog for the first time, were getting great early traction, but were struggling with scaling.
+
+To solve this problem we looked at a wide range of OLAP solutions, including [Pinot](https://pinot.apache.org/),
+[Presto](https://prestodb.io/), [Druid](https://druid.apache.org/), [TimescaleDB](https://www.timescale.com/), CitusDB, and
+ClickHouse. Some of our team had used these tools before at other companies, such as Uber where Pinot and Presto are both used extensively.
+
+While assessing each tool, we looked at three main factors:
+
+-   _Speed:_ Our users want results in real-time, so our new database needed to scale well and give fast results. Ideally, it wouldn’t be too expensive either.
+-   _Complexity:_ PostHog users can self-host and install our product themselves, so we didn’t want it to be too complicated for users to manage or deploy. We didn’t want users to have to install an entire Hadoop stack, for example.
+-   _Query interface:_ We like standardized tools. We eliminated tools such as Druid because, while it does have a SQL wrapper around it, it’s not _exactly_ SQL. That can get messy.
+
+ClickHouse was a good fit for all of these factors, so we started doing a more thorough investigation. We read up on benchmarks and researched the experience of companies such as [Cloudflare that uses ClickHouse to process 6m requests per second](https://blog.cloudflare.com/http-analytics-for-6m-requests-per-second-using-clickhouse/). Eventually, we set up a test cluster to run our own benchmarks.
+
+ClickHouse repeatedly performed an order of magnitude better than other tools we considered. We also discovered other perks, such as the fact that it is column-oriented and written in C++. We found these to be the key benefits of ClickHouse:
+
+-   _Compression:_ ClickHouse has _excellent_ compression and the size-on-disk was incredible. ClickHouse even beat out serialization formats such as ORC and Parquet.
+-   _Process from disk:_ Some OLAP solutions, like Presto, require data to live in memory. That’s fast, but you need to have a _lot_ of memory for big datasets. ClickHouse processes from disk, which is better for smaller instances too.
+-   _Real-time data updates:_ ClickHouse processes data as it arrives, so there’s no need to pre-aggregate data. It’s faster for us, and our users.
+
+Eventually, we decided we knew enough to proceed and so we spun our test cluster out into an actual production cluster. It’s just part of how [we like to bias for speed](/careers).
+
+Now, ClickHouse powers all of our analytics features and we're happy with the path taken.
+
+However knowledge on how to build on it and maintain it is more important than ever, bringing us to this manual.
+
+## Manual sections
+
+- [Data storage or what is a MergeTree](/handbook/engineering/clickhouse/data-storage)
+- [Data replication and distributed queries](/handbook/engineering/clickhouse/replication)
+- [Data ingestion](/handbook/engineering/clickhouse/data-ingestion)
+- [Working with JSON](/handbook/engineering/clickhouse/working-with-json)
+- [Query attribution](/handbook/engineering/clickhouse/query-attribution)
+- [Query performance](/handbook/engineering/clickhouse/performance)
+- [Operations](/handbook/engineering/clickhouse/operations)
+- [Schema case studies](/handbook/engineering/clickhouse/schema)
+    - [sharded_events](/handbook/engineering/clickhouse/schema/sharded-events)
+    - [app_metrics](/handbook/engineering/clickhouse/schema/app-metrics)
+    - [person_distinct_id](/handbook/engineering/clickhouse/schema/person-distinct-id)
+- [Dictionaries](/handbook/engineering/clickhouse/dictionaries)

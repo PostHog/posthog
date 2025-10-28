@@ -1,0 +1,351 @@
+---
+title: Operations
+---
+
+This document gives an overview of the kitchen side of ClickHouse: how various operations work,
+what tricky migrations we have experience with as well as various settings and tips.
+
+## System tables
+
+ClickHouse exposes a **lot** of information about its internals in [`system` tables](https://clickhouse.com/docs/en/operations/system-tables/).
+
+Some stand-out tables:
+- [`system.query_log`](https://clickhouse.com/docs/en/operations/system-tables/query_log) and [`system.processes`](https://clickhouse.com/docs/en/operations/system-tables/processes) contain information on queries executed on the server
+- [`system.tables`](https://clickhouse.com/docs/en/operations/system-tables/tables/) and [`system.columns`](https://clickhouse.com/docs/en/operations/system-tables/columns) 
+  contain metadata about tables and columns
+- [`system.merges`](https://clickhouse.com/docs/en/operations/system-tables/merges) and [`system.mutations`](https://clickhouse.com/docs/en/operations/system-tables/mutations)
+  contain information about ongoing operations
+- [`system.replicated_fetches`](https://clickhouse.com/docs/en/operations/system-tables/replicated_fetches) and 
+  [`system.replication_queue`](https://clickhouse.com/docs/en/operations/system-tables/replication_queue) contain information about data replication
+- [`system.errors`](https://clickhouse.com/docs/en/operations/system-tables/errors) and [`system.crash_log`](https://clickhouse.com/docs/en/operations/system-tables/crash-log)
+  contain information about errors and crashes respectively
+- [`system.distributed_ddl_queue`](https://clickhouse.com/docs/en/operations/system-tables/distributed_ddl_queue) shows information to help diagnose progress of `ON CLUSTER` commands
+
+For examples of usage and tips, check out [this ClickHouse blog article](https://clickhouse.com/blog/clickhouse-debugging-issues-with-system-tables)
+
+## Settings
+
+ClickHouse provides daunting amounts of configuration on all levels. This section provides
+information on the different kind of settings and how to configure them.
+
+### Query settings
+
+Query settings allow to manipulate the behavior of queries, for example setting limits on
+query execution time and resource usage or toggling specific behaviors on-and-off.
+
+Documentation:
+- [Settings](https://clickhouse.com/docs/en/operations/settings/settings)
+- [Restrictions on Query Complexity](https://clickhouse.com/docs/en/operations/settings/query-complexity/)
+
+Using query settings is done:
+- at query-time via ClickHouse client library arguments (preferred)
+- at query-time via explicit [`SETTINGS` clause in queries](https://clickhouse.com/docs/en/sql-reference/statements/select/)
+- via `users.xml` file to apply to all queries
+
+### Server settings
+
+Server settings allow tuning things like global thread or pool sizes, networking and other `clickhouse-server`-level configuration.
+
+Documentation:
+- [Server Settings](https://clickhouse.com/docs/en/operations/server-configuration-parameters/settings/)
+
+You can change server settings via `config.xml` file. **Note:** some settings may require a server restart.
+
+### MergeTree table settings
+
+MergeTree settings allow configuring things from primary index granularity to merge behavior to limits of usage of this table.
+
+Documentation:
+- [MergeTree tables settings](https://clickhouse.com/docs/en/operations/settings/merge-tree-settings/)
+- Undocumented settings can be found in [the source code](https://github.com/ClickHouse/ClickHouse/blob/master/src/Storages/MergeTree/MergeTreeSettings.h)
+
+MergeTree table settings are set either:
+- at table creation time
+- or via [`ALTER TABLE ... SETTING`](https://clickhouse.com/docs/en/sql-reference/statements/alter/setting) statement
+
+### Profiles and users
+
+ClickHouse allows creating different profiles and users with their own set of settings. This can
+be useful to grant read-only access to some users or otherwise limit resource use.
+
+Read more in documentation:
+- [Settings Profiles](https://clickhouse.com/docs/en/operations/settings/settings-profiles)
+- [Settings](https://clickhouse.com/docs/en/operations/settings/settings/)
+
+## Mutations
+
+`ALTER TABLE ... UPDATE` and `ALTER TABLE ... DELETE` operations which mutate data require ClickHouse to
+rewrite whole data via special merge operations. These are frequently expensive operations and require monitoring.
+
+You can monitor progress of mutations via the following system tables:
+- [`system.mutations`](https://clickhouse.com/docs/en/operations/system-tables/mutations/)
+- [`system.merges`](https://clickhouse.com/docs/en/operations/system-tables/merges) - see `is_mutation` column
+- [`system.replication_queue`](https://clickhouse.com/docs/en/operations/system-tables/replication_queue)
+
+When creating mutations, it's often wise to alter the value of [`mutations_sync` setting](https://clickhouse.com/docs/en/operations/settings/settings/#mutations_sync).
+
+Running mutations can be stopped by issuing a [`KILL MUTATION WHERE mutation_id = '...'`](https://clickhouse.com/docs/en/sql-reference/statements/kill/) statement.
+
+Note that this may not stop any currently running merges. To do so, check out [section on `SYSTEM STOP MERGES`](/handbook/engineering/clickhouse/operations#system-stop-merges)
+
+### GDPR
+
+When necessary to delete user data due to GDPR or otherwise, it's wise to do so in batches and asynchronously.
+
+At PostHog, when deleting user data, we schedule for all deletions to occur once per week to minimize the cost
+of rewriting data.
+
+In the future, [lightweight deletes](https://clickhouse.com/docs/en/sql-reference/statements/delete/) might simplify this process.
+
+## Merges
+
+[As explained previously](/handbook/engineering/clickhouse/data-storage#what-does-the-merge-stand-for), merges are the lifeblood
+of ClickHouse, responsible for optimizing how data is laid out on disk as well as for deduplicating data.
+
+Merges can be monitored via the following tables:
+- [`system.merges`](https://clickhouse.com/docs/en/operations/system-tables/merges)
+- [`system.replication_queue`](https://clickhouse.com/docs/en/operations/system-tables/replication_queue)
+
+### `OPTIMIZE TABLE`
+
+[`OPTIMIZE TABLE`] statement schedules merges for a table, optimizing the on-disk layout or speeding up queries or
+[forcing some schema changes into effect.](/handbook/engineering/clickhouse/operations#simple-schema-changes)
+
+**Note:** not all parts are guaranteed to be merged if the size of parts exceeds maximum limits or if data is already in a single part.
+In this case adding a `FINAL` modifier forces the merge regardless.
+
+### `SYSTEM STOP MERGES`
+
+[`SYSTEM STOP MERGES`](https://clickhouse.com/docs/en/sql-reference/statements/system/#stop-merges) statement can stop background merges
+from occurring temporarily for a table or the whole database. This can be useful during trickier schema migrations when copying data.
+
+Note unless ingestion is paused during this time, this can easily lead to `too many parts` errors.
+
+Merges can be resumed via [`SYSTEM START MERGES`](https://clickhouse.com/docs/en/sql-reference/statements/system/#start-merges) statement.
+
+### Important settings
+
+Merges have many relevant settings associated to be cognizant about:
+- [`parts_to_throw_insert`](https://clickhouse.com/docs/en/operations/settings/merge-tree-settings/#parts-to-throw-insert) controls when ClickHouse starts
+    when parts count gets high.
+- [max_bytes_to_merge_at_max_space_in_pool](https://clickhouse.com/docs/en/operations/settings/merge-tree-settings/#max-bytes-to-merge-at-max-space-in-pool) controls maximum part size
+- [`background_pool_size`](https://clickhouse.com/docs/en/operations/server-configuration-parameters/settings/#background_pool_size) (and related)
+    server settings control how many merges are executed in parallel
+- Undocumented `max_replicated_mutations_in_queue` and `max_replicated_merges_in_queue` settings control how many merges are processed at once
+
+## Simple schema changes
+
+As in any other database, schema changes are done via [`ALTER TABLE`](https://clickhouse.com/docs/en/sql-reference/statements/alter/) statements.
+
+One area where ClickHouse differs from other databases is that schema changes are generally lazy and apply to only new data or merged parts. This applies to:
+- Adding or removing columns, changing default values
+- Changing compression of columns
+- Updating table settings
+
+You can generally force these changes onto old data by forcing data to be merged via
+ [`OPTIMIZE TABLE FINAL`](https://clickhouse.com/docs/en/sql-reference/statements/optimize/)
+statement, but this can be expensive.
+
+## TTLs
+
+[ClickHouse TTLs](https://clickhouse.com/docs/en/sql-reference/statements/alter/ttl/) allow dropping old rows or columns after expiry.
+
+It's suggested to set up your table to partition by timestamp as well, so old files can be dropped completely instead of needing to be
+rewritten as a result of TTL.
+
+## Tricky schema changes
+
+Some schema changes are deceptively hard and frequently requires rewriting the whole table or re-creating
+the tables.
+
+Make sure to never re-use Zookeeper paths when re-creating replicated table!
+
+The difference often comes down to [how data is stored on disk](/handbook/engineering/clickhouse/data-storage) and its implications.
+
+### Async migrations
+
+At PostHog, we've developed Async Migrations for executing these long-running operations in the background without affecting availability.
+
+You can learn more about Async Migrations in our [blog](/blog/async-migrations), [handbook](/handbook/engineering/databases/async-migrations), and
+[runbook](/docs/runbook/async-migrations).
+
+### Pausing ingestion
+
+This is frequently a prerequisite of any large-scale schema change as new data may get lost when you are copying data from
+one place to another.
+
+If you're using [Kafka engine tables for ingestion](/handbook/engineering/clickhouse/data-ingestion#how-kafka-tables-work), you can pause
+ingestion by dropping materialized view(s) attached to Kafka engine tables.
+
+To restart ingestion, recreate the dropped table(s).
+
+> Note that you can also detach the materialized views instead of dropping them (`DETACH TABLE my_mv`), but be aware that detached views have some weird behaviors, such as being re-attached on node restarts, "existing in a limbo" (they do not show up on `system.tables` and cannot be dropped but `SHOW CREATE TABLE my_mv` will return results), as well as potentially causing naming clashes. 
+
+### Changing table engines
+
+When changing table engines, you can leverage [`ATTACH PARTITION`](https://clickhouse.com/docs/en/sql-reference/statements/alter/partition/)
+commands to move data between tables.
+
+**Note:** ATTACH PARTITION commands only work if the two tables have identical structure: same columns and ORDER BY/PARTITION BY. It works by
+creating hard links between partitions, so the operation does not require any extra disk space until merges happen.
+
+Thus it's important to stop ingesting new data and merges during this operation.
+
+PostHog needed to implement this kind of operation to move to a sharded schema:
+[`0004_replicated_schema.py`](https://github.com/PostHog/posthog/blob/3573aa41941a152e57e0f23fba7a2d1e83a9a9af/posthog/async_migrations/migrations/0004_replicated_schema.py).
+
+### Changing `ORDER BY` or `PARTITION BY`
+
+Changing `ORDER BY` and `PARTITION BY` affects how data is stored on disk and requires rewriting this data.
+
+> In the case of `ORDER BY`, you can modify it with `ALTER TABLE my_table MODIFY ORDER BY`, but only to add a new column expression. Other changes require using the approaches below.
+
+Suggested procedure if using `ReplacingMergeTree`:
+1. Create a new table with correct `ORDER BY`
+2. Create a new materialized view table, writing new data to new table.
+3. Copy data over from old table via [`INSERT INTO SELECT`](https://clickhouse.com/docs/en/sql-reference/statements/insert-into/#inserting-the-results-of-select)
+4. Deduplicate via `OPTIMIZE TABLE FINAL` if feasible.
+
+Note that INSERT-ing data this way may be slow or time out. Consider:
+- Dropping any materialized columns temporarily
+- Increasing query settings `max_execution_time`, `send_timeout`, `receive_timeout` timeouts to be large enough
+- Finding correct values for query settings `max_block_size`, `max_insert_block_size`, `max_threads`, `max_insert_threads`
+- Setting `optimize_on_insert` setting to `0`
+
+Note that this operation temporarily doubles the amount of disk space you need.
+
+An example (from PostHog) of an async migration: [0005_person_replacing_by_version.py](https://github.com/PostHog/posthog/blob/50deeae355af35b3512097ebdc592c9fadd84bb4/posthog/async_migrations/migrations/0005_person_replacing_by_version.py)
+
+### Resharding
+
+At PostHog, we've haven't had to reshard data (yet), but the process would look similar to changing `ORDER BY` or `PARTITION BY`, requiring either to pause data or deduplicate at the end.
+
+Storing/restoring parts of data from backups might also simplify this process.
+
+### Denormalizing columns via dictionaries
+
+A powerful tool in the arsenal of performance is de-normalization of data.
+
+At PostHog, we eliminated some JOINs for person data by storing information on person identities and properties directly on events.
+
+Backfilling this data was implemented via `ALTER TABLE UPDATE` populating new columns. The column data was pulled in
+[using dictionaries](https://clickhouse.com/docs/en/sql-reference/dictionaries/external-dictionaries/external-dicts/)
+which allowed to query and store data from other tables in memory during the update.
+
+An alternative approach might have been to create a new table and populate it similar to changing `ORDER BY`, but this
+would have required expensive deduplication, a lot of extra space and even more memory usage.
+
+Learn more on this:
+- [0007_persons_and_groups_on_events_backfill.py](https://github.com/PostHog/posthog/blob/7aaa6ef710daadc7e8324ffe62ea1f89ee96d199/posthog/async_migrations/migrations/0007_persons_and_groups_on_events_backfill.py)
+- [Altinity knowledge base: Column backfilling with alter/update using a dictionary](https://kb.altinity.com/altinity-kb-schema-design/backfill_column/)
+
+
+## Useful information for cluster admins
+
+### Detached materialized views
+
+If you ever `DETACH` a materialized view, it's important to keep in mind that the view now exists in a "limbo" state that can be confusing and cause issues.
+
+Detached views don't show up on `system.tables`, but you can assert that a view exists by running `SHOW CREATE TABLE <detached_mv>`. 
+
+In addition, detached views (except if `DETACH` was executed with `PERMANENTLY`) will be reattached on server restarts! 
+
+As an example of how this has been problematic for us in the past, we once detached views to handle ingestion problems, and then on rebooting the nodes we got confused as to why ingestion hadn't stopped!
+
+
+### Orphan Zookeeper records
+
+Prior to ClickHouse 22.3, bugs in ClickHouse meant that reasonably often Zookeeper would end up with "orphan records". These are references to things like parts in ClickHouse that no longer exist, but remain referenced. While orphan records were common prior to 22.3, it's still possible that such records come to exist on newer ClickHouse versions as well, as an expected consequence of distributed systems.
+
+Orphan records pose a problem because they may cause ClickHouse to use resources and try to perform operations on e.g. non-existent parts. For instance, we've seen mutations hang for months due to ClickHouse expecting it still needs to modify a part but the part no longer existing.
+
+As a result, it's important to clean these up.
+
+#### Orphan parts
+
+Orphaned parts are perhaps the most common type of orphan record, so much so that Altinity has [written a guide](https://kb.altinity.com/altinity-kb-useful-queries/parts-consistency/#compare-the-list-of-parts-in-zookeeper-with-the-list-of-parts-on-disk) to help identify and delete them, as well as they recommended everyone do so when upgrading past 22.3.
+
+To do this cleanup properly, you should:
+
+1. Check if you have any orphan parts (this should be run per node in your cluster, or you could modify the query to use `clusterAllReplicas`):
+
+```sql runInPostHog=false
+select zoo.p_path as part_zoo, zoo.ctime, zoo.mtime, disk.p_path as part_disk
+from
+(
+  select concat(path,'/',name) as p_path, ctime, mtime
+  from system.zookeeper where path in (select concat(replica_path,'/parts') from system.replicas)
+) zoo
+left join 
+(
+  select concat(replica_path,'/parts/',name) as p_path
+  from system.parts inner join system.replicas using (database, table)
+) disk on zoo.p_path = disk.p_path
+where part_disk=''
+order by part_zoo
+```
+
+2. Generate delete statements for each record that needs to be removed from Zookeeper:
+
+
+```bash
+clickhouse-client --password <password> --query "select 'delete '||part_zoo
+from (
+select zoo.p_path as part_zoo, zoo.ctime, zoo.mtime, disk.p_path as part_disk
+from
+(
+ select concat(path,'/',name) as p_path, ctime, mtime
+ from system.zookeeper where path in (select concat(replica_path,'/parts') from system.replicas)
+) zoo
+left join
+(
+ select concat(replica_path,'/parts/',name) as p_path
+ from system.parts inner join system.replicas using (database, table)
+) disk on zoo.p_path = disk.p_path
+where part_disk='' and zoo.mtime <= now() - interval 30 day
+order by part_zoo) format TSVRaw" > tmp_zk_orphans
+```
+
+3. SSH into _one_ of your Zookeeper nodes
+4. Start up the ZK CLI (`zkCli.sh`) and paste the delete statements
+5. Check that the query from step 1 no longer returns anything
+
+#### Orphan replication queue records
+
+A more confusing issue can also happen when the replication queue contains operations that reference inexistent parts. 
+
+This is harder to notice proactively but may manifest itself in a migration that hangs indefinitely because it still has parts it needs to operate on but those parts don't exist.
+
+If you spot a migration that doesn't seem to be progressing after a long time, it's worth checking if the parts in the `parts_to_do` column of the `system.mutations` table contains any parts that don't exist.
+
+You can also spot this by looking at the replication queue for long-running operations. You could run the following query, for example:
+
+```sql runInPostHog=false
+select * from clusterAllReplicas('<cluster_name>', system.replication_queue) order by create_time
+```
+
+And check if any operations were created a long time ago, particularly simple ones like `GET_PART`.
+
+Finally, another symptom you can look out for are recurrent logs that look like the following:
+
+```
+Checking part 137_0_27780_19674
+Checking if anyone has a part 137_0_27780_19674 or covering part.
+```
+
+If the server has been looking for a part for days and hasn't found it anywhere, there's probably something wrong.
+
+Having established this problem, the way to fix it is as follows:
+
+1. Get the `node_name` of the hanging queue record
+2. SSH into a Zookeeper node and using ZK CLI, delete the record. Note that for this you will need the full Zookeeper path of the record. You can use `ls` within the Zookeeper CLI to understand the storage structure if necessary. The path should look something like this: `/clickhouse/tables/<shard_number>/<database_name>.<table_name>/replicas/<replica_name>/queue/<node_name>` but will also vary for replicated and non-replicated tables.
+3. Having deleted the record, you should run `SYSTEM RESTART REPLICA <table_name>` on the ClickHouse node with the orphan queue item. This command will fetch the updated metadata from Zookeeper. It's also worth running it across your cluster for good measure.
+
+
+## Learn more
+
+More information for ClickHouse operations can be found in:
+- [Altinity knowledgebase](https://kb.altinity.com/)
+- [Tinybird knowledgebase](https://www.tinybird.co/clickhouse/knowledge-base/)
+
+Next in the ClickHouse manual: [Schema case studies](/handbook/engineering/clickhouse/schema)

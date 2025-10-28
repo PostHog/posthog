@@ -1,0 +1,72 @@
+---
+title: Working with JSON
+---
+
+At PostHog, we store arbitrary payloads users send us for further analysis as JSON. As such, it's critical
+we do a good job at storing and analyzing this data.
+
+This document covers:
+- Storing JSON in `String`s and operations on them
+- Why and how to compress this data
+- Materialized columns
+- Alternative solutions: JSON data type, arrays
+
+## JSON Strings
+
+At PostHog, we store JSON data as `VARCHAR` (or `String`) columns.
+
+Relevant properties are then parsed out from the `String` columns at query-time using [`JSONExtract` functions](https://clickhouse.com/docs/en/sql-reference/functions/json-functions/#jsonhasjson-indices_or_keys).
+
+This has the following problems:
+1. These columns end up really large even after compression, meaning slow I/O
+2. It requires CPU to parse properties
+3. Data is not stored optimally. As an example, JSON keys are frequently repeated and numbers are stored as strings.
+
+### Compressing JSON
+
+Luckily, JSON compresses really well, speeding up reading this data from disk.
+
+By default our JSON columns are compressed by the `LZ4` algorithm. See
+[benchmarks](https://github.com/PostHog/posthog/issues/10616) for more information and benchmarks.
+
+### Materialized columns
+
+ClickHouse has support for [Materialized columns](https://clickhouse.com/docs/en/sql-reference/statements/create/table/#materialized)
+which are columns calculated dynamically based off of other columns.
+
+We leverage them to dynamically create new columns for frequently-queried JSON keys to speed up queries as each materialized column
+is stored the same way as normal columns and requires less resources to read and parse.
+
+Read more in our [blog](/blog/clickhouse-materialized-columns) and in [this guide](/handbook/engineering/databases/materialized-columns)
+for PostHog specific details.
+
+#### Operational notes
+
+After adding a materialized column, it is only populated for new data and on merges. When querying old data, this can introduce
+performance regressions, so [forcing the column to be written to disk](https://clickhouse.com/docs/en/sql-reference/statements/alter/column/#materialize-column), even for historical data, is recommended.
+
+Materialized columns may cause issues during operations - e.g. they can make copying data between tables painful. It's
+sometimes worth considering dropping them before large operations.
+
+## Alternative solutions
+
+### Arrays
+
+[Uber published an article on their logging](https://eng.uber.com/logging/), popularizing the idea to store JSON data as arrays: one for keys,
+one for values.
+
+However internal benchmarking showed that [in our use-case the improvement wasn't big enough to be worth the investment (yet).](https://github.com/PostHog/posthog/issues/7874).
+
+
+### Semi-structured data / JSON data type
+
+In 2022, ClickHouse released support for [semi-structured data](https://clickhouse.com/docs/en/guides/developer/working-with-json/json-semi-structured/).
+
+However after testing we encountered several fundamental problems which make this feature unusable in our case until they are resolved:
+[1](https://github.com/ClickHouse/ClickHouse/issues/38530),
+[2](https://github.com/ClickHouse/ClickHouse/issues/38522),
+[3](https://github.com/ClickHouse/ClickHouse/issues/38517),
+[4](https://github.com/ClickHouse/ClickHouse/issues/38554), and
+[5](https://github.com/ClickHouse/ClickHouse/issues/38478)
+
+Next in the ClickHouse manual: [Query performance](/handbook/engineering/clickhouse/performance)

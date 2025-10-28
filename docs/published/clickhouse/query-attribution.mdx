@@ -1,0 +1,201 @@
+---
+title: Query attribution
+---
+
+A guideline for making the ClickHouse queries attribute correctly.
+
+## Current state
+
+We don't fully understand why our ClickHouse get sometimes overloaded. We extensively use query's `SETTING`: `log_comment` to put JSON with bunch of metadata inside it. 
+
+### A bit more background 
+
+We process thousands queries per second, historically it used to be mostly the traffic from our application us.posthog.com / eu.posthog.com and using only one `default` ClickHouse user. Recently, it has been a mix of different query issuers (Temporal, Celery, and services cut out from Django), with most of the queries still using `default` user.
+
+We've managed to separate `batch_export`, `app` and `api` traffic to use separate ClickHouse users and tune the settings to not fully starve any of those use cases of capacity.
+
+Most ClickHouse queries made as a result of HTTP request to Django app contains the proper http_request_id, route_id and id.
+
+This allow us to do basic analysis.
+
+## Where we want to be
+
+We want to know:
+ * why was a query started,
+ * what/who initiated the query,
+ * how much resources it consumed.
+
+This will allow us to better manage the ClickHouse load and understand which products and features require the most compute resources and how they are correlated. Especially, how one request to an API may end up multiple queries to ClickHouse.
+
+### Tags
+
+In Python, there is a [`tag_queries`](https://github.com/PostHog/posthog/blob/53b5f6e84cfa824516dc451c4dcd7c8e1539c9e5/posthog/clickhouse/query_tagging.py#L25) helper function one may use, be aware that it tags **all queries** issued from within a Python thread (it uses thread local memory).
+
+Alternatively, you may consider [`tags_context`](https://github.com/PostHog/posthog/blob/53b5f6e84cfa824516dc451c4dcd7c8e1539c9e5/posthog/clickhouse/query_tagging.py#L64) for localized tags.
+
+Each query send to ClickHouse must have the following tags:
+
+  * team_id: ?Int64 - team id,
+  * user_id: ?Int64 - query run initiated by a user,
+  * access_method: ?String - the only value we use is: `personal_api_key`,
+  * product - **NEW** PostHog product name,
+  * org_id - **NEW** organization id - we don't have it now, but it may make analyzing data a easier,
+  * kind: ?String - detect kind of query, almost all queries have it, only 4 values seen: `["celery", "cohort_calculation", "batch_export", "request"]`,
+  * id - it used to have a id of a workload (e.g. celery job name: `posthog.tasks.calculate_cohort.calculate_cohort_ch`, or exact path of request: `/api/projects/2/insights/trend`),
+  * query: JSON - contains a query object that QueryRunner run, literally the whole query object.
+
+  * route_id: ?String - route_id in `api` (e.g. `api/projects/(?P<parent_lookup_team_id>[^/.]+)/insights/trend/?$`),
+  * workload: ?String - for now only: ONLINE / OFFLINE are used, it suppose to designate whether a query is part of ONLINE workload,
+  * dashboard_id: ?Int64 - if query executes to render part of dashboard,
+  * insight_id: ?Int64 - if query is run to show insight,
+  * chargeable: ?byte - set to `1` for queries we intend to charge,
+
+  * name: ?String - you can name your queries,
+  * http_request_id: ?String - HTTP request that initiated a query, set only if is a proper UUID.
+
+Types were reverse engineered from our ClickHouse `system.query_log.log_comment` column.
+
+### Current state of log_comment
+
+We use at least 42 unique tags:
+
+| Tag Key | Occurrences |
+|---------|-------------|
+| query_settings | 1,826,072 |
+| workload | 1,826,072 |
+| kind | 1,788,761 |
+| id | 1,788,745 |
+| team_id | 1,667,247 |
+| user_id | 1,479,256 |
+| http_request_id | 1,441,577 |
+| container_hostname | 1,441,577 |
+| route_id | 1,441,577 |
+| http_user_agent | 1,433,807 |
+| http_referer | 1,127,494 |
+| query_type | 809,331 |
+| has_joins | 694,281 |
+| has_json_operations | 694,281 |
+| person_on_events_mode | 456,285 |
+| modifiers | 439,930 |
+| timings | 439,930 |
+| cache_key | 394,951 |
+| sentry_trace | 394,951 |
+| query | 374,767 |
+| client_query_id | 324,355 |
+| access_method | 322,253 |
+| feature | 297,173 |
+| insight_id | 157,439 |
+| entity_math | 133,956 |
+| filter | 133,956 |
+| filter_by_type | 133,956 |
+| number_of_entities | 133,956 |
+| query_time_range_days | 133,956 |
+| dashboard_id | 102,664 |
+| session_id | 62,901 |
+| user_email | 45,918 |
+| trigger | 33,422 |
+| chargeable | 26,807 |
+| $process_person_profile | 1,856 |
+| experiment_name | 1,697 |
+| experiment_id | 1,697 |
+| experiment_feature_flag_key | 1,697 |
+| experiment_is_data_warehouse_query | 770 |
+| clickhouse_exception_type | 556 |
+| usage_report | 25 |
+| batch_export_id | 16 |
+
+
+#### Queries to dive into `log_comment`
+
+**Get tag frequency**
+
+```SQL runInPostHog=false
+SELECT
+    arrayJoin(JSONExtractKeys(log_comment)) AS tag_key,
+    count() AS occurrences
+FROM clusterAllReplicas(posthog, system.query_log)
+WHERE 
+    event_date = '2025-06-06'
+    AND is_initial_query
+    AND type = 'QueryStart'
+    AND log_comment != ''
+GROUP BY tag_key
+ORDER BY occurrences DESC;
+```
+
+**Get tag type, number of occurrences and values**
+
+```SQL runInPostHog=false
+SELECT
+    {{tag_name}} AS tag_name,
+    JSONType(log_comment, {{tag_name}}) AS value_type,
+    count() AS occurrences,
+    count(distinct JSONExtractRaw(log_comment, {{tag_name}})) AS distinct_values,
+    groupUniqArray(20)(JSONExtractRaw(log_comment, {{tag_name}})) AS example_value -- Get an example
+FROM clusterAllReplicas(posthog, system.query_log)
+WHERE 
+    event_date >= '2025-06-06'
+    AND is_initial_query
+    AND type = 'QueryStart'
+    AND JSONHas(log_comment, {{tag_name}})
+GROUP BY value_type
+ORDER BY occurrences DESC;
+```
+
+#### Example values of `query` tag
+
+```
+{
+  "kind": "DataVisualizationNode",
+  "source": {
+    "kind": "HogQLQuery",
+    "query": "SELECT\n round(avg($is_bounce), 1) AS bounce_rate\nFROM\n sessions\n INNER JOIN events ON sessions.id = events.properties.$session_id\nWHERE\n event = '$pageview'\n AND properties.$current_url LIKE '%forum.%'\n",
+    "variables": {}
+  },
+  "display": "BoldNumber",
+  "chartSettings": {
+    "yAxis": [
+      {
+        "column": "bounce_rate",
+        "settings": {
+          "display": {
+            "color": "#1d4aff",
+            "label": "",
+            "trendLine": false,
+            "displayType": "auto",
+            "yAxisPosition": "left"
+          },
+          "formatting": {
+            "style": "percent",
+            "prefix": "",
+            "suffix": ""
+          }
+        }
+      }
+    ],
+    "seriesBreakdownColumn": null
+  },
+  "tableSettings": {
+    "columns": [
+      {
+        "column": "bounce_rate",
+        "settings": {
+          "display": {
+            "color": "#1d4aff",
+            "label": "",
+            "trendLine": false,
+            "displayType": "auto",
+            "yAxisPosition": "left"
+          },
+          "formatting": {
+            "style": "percent",
+            "prefix": "",
+            "suffix": ""
+          }
+        }
+      }
+    ],
+    "conditionalFormatting": []
+  }
+}
+```
