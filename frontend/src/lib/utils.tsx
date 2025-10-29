@@ -1323,6 +1323,11 @@ export const areDatesValidForInterval = (
             parsedOldDateTo.diff(parsedOldDateFrom, 'minute') >= 2 &&
             parsedOldDateTo.diff(parsedOldDateFrom, 'minute') < 60 * 12 // 12 hours. picked based on max graph resolution
         )
+    } else if (interval === 'second') {
+        return (
+            parsedOldDateTo.diff(parsedOldDateFrom, 'second') >= 2 &&
+            parsedOldDateTo.diff(parsedOldDateFrom, 'second') < 60 * 60 // 1 hour
+        )
     }
     throw new UnexpectedNeverError(interval)
 }
