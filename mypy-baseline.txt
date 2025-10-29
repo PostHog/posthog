@@ -573,6 +573,7 @@ posthog/hogql/database/database.py:0: error: Argument "week_start_day" to "Datab
 posthog/hogql/database/database.py:0: error: Item "None" of "Any | None" has no attribute "get"  [union-attr]
 posthog/hogql/database/database.py:0: error: Value of type "Any | None" is not indexable  [index]
 posthog/hogql/filters.py:0: error: Incompatible default for argument "team" (default has type "None", argument has type "Team")  [assignment]
+posthog/hogql/metadata.py:0: error: Incompatible types in assignment (expression has type "dict[str, dict[str, Any]]", variable has type "dict[str, ViewMetadata] | None")  [assignment]
 posthog/hogql/parser.py:0: error: Argument "body" to "WhileStatement" has incompatible type "Any | None"; expected "Statement"  [arg-type]
 posthog/hogql/parser.py:0: error: Argument "expr" to "ThrowStatement" has incompatible type "Any | None"; expected "Expr"  [arg-type]
 posthog/hogql/parser.py:0: error: Statement is unreachable  [unreachable]
