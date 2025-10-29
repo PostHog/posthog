@@ -497,6 +497,11 @@ class AgentToolsNode(BaseAgentNode):
             visible=tool_class.show_tool_call_message,
         )
 
+        new_mode = state.agent_mode
+        if tool_call.name == "switch_mode":
+            new_mode = result.artifact
+
         return PartialAssistantState(
             messages=[tool_message],
+            agent_mode=new_mode,
         )

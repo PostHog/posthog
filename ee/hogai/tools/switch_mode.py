@@ -73,7 +73,6 @@ async def _get_default_tools_prompt(
     user: User,
     state: AssistantState | None = None,
     config: RunnableConfig | None = None,
-    context_manager: AssistantContextManager,
 ) -> str:
     """Get the prompt containing the description of the default tools."""
     from ee.hogai.graph.agent.nodes import DEFAULT_TOOLS
@@ -82,9 +81,10 @@ async def _get_default_tools_prompt(
         *[
             tool_class.create_tool_class(team=team, user=user, state=state, config=config)
             for tool_class in DEFAULT_TOOLS
+            if tool_class != SwitchModeTool
         ]
     )
-    return ", ".join([tool.get_name() for tool in resolved_tools])
+    return ", ".join([tool.get_name() for tool in resolved_tools]) + ", switch_mode"
 
 
 class SwitchModeTool(MaxTool):
@@ -92,8 +92,8 @@ class SwitchModeTool(MaxTool):
     thinking_message: str = "Switching to a different mode"
     context_prompt_template: str = "N/A"  # TODO:
 
-    async def _arun_impl(self, new_mode: str) -> tuple[str, None]:
-        return format_prompt_string(SWITCH_MODE_TOOL_PROMPT, new_mode=new_mode), None
+    async def _arun_impl(self, new_mode: str) -> tuple[str, str]:
+        return format_prompt_string(SWITCH_MODE_TOOL_PROMPT, new_mode=new_mode), new_mode
 
     @classmethod
     async def create_tool_class(
@@ -103,9 +103,7 @@ class SwitchModeTool(MaxTool):
 
         context_manager = AssistantContextManager(team, user, config)
         default_tools, available_modes = await asyncio.gather(
-            _get_default_tools_prompt(
-                team=team, user=user, state=state, config=config, context_manager=context_manager
-            ),
+            _get_default_tools_prompt(team=team, user=user, state=state, config=config),
             _get_modes_prompt(team=team, user=user, state=state, config=config, context_manager=context_manager),
         )
         description_prompt = format_prompt_string(

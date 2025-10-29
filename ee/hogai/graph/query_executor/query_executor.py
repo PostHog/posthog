@@ -1,7 +1,7 @@
 import json
 import time
 import asyncio
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Optional
 
 from django.conf import settings
@@ -511,7 +511,7 @@ async def execute_and_format_query(team: Team, query: SupportedQueryTypes) -> st
     Returns:
         The formatted query results.
     """
-    utc_now_datetime = timezone.now().astimezone(datetime.UTC)
+    utc_now_datetime = timezone.now().astimezone(UTC)
     query_runner = AssistantQueryExecutor(team, utc_now_datetime)
     results, used_fallback = await query_runner.arun_and_format_query(query)
     example_prompt = FALLBACK_EXAMPLE_PROMPT if used_fallback else get_example_prompt(query)
