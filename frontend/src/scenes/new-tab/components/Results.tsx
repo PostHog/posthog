@@ -130,8 +130,10 @@ function Category({
         newTabSceneDataGroupedItemsFullData,
         getSectionItemLimit,
         newTabSceneDataInclude,
+        recents,
+        recentsLoading,
     } = useValues(newTabSceneLogic({ tabId }))
-    const { showMoreInSection, logCreateNewItem } = useActions(newTabSceneLogic({ tabId }))
+    const { showMoreInSection, logCreateNewItem, loadMoreRecents } = useActions(newTabSceneLogic({ tabId }))
     const { groupTypes } = useValues(groupsModel)
 
     return (
@@ -331,7 +333,10 @@ function Category({
                                 (() => {
                                     const currentLimit = getSectionItemLimit(category)
                                     const fullCount = newTabSceneDataGroupedItemsFullData[category] || 0
-                                    const hasMore = fullCount > currentLimit
+                                    const isRecentsSection = category === 'recents'
+                                    const hasMore = isRecentsSection
+                                        ? recents.hasMore || fullCount > currentLimit
+                                        : fullCount > currentLimit
 
                                     return (
                                         hasMore && (
@@ -342,10 +347,15 @@ function Category({
                                             >
                                                 <ButtonPrimitive
                                                     size="sm"
+                                                    disabled={isRecentsSection && recentsLoading}
                                                     onClick={() => {
                                                         const showAllIndex = typedItems.length // The "Show all" button index
 
-                                                        showMoreInSection(category)
+                                                        if (isRecentsSection) {
+                                                            loadMoreRecents()
+                                                        } else {
+                                                            showMoreInSection(category)
+                                                        }
 
                                                         // Restore focus to the item that replaces the "Show all" button
                                                         setTimeout(() => {
@@ -355,8 +365,10 @@ function Category({
                                                     }}
                                                     className="w-full text-tertiary data-[focused=true]:text-primary"
                                                 >
-                                                    <IconArrowRight className="rotate-90" /> Show all (
-                                                    {fullCount - currentLimit} more)
+                                                    <IconArrowRight className="rotate-90" />
+                                                    {isRecentsSection
+                                                        ? ' Load more...'
+                                                        : ` Show all (${fullCount - currentLimit} more)`}
                                                 </ButtonPrimitive>
                                             </ListBox.Item>
                                         )

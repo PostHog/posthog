@@ -150,7 +150,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         selectPrevious: true,
         onSubmit: true,
         setSelectedCategory: (category: NEW_TAB_CATEGORY_ITEMS) => ({ category }),
-        loadRecents: true,
+        loadRecents: (options?: { offset?: number }) => ({ offset: options?.offset ?? 0 }),
+        loadMoreRecents: true,
         debouncedPersonSearch: (searchTerm: string) => ({ searchTerm }),
         debouncedEventDefinitionSearch: (searchTerm: string) => ({ searchTerm }),
         debouncedPropertyDefinitionSearch: (searchTerm: string) => ({ searchTerm }),
@@ -202,14 +203,22 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 return { results: [], hasMore: false, startTime: null, endTime: null }
             }) as any as SearchResults,
             {
-                loadRecents: async (_, breakpoint) => {
+                loadRecents: async ({ offset }, breakpoint) => {
                     if (values.recentsLoading) {
                         await breakpoint(250)
                     }
                     const searchTerm = values.search.trim()
                     const noResultsPrefix = values.firstNoResultsSearchPrefixes.recents
 
+                    const requestedOffset = offset ?? 0
+                    const isAppending =
+                        requestedOffset > 0 &&
+                        values.recents.searchTerm === searchTerm &&
+                        values.recents.results.length > 0
+                    const effectiveOffset = isAppending ? requestedOffset : 0
+
                     if (
+                        effectiveOffset === 0 &&
                         searchTerm &&
                         noResultsPrefix &&
                         searchTerm.length > noResultsPrefix.length &&
@@ -228,6 +237,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         limit: PAGINATION_LIMIT + 1,
                         orderBy: '-last_viewed_at',
                         notType: 'folder',
+                        offset: effectiveOffset,
                     })
                     breakpoint()
                     const searchChunks = searchTerm
@@ -237,18 +247,25 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     const filteredCount = searchTerm
                         ? response.results.filter((item) => matchesRecentsSearch(item, searchChunks)).length
                         : response.results.length
+                    const newResults = response.results.slice(0, PAGINATION_LIMIT)
+                    const combinedResults =
+                        isAppending && values.recents.searchTerm === searchTerm
+                            ? [...values.recents.results, ...newResults]
+                            : newResults
                     const recents = {
                         searchTerm,
-                        results: response.results.slice(0, PAGINATION_LIMIT),
+                        results: combinedResults,
                         hasMore: response.results.length > PAGINATION_LIMIT,
-                        lastCount: Math.min(response.results.length, PAGINATION_LIMIT),
+                        lastCount: newResults.length,
                     }
-                    if (searchTerm) {
-                        actions.setFirstNoResultsSearchPrefix('recents', filteredCount === 0 ? searchTerm : null)
-                    } else {
-                        actions.setFirstNoResultsSearchPrefix('recents', null)
+                    if (effectiveOffset === 0) {
+                        if (searchTerm) {
+                            actions.setFirstNoResultsSearchPrefix('recents', filteredCount === 0 ? searchTerm : null)
+                        } else {
+                            actions.setFirstNoResultsSearchPrefix('recents', null)
+                        }
                     }
-                    if ('sessionStorage' in window && searchTerm === '') {
+                    if ('sessionStorage' in window && searchTerm === '' && effectiveOffset === 0) {
                         try {
                             window.sessionStorage.setItem(
                                 `newTab-recentItems-${getCurrentTeamId()}`,
@@ -492,7 +509,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             {
                 showMoreInSection: (state, { section }) => ({
                     ...state,
-                    [section]: Infinity,
+                    [section]: section === 'recents' ? (state[section] ?? 5) : Infinity,
+                }),
+                loadMoreRecents: (state) => ({
+                    ...state,
+                    recents: (state['recents'] ?? 5) + PAGINATION_LIMIT,
                 }),
                 resetSectionLimits: () => ({}),
                 setSearch: () => ({}),
@@ -1348,6 +1369,15 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
+        loadMoreRecents: () => {
+            if (values.recentsLoading) {
+                return
+            }
+
+            if (values.recents.hasMore) {
+                actions.loadRecents({ offset: values.recents.results.length })
+            }
+        },
         logCreateNewItem: async ({ href }) => {
             if (!href) {
                 return

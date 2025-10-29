@@ -98,4 +98,42 @@ describe('newTabSceneLogic - recents search', () => {
 
         expect(listMock).not.toHaveBeenCalled()
     })
+
+    it('loads additional recents with pagination', async () => {
+        const PAGINATION_LIMIT = 10
+
+        listMock.mockImplementation(async ({ offset = 0 }) => {
+            const results = Array.from({ length: PAGINATION_LIMIT + 1 }, (_, index) => ({
+                path: `project://item-${offset + index}`,
+                type: 'insight',
+                last_viewed_at: null,
+            })) as any
+
+            return {
+                ...defaultResponse,
+                results,
+            }
+        })
+
+        logic.actions.setSearch('')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(listMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                offset: 0,
+                limit: PAGINATION_LIMIT + 1,
+            })
+        )
+        expect(logic.values.recents.results).toHaveLength(PAGINATION_LIMIT)
+        expect(logic.values.recents.hasMore).toBe(true)
+
+        listMock.mockClear()
+
+        logic.actions.loadMoreRecents()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(listMock).toHaveBeenCalledWith(expect.objectContaining({ offset: PAGINATION_LIMIT }))
+        expect(logic.values.recents.results).toHaveLength(PAGINATION_LIMIT * 2)
+        expect(logic.values.sectionItemLimits.recents).toBe(PAGINATION_LIMIT + 5)
+    })
 })
