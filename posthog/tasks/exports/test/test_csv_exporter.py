@@ -807,13 +807,13 @@ class TestCSVExporter(APIBaseTest):
             lines = (content or "").strip().splitlines()
 
             expected_lines = [
-                "series,21-Mar-2023,22-Mar-2023,23-Mar-2023,24-Mar-2023,25-Mar-2023,26-Mar-2023,27-Mar-2023,28-Mar-2023",
-                "Chrome - current,2.0,0.0,0.0,0.0,0.0,0.0,0.0,3.0",
-                "Firefox - current,1.0,0.0,0.0,0.0,0.0,0.0,0.0,2.0",
-                "Safari - current,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0",
-                "Chrome - previous,0.0,0.0,0.0,0.0,0.0,0.0,0.0,2.0",
-                "Firefox - previous,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0",
-                "Safari - previous,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0",
+                "series,$browser,21-Mar-2023,22-Mar-2023,23-Mar-2023,24-Mar-2023,25-Mar-2023,26-Mar-2023,27-Mar-2023,28-Mar-2023",
+                "Chrome - current,Chrome,2.0,0.0,0.0,0.0,0.0,0.0,0.0,3.0",
+                "Firefox - current,Firefox,1.0,0.0,0.0,0.0,0.0,0.0,0.0,2.0",
+                "Safari - current,Safari,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0",
+                "Chrome - previous,Chrome,0.0,0.0,0.0,0.0,0.0,0.0,0.0,2.0",
+                "Firefox - previous,Firefox,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0",
+                "Safari - previous,Safari,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0",
             ]
 
             self.assertEqual(lines, expected_lines)
@@ -885,3 +885,211 @@ class TestCSVExporter(APIBaseTest):
                     "d0780d6b-ccd0-44fa-a227-47efe4f3f30d,,,user_2,1,user_2",
                 ],
             )
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    def test_csv_exporter_trends_query_with_formula(
+        self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10
+    ) -> None:
+        with freeze_time("2024-05-15T12:00:00.000Z"):
+            _create_person(distinct_ids=["formula_test_user_xyz"], team=self.team)
+
+        events_by_person = {
+            "formula_test_user_xyz": [
+                {"event": "formula_test_event_a", "timestamp": datetime(2024, 5, 15, 13, 46)},
+                {"event": "formula_test_event_b", "timestamp": datetime(2024, 5, 15, 13, 47)},
+            ],
+        }
+        journeys_for(events_by_person, self.team)
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {
+                    "kind": "TrendsQuery",
+                    "dateRange": {"date_to": "2024-05-15", "date_from": "2024-05-15"},
+                    "series": [
+                        {"kind": "EventsNode", "event": "formula_test_event_a", "name": "Event A", "math": "total"},
+                        {"kind": "EventsNode", "event": "formula_test_event_b", "name": "Event B", "math": "total"},
+                    ],
+                    "interval": "day",
+                    "trendsFilter": {
+                        "showLegend": True,
+                        "display": "ActionsTable",
+                        "formula": "A+B",
+                    },
+                }
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "a-guid"
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+            content = object_storage.read(exported_asset.content_location)
+            lines = (content or "").strip().split("\r\n")
+            self.assertEqual(
+                lines,
+                [
+                    "series,Total Sum",
+                    "Formula (A+B),2.0",
+                ],
+            )
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    def test_csv_exporter_trends_query_with_formula_and_single_breakdown(
+        self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10
+    ) -> None:
+        with freeze_time("2024-06-10T12:00:00.000Z"):
+            _create_person(distinct_ids=["breakdown_user_single"], team=self.team)
+
+        _create_event(
+            event="breakdown_single_event_a",
+            distinct_id="breakdown_user_single",
+            team=self.team,
+            timestamp=datetime(2024, 6, 10, 13, 46),
+            properties={"test_property": "value_a"},
+        )
+        _create_event(
+            event="breakdown_single_event_b",
+            distinct_id="breakdown_user_single",
+            team=self.team,
+            timestamp=datetime(2024, 6, 10, 13, 47),
+            properties={"test_property": "value_a"},
+        )
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {
+                    "kind": "TrendsQuery",
+                    "dateRange": {"date_to": "2024-06-10", "date_from": "2024-06-10"},
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "event": "breakdown_single_event_a",
+                            "name": "Event A",
+                            "math": "total",
+                        },
+                        {
+                            "kind": "EventsNode",
+                            "event": "breakdown_single_event_b",
+                            "name": "Event B",
+                            "math": "total",
+                        },
+                    ],
+                    "interval": "day",
+                    "trendsFilter": {
+                        "showLegend": True,
+                        "display": "ActionsTable",
+                        "formula": "A+B",
+                    },
+                    "breakdownFilter": {
+                        "breakdown": "test_property",
+                        "breakdown_type": "event",
+                    },
+                }
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "a-guid"
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+            content = object_storage.read(exported_asset.content_location)
+            lines = (content or "").strip().split("\r\n")
+            # Should have clean columns with breakdown column using property name
+            assert lines[0] == "series,test_property,Total Sum"
+            # Verify we have the formula and breakdown value
+            assert len(lines) >= 2  # header + at least 1 data row
+            assert "Formula (A+B)" in lines[1]
+            assert "value_a" in lines[1] or "None (i.e. no value)" in lines[1]
+            # Verify no raw special breakdown values
+            for line in lines:
+                assert "$_posthog_breakdown_other_$" not in line
+                assert "$_posthog_breakdown_null_$" not in line
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    def test_csv_exporter_trends_query_with_formula_and_multiple_breakdowns(
+        self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10
+    ) -> None:
+        with freeze_time("2024-07-20T12:00:00.000Z"):
+            _create_person(distinct_ids=["multi_breakdown_user_1"], team=self.team)
+            _create_person(distinct_ids=["multi_breakdown_user_2"], team=self.team)
+
+        _create_event(
+            event="multi_breakdown_event_a",
+            distinct_id="multi_breakdown_user_1",
+            team=self.team,
+            timestamp=datetime(2024, 7, 20, 13, 46),
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            event="multi_breakdown_event_b",
+            distinct_id="multi_breakdown_user_1",
+            team=self.team,
+            timestamp=datetime(2024, 7, 20, 13, 47),
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            event="multi_breakdown_event_a",
+            distinct_id="multi_breakdown_user_2",
+            team=self.team,
+            timestamp=datetime(2024, 7, 20, 13, 48),
+            properties={"$browser": "Firefox"},
+        )
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {
+                    "kind": "TrendsQuery",
+                    "dateRange": {"date_to": "2024-07-20", "date_from": "2024-07-20"},
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "event": "multi_breakdown_event_a",
+                            "name": "Event A",
+                            "math": "total",
+                        },
+                        {
+                            "kind": "EventsNode",
+                            "event": "multi_breakdown_event_b",
+                            "name": "Event B",
+                            "math": "total",
+                        },
+                    ],
+                    "interval": "day",
+                    "trendsFilter": {
+                        "showLegend": True,
+                        "display": "ActionsTable",
+                        "formula": "A+B",
+                    },
+                    "breakdownFilter": {
+                        "breakdowns": [
+                            {"property": "distinct_id", "type": "event"},
+                            {"property": "$browser", "type": "event"},
+                        ]
+                    },
+                }
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "a-guid"
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+            content = object_storage.read(exported_asset.content_location)
+            lines = (content or "").strip().split("\r\n")
+            # Should have clean columns with both breakdown properties
+            assert lines[0] == "series,distinct_id,$browser,Total Sum"
+            # Verify all lines have the formula and both breakdown values
+            for line in lines[1:]:
+                assert "Formula (A+B)" in line
+                parts = line.split(",")
+                assert len(parts) == 4  # series, distinct_id, $browser, Total Sum
