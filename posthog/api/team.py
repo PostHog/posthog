@@ -16,7 +16,7 @@ from posthog.schema import AttributionMode
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action
-from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
@@ -77,11 +77,14 @@ class CachingTeamSerializer(serializers.ModelSerializer):
     Has all parameters needed for a successful decide request.
     """
 
+    organization_id = serializers.UUIDField(read_only=True)
+
     class Meta:
         model = Team
         fields = [
             "id",
             "project_id",
+            "organization_id",
             "uuid",
             "name",
             "api_token",
@@ -211,10 +214,17 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
     attribution_mode = serializers.ChoiceField(
         choices=[(mode.value, mode.value.replace("_", " ").title()) for mode in AttributionMode], required=False
     )
+    campaign_name_mappings = serializers.JSONField(required=False)
 
     class Meta:
         model = TeamMarketingAnalyticsConfig
-        fields = ["sources_map", "conversion_goals", "attribution_window_days", "attribution_mode"]
+        fields = [
+            "sources_map",
+            "conversion_goals",
+            "attribution_window_days",
+            "attribution_mode",
+            "campaign_name_mappings",
+        ]
 
     def update(self, instance, validated_data):
         # Handle sources_map with partial updates
@@ -239,6 +249,9 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
 
         if "attribution_mode" in validated_data:
             instance.attribution_mode = validated_data["attribution_mode"]
+
+        if "campaign_name_mappings" in validated_data:
+            instance.campaign_name_mappings = validated_data["campaign_name_mappings"]
 
         instance.save()
         return instance
@@ -796,6 +809,11 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             if scoped_organizations := self.request.successful_authenticator.personal_api_key.scoped_organizations:
                 queryset = queryset.filter(project__organization_id__in=scoped_organizations)
             if scoped_teams := self.request.successful_authenticator.personal_api_key.scoped_teams:
+                queryset = queryset.filter(id__in=scoped_teams)
+        if isinstance(self.request.successful_authenticator, OAuthAccessTokenAuthentication):
+            if scoped_organizations := self.request.successful_authenticator.access_token.scoped_organizations:
+                queryset = queryset.filter(project__organization_id__in=scoped_organizations)
+            if scoped_teams := self.request.successful_authenticator.access_token.scoped_teams:
                 queryset = queryset.filter(id__in=scoped_teams)
         return queryset
 

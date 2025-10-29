@@ -5,12 +5,13 @@ from unittest import mock
 
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import TableNode
 from posthog.hogql.database.s3_table import build_function_call
 from posthog.hogql.database.test.tables import create_aapl_stock_s3_table
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 
 from posthog.warehouse.models.table import DataWarehouseTable
@@ -18,10 +19,22 @@ from posthog.warehouse.models.table import DataWarehouseTable
 
 class TestS3Table(BaseTest):
     def _init_database(self):
-        self.database = create_hogql_database(team=self.team)
-        self.database.add_warehouse_tables(
-            aapl_stock=create_aapl_stock_s3_table(), aapl_stock_2=create_aapl_stock_s3_table(name="aapl_stock_2")
+        self.database = Database.create_for(team=self.team)
+        self.database._add_warehouse_tables(
+            TableNode(
+                children={
+                    "aapl_stock": TableNode(
+                        name="aapl_stock",
+                        table=create_aapl_stock_s3_table(),
+                    ),
+                    "aapl_stock_2": TableNode(
+                        name="aapl_stock_2",
+                        table=create_aapl_stock_s3_table(name="aapl_stock_2"),
+                    ),
+                }
+            )
         )
+
         self.context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
@@ -30,7 +43,7 @@ class TestS3Table(BaseTest):
         )
 
     def _select(self, query: str, dialect: Literal["hogql", "clickhouse"] = "clickhouse") -> str:
-        return print_ast(parse_select(query), self.context, dialect=dialect)
+        return prepare_and_print_ast(parse_select(query), self.context, dialect=dialect)[0]
 
     def test_s3_table_select(self):
         self._init_database()
@@ -174,9 +187,17 @@ class TestS3Table(BaseTest):
     def test_s3_table_select_alias_escaped(self):
         self._init_database()
 
-        escaped_table = create_aapl_stock_s3_table(name="random as (SELECT * FROM events), SELECT * FROM events --")
-        self.database.add_warehouse_tables(
-            **{"random as (SELECT * FROM events), SELECT * FROM events --": escaped_table}
+        self.database._add_warehouse_tables(
+            TableNode(
+                children={
+                    "random as (SELECT * FROM events), SELECT * FROM events --": TableNode(
+                        name="random as (SELECT * FROM events), SELECT * FROM events --",
+                        table=create_aapl_stock_s3_table(
+                            name="random as (SELECT * FROM events), SELECT * FROM events --"
+                        ),
+                    )
+                }
+            )
         )
 
         hogql = self._select(
@@ -202,8 +223,15 @@ class TestS3Table(BaseTest):
     def test_s3_table_select_table_name_bad_character(self):
         self._init_database()
 
-        escaped_table = create_aapl_stock_s3_table(name="some%(asd)sname")
-        self.database.add_warehouse_tables(**{"some%(asd)sname": escaped_table})
+        self.database._add_warehouse_tables(
+            TableNode(
+                children={
+                    "some%(asd)sname": TableNode(
+                        name="some%(asd)sname", table=create_aapl_stock_s3_table(name="some%(asd)sname")
+                    ),
+                }
+            )
+        )
 
         with self.assertRaises(ExposedHogQLError) as context:
             self._select(query='SELECT * FROM "some%(asd)sname" LIMIT 10', dialect="clickhouse")

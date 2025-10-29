@@ -1,7 +1,6 @@
 import React, { CSSProperties } from 'react'
 
 import {
-    IconAI,
     IconApp,
     IconApps,
     IconBook,
@@ -21,6 +20,7 @@ import {
     IconHome,
     IconLifecycle,
     IconLive,
+    IconLlmAnalytics,
     IconMegaphone,
     IconMessage,
     IconNotebook,
@@ -35,6 +35,7 @@ import {
     IconServer,
     IconStickiness,
     IconToggle,
+    IconToggleOff,
     IconTrends,
     IconUser,
     IconUserPaths,
@@ -63,7 +64,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         iconColor: ['var(--color-product-dashboards-light)'],
     },
     llm_analytics: {
-        icon: <IconAI />,
+        icon: <IconLlmAnalytics />,
         iconColor: ['var(--color-product-llm-analytics-light)'],
     },
     product_analytics: {
@@ -137,8 +138,12 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         iconColor: ['var(--color-product-experiments-light)'],
     },
     feature_flag: {
-        icon: <IconToggle />,
+        icon: <IconToggle className="mt-[2px]" />,
         iconColor: ['var(--color-product-feature-flags-light)'],
+    },
+    feature_flag_off: {
+        icon: <IconToggleOff className="mt-[2px]" />,
+        iconColor: ['var(--color-bg-fill-switch)'],
     },
     data_pipeline: {
         icon: <IconPlug />,
@@ -361,17 +366,24 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
     ...getTreeItemsMetadata(),
     {
         path: 'Event definitions',
-        category: 'Definitions',
+        category: 'Schema',
         iconType: 'event_definition',
         href: urls.eventDefinitions(),
         sceneKey: 'EventDefinition',
     },
     {
         path: 'Property definitions',
-        category: 'Definitions',
+        category: 'Schema',
         iconType: 'property_definition',
         href: urls.propertyDefinitions(),
         sceneKey: 'PropertyDefinition',
+    },
+    {
+        path: 'Property groups',
+        category: 'Schema',
+        iconType: 'event_definition',
+        href: urls.schemaManagement(),
+        flag: FEATURE_FLAGS.SCHEMA_MANAGEMENT,
     },
     {
         path: 'Annotations',

@@ -50,6 +50,9 @@ from common.hogvm.python.utils import HogVMException
 
 from .models import Endpoint
 
+MIN_CACHE_AGE_SECONDS = 300
+MAX_CACHE_AGE_SECONDS = 86400
+
 
 @extend_schema(tags=["endpoints"])
 class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ModelViewSet):
@@ -94,6 +97,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     "query": endpoint.query,
                     "parameters": endpoint.parameters,
                     "is_active": endpoint.is_active,
+                    "cache_age_seconds": endpoint.cache_age_seconds,
                     "endpoint_path": endpoint.endpoint_path,
                     "created_at": endpoint.created_at,
                     "updated_at": endpoint.updated_at,
@@ -114,6 +118,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 "query": endpoint.query,
                 "parameters": endpoint.parameters,
                 "is_active": endpoint.is_active,
+                "cache_age_seconds": endpoint.cache_age_seconds,
                 "endpoint_path": endpoint.endpoint_path,
                 "created_at": endpoint.created_at,
                 "updated_at": endpoint.updated_at,
@@ -138,6 +143,14 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 "and be between 1 and 128 characters long."
             )
 
+        if data.cache_age_seconds is not None:
+            if data.cache_age_seconds < MIN_CACHE_AGE_SECONDS or data.cache_age_seconds > MAX_CACHE_AGE_SECONDS:
+                raise ValidationError(
+                    {
+                        "cache_age_seconds": f"Cache age must be between {MIN_CACHE_AGE_SECONDS} and {MAX_CACHE_AGE_SECONDS} seconds."
+                    }
+                )
+
     @extend_schema(
         request=EndpointRequest,
         description="Create a new endpoint",
@@ -156,6 +169,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 query=cast(Union[HogQLQuery, InsightQueryNode], data.query).model_dump(),
                 description=data.description or "",
                 is_active=data.is_active if data.is_active is not None else True,
+                cache_age_seconds=data.cache_age_seconds,
             )
 
             # Activity log: created
@@ -178,6 +192,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     "query": endpoint.query,
                     "parameters": endpoint.parameters,
                     "is_active": endpoint.is_active,
+                    "cache_age_seconds": endpoint.cache_age_seconds,
                     "endpoint_path": endpoint.endpoint_path,
                     "created_at": endpoint.created_at,
                     "updated_at": endpoint.updated_at,
@@ -216,6 +231,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 endpoint.description = data.description
             if data.is_active is not None:
                 endpoint.is_active = data.is_active
+            # Allow explicitly setting cache_age_seconds to None
+            if "cache_age_seconds" in request.data:
+                endpoint.cache_age_seconds = data.cache_age_seconds
 
             endpoint.save()
 
@@ -243,6 +261,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     "endpoint_path": endpoint.endpoint_path,
                     "created_at": endpoint.created_at,
                     "updated_at": endpoint.updated_at,
+                    "cache_age_seconds": endpoint.cache_age_seconds,
                 }
             )
 
@@ -306,6 +325,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 query_id=client_query_id,
                 user=cast(User, request.user),
                 is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
+                cache_age_seconds=endpoint.cache_age_seconds,
             )
 
             if isinstance(result, BaseModel):

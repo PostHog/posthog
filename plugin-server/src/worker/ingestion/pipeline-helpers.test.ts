@@ -58,7 +58,7 @@ describe('sendEventToDLQ', () => {
 
         jest.mocked(mockKafkaProducer.queueMessages).mockImplementation(() => Promise.resolve())
         jest.mocked(mockKafkaProducer.produce).mockImplementation(() => Promise.resolve())
-        mockCaptureIngestionWarning.mockResolvedValue(undefined)
+        mockCaptureIngestionWarning.mockResolvedValue(true)
     })
 
     it('should send event to DLQ with proper logging', async () => {
@@ -390,7 +390,7 @@ describe('sendMessageToDLQ', () => {
             ],
         } as Message
 
-        mockCaptureIngestionWarning.mockResolvedValue(undefined)
+        mockCaptureIngestionWarning.mockResolvedValue(true)
     })
 
     it('should send message to DLQ with proper headers and logging', async () => {

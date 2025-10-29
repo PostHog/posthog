@@ -20,6 +20,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 
+import { errorTrackingBreakdownsLogic } from '../../components/Breakdowns/errorTrackingBreakdownsLogic'
 import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { ErrorFilters } from '../../components/IssueFilters'
@@ -28,6 +29,7 @@ import { Metadata } from '../../components/IssueMetadata'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
+import { V2Layout } from './V2Layout'
 import {
     ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY,
     ErrorTrackingIssueSceneLogicProps,
@@ -46,10 +48,23 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
     const tagRenderer = useErrorTagRenderer()
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
+    const hasNewIssueLayout = useFeatureFlag('ERROR_TRACKING_ISSUE_LAYOUT_V2')
 
     const isPostHogSDKIssue = selectedEvent?.properties.$exception_values?.some((v: string) =>
         v.includes('persistence.isDisabled is not a function')
     )
+
+    if (hasNewIssueLayout) {
+        return (
+            <ErrorTrackingSetupPrompt>
+                <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
+                    <BindLogic logic={errorTrackingBreakdownsLogic} props={{ id: issueId }}>
+                        <V2Layout />
+                    </BindLogic>
+                </BindLogic>
+            </ErrorTrackingSetupPrompt>
+        )
+    }
 
     return (
         <ErrorTrackingSetupPrompt>
