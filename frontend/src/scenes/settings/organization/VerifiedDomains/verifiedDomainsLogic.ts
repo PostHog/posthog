@@ -138,31 +138,46 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             {} as SCIMConfigType,
             {
                 loadScimConfig: async (domainId: string) => {
-                    const response = await api.get<SCIMConfigType>(
-                        `api/organizations/${values.currentOrganization?.id}/domains/${domainId}/scim`
-                    )
-                    return response
+                    const domain = values.verifiedDomains.find(({ id }) => id === domainId)
+                    return {
+                        id: domainId,
+                        scim_enabled: domain?.scim_enabled ?? false,
+                        scim_base_url: domain?.scim_base_url,
+                    }
                 },
                 enableScim: async (domainId: string) => {
-                    const response = await api.create<SCIMConfigType>(
-                        `api/organizations/${values.currentOrganization?.id}/domains/${domainId}/scim`
+                    const domain = await api.update<OrganizationDomainType>(
+                        `api/organizations/${values.currentOrganization?.id}/domains/${domainId}`,
+                        { scim_enabled: true }
                     )
+                    actions.replaceDomain({ ...domain, scim_bearer_token: undefined })
                     lemonToast.success('SCIM enabled successfully!')
-                    return response
+                    return {
+                        id: domainId,
+                        scim_enabled: domain.scim_enabled,
+                        scim_base_url: domain.scim_base_url,
+                        scim_bearer_token: domain.scim_bearer_token,
+                    }
                 },
                 disableScim: async (domainId: string) => {
-                    await api.create(
-                        `api/organizations/${values.currentOrganization?.id}/domains/${domainId}/scim/disable`
+                    const domain = await api.update<OrganizationDomainType>(
+                        `api/organizations/${values.currentOrganization?.id}/domains/${domainId}`,
+                        { scim_enabled: false }
                     )
+                    actions.replaceDomain({ ...domain, scim_bearer_token: undefined })
                     lemonToast.success('SCIM disabled successfully!')
-                    return { id: domainId, scim_enabled: false }
+                    return {
+                        id: domainId,
+                        scim_enabled: domain.scim_enabled,
+                        scim_base_url: domain.scim_base_url,
+                    }
                 },
                 regenerateScimToken: async (domainId: string) => {
                     const response = await api.create<SCIMConfigType>(
-                        `api/organizations/${values.currentOrganization?.id}/domains/${domainId}/scim/regenerate`
+                        `api/organizations/${values.currentOrganization?.id}/domains/${domainId}/scim/token`
                     )
                     lemonToast.success('SCIM token regenerated successfully!')
-                    return response
+                    return { ...response, id: domainId }
                 },
             },
         ],

@@ -50,7 +50,9 @@ SCIM 2.0 (System for Cross-domain Identity Management) enables automated user pr
 
 ### API Management
 
-- `posthog/api/organization_domain_scim.py` - Mixin for SCIM config endpoints
+- `posthog/api/organization_domain.py`
+  - serializer/viewset exposing SCIM config via domain PATCH (`scim_enabled`)
+  - action endpoint for bearer rotation (`POST /scim/token`)
 
 ### Configuration
 
@@ -89,11 +91,46 @@ GET    /scim/v2/{domain_id}/Schemas                # SCIM schemas
 ### Management Endpoints (PostHog UI)
 
 ```text
-GET  /api/organizations/{org_id}/domains/{domain_id}/scim              # Get config
-POST /api/organizations/{org_id}/domains/{domain_id}/scim              # Enable SCIM
-POST /api/organizations/{org_id}/domains/{domain_id}/scim/regenerate   # Regenerate token
-POST /api/organizations/{org_id}/domains/{domain_id}/scim/disable      # Disable SCIM
+PATCH /api/organizations/{org_id}/domains/{domain_id} (scim_enabled)   # Enable/disable SCIM
+POST  /api/organizations/{org_id}/domains/{domain_id}/scim/token       # Regenerate bearer token
 ```
+
+SCIM configuration (enabled state, base URL) is returned directly on the `OrganizationDomain` resource.
+
+#### Example: enable SCIM (mirrors JIT provisioning toggle)
+
+PATCH: `https://app.posthog.com/api/organizations/<org_id>/domains/<domain_id>/`
+
+```json
+{
+    "scim_enabled": true
+}
+```
+
+Successful response includes the one-time bearer token and SCIM base URL:
+
+```json
+{
+  "id": "<domain_id>",
+  "domain": "example.com",
+  "scim_enabled": true,
+  "scim_base_url": "https://app.posthog.com/scim/v2/<domain_id>",
+  "scim_bearer_token": "<plain_token_once>",
+  ...
+}
+```
+
+#### Example: disable SCIM
+
+PATCH: `https://app.posthog.com/api/organizations/<org_id>/domains/<domain_id>/`
+
+```json
+{
+    "scim_enabled": false
+}
+```
+
+Response mirrors JIT disabling: `scim_enabled` becomes `false` and no token is returned.
 
 ## Authentication Flow
 

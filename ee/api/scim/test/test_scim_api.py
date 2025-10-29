@@ -62,13 +62,13 @@ class TestSCIMAPI(APILicensedTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "license" in response.json()["detail"].lower()
 
-    def test_scim_users_endpoint_with_license(self):
+    def test_scim_users_endpoint(self):
         """Test that SCIM Users endpoint works with valid license"""
         response = self.client.get(f"/scim/v2/{self.domain.id}/Users", **self.scim_headers)
         assert response.status_code == status.HTTP_200_OK
         assert "Resources" in response.json()
 
-    def test_scim_groups_endpoint_with_license(self):
+    def test_scim_groups_endpoint(self):
         """Test that SCIM Groups endpoint works with valid license"""
         response = self.client.get(f"/scim/v2/{self.domain.id}/Groups", **self.scim_headers)
         assert response.status_code == status.HTTP_200_OK
@@ -105,17 +105,51 @@ class TestSCIMManagementAPI(APILicensedTest):
         self.organization.available_product_features = [{"key": AvailableFeature.SAML, "name": AvailableFeature.SAML}]
         self.organization.save()
 
-        response = self.client.post(f"/api/organizations/{self.organization.id}/domains/{self.domain.id}/scim")
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/domains/{self.domain.id}/",
+            {"scim_enabled": True},
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "not available" in response.json()["detail"].lower()
 
-    def test_enable_scim_with_license(self):
+    def test_enable_scim(self):
         """Test that enabling SCIM works with valid license"""
-        response = self.client.post(f"/api/organizations/{self.organization.id}/domains/{self.domain.id}/scim")
-        assert response.status_code == status.HTTP_201_CREATED
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/domains/{self.domain.id}/",
+            {"scim_enabled": True},
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK
         assert response.json()["scim_enabled"] is True
-        assert "scim_bearer_token" in response.json()
+        assert response.json()["scim_bearer_token"]
         assert "scim_base_url" in response.json()
+
+        self.domain.refresh_from_db()
+        assert self.domain.scim_enabled is True
+
+    def test_disable_scim(self):
+        """SCIM can be disabled via PATCH"""
+        enable_response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/domains/{self.domain.id}/",
+            {"scim_enabled": True},
+            content_type="application/json",
+        )
+        assert enable_response.status_code == status.HTTP_200_OK
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/domains/{self.domain.id}/",
+            {"scim_enabled": False},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["scim_enabled"] is False
+        assert response.json()["scim_bearer_token"] is None
+
+        self.domain.refresh_from_db()
+        assert self.domain.scim_enabled is False
+        assert self.domain.scim_bearer_token is None
 
     def test_regenerate_token_requires_license(self):
         """Test that regenerating SCIM token requires the SCIM feature"""
@@ -129,7 +163,20 @@ class TestSCIMManagementAPI(APILicensedTest):
         self.organization.available_product_features = []
         self.organization.save()
 
-        response = self.client.post(
-            f"/api/organizations/{self.organization.id}/domains/{self.domain.id}/scim/regenerate"
-        )
+        response = self.client.post(f"/api/organizations/{self.organization.id}/domains/{self.domain.id}/scim/token")
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_regenerate_token(self):
+        """Token rotation returns a new bearer token"""
+        enable_response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/domains/{self.domain.id}/",
+            {"scim_enabled": True},
+            content_type="application/json",
+        )
+        assert enable_response.status_code == status.HTTP_200_OK
+
+        response = self.client.post(f"/api/organizations/{self.organization.id}/domains/{self.domain.id}/scim/token")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["scim_bearer_token"]
+        assert response.json()["scim_enabled"] is True
