@@ -2844,6 +2844,7 @@ export interface SessionData {
     person_id: string
     session_id: string
     event_uuid: string
+    timestamp: string
 }
 
 export interface ExperimentStatsBase {

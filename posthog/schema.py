@@ -2577,6 +2577,7 @@ class SessionData(BaseModel):
     event_uuid: str
     person_id: str
     session_id: str
+    timestamp: str
 
 
 class SessionEventsItem(BaseModel):

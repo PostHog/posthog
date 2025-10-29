@@ -344,12 +344,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     }
 
                     const skipToEarliestEvent = (matchingEvents: MatchedRecordingEvent[]): void => {
-                        if (values.skipToFirstMatchingEvent) {
-                            const earliestMatchingEvent = matchingEvents
-                                .toReversed()
-                                .reduce((previous, current) =>
-                                    previous.timestamp < current.timestamp ? previous : current
-                                )
+                        if (values.skipToFirstMatchingEvent && matchingEvents.length > 0) {
+                            const earliestMatchingEvent = matchingEvents.reduce((previous, current) =>
+                                previous.timestamp < current.timestamp ? previous : current
+                            )
                             const { timeInRecording } = timeRelativeToStart(earliestMatchingEvent, values.start)
                             const seekTime = ceilMsToClosestSecond(timeInRecording) - 1000
 
