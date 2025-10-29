@@ -1404,7 +1404,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     )
                 }
 
-                return orderedSections
+                const categories = orderedSections
                     .map((section) => {
                         const key = section as NEW_TAB_CATEGORY_ITEMS
                         const items = newTabSceneDataGroupedItems[section] || []
@@ -1432,6 +1432,20 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         return true
                     })
                     .map(({ shouldHideForPrefix, ...rest }) => rest)
+
+                const [categoriesWithResults, emptyCategories] = categories.reduce(
+                    (acc, category) => {
+                        if (category.items.length === 0) {
+                            acc[1].push(category)
+                        } else {
+                            acc[0].push(category)
+                        }
+                        return acc
+                    },
+                    [[], []] as [CategoryWithItems[], CategoryWithItems[]]
+                )
+
+                return [...categoriesWithResults, ...emptyCategories]
             },
         ],
         firstCategoryWithResults: [
