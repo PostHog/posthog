@@ -63,7 +63,7 @@ class HogFlowActionSerializer(serializers.Serializer):
     def validate(self, data):
         trigger_is_function = False
         if data.get("type") == "trigger":
-            if data.get("config", {}).get("type") in ["webhook", "tracking_pixel"]:
+            if data.get("config", {}).get("type") in ["webhook", "manual", "tracking_pixel"]:
                 trigger_is_function = True
             elif data.get("config", {}).get("type") == "event":
                 filters = data.get("config", {}).get("filters", {})
@@ -71,6 +71,8 @@ class HogFlowActionSerializer(serializers.Serializer):
                     serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
                     serializer.is_valid(raise_exception=True)
                     data["config"]["filters"] = serializer.validated_data
+            elif data.get("config", {}).get("type") == "manual":
+                pass
             else:
                 raise serializers.ValidationError({"config": "Invalid trigger type"})
 

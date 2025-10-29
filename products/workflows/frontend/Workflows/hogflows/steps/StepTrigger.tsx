@@ -10,6 +10,7 @@ import {
     LemonLabel,
     LemonSelect,
     LemonTag,
+    Tooltip,
     lemonToast,
 } from '@posthog/lemon-ui'
 
@@ -38,7 +39,7 @@ export function StepTriggerConfiguration({
     const validationResult = actionValidationErrorsById[node.id]
 
     return (
-        <>
+        <div className="flex flex-col items-start w-full gap-2">
             <span className="flex gap-1">
                 <IconBolt className="text-lg" />
                 <span className="text-md font-semibold">Trigger type</span>
@@ -114,6 +115,17 @@ export function StepTriggerConfiguration({
                               : value === 'manual'
                                 ? setWorkflowActionConfig(node.id, {
                                       type: 'manual',
+                                      template_id: 'template-source-webhook',
+                                      inputs: {
+                                          event: {
+                                              order: 0,
+                                              value: '$workflow_triggered',
+                                          },
+                                          distinct_id: {
+                                              order: 1,
+                                              value: '{request.body.user_id}',
+                                          },
+                                      },
                                   })
                                 : value === 'tracking_pixel'
                                   ? setWorkflowActionConfig(node.id, {
@@ -130,11 +142,11 @@ export function StepTriggerConfiguration({
             ) : node.data.config.type === 'webhook' ? (
                 <StepTriggerConfigurationWebhook action={node.data} config={node.data.config} />
             ) : node.data.config.type === 'manual' ? (
-                <StepTriggerConfigurationManual action={node.data} config={node.data.config} />
+                <StepTriggerConfigurationManual />
             ) : node.data.config.type === 'tracking_pixel' ? (
                 <StepTriggerConfigurationTrackingPixel action={node.data} config={node.data.config} />
             ) : null}
-        </>
+        </div>
     )
 }
 
@@ -236,20 +248,17 @@ function StepTriggerConfigurationWebhook({
     )
 }
 
-function StepTriggerConfigurationManual({
-    action,
-    config,
-}: {
-    action: Extract<HogFlowAction, { type: 'trigger' }>
-    config: Extract<HogFlowAction['config'], { type: 'manual' }>
-}): JSX.Element {
-    const { actionValidationErrorsById } = useValues(workflowLogic)
-    const validationResult = actionValidationErrorsById[action.id]
-
+function StepTriggerConfigurationManual(): JSX.Element {
     return (
         <>
-            <div className="flex flex-col">
-                <p className="mb-0">This workflow can be triggered manually via the API or SDKs.</p>
+            <div className="flex gap-1">
+                <p className="mb-0">
+                    This workflow can be triggered manually via{' '}
+                    <Tooltip title="It's up there on the top right ⤴︎">
+                        <span className="font-bold italic cursor-pointer">The Button</span>
+                    </Tooltip>
+                </p>
+                <IconButton fontSize={24} />
             </div>
         </>
     )
