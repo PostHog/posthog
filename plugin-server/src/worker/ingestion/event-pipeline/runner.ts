@@ -358,7 +358,10 @@ export class EventPipelineRunner {
                 return personStepResult
             }
 
-            ;[postPersonEvent, person, personKafkaAck] = personStepResult.value
+            const [processedEvent, processedPerson, ack] = personStepResult.value
+            postPersonEvent = processedEvent
+            person = processedPerson
+            personKafkaAck = ack
 
             // Preserve force_upgrade flag if it was set by personless step
             if (forceUpgrade) {

@@ -33,11 +33,13 @@ import { parseJSON } from '../../../../src/utils/json-parse'
 import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/createEventStep'
 import * as metrics from '../../../../src/worker/ingestion/event-pipeline/metrics'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
+import { processPersonlessStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonlessStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { PersonMergeLimitExceededError } from '../../../../src/worker/ingestion/persons/person-merge-types'
 import { PostgresPersonRepository } from '../../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 
+jest.mock('../../../../src/worker/ingestion/event-pipeline/processPersonlessStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/processPersonsStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/prepareEventStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/createEventStep')
@@ -383,6 +385,7 @@ describe('EventPipelineRunner', () => {
 
     describe('EventPipelineRunner with processPerson flags', () => {
         beforeEach(() => {
+            jest.mocked(processPersonlessStep).mockResolvedValue(ok(person))
             jest.mocked(processPersonsStep).mockResolvedValue(
                 ok([
                     pluginEvent,
@@ -394,74 +397,70 @@ describe('EventPipelineRunner', () => {
             jest.mocked(createEventStep).mockResolvedValue(createdEvent)
         })
 
-        it('should always call processPersonsStep even when forceDisablePersonProcessing=true', async () => {
+        it('calls processPersonlessStep when processPerson=false and forceDisablePersonProcessing=true', async () => {
             await runner.runEventPipeline(pipelineEvent, team, false, true)
 
-            expect(processPersonsStep).toHaveBeenCalledTimes(1)
-            expect(processPersonsStep).toHaveBeenCalledWith(
-                expect.any(Object), // runner
+            expect(processPersonlessStep).toHaveBeenCalledTimes(1)
+            expect(processPersonlessStep).toHaveBeenCalledWith(
                 expect.any(Object), // event
                 expect.any(Object), // team
                 expect.any(Object), // timestamp
-                false, // processPerson
                 expect.any(Object), // personStoreBatch
                 true // forceDisablePersonProcessing
             )
+            expect(processPersonsStep).not.toHaveBeenCalled()
         })
 
-        it('should pass processPerson=true and forceDisablePersonProcessing=false', async () => {
+        it('calls processPersonsStep when processPerson=true', async () => {
             await runner.runEventPipeline(pipelineEvent, team, true, false)
 
+            expect(processPersonlessStep).not.toHaveBeenCalled()
             expect(processPersonsStep).toHaveBeenCalledWith(
                 expect.any(Object), // runner
                 expect.any(Object), // event
                 expect.any(Object), // team
                 expect.any(Object), // timestamp
                 true, // processPerson
-                expect.any(Object), // personStoreBatch
-                false // forceDisablePersonProcessing
+                expect.any(Object) // personStoreBatch
             )
         })
 
-        it('should pass processPerson=false and forceDisablePersonProcessing=false', async () => {
+        it('calls processPersonlessStep when processPerson=false and skips processPersonsStep if no force_upgrade', async () => {
             await runner.runEventPipeline(pipelineEvent, team, false, false)
 
+            expect(processPersonlessStep).toHaveBeenCalledTimes(1)
+            expect(processPersonsStep).not.toHaveBeenCalled()
+        })
+
+        it('calls both steps when processPerson=false but force_upgrade is set', async () => {
+            const personWithForceUpgrade = { ...person, force_upgrade: true }
+            jest.mocked(processPersonlessStep).mockResolvedValue(ok(personWithForceUpgrade))
+
+            await runner.runEventPipeline(pipelineEvent, team, false, false)
+
+            expect(processPersonlessStep).toHaveBeenCalledTimes(1)
+            expect(processPersonsStep).toHaveBeenCalledTimes(1)
             expect(processPersonsStep).toHaveBeenCalledWith(
                 expect.any(Object), // runner
                 expect.any(Object), // event
                 expect.any(Object), // team
                 expect.any(Object), // timestamp
-                false, // processPerson
-                expect.any(Object), // personStoreBatch
-                false // forceDisablePersonProcessing
+                true, // processPerson forced to true for force_upgrade
+                expect.any(Object) // personStoreBatch
             )
         })
 
-        it('should pass processPerson=true and forceDisablePersonProcessing=true', async () => {
-            await runner.runEventPipeline(pipelineEvent, team, true, true)
-
-            expect(processPersonsStep).toHaveBeenCalledWith(
-                expect.any(Object), // runner
-                expect.any(Object), // event
-                expect.any(Object), // team
-                expect.any(Object), // timestamp
-                true, // processPerson (though forceDisable will override inside the step)
-                expect.any(Object), // personStoreBatch
-                true // forceDisablePersonProcessing
-            )
-        })
-
-        it('should use default values processPerson=true and forceDisablePersonProcessing=false when not specified', async () => {
+        it('uses default values processPerson=true when not specified', async () => {
             await runner.runEventPipeline(pipelineEvent, team)
 
+            expect(processPersonlessStep).not.toHaveBeenCalled()
             expect(processPersonsStep).toHaveBeenCalledWith(
                 expect.any(Object), // runner
                 expect.any(Object), // event
                 expect.any(Object), // team
                 expect.any(Object), // timestamp
                 true, // processPerson (default)
-                expect.any(Object), // personStoreBatch
-                false // forceDisablePersonProcessing (default)
+                expect.any(Object) // personStoreBatch
             )
         })
     })
