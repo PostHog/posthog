@@ -2468,8 +2468,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 const isPreAggregatedEnabled =
                     values.featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES] &&
                     action?.modifiers?.useWebAnalyticsPreAggregatedTables
+                const hasConversionGoalPreAggFlag =
+                    values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_PREAGG]
 
-                if (isPreAggregatedEnabled && values.conversionGoal) {
+                if (isPreAggregatedEnabled && values.conversionGoal && !hasConversionGoalPreAggFlag) {
                     actions.setConversionGoal(null)
                     lemonToast.info(
                         'Your conversion goal has been cleared as the new query engine does not support it (yet!)'
