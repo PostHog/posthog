@@ -340,7 +340,7 @@ export function LLMAnalyticsSessions(): JSX.Element {
                                                                                                     <IconChevronRight className="text-base" />
                                                                                                 )}
                                                                                             </div>
-                                                                                            <div className="flex-1 flex items-center gap-2 min-w-0">
+                                                                                            <div className="flex-1 flex items-center gap-2 flex-wrap min-w-0">
                                                                                                 <LemonTag
                                                                                                     type="success"
                                                                                                     size="small"
@@ -351,8 +351,6 @@ export function LLMAnalyticsSessions(): JSX.Element {
                                                                                                 <span className="text-xs truncate">
                                                                                                     {model}
                                                                                                 </span>
-                                                                                            </div>
-                                                                                            <div className="flex items-center gap-1">
                                                                                                 {typeof latency ===
                                                                                                     'number' && (
                                                                                                     <LemonTag
