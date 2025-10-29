@@ -85,7 +85,9 @@ services:
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
-            SESSION_RECORDING_V2_S3_ENDPOINT: http://objectstorage:19000
+            SESSION_RECORDING_V2_S3_ENDPOINT: http://seaweedfs:8333
+            SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any'
+            SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
             OBJECT_STORAGE_ENABLED: true
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
@@ -103,10 +105,10 @@ services:
             SECRET_KEY: $POSTHOG_SECRET
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
-            SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'object_storage_root_user'
-            SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'object_storage_root_password'
+            SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any'
+            SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
-            SESSION_RECORDING_V2_S3_ENDPOINT: http://objectstorage:19000
+            SESSION_RECORDING_V2_S3_ENDPOINT: http://seaweedfs:8333
             OBJECT_STORAGE_ENABLED: true
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             OTEL_SERVICE_NAME: 'posthog'
@@ -118,6 +120,7 @@ services:
             - clickhouse
             - kafka
             - objectstorage
+            - seaweedfs
 
     plugins:
         extends:
@@ -129,10 +132,10 @@ services:
             SECRET_KEY: $POSTHOG_SECRET
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
-            SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'object_storage_root_user'
-            SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'object_storage_root_password'
+            SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any'
+            SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
-            SESSION_RECORDING_V2_S3_ENDPOINT: http://objectstorage:19000
+            SESSION_RECORDING_V2_S3_ENDPOINT: http://seaweedfs:8333
             OBJECT_STORAGE_ENABLED: true
             CDP_REDIS_HOST: redis7
             CDP_REDIS_PORT: 6379
@@ -148,6 +151,7 @@ services:
             - clickhouse
             - kafka
             - objectstorage
+            - seaweedfs
 
     proxy:
         extends:
@@ -174,6 +178,17 @@ services:
         ports:
             - '19000:19000'
             - '19001:19001'
+
+    seaweedfs:
+        extends:
+            file: docker-compose.base.yml
+            service: seaweedfs
+        restart: on-failure
+        volumes:
+            - seaweedfs:/data
+        ports:
+            - '8333:8333'
+            - '9333:9333'
 
     asyncmigrationscheck:
         extends:
@@ -234,6 +249,7 @@ services:
             - clickhouse
             - kafka
             - objectstorage
+            - seaweedfs
             - temporal
 
     cyclotron-janitor:
@@ -298,6 +314,7 @@ volumes:
     zookeeper-datalog:
     zookeeper-logs:
     objectstorage:
+    seaweedfs:
     postgres-data:
     clickhouse-data:
     caddy-data:
