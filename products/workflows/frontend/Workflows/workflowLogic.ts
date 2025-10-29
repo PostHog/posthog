@@ -403,7 +403,7 @@ export const workflowLogic = kea<workflowLogicType>([
             lemonToast.info('Triggering workflow...')
             try {
                 await api.create(webhookUrl, {
-                    user_id: values.user.id,
+                    user_id: values.user?.id,
                 })
             } catch (e) {
                 lemonToast.error('Error triggering workflow: ' + (e as Error).message)
