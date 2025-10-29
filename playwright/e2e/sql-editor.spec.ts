@@ -37,6 +37,36 @@ test.describe('SQL Editor', () => {
         await expect(page.getByText('test_view successfully created')).toBeVisible()
     })
 
+    test('Save as insight and edit', async ({ page }) => {
+        // Write and run a query
+        await page.locator('[data-attr=hogql-query-editor]').click()
+        await page.locator('textarea[aria-roledescription="editor"]').fill('SELECT 1 as result')
+        await page.locator('[data-attr=sql-editor-run-button]').click()
+
+        // Save as insight
+        await page.locator('[data-attr=sql-editor-create-insight]').click()
+        await page.locator('[data-attr=sql-editor-save-insight]').click()
+        await page.locator('[data-attr=insight-name]').fill('test_sql_insight')
+        await page.getByText('Submit').click()
+
+        // Verify we're on the insight page
+        await expect(page).toHaveURL(/.*\/insights\/.*/)
+        await expect(page.getByText('test_sql_insight')).toBeVisible()
+
+        // // Edit the insight
+        await page.locator('[data-attr=insight-edit-button]').click()
+        await page.locator('[data-attr=hogql-query-editor]').click()
+        await page.locator('textarea[aria-roledescription="editor"]').fill('SELECT 2 as result')
+        await page.locator('[data-attr=sql-editor-run-button]').click()
+
+        // Save the edited insight
+        await page.locator('[data-attr=sql-editor-update-insight]').click()
+
+        // Verify we're on the insight page
+        await expect(page).toHaveURL(/.*\/insights\/.*/)
+        await expect(page.getByText('test_sql_insight')).toBeVisible()
+    })
+
     test('Materialize view pane', async ({ page }) => {
         await page.getByText('Materialization').click()
         await expect(page.locator('[data-attr=sql-editor-sidebar-query-info-pane]')).toBeVisible()
