@@ -1502,12 +1502,22 @@ class FileSystemImport(BaseModel):
     protocol: Optional[str] = Field(default=None, description='Protocol of the item, defaults to "project://"')
     ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
     sceneKey: Optional[str] = Field(default=None, description="Match this with the a base scene key or a specific one")
+    sceneKeys: Optional[list[str]] = Field(default=None, description="List of all scenes exported by the app")
     shortcut: Optional[bool] = Field(default=None, description="Whether this is a shortcut or the actual item")
     tags: Optional[list[Tag]] = Field(default=None, description="Tag for the product 'beta' / 'alpha'")
     type: Optional[str] = Field(
         default=None, description="Type of object, used for icon, e.g. feature_flag, insight, etc"
     )
     visualOrder: Optional[float] = Field(default=None, description="Order of object in tree")
+
+
+class FileSystemViewLogEntry(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    ref: str
+    type: str
+    viewed_at: str
 
 
 class FilterLogicalOperator(StrEnum):

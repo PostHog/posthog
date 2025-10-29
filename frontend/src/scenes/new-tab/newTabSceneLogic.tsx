@@ -9,6 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { urls } from 'scenes/urls'
@@ -25,7 +26,12 @@ import { SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogi
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { TreeDataItem } from '~/lib/lemon-ui/LemonTree/LemonTree'
 import { groupsModel } from '~/models/groupsModel'
-import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
+import {
+    FileSystemEntry,
+    FileSystemIconType,
+    FileSystemImport,
+    FileSystemViewLogEntry,
+} from '~/queries/schema/schema-general'
 import { EventDefinition, Group, GroupTypeIndex, PersonType, PropertyDefinition } from '~/types'
 
 import { SearchInputCommand } from './components/SearchInput'
@@ -100,6 +106,25 @@ function getIconForFileSystemItem(fs: FileSystemImport): JSX.Element {
     return iconForType('iconType' in fs ? fs.iconType : (fs.type as FileSystemIconType), fs.iconColor)
 }
 
+const sortByLastViewedAt = (items: NewTabTreeDataItem[]): NewTabTreeDataItem[] =>
+    items
+        .map((item, originalIndex) => ({ item, originalIndex }))
+        .toSorted((a, b) => {
+            const parseTime = (value: string | null | undefined): number => {
+                if (!value) {
+                    return 0
+                }
+                const parsed = Date.parse(value)
+                return Number.isFinite(parsed) ? parsed : 0
+            }
+            const diff = parseTime(b.item.lastViewedAt) - parseTime(a.item.lastViewedAt)
+            if (diff !== 0) {
+                return diff
+            }
+            return a.originalIndex - b.originalIndex
+        })
+        .map(({ item }) => item)
+
 function matchesRecentsSearch(entry: FileSystemEntry, searchChunks: string[]): boolean {
     if (searchChunks.length === 0) {
         return true
@@ -137,6 +162,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         showMoreInSection: (section: string) => ({ section }),
         resetSectionLimits: true,
         askAI: (searchTerm: string) => ({ searchTerm }),
+        logCreateNewItem: (href: string | null | undefined) => ({ href }),
         loadInitialGroups: true,
         setFirstNoResultsSearchPrefix: (dataset: NewTabSearchDataset, prefix: string | null) => ({
             dataset,
@@ -144,6 +170,22 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         }),
     }),
     loaders(({ values, actions }) => ({
+        sceneLogViews: [
+            [] as FileSystemViewLogEntry[],
+            {
+                loadSceneLogViews: async () => {
+                    return await api.fileSystemLogView.list({ type: 'scene' })
+                },
+            },
+        ],
+        newLogViews: [
+            [] as FileSystemViewLogEntry[],
+            {
+                loadNewLogViews: async () => {
+                    return await api.fileSystemLogView.list({ type: 'create-new' })
+                },
+            },
+        ],
         recents: [
             (() => {
                 if ('sessionStorage' in window) {
@@ -484,6 +526,36 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         ],
     }),
     selectors(({ actions }) => ({
+        sceneLogViewsByRef: [
+            (s) => [s.sceneLogViews],
+            (sceneLogViews): Record<string, string> => {
+                return sceneLogViews.reduce(
+                    (acc, { ref, viewed_at }) => {
+                        const current = acc[ref]
+                        if (!current || Date.parse(viewed_at) > Date.parse(current)) {
+                            acc[ref] = viewed_at
+                        }
+                        return acc
+                    },
+                    {} as Record<string, string>
+                )
+            },
+        ],
+        newLogViewsByRef: [
+            (s) => [s.newLogViews],
+            (newLogViews): Record<string, string> => {
+                return newLogViews.reduce(
+                    (acc, { ref, viewed_at }) => {
+                        const current = acc[ref]
+                        if (!current || Date.parse(viewed_at) > Date.parse(current)) {
+                            acc[ref] = viewed_at
+                        }
+                        return acc
+                    },
+                    {} as Record<string, string>
+                )
+            },
+        ],
         newTabSceneDataIncludePersons: [
             (s) => [s.newTabSceneDataInclude],
             (include): boolean => include.includes('persons'),
@@ -740,12 +812,88 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             (sectionItemLimits: Record<string, number>) => (section: string) => sectionItemLimits[section] || 5,
         ],
         itemsGrid: [
-            (s) => [s.featureFlags, s.projectTreeSearchItems, s.aiSearchItems],
+            (s) => [
+                s.featureFlags,
+                s.projectTreeSearchItems,
+                s.aiSearchItems,
+                s.sceneLogViewsByRef,
+                s.newLogViewsByRef,
+            ],
             (
                 featureFlags: any,
                 projectTreeSearchItems: NewTabTreeDataItem[],
-                aiSearchItems: NewTabTreeDataItem[]
+                aiSearchItems: NewTabTreeDataItem[],
+                sceneLogViewsByRef: Record<string, string>,
+                newLogViewsByRef: Record<string, string>
             ): NewTabTreeDataItem[] => {
+                const registerSceneKey = (map: Map<string, string>, key?: string | null, sceneKey?: string): void => {
+                    if (!key || !sceneKey || map.has(key)) {
+                        return
+                    }
+                    map.set(key, sceneKey)
+                }
+
+                const sceneKeyByType = new Map<string, string>()
+
+                const getSceneKeyForFs = (fs: FileSystemImport): string | null => {
+                    if (fs.sceneKey) {
+                        return fs.sceneKey
+                    }
+                    if (fs.type) {
+                        const direct = sceneKeyByType.get(fs.type)
+                        if (direct) {
+                            return direct
+                        }
+                        const baseType = fs.type.split('/')?.[0]
+                        if (baseType) {
+                            const base = sceneKeyByType.get(baseType)
+                            if (base) {
+                                return base
+                            }
+                        }
+                    }
+                    if ('iconType' in fs && fs.iconType) {
+                        const fromIcon = sceneKeyByType.get(fs.iconType as string)
+                        if (fromIcon) {
+                            return fromIcon
+                        }
+                    }
+                    return null
+                }
+
+                const getLastViewedAt = (sceneKey?: string | null): string | null =>
+                    sceneKey ? (sceneLogViewsByRef[sceneKey] ?? null) : null
+
+                const getLastViewedAtForHref = (href?: string | null): string | null =>
+                    href ? (newLogViewsByRef[href] ?? null) : null
+
+                const defaultProducts = getDefaultTreeProducts()
+                const defaultData = getDefaultTreeData()
+
+                defaultProducts.forEach((fs) => {
+                    if (fs.sceneKey) {
+                        registerSceneKey(sceneKeyByType, fs.type, fs.sceneKey)
+                        if (fs.type?.includes('/')) {
+                            registerSceneKey(sceneKeyByType, fs.type.split('/')[0], fs.sceneKey)
+                        }
+                        if ('iconType' in fs) {
+                            registerSceneKey(sceneKeyByType, fs.iconType as string | undefined, fs.sceneKey)
+                        }
+                    }
+                })
+
+                defaultData.forEach((fs) => {
+                    if (fs.sceneKey) {
+                        registerSceneKey(sceneKeyByType, fs.type, fs.sceneKey)
+                        if (fs.type?.includes('/')) {
+                            registerSceneKey(sceneKeyByType, fs.type.split('/')[0], fs.sceneKey)
+                        }
+                        if ('iconType' in fs) {
+                            registerSceneKey(sceneKeyByType, fs.iconType as string | undefined, fs.sceneKey)
+                        }
+                    }
+                })
+
                 const newInsightItems = getDefaultTreeNew()
                     .filter(({ path }) => path.startsWith('Insight/'))
                     .map((fs, index) => ({
@@ -756,6 +904,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         flag: fs.flag,
                         icon: getIconForFileSystemItem(fs),
                         record: fs,
+                        lastViewedAt: getLastViewedAtForHref(fs.href),
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
@@ -763,12 +912,13 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     .filter(({ path }) => path.startsWith('Data/'))
                     .map((fs, index) => ({
                         id: `new-data-${index}`,
-                        name: 'Data ' + fs.path.substring(5).toLowerCase(),
-                        category: 'data-management' as NEW_TAB_CATEGORY_ITEMS,
+                        name: 'New ' + capitalizeFirstLetter(fs.path.substring(5).toLowerCase()),
+                        category: 'create-new' as NEW_TAB_CATEGORY_ITEMS,
                         href: fs.href,
                         flag: fs.flag,
                         icon: getIconForFileSystemItem(fs),
                         record: fs,
+                        lastViewedAt: getLastViewedAtForHref(fs.href),
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
@@ -782,10 +932,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         flag: fs.flag,
                         icon: getIconForFileSystemItem(fs),
                         record: fs,
+                        lastViewedAt: getLastViewedAtForHref(fs.href),
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
-                const products = [...getDefaultTreeProducts(), ...getDefaultTreePersons()]
+                const products = [...defaultProducts, ...getDefaultTreePersons()]
                     .map((fs, index) => ({
                         id: `product-${index}`,
                         name: fs.path,
@@ -794,11 +945,14 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         flag: fs.flag,
                         icon: getIconForFileSystemItem(fs),
                         record: fs,
+                        lastViewedAt: getLastViewedAt(getSceneKeyForFs(fs)),
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
                     .toSorted((a, b) => a.name.localeCompare(b.name))
 
-                const data = getDefaultTreeData()
+                const sortedProducts = sortByLastViewedAt(products)
+
+                const data = defaultData
                     .map((fs, index) => ({
                         id: `data-${index}`,
                         name: fs.path,
@@ -807,12 +961,20 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         flag: fs.flag,
                         icon: getIconForFileSystemItem(fs),
                         record: fs,
+                        // TODO: re-enable when all data-management items support it
+                        // lastViewedAt: getLastViewedAt(getSceneKeyForFs(fs)),
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
+                const sortedData = sortByLastViewedAt(data)
+
+                const sortedNewInsightItems = sortByLastViewedAt(newInsightItems)
+                const sortedNewDataItems = sortByLastViewedAt(newDataItems)
+                const sortedNewOtherItems = sortByLastViewedAt(newOtherItems)
+
                 const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
 
-                const allItems: NewTabTreeDataItem[] = [
+                const allItems: NewTabTreeDataItem[] = sortByLastViewedAt([
                     ...(newTabSceneData ? aiSearchItems : []),
                     ...projectTreeSearchItems,
                     {
@@ -822,12 +984,13 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         icon: <IconDatabase />,
                         href: '/sql',
                         record: { type: 'query', path: 'New SQL query' },
+                        lastViewedAt: getLastViewedAtForHref('/sql'),
                     },
-                    ...newInsightItems,
-                    ...newOtherItems,
-                    ...products,
-                    ...data,
-                    ...newDataItems,
+                    ...sortedNewInsightItems,
+                    ...sortedNewOtherItems,
+                    ...sortedProducts,
+                    ...sortedData,
+                    ...sortedNewDataItems,
                     {
                         id: 'new-hog-program',
                         name: 'New Hog program',
@@ -835,8 +998,9 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         icon: <IconHogQL />,
                         href: '/debug/hog',
                         record: { type: 'hog', path: 'New Hog program' },
+                        lastViewedAt: getLastViewedAtForHref('/debug/hog'),
                     },
-                ]
+                ])
                 return allItems
             },
         ],
@@ -961,23 +1125,22 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 // Add each category only if it's selected or if "all" is selected
                 if (showAll || newTabSceneDataInclude.includes('create-new')) {
                     const limit = getSectionItemLimit('create-new')
-                    grouped['create-new'] = filterBySearch(
-                        itemsGrid.filter((item) => item.category === 'create-new')
+                    grouped['create-new'] = sortByLastViewedAt(
+                        filterBySearch(itemsGrid.filter((item) => item.category === 'create-new'))
                     ).slice(0, limit)
                 }
 
                 if (showAll || newTabSceneDataInclude.includes('apps')) {
                     const limit = getSectionItemLimit('apps')
-                    grouped['apps'] = filterBySearch(itemsGrid.filter((item) => item.category === 'apps')).slice(
-                        0,
-                        limit
+                    grouped['apps'] = sortByLastViewedAt(
+                        filterBySearch(itemsGrid.filter((item) => item.category === 'apps')).slice(0, limit)
                     )
                 }
 
                 if (showAll || newTabSceneDataInclude.includes('data-management')) {
                     const limit = getSectionItemLimit('data-management')
-                    grouped['data-management'] = filterBySearch(
-                        itemsGrid.filter((item) => item.category === 'data-management')
+                    grouped['data-management'] = sortByLastViewedAt(
+                        filterBySearch(itemsGrid.filter((item) => item.category === 'data-management'))
                     ).slice(0, limit)
                 }
 
@@ -1185,6 +1348,19 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
+        logCreateNewItem: async ({ href }) => {
+            if (!href) {
+                return
+            }
+
+            try {
+                await api.fileSystemLogView.create({ type: 'create-new', ref: href })
+            } catch (error) {
+                console.error('Failed to log create new item usage:', error)
+            }
+
+            actions.loadNewLogViews()
+        },
         triggerSearchForIncludedItems: () => {
             const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
 
@@ -1223,11 +1399,15 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             }
         },
         onSubmit: () => {
-            if (values.selectedItem) {
-                if (values.selectedItem.category === 'askAI' && values.selectedItem.record?.searchTerm) {
-                    actions.askAI(values.selectedItem.record.searchTerm)
-                } else if (values.selectedItem.href) {
-                    router.actions.push(values.selectedItem.href)
+            const selected = values.selectedItem
+            if (selected) {
+                if (selected.category === 'askAI' && selected.record?.searchTerm) {
+                    actions.askAI(selected.record.searchTerm)
+                } else if (selected.href) {
+                    if (selected.category === 'create-new') {
+                        actions.logCreateNewItem(selected.href)
+                    }
+                    router.actions.push(selected.href)
                 }
             }
         },
@@ -1583,6 +1763,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         },
     })),
     afterMount(({ actions, values }) => {
+        actions.loadSceneLogViews()
+        actions.loadNewLogViews()
         actions.loadRecents()
 
         // Load initial data for data sections when "all" is selected by default
