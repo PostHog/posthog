@@ -33,7 +33,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                         {isManualWorkflow && (
                             <LemonButton
                                 type="primary"
-                                disabledReason={workflow?.status !== 'active' && 'Must enable workflow to trigger'}
+                                disabledReason={workflow?.status !== 'active' && 'Must enable workflow to use trigger'}
                                 icon={<IconButton />}
                                 tooltip="Triggers workflow immediately"
                                 onClick={triggerManualWorkflow}
