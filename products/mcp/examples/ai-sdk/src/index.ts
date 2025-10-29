@@ -15,28 +15,13 @@ async function analyzeProductUsage() {
         stopWhen: stepCountIs(30),
         system: `You are a data analyst. Your task is to do a deep dive into what's happening in our product.`,
         prompt: `Please analyze our product usage:
-
+        
         1. Get all available insights (limit 100) and pick the 5 most relevant ones
         2. For each insight, query its data
         3. Summarize the key findings in a brief report
-
+        
         Keep your response focused and data-driven.`,
     })
-
-    // Show tool usage summary
-    const toolCalls = result.steps.flatMap((step) => step.toolCalls ?? [])
-    if (toolCalls.length > 0) {
-        const toolUsage = toolCalls.reduce(
-            (acc, call) => {
-                acc[call.toolName] = (acc[call.toolName] || 0) + 1
-                return acc
-            },
-            {} as Record<string, number>
-        )
-
-        for (const [_tool, _count] of Object.entries(toolUsage)) {
-        }
-    }
 }
 
 async function main() {

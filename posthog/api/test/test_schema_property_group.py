@@ -18,14 +18,12 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
                         "property_type": "String",
                         "is_required": True,
                         "description": "User ID",
-                        "order": 0,
                     },
                     {
                         "name": "email",
                         "property_type": "String",
                         "is_required": False,
                         "description": "Email",
-                        "order": 1,
                     },
                 ],
             },
@@ -247,5 +245,4 @@ class TestEventSchemaAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        # The queryset filter prevents cross-team access, so the object "does not exist" from this team's perspective
         assert "does not exist" in str(response.json())
