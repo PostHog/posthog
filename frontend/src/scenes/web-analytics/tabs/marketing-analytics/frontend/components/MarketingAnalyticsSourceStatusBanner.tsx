@@ -18,11 +18,12 @@ export const MarketingAnalyticsSourceStatusBanner = (): JSX.Element | null => {
         return null
     }
 
+    const runningSources = syncingOrFailedSources.filter((s) => s.status === 'Running')
+    const failedSources = syncingOrFailedSources.filter((s) => s.status === 'Failed')
+    const pausedSources = syncingOrFailedSources.filter((s) => s.status === 'Paused')
+
     return (
-        <LemonBanner
-            type={syncingOrFailedSources.some((s) => s.status === 'Failed') ? 'error' : 'info'}
-            className="mb-2 mt-4"
-        >
+        <LemonBanner type={failedSources.length > 0 ? 'error' : 'info'} className="mb-2 mt-4">
             {syncingOrFailedSources.length === 1 ? (
                 <>
                     <strong>{syncingOrFailedSources[0].name}</strong> is currently{' '}
@@ -35,38 +36,27 @@ export const MarketingAnalyticsSourceStatusBanner = (): JSX.Element | null => {
                 </>
             ) : (
                 <>
-                    {syncingOrFailedSources.filter((s) => s.status === 'Running').length > 0 && (
+                    {runningSources.length > 0 && (
                         <>
                             <strong>
-                                {syncingOrFailedSources.filter((s) => s.status === 'Running').length} source
-                                {syncingOrFailedSources.filter((s) => s.status === 'Running').length > 1
-                                    ? 's are'
-                                    : ' is'}{' '}
+                                {runningSources.length} source{runningSources.length > 1 ? 's are' : ' is'} syncing
+                            </strong>
+                            .{' '}
+                        </>
+                    )}
+                    {failedSources.length > 0 && (
+                        <>
+                            <strong>
+                                {failedSources.length} source{failedSources.length > 1 ? 's have' : ' has'} failed while
                                 syncing
                             </strong>
                             .{' '}
                         </>
                     )}
-                    {syncingOrFailedSources.filter((s) => s.status === 'Failed').length > 0 && (
+                    {pausedSources.length > 0 && (
                         <>
                             <strong>
-                                {syncingOrFailedSources.filter((s) => s.status === 'Failed').length} source
-                                {syncingOrFailedSources.filter((s) => s.status === 'Failed').length > 1
-                                    ? 's have'
-                                    : ' has'}{' '}
-                                failed while syncing
-                            </strong>
-                            .{' '}
-                        </>
-                    )}
-                    {syncingOrFailedSources.filter((s) => s.status === 'Paused').length > 0 && (
-                        <>
-                            <strong>
-                                {syncingOrFailedSources.filter((s) => s.status === 'Paused').length} source
-                                {syncingOrFailedSources.filter((s) => s.status === 'Paused').length > 1
-                                    ? 's are'
-                                    : ' is'}{' '}
-                                paused
+                                {pausedSources.length} source{pausedSources.length > 1 ? 's are' : ' is'} paused
                             </strong>
                             .{' '}
                         </>
