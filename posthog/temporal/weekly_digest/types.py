@@ -21,7 +21,7 @@ class Digest(BaseModel):
 
 class WeeklyDigestInput(BaseModel):
     dry_run: bool
-    common: CommonInput
+    common: CommonInput = CommonInput()
 
 
 class GenerateDigestDataInput(BaseModel):
