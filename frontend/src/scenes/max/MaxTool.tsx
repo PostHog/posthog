@@ -21,7 +21,6 @@ interface MaxToolProps extends Omit<ToolRegistration, 'name' | 'description'> {
 
 export function MaxTool({
     identifier,
-    icon,
     context,
     introOverride,
     callback,
@@ -35,7 +34,6 @@ export function MaxTool({
 }: MaxToolProps): JSX.Element {
     const { definition, isMaxOpen, openMax } = useMaxTool({
         identifier,
-        icon,
         context,
         introOverride,
         callback,
@@ -62,7 +60,7 @@ export function MaxTool({
                             <>
                                 PostHog AI can use this tool
                                 <br />
-                                {icon || <IconWrench />}
+                                {definition.icon || <IconWrench />}
                                 <i className="ml-1.5">{definition.name}</i>
                             </>
                         )

@@ -349,13 +349,6 @@
                 "completion_token": 0.000015,
                 "image": 0.0048
             },
-            "anthropic": {
-                "prompt_token": 0.000003,
-                "completion_token": 0.000015,
-                "cache_read_token": 3e-7,
-                "cache_write_token": 0.00000375,
-                "image": 0.0048
-            },
             "google-vertex": {
                 "prompt_token": 0.000003,
                 "completion_token": 0.000015,
@@ -369,13 +362,6 @@
         "model": "anthropic/claude-3.5-sonnet-20240620",
         "cost": {
             "default": {
-                "prompt_token": 0.000003,
-                "completion_token": 0.000015,
-                "cache_read_token": 3e-7,
-                "cache_write_token": 0.00000375,
-                "image": 0.0048
-            },
-            "anthropic": {
                 "prompt_token": 0.000003,
                 "completion_token": 0.000015,
                 "cache_read_token": 3e-7,
@@ -1106,16 +1092,16 @@
         "model": "deepseek/deepseek-chat-v3.1",
         "cost": {
             "default": {
-                "prompt_token": 2.7e-7,
-                "completion_token": 0.000001
+                "prompt_token": 2e-7,
+                "completion_token": 8e-7
             },
             "atlas-cloud-fp8": {
                 "prompt_token": 4.5e-7,
                 "completion_token": 0.0000015
             },
             "chutes-fp8": {
-                "prompt_token": 0.000001,
-                "completion_token": 0.000003
+                "prompt_token": 2e-7,
+                "completion_token": 8e-7
             },
             "deepinfra-fp4": {
                 "prompt_token": 2.7e-7,
@@ -1138,7 +1124,7 @@
                 "completion_token": 0.000001
             },
             "parasail-fp8": {
-                "prompt_token": 5e-7,
+                "prompt_token": 4.5e-7,
                 "completion_token": 0.0000017
             },
             "sambanova-fp8": {
@@ -1185,12 +1171,16 @@
         "model": "deepseek/deepseek-r1",
         "cost": {
             "default": {
-                "prompt_token": 4e-7,
-                "completion_token": 0.000002
+                "prompt_token": 3e-7,
+                "completion_token": 0.0000012
             },
             "azure": {
                 "prompt_token": 0.000001485,
                 "completion_token": 0.00000594
+            },
+            "chutes-fp8": {
+                "prompt_token": 3e-7,
+                "completion_token": 0.0000012
             },
             "deepinfra-base": {
                 "prompt_token": 7e-7,
@@ -3519,8 +3509,8 @@
                 "completion_token": 3e-7
             },
             "parasail-bf16": {
-                "prompt_token": 2e-7,
-                "completion_token": 5e-7
+                "prompt_token": 3e-7,
+                "completion_token": 6e-7
             }
         }
     },
@@ -4018,6 +4008,19 @@
             "deepinfra-fp8": {
                 "prompt_token": 1e-7,
                 "completion_token": 4e-7
+            }
+        }
+    },
+    {
+        "model": "nvidia/nemotron-nano-12b-v2-vl:free",
+        "cost": {
+            "default": {
+                "prompt_token": 0,
+                "completion_token": 0
+            },
+            "nvidia": {
+                "prompt_token": 0,
+                "completion_token": 0
             }
         }
     },
@@ -4753,8 +4756,8 @@
                 "cache_read_token": 3.75e-8
             },
             "hyperbolic": {
-                "prompt_token": 1.0000000000000001e-7,
-                "completion_token": 1.0000000000000001e-7
+                "prompt_token": 4e-8,
+                "completion_token": 4e-8
             },
             "inference-net": {
                 "prompt_token": 3e-8,
@@ -4829,36 +4832,6 @@
                 "completion_token": 0.00006,
                 "cache_read_token": 0.0000075,
                 "image": 0.021675
-            }
-        }
-    },
-    {
-        "model": "openai/o1-mini",
-        "cost": {
-            "default": {
-                "prompt_token": 0.0000011,
-                "completion_token": 0.0000044,
-                "cache_read_token": 5.5e-7
-            },
-            "openai": {
-                "prompt_token": 0.0000011,
-                "completion_token": 0.0000044,
-                "cache_read_token": 5.5e-7
-            }
-        }
-    },
-    {
-        "model": "openai/o1-mini-2024-09-12",
-        "cost": {
-            "default": {
-                "prompt_token": 0.0000011,
-                "completion_token": 0.0000044,
-                "cache_read_token": 5.5e-7
-            },
-            "openai": {
-                "prompt_token": 0.0000011,
-                "completion_token": 0.0000044,
-                "cache_read_token": 5.5e-7
             }
         }
     },
@@ -5029,19 +5002,6 @@
             "chutes-bf16": {
                 "prompt_token": 7e-8,
                 "completion_token": 2.6e-7
-            }
-        }
-    },
-    {
-        "model": "openrouter/andromeda-alpha",
-        "cost": {
-            "default": {
-                "prompt_token": 0,
-                "completion_token": 0
-            },
-            "stealth": {
-                "prompt_token": 0,
-                "completion_token": 0
             }
         }
     },
@@ -5705,7 +5665,7 @@
             },
             "atlas-cloud-bf16": {
                 "prompt_token": 9e-8,
-                "completion_token": 4.5e-7
+                "completion_token": 3e-7
             },
             "chutes-bf16": {
                 "prompt_token": 8e-8,
@@ -6157,6 +6117,10 @@
                 "prompt_token": 7e-7,
                 "completion_token": 0.0000028
             },
+            "atlas-cloud-fp8": {
+                "prompt_token": 3e-7,
+                "completion_token": 0.0000015
+            },
             "chutes-bf16": {
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000012
@@ -6313,10 +6277,6 @@
         "model": "qwen/qwq-32b",
         "cost": {
             "default": {
-                "prompt_token": 1.5e-7,
-                "completion_token": 4e-7
-            },
-            "deepinfra-bf16": {
                 "prompt_token": 1.5e-7,
                 "completion_token": 4e-7
             },
@@ -6509,29 +6469,12 @@
         "model": "tencent/hunyuan-a13b-instruct",
         "cost": {
             "default": {
-                "prompt_token": 3e-8,
-                "completion_token": 3e-8
-            },
-            "chutes-bf16": {
-                "prompt_token": 3e-8,
-                "completion_token": 3e-8
+                "prompt_token": 1.4e-7,
+                "completion_token": 5.7e-7
             },
             "siliconflow-fp8": {
                 "prompt_token": 1.4e-7,
                 "completion_token": 5.7e-7
-            }
-        }
-    },
-    {
-        "model": "tencent/hunyuan-a13b-instruct:free",
-        "cost": {
-            "default": {
-                "prompt_token": 0,
-                "completion_token": 0
-            },
-            "chutes-bf16": {
-                "prompt_token": 0,
-                "completion_token": 0
             }
         }
     },
@@ -6949,8 +6892,8 @@
                 "cache_read_token": 1.1e-7
             },
             "parasail-fp8": {
-                "prompt_token": 7e-7,
-                "completion_token": 0.000002
+                "prompt_token": 0.0000011,
+                "completion_token": 0.0000022
             },
             "z-ai-fp8": {
                 "prompt_token": 6e-7,
@@ -6967,7 +6910,7 @@
                 "completion_token": 0.00000175
             },
             "atlas-cloud-fp8": {
-                "prompt_token": 6e-7,
+                "prompt_token": 4.5e-7,
                 "completion_token": 0.000002
             },
             "baseten-fp4": {
