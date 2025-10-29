@@ -967,7 +967,7 @@
     --color-bg-fill-button-panel-hover: var(--color-bg-fill-highlight-150);
     --color-bg-fill-button-panel-active: var(--color-bg-fill-highlight-100);
     --color-bg-fill-input: var(--color-neutral-cool-850);
-    --color-bg-fill-switch: var(--color-neutral-cool-900);
+    --color-bg-fill-switch: var(--color-neutral-cool-600);
     --color-bg-fill-slider-rail: color-mix(in oklab, var(--color-white) 15%, transparent);
     --color-bg-fill-scroll-thumb: color-mix(in oklab, var(--color-white) 20%, transparent);
     --color-bg-border-primary: var(--color-neutral-cool-800);
@@ -1810,6 +1810,55 @@
                 // Only 4% so that this repeats every now and then nicely
                 transform: translateY(0);
             }
+        }
+    }
+
+    /* stylelint-disable-next-line order/order */
+    .animate-fade-in {
+        animation: fade-in 0.4s ease-out forwards;
+    }
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes shimmer {
+        0% {
+            background-position: 200% 0;
+        }
+
+        100% {
+            background-position: -200% 0;
+        }
+    }
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes shimmer-opacity {
+        0%,
+        100% {
+            opacity: 0.4;
+        }
+
+        25% {
+            opacity: 1;
+        }
+
+        50% {
+            opacity: 0.4;
+        }
+
+        75% {
+            opacity: 1;
+        }
+    }
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes fade-in {
+        0% {
+            opacity: 0;
+            transform: translateY(2px);
+        }
+
+        100% {
+            opacity: 1;
+            transform: translateY(0);
         }
     }
 }

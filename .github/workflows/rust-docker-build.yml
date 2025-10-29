@@ -30,6 +30,9 @@ jobs:
                     - image: hook-migrator
                       dockerfile: ./rust/Dockerfile.migrate-hooks
                       project: c1bwj4j4qg
+                    - image: sqlx-migrate
+                      dockerfile: ./rust/Dockerfile.sqlx-migrate
+                      project: jmsz6gms8g
                     - image: cyclotron-janitor
                       dockerfile: ./rust/Dockerfile
                       project: r4zm8vtlbw
@@ -69,6 +72,7 @@ jobs:
             hook-janitor_digest: ${{ steps.digest.outputs.hook-janitor_digest }}
             hook-worker_digest: ${{ steps.digest.outputs.hook-worker_digest }}
             hook-migrator_digest: ${{ steps.digest.outputs.hook-migrator_digest }}
+            sqlx-migrate_digest: ${{ steps.digest.outputs.sqlx-migrate_digest }}
             cymbal_digest: ${{ steps.digest.outputs.cymbal_digest }}
             embedding-worker_digest: ${{ steps.digest.outputs.embedding-worker_digest }}
             feature-flags_digest: ${{ steps.digest.outputs.feature-flags_digest }}
@@ -209,6 +213,10 @@ jobs:
                       values:
                           image:
                               sha: '${{ needs.build.outputs.kafka-deduplicator_digest }}'
+                    - release: sqlx-migrate
+                      values:
+                          image:
+                              sha: '${{ needs.build.outputs.sqlx-migrate_digest }}'
         steps:
             - name: get deployer token
               id: deployer

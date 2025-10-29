@@ -10,7 +10,9 @@ from posthog.models.raw_sessions.sessions_v3 import (
 operations = [
     # drop person ID
     run_sql_with_exceptions(
-        DROP_PERSON_ID.format(table_name=SHARDED_RAW_SESSIONS_TABLE_V3()), node_roles=[NodeRole.DATA]
+        DROP_PERSON_ID.format(table_name=SHARDED_RAW_SESSIONS_TABLE_V3()),
+        node_roles=[NodeRole.DATA],
+        is_alter_on_replicated_table=True,
     ),
     run_sql_with_exceptions(
         DROP_PERSON_ID.format(table_name=WRITABLE_RAW_SESSIONS_TABLE_V3()), node_roles=[NodeRole.DATA]
@@ -21,7 +23,9 @@ operations = [
     ),
     # add has_replay_events
     run_sql_with_exceptions(
-        ADD_HAS_REPLAY_EVENTS.format(table_name=SHARDED_RAW_SESSIONS_TABLE_V3()), node_roles=[NodeRole.DATA]
+        ADD_HAS_REPLAY_EVENTS.format(table_name=SHARDED_RAW_SESSIONS_TABLE_V3()),
+        node_roles=[NodeRole.DATA],
+        is_alter_on_replicated_table=True,
     ),
     run_sql_with_exceptions(
         ADD_HAS_REPLAY_EVENTS.format(table_name=WRITABLE_RAW_SESSIONS_TABLE_V3()), node_roles=[NodeRole.DATA]
