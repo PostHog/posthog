@@ -32,6 +32,7 @@ import { cn } from 'lib/utils/css-classes'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
+import { combineUrl } from 'kea-router'
 import { urls } from 'scenes/urls'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
@@ -93,10 +94,8 @@ function getSessionFilterUrl(sessionId: string): string {
             type: 'event',
         },
     ]
-    // Build URL with filters as query params
-    const params = new URLSearchParams()
-    params.set('filters', JSON.stringify(filter))
-    return `${urls.llmAnalyticsTraces()}?${params.toString()}`
+    // Build URL with filters and a broader date range window
+    return combineUrl(urls.llmAnalyticsTraces(), { filters: filter, date_from: '-14d' }).url
 }
 
 function TraceSceneWrapper(): JSX.Element {
