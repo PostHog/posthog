@@ -554,6 +554,7 @@
          "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
+         "posthog_cohort"."compiled_bytecode",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
@@ -643,6 +644,7 @@
          "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
+         "posthog_cohort"."compiled_bytecode",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
@@ -754,6 +756,7 @@
          "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
+         "posthog_cohort"."compiled_bytecode",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
@@ -972,6 +975,7 @@
          "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
+         "posthog_cohort"."compiled_bytecode",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
@@ -1082,6 +1086,7 @@
          "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
+         "posthog_cohort"."compiled_bytecode",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
@@ -1669,6 +1674,7 @@
          "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
+         "posthog_cohort"."compiled_bytecode",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
@@ -1742,6 +1748,7 @@
          "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
+         "posthog_cohort"."compiled_bytecode",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
@@ -1786,6 +1793,7 @@
          "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
+         "posthog_cohort"."compiled_bytecode",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
@@ -1875,6 +1883,7 @@
          "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
+         "posthog_cohort"."compiled_bytecode",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
@@ -2180,6 +2189,7 @@
          "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
+         "posthog_cohort"."compiled_bytecode",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
@@ -2283,6 +2293,7 @@
          "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
+         "posthog_cohort"."compiled_bytecode",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
@@ -2356,6 +2367,7 @@
          "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
+         "posthog_cohort"."compiled_bytecode",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
@@ -2454,6 +2466,7 @@
          "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
+         "posthog_cohort"."compiled_bytecode",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
@@ -2802,6 +2815,7 @@
          "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
+         "posthog_cohort"."compiled_bytecode",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
@@ -2905,6 +2919,7 @@
          "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
+         "posthog_cohort"."compiled_bytecode",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
@@ -3451,6 +3466,7 @@
          "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
+         "posthog_cohort"."compiled_bytecode",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
@@ -3540,6 +3556,7 @@
          "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
+         "posthog_cohort"."compiled_bytecode",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
@@ -3567,6 +3584,7 @@
          "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
+         "posthog_cohort"."compiled_bytecode",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
@@ -4017,6 +4035,7 @@
          "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."cohort_type",
+         "posthog_cohort"."compiled_bytecode",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
