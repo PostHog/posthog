@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react'
 
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
+import type { SceneShortcut } from 'lib/components/Scenes/SceneShortcut/SceneShortcut'
 import { TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -210,6 +211,10 @@ export const sceneLogic = kea<sceneLogicType>([
         startTabEdit: (tab: SceneTab) => ({ tab }),
         endTabEdit: true,
         saveTabEdit: (tab: SceneTab, name: string) => ({ tab, name }),
+
+        registerSceneShortcut: (tabId: string, shortcut: SceneShortcut) => ({ tabId, shortcut }),
+        unregisterSceneShortcut: (tabId: string, shortcutId: string) => ({ tabId, shortcutId }),
+        setOptionKeyHeld: (held: boolean) => ({ held }),
     }),
     reducers({
         // We store all state in "tabs". This allows us to have multiple tabs open, each with its own scene and parameters.
@@ -371,6 +376,37 @@ export const sceneLogic = kea<sceneLogicType>([
             {} as Record<string, any>,
             {
                 setScene: (_, { sceneId, sceneKey, tabId, params }) => ({ sceneId, sceneKey, tabId, params }),
+            },
+        ],
+        sceneShortcuts: [
+            {} as Record<string, Record<string, SceneShortcut>>,
+            {
+                registerSceneShortcut: (state, { tabId, shortcut }) => ({
+                    ...state,
+                    [tabId]: {
+                        ...state[tabId],
+                        [shortcut.id]: shortcut,
+                    },
+                }),
+                unregisterSceneShortcut: (state, { tabId, shortcutId }) => {
+                    const tabShortcuts = { ...state[tabId] }
+                    delete tabShortcuts[shortcutId]
+                    return {
+                        ...state,
+                        [tabId]: tabShortcuts,
+                    }
+                },
+                removeTab: (state, { tab }) => {
+                    const newState = { ...state }
+                    delete newState[tab.id]
+                    return newState
+                },
+            },
+        ],
+        optionKeyHeld: [
+            false,
+            {
+                setOptionKeyHeld: (_, { held }) => held,
             },
         ],
     }),
@@ -548,6 +584,57 @@ export const sceneLogic = kea<sceneLogicType>([
             ],
             (titleAndIcon) => titleAndIcon as { title: string; iconType: FileSystemIconType | 'loading' | 'blank' },
             { resultEqualityCheck: equal },
+        ],
+
+        activeSceneShortcuts: [
+            (s) => [s.sceneShortcuts, s.activeTabId],
+            (
+                sceneShortcuts: Record<string, Record<string, SceneShortcut>>,
+                activeTabId: string | null
+            ): SceneShortcut[] => {
+                if (!activeTabId || !sceneShortcuts[activeTabId]) {
+                    return []
+                }
+                return Object.values(sceneShortcuts[activeTabId]).filter((shortcut) => shortcut.enabled)
+            },
+        ],
+
+        sceneShortcutsByScene: [
+            (s) => [s.sceneShortcuts, s.activeTabId],
+            (sceneShortcuts: Record<string, Record<string, SceneShortcut>>, activeTabId: string | null) =>
+                (sceneKey?: string): SceneShortcut[] => {
+                    if (!activeTabId || !sceneShortcuts[activeTabId]) {
+                        return []
+                    }
+                    const allShortcuts = Object.values(sceneShortcuts[activeTabId])
+                    return sceneKey ? allShortcuts.filter((shortcut) => shortcut.sceneKey === sceneKey) : allShortcuts
+                },
+        ],
+
+        sceneShortcutConflicts: [
+            (s) => [s.activeSceneShortcuts],
+            (shortcuts: SceneShortcut[]): string[] => {
+                const conflicts: string[] = []
+                const keyMap = new Map<string, SceneShortcut[]>()
+
+                shortcuts.forEach((shortcut) => {
+                    const keyString = shortcut.keys.join('+')
+                    if (!keyMap.has(keyString)) {
+                        keyMap.set(keyString, [])
+                    }
+                    keyMap.get(keyString)!.push(shortcut)
+                })
+
+                keyMap.forEach((shortcutsForKey, keyString) => {
+                    if (shortcutsForKey.length > 1) {
+                        conflicts.push(
+                            `Shortcut conflict: ${keyString} is used by ${shortcutsForKey.map((s) => s.description).join(', ')}`
+                        )
+                    }
+                })
+
+                return conflicts
+            },
         ],
     }),
     listeners(({ values, actions, cache, props, selectors }) => ({
@@ -1079,6 +1166,12 @@ export const sceneLogic = kea<sceneLogicType>([
     afterMount(({ actions, cache, values }) => {
         cache.disposables.add(() => {
             const onKeyDown = (event: KeyboardEvent): void => {
+                // Track option key state (but don't interfere with shortcuts)
+                if (event.altKey && !values.optionKeyHeld) {
+                    actions.setOptionKeyHeld(true)
+                }
+
+                // Handle tab shortcuts (Cmd/Ctrl+B)
                 if ((event.ctrlKey || event.metaKey) && event.key === 'b') {
                     const element = event.target as HTMLElement
                     if (element?.closest('.NotebookEditor')) {
@@ -1094,10 +1187,89 @@ export const sceneLogic = kea<sceneLogicType>([
                     } else {
                         actions.newTab()
                     }
+                    return
+                }
+
+                // Handle scene shortcuts
+                const activeShortcuts = values.activeSceneShortcuts
+                if (activeShortcuts.length === 0) {
+                    return
+                }
+
+                // Skip if we're in an input/textarea/contenteditable
+                const element = event.target as HTMLElement
+                if (
+                    element &&
+                    (element.tagName === 'INPUT' ||
+                        element.tagName === 'TEXTAREA' ||
+                        element.contentEditable === 'true' ||
+                        element.closest('.NotebookEditor'))
+                ) {
+                    return
+                }
+
+                // Build current key combination
+                const pressedKeys: string[] = []
+                if (event.shiftKey) {
+                    pressedKeys.push('shift')
+                }
+                if (event.ctrlKey || event.metaKey) {
+                    pressedKeys.push('command')
+                }
+                if (event.altKey) {
+                    pressedKeys.push('option')
+                }
+
+                // Handle special key mappings
+                let keyToAdd = event.key.toLowerCase()
+
+                // Handle Alt key combinations - sometimes event.key changes with Alt
+                if (event.altKey) {
+                    // For Alt+letter combinations, the event.key might be different
+                    // Use event.code instead for more reliable detection
+                    const codeMatch = event.code.match(/^Key([A-Z])$/)
+                    if (codeMatch) {
+                        keyToAdd = codeMatch[1].toLowerCase()
+                    } else if (event.code === 'Escape') {
+                        keyToAdd = 'escape'
+                    }
+                    // For other keys, keep using event.key.toLowerCase()
+                }
+
+                pressedKeys.push(keyToAdd)
+
+                const pressedKeyString = pressedKeys.join('+')
+
+                // Find matching shortcut
+                const matchingShortcut = activeShortcuts.find((shortcut) => {
+                    const shortcutKeyString = shortcut.keys.map((k) => k.toLowerCase()).join('+')
+                    return shortcutKeyString === pressedKeyString
+                })
+
+                // Debug logging in development
+                if (process.env.NODE_ENV === 'development') {
+                }
+
+                if (matchingShortcut) {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    matchingShortcut.action()
                 }
             }
+
+            const onKeyUp = (event: KeyboardEvent): void => {
+                // Track option key release
+                if (!event.altKey && values.optionKeyHeld) {
+                    actions.setOptionKeyHeld(false)
+                }
+            }
+
             window.addEventListener('keydown', onKeyDown)
-            return () => window.removeEventListener('keydown', onKeyDown)
+            window.addEventListener('keyup', onKeyUp)
+            return () => {
+                window.removeEventListener('keydown', onKeyDown)
+                window.removeEventListener('keyup', onKeyUp)
+            }
         }, 'keydownListener')
     }),
 ])

@@ -3724,6 +3724,7 @@ export type HotKey =
     | 'arrowdown'
     | 'arrowup'
     | 'forwardslash'
+    | '+'
 
 export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
 
