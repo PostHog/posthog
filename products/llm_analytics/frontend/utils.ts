@@ -456,7 +456,7 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
     if (isAnthropicToolResultMessage(rawMessage)) {
         if (Array.isArray(rawMessage.content)) {
             return rawMessage.content
-                .map((content) => normalizeMessage(content, roleToUse))
+                .map((content) => normalizeMessage(content, 'tool'))
                 .flat()
                 .map((msg) => ({
                     ...msg,
@@ -465,7 +465,7 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
         }
         return [
             {
-                role: roleToUse,
+                role: 'tool',
                 content: rawMessage.content,
                 tool_call_id: rawMessage.tool_use_id,
             },

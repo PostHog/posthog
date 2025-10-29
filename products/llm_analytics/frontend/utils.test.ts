@@ -213,7 +213,7 @@ describe('LLM Analytics utils', () => {
 
         expect(normalizeMessage(message, 'user')).toEqual([
             {
-                role: 'user',
+                role: 'tool',
                 content: 'foo',
                 tool_call_id: '1',
             },
@@ -236,7 +236,7 @@ describe('LLM Analytics utils', () => {
         }
         expect(normalizeMessage(message, 'user')).toEqual([
             {
-                role: 'user',
+                role: 'tool',
                 content: 'foo',
                 tool_call_id: '1',
             },
