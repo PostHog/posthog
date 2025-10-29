@@ -2818,6 +2818,7 @@ export interface ExperimentMetricBaseProperties extends Node {
     goal?: ExperimentMetricGoal
     isSharedMetric?: boolean
     sharedMetricId?: number
+    breakdownFilter?: BreakdownFilter
 }
 
 export type ExperimentMetricOutlierHandling = {
@@ -2910,6 +2911,12 @@ export interface ExperimentQueryResponse {
     // New fields
     baseline?: ExperimentStatsBaseValidated
     variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
+
+    // Breakdown fields
+    /** Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data. */
+    breakdown_results?: ExperimentBreakdownResult[]
+    /** List of all breakdown values found in the results (e.g., ["Chrome", "Safari"]) */
+    breakdown_values?: string[]
 }
 
 // Strongly typed variants of ExperimentQueryResponse for better type safety
@@ -2935,6 +2942,7 @@ export interface SessionData {
 
 export interface ExperimentStatsBase {
     key: string
+    breakdown_value?: string
     number_of_samples: integer
     sum: number
     sum_squares: number
@@ -2956,6 +2964,7 @@ export interface ExperimentStatsBaseValidated extends ExperimentStatsBase {
 }
 
 export interface ExperimentVariantResultFrequentist extends ExperimentStatsBaseValidated {
+    breakdown_value?: string
     method: 'frequentist'
     significant?: boolean
     p_value?: number
@@ -2963,15 +2972,31 @@ export interface ExperimentVariantResultFrequentist extends ExperimentStatsBaseV
 }
 
 export interface ExperimentVariantResultBayesian extends ExperimentStatsBaseValidated {
+    breakdown_value?: string
     method: 'bayesian'
     significant?: boolean
     chance_to_win?: number
     credible_interval?: [number, number]
 }
 
+/**
+ * Represents experiment results for a single breakdown value.
+ * Each breakdown is treated as an independent A/B test with its own baseline and variants.
+ */
+export interface ExperimentBreakdownResult {
+    /** The breakdown value (e.g., "Chrome", "Safari") */
+    breakdown_value: string
+    /** Control variant stats for this breakdown */
+    baseline: ExperimentStatsBaseValidated
+    /** Test variant results with statistical comparisons for this breakdown */
+    variants: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
+}
+
 export interface NewExperimentQueryResponse {
     baseline: ExperimentStatsBaseValidated
     variant_results: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
+    breakdown_results?: ExperimentBreakdownResult[]
+    breakdown_values?: string[]
 }
 
 export interface ExperimentExposureTimeSeries {
