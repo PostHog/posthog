@@ -241,6 +241,10 @@ class BaseStateWithMessages(BaseState):
     """
     Messages exposed to the user.
     """
+    agent_mode: AgentMode | None = Field(default=None)
+    """
+    The mode of the agent.
+    """
 
 
 class BaseStateWithTasks(BaseState):
@@ -264,11 +268,6 @@ class BaseStateWithIntermediateSteps(BaseState):
 class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateSteps):
     """
     The state of the root node.
-    """
-
-    agent_mode: AgentMode | None = Field(default=None)
-    """
-    The mode of the agent.
     """
 
     plan: Optional[str] = Field(default=None)
