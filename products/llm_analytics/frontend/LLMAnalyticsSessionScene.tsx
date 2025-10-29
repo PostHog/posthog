@@ -153,34 +153,30 @@ function SessionSceneWrapper(): JSX.Element {
                                                 )}
                                             </div>
                                             <div className="flex-1">
-                                                <div className="flex items-center justify-between mb-2">
-                                                    <div className="flex items-center gap-2">
-                                                        <strong className="font-mono text-xs">
-                                                            {trace.id.slice(0, 8)}...
-                                                        </strong>
-                                                        {trace.traceName && (
-                                                            <span className="text-sm">{trace.traceName}</span>
-                                                        )}
-                                                    </div>
-                                                    <div className="flex items-center gap-2">
-                                                        {typeof trace.totalLatency === 'number' && (
-                                                            <LemonTag type="muted">
-                                                                {trace.totalLatency.toFixed(2)}s
-                                                            </LemonTag>
-                                                        )}
-                                                        {typeof trace.totalCost === 'number' && (
-                                                            <LemonTag type="muted">
-                                                                {formatLLMCost(trace.totalCost)}
-                                                            </LemonTag>
-                                                        )}
-                                                        <Link
-                                                            to={urls.llmAnalyticsTrace(trace.id)}
-                                                            onClick={(e) => e.stopPropagation()}
-                                                            className="text-xs"
-                                                        >
-                                                            View full trace →
-                                                        </Link>
-                                                    </div>
+                                                <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                                    <strong className="font-mono text-xs">
+                                                        {trace.id.slice(0, 8)}...
+                                                    </strong>
+                                                    {trace.traceName && (
+                                                        <span className="text-sm">{trace.traceName}</span>
+                                                    )}
+                                                    {typeof trace.totalLatency === 'number' && (
+                                                        <LemonTag type="muted">
+                                                            {trace.totalLatency.toFixed(2)}s
+                                                        </LemonTag>
+                                                    )}
+                                                    {typeof trace.totalCost === 'number' && (
+                                                        <LemonTag type="muted">
+                                                            {formatLLMCost(trace.totalCost)}
+                                                        </LemonTag>
+                                                    )}
+                                                    <Link
+                                                        to={urls.llmAnalyticsTrace(trace.id)}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                        className="text-xs"
+                                                    >
+                                                        View full trace →
+                                                    </Link>
                                                 </div>
                                                 <div className="text-xs text-muted">
                                                     <TZLabel time={trace.createdAt} />
