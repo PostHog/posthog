@@ -100,7 +100,7 @@ impl Cli {
         match self.command {
             Commands::Login => {
                 // Notably login doesn't have a context set up going it - it sets one up
-                crate::login::login()?;
+                crate::login::login(self.host)?;
             }
             Commands::Sourcemap { cmd } => match cmd {
                 SourcemapCommand::Inject(input_args) => {

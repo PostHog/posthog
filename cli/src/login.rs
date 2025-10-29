@@ -7,11 +7,7 @@ use tracing::info;
 
 use crate::{
     invocation_context::{context, init_context},
-    utils::{
-        auth::{host_validator, token_validator, CredentialProvider, HomeDirProvider, Token},
-        client::get_client,
-        posthog::capture_command_invoked,
-    },
+    utils::auth::{host_validator, token_validator, CredentialProvider, HomeDirProvider, Token},
 };
 
 #[derive(Debug, Deserialize)]
@@ -57,9 +53,6 @@ pub fn login(host_override: Option<String>) -> Result<(), Error> {
 
     info!("🔐 Starting OAuth Device Flow authentication...");
     info!("Connecting to: {}", host);
-
-    // Given this is an interactive command, we're happy enough to not join the capture handle
-    let _ = capture_command_invoked("interactive_login", None::<String>);
 
     // Step 1: Request device code
     let device_data = request_device_code(&host)?;
@@ -124,7 +117,7 @@ pub fn login(host_override: Option<String>) -> Result<(), Error> {
 }
 
 fn request_device_code(host: &str) -> Result<DeviceCodeResponse, Error> {
-    let client = get_client()?;
+    let client = reqwest::blocking::Client::new();
     let url = format!("{}/api/cli-auth/device-code/", host);
 
     let response = client
@@ -182,7 +175,7 @@ fn poll_for_authorization(
     interval_seconds: u64,
     expires_in_seconds: u64,
 ) -> Result<PollResponse, Error> {
-    let client = get_client()?;
+    let client = reqwest::blocking::Client::new();
     let url = format!("{}/api/cli-auth/poll/", host);
     let max_attempts = (expires_in_seconds / interval_seconds) + 1;
     let poll_interval = Duration::from_secs(interval_seconds);
@@ -247,9 +240,6 @@ fn manual_login() -> Result<(), Error> {
         .prompt()?;
 
     let env_id = Text::new("Enter your project ID (the number in your PostHog homepage URL)").prompt()?;
-
-    // Given this is an interactive command, we're happy enough to not join the capture handle
-    let _ = capture_command_invoked("manual_login", Some(env_id.clone()));
 
     let token = Text::new(
         "Enter your personal API token",
