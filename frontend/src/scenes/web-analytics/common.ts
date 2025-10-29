@@ -147,6 +147,48 @@ export const TILES_ALLOWED_ON_PRE_AGGREGATED = [
     TileId.GEOGRAPHY,
 ]
 
+export const TILE_LABELS: Record<TileId, string> = {
+    [TileId.OVERVIEW]: 'Overview stats',
+    [TileId.GRAPHS]: 'Trends',
+    [TileId.PATHS]: 'Paths',
+    [TileId.SOURCES]: 'Traffic sources',
+    [TileId.DEVICES]: 'Device breakdown',
+    [TileId.GEOGRAPHY]: 'Geography',
+    [TileId.ACTIVE_HOURS]: 'Active hours',
+    [TileId.RETENTION]: 'Retention',
+    [TileId.REPLAY]: 'Session replay',
+    [TileId.ERROR_TRACKING]: 'Error tracking',
+    [TileId.GOALS]: 'Goals',
+    [TileId.WEB_VITALS]: 'Web vitals',
+    [TileId.WEB_VITALS_PATH_BREAKDOWN]: 'Web vitals path breakdown',
+    [TileId.FRUSTRATING_PAGES]: 'Frustrating pages',
+    [TileId.MARKETING_OVERVIEW]: 'Marketing overview',
+    [TileId.PAGE_REPORTS_COMBINED_METRICS_CHART_SECTION]: 'Combined metrics',
+    [TileId.PAGE_REPORTS_PATHS_SECTION]: 'Paths',
+    [TileId.PAGE_REPORTS_DEVICE_INFORMATION_SECTION]: 'Device information',
+    [TileId.PAGE_REPORTS_TRAFFIC_SECTION]: 'Traffic',
+    [TileId.PAGE_REPORTS_GEOGRAPHY_SECTION]: 'Geography',
+    [TileId.PAGE_REPORTS_TOP_EVENTS_SECTION]: 'Top events',
+    [TileId.PAGE_REPORTS_COMBINED_METRICS_CHART]: 'Combined metrics chart',
+    [TileId.PAGE_REPORTS_ENTRY_PATHS]: 'Entry paths',
+    [TileId.PAGE_REPORTS_EXIT_PATHS]: 'Exit paths',
+    [TileId.PAGE_REPORTS_OUTBOUND_CLICKS]: 'Outbound clicks',
+    [TileId.PAGE_REPORTS_CHANNELS]: 'Channels',
+    [TileId.PAGE_REPORTS_REFERRERS]: 'Referrers',
+    [TileId.PAGE_REPORTS_DEVICE_TYPES]: 'Device types',
+    [TileId.PAGE_REPORTS_BROWSERS]: 'Browsers',
+    [TileId.PAGE_REPORTS_OPERATING_SYSTEMS]: 'Operating systems',
+    [TileId.PAGE_REPORTS_COUNTRIES]: 'Countries',
+    [TileId.PAGE_REPORTS_REGIONS]: 'Regions',
+    [TileId.PAGE_REPORTS_CITIES]: 'Cities',
+    [TileId.PAGE_REPORTS_TIMEZONES]: 'Timezones',
+    [TileId.PAGE_REPORTS_LANGUAGES]: 'Languages',
+    [TileId.PAGE_REPORTS_TOP_EVENTS]: 'Top events',
+    [TileId.PAGE_REPORTS_PREVIOUS_PAGE]: 'Previous page',
+    [TileId.MARKETING]: 'Marketing',
+    [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 'Campaign breakdown',
+}
+
 export interface BaseTile {
     tileId: TileId
     layout: WebTileLayout
