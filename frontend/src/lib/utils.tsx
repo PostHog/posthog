@@ -946,18 +946,18 @@ export const formatDateRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs, form
 }
 
 export const formatDateTimeRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs): string => {
-    let fromComponents = ['MMMM', ' D, ', 'YYYY', 'HH:mm', ':ss']
-    let toComponents = ['MMMM', ' D, ', 'YYYY', 'HH:mm', ':ss']
+    let fromComponents = ['MMMM', ' D, ', 'YYYY ', 'HH:mm', ':ss']
+    let toComponents = ['MMMM', ' D, ', 'YYYY ', 'HH:mm', ':ss']
     if (dateFrom.year() === dateTo.year()) {
-        toComponents = toComponents.filter((x) => x !== 'YYYY')
+        toComponents = toComponents.filter((x) => x !== 'YYYY ')
         if (dateTo.year() === dayjs().year()) {
-            fromComponents = fromComponents.filter((x) => x !== 'YYYY')
+            fromComponents = fromComponents.filter((x) => x !== 'YYYY ')
         }
 
-        if (dateFrom.day() === dateTo.day()) {
+        if (dateFrom.date() === dateTo.date()) {
             toComponents = toComponents.filter((x) => x !== 'MMMM')
             toComponents = toComponents.filter((x) => x !== ' D, ')
-            if (dateTo.day() === dayjs().day()) {
+            if (dateTo.date() === dayjs().date()) {
                 fromComponents = fromComponents.filter((x) => x !== 'MMMM')
                 fromComponents = fromComponents.filter((x) => x !== ' D, ')
             }
