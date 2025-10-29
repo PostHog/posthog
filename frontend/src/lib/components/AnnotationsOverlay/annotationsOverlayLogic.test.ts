@@ -401,6 +401,7 @@ describe('annotationsOverlayLogic', () => {
             Record<IntervalType, Record<string, AnnotationType[]>> // All IntervalType variants should be covered
         > = {
             UTC: {
+                second: {},
                 minute: {
                     '2022-08-10 04:00:00+0000': [
                         MOCK_ANNOTATION_ORG_SCOPED,
@@ -494,6 +495,7 @@ describe('annotationsOverlayLogic', () => {
             },
             'America/Phoenix': {
                 // Purposefully using Phoenix for test determinism - Arizona does NOT observe DST
+                second: {},
                 minute: {
                     '2022-08-09 21:00:00-0700': [
                         MOCK_ANNOTATION_ORG_SCOPED,
@@ -587,6 +589,7 @@ describe('annotationsOverlayLogic', () => {
             },
             'Europe/Moscow': {
                 // Purposefully using Moscow for test determinism - Russia does NOT observe DST
+                second: {},
                 minute: {
                     '2022-08-10 07:00:00+0300': [
                         MOCK_ANNOTATION_ORG_SCOPED,
