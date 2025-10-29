@@ -90,30 +90,38 @@ from posthog.renderers import SafeJSONRenderer
 from posthog.utils import format_query_params_absolute_url
 
 
-def extract_bytecode_from_filters(filters_dict: dict, team: Team) -> tuple[dict, bool, list | None]:
+def extract_bytecode_from_filters(
+    filters_dict: dict, team: Team, current_cohort_type: str | None = None
+) -> tuple[dict, str | None, list | None]:
     """
     Extract bytecode from validated filters into a separate compiled_bytecode array.
-    Returns (clean_filters_dict, realtime_supported, compiled_bytecode_array)
+    Returns (clean_filters_dict, cohort_type, compiled_bytecode_array)
     """
+    from posthog.models.cohort.cohort import CohortType
+
     try:
         if not filters_dict:
-            return filters_dict, False, None
+            return filters_dict, current_cohort_type, None
 
         # Validate the filters with team context to generate bytecode
         validated_filters = CohortFilters.model_validate(
             {"properties": filters_dict["properties"]}, context={"team": team}
         )
 
-        # Extract compiled bytecode and calculate realtime support in one pass
+        # Extract compiled bytecode and check if all filters have bytecode
         compiled_bytecode = []
         clean_filters = _extract_bytecode_to_array(filters_dict, validated_filters.properties, compiled_bytecode)
-        realtime_supported = _calculate_realtime_support(validated_filters.properties)
 
-        return clean_filters, realtime_supported, compiled_bytecode if compiled_bytecode else None
+        # If all filters have valid bytecode, set cohort_type to REALTIME
+        cohort_type = (
+            CohortType.REALTIME if _calculate_realtime_support(validated_filters.properties) else current_cohort_type
+        )
+
+        return clean_filters, cohort_type, compiled_bytecode if compiled_bytecode else None
 
     except Exception as e:
         logger.warning(f"Failed to extract bytecode from filters: {e}")
-        return filters_dict, False, None
+        return filters_dict, current_cohort_type, None
 
 
 def _extract_bytecode_to_array(
@@ -432,7 +440,6 @@ class CohortSerializer(serializers.ModelSerializer):
             "count",
             "is_static",
             "cohort_type",
-            "realtime_supported",
             "compiled_bytecode",
             "experiment_set",
             "_create_in_folder",
@@ -446,7 +453,6 @@ class CohortSerializer(serializers.ModelSerializer):
             "last_calculation",
             "errors_calculating",
             "count",
-            "realtime_supported",
             "compiled_bytecode",
             "experiment_set",
         ]
@@ -520,11 +526,12 @@ class CohortSerializer(serializers.ModelSerializer):
         # Process bytecode for filters if present
         if validated_data.get("filters"):
             team = Team.objects.get(id=self.context["team_id"])
-            clean_filters, realtime_supported, compiled_bytecode = extract_bytecode_from_filters(
-                validated_data["filters"], team
+            clean_filters, computed_cohort_type, compiled_bytecode = extract_bytecode_from_filters(
+                validated_data["filters"], team, current_cohort_type=validated_data.get("cohort_type")
             )
             validated_data["filters"] = clean_filters
-            validated_data["realtime_supported"] = realtime_supported
+            if computed_cohort_type is not None:
+                validated_data["cohort_type"] = computed_cohort_type
             validated_data["compiled_bytecode"] = compiled_bytecode
 
         person_ids = validated_data.pop("_create_static_person_ids", None)
@@ -818,20 +825,16 @@ class CohortSerializer(serializers.ModelSerializer):
         if "filters" in validated_data:
             filters = validated_data["filters"]
             if filters:
-                clean_filters, realtime_supported, compiled_bytecode = extract_bytecode_from_filters(
-                    filters, cohort.team
+                clean_filters, computed_cohort_type, compiled_bytecode = extract_bytecode_from_filters(
+                    filters, cohort.team, current_cohort_type=cohort.cohort_type
                 )
                 cohort.filters = clean_filters
-                cohort.realtime_supported = realtime_supported
+                if computed_cohort_type is not None:
+                    cohort.cohort_type = computed_cohort_type
                 cohort.compiled_bytecode = compiled_bytecode
             else:
                 cohort.filters = filters
-                cohort.realtime_supported = None
                 cohort.compiled_bytecode = None
-
-        # Set realtime_supported if provided directly
-        if "realtime_supported" in validated_data:
-            cohort.realtime_supported = validated_data["realtime_supported"]
 
         deleted_state = validated_data.get("deleted", None)
 
