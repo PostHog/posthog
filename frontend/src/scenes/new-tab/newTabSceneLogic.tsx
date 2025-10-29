@@ -25,7 +25,7 @@ import { SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogi
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { TreeDataItem } from '~/lib/lemon-ui/LemonTree/LemonTree'
 import { groupsModel } from '~/models/groupsModel'
-import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { EventDefinition, Group, GroupTypeIndex, PersonType, PropertyDefinition } from '~/types'
 
 import { SearchInputCommand } from './components/SearchInput'
@@ -84,6 +84,8 @@ export interface NewTabCategoryItem {
 const PAGINATION_LIMIT = 10
 const GROUP_SEARCH_LIMIT = 5
 
+export type NewTabSearchDataset = 'recents' | 'persons' | 'eventDefinitions' | 'propertyDefinitions'
+
 function getIconForFileSystemItem(fs: FileSystemImport): JSX.Element {
     // If the item has a direct icon property, use it with color wrapper
     if ('icon' in fs && fs.icon) {
@@ -96,6 +98,18 @@ function getIconForFileSystemItem(fs: FileSystemImport): JSX.Element {
 
     // Fall back to iconForType for iconType or type
     return iconForType('iconType' in fs ? fs.iconType : (fs.type as FileSystemIconType), fs.iconColor)
+}
+
+function matchesRecentsSearch(entry: FileSystemEntry, searchChunks: string[]): boolean {
+    if (searchChunks.length === 0) {
+        return true
+    }
+
+    const name = splitPath(entry.path).pop() || entry.path
+    const nameLower = name.toLowerCase()
+    const categoryLower = 'recents'
+
+    return searchChunks.every((chunk) => nameLower.includes(chunk) || categoryLower.includes(chunk))
 }
 
 export const newTabSceneLogic = kea<newTabSceneLogicType>([
@@ -124,8 +138,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         resetSectionLimits: true,
         askAI: (searchTerm: string) => ({ searchTerm }),
         loadInitialGroups: true,
+        setFirstNoResultsSearchPrefix: (dataset: NewTabSearchDataset, prefix: string | null) => ({
+            dataset,
+            prefix,
+        }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         recents: [
             (() => {
                 if ('sessionStorage' in window) {
@@ -147,6 +165,22 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         await breakpoint(250)
                     }
                     const searchTerm = values.search.trim()
+                    const noResultsPrefix = values.firstNoResultsSearchPrefixes.recents
+
+                    if (
+                        searchTerm &&
+                        noResultsPrefix &&
+                        searchTerm.length > noResultsPrefix.length &&
+                        searchTerm.startsWith(noResultsPrefix)
+                    ) {
+                        return {
+                            searchTerm,
+                            results: [],
+                            hasMore: false,
+                            lastCount: 0,
+                        }
+                    }
+
                     const response = await api.fileSystem.list({
                         search: searchTerm,
                         limit: PAGINATION_LIMIT + 1,
@@ -154,11 +188,23 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         notType: 'folder',
                     })
                     breakpoint()
+                    const searchChunks = searchTerm
+                        .toLowerCase()
+                        .split(' ')
+                        .filter((s) => s)
+                    const filteredCount = searchTerm
+                        ? response.results.filter((item) => matchesRecentsSearch(item, searchChunks)).length
+                        : response.results.length
                     const recents = {
                         searchTerm,
                         results: response.results.slice(0, PAGINATION_LIMIT),
                         hasMore: response.results.length > PAGINATION_LIMIT,
                         lastCount: Math.min(response.results.length, PAGINATION_LIMIT),
+                    }
+                    if (searchTerm) {
+                        actions.setFirstNoResultsSearchPrefix('recents', filteredCount === 0 ? searchTerm : null)
+                    } else {
+                        actions.setFirstNoResultsSearchPrefix('recents', null)
                     }
                     if ('sessionStorage' in window && searchTerm === '') {
                         try {
@@ -191,6 +237,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     const response = await api.persons.list({ limit: 5 })
                     breakpoint()
 
+                    actions.setFirstNoResultsSearchPrefix('persons', null)
+
                     return response.results
                 },
             },
@@ -216,6 +264,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     })
                     breakpoint()
 
+                    actions.setFirstNoResultsSearchPrefix('eventDefinitions', null)
+
                     return response.results ?? []
                 },
             },
@@ -240,6 +290,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         limit: 5,
                     })
                     breakpoint()
+
+                    actions.setFirstNoResultsSearchPrefix('propertyDefinitions', null)
 
                     return response.results ?? []
                 },
@@ -403,6 +455,31 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 resetSectionLimits: () => ({}),
                 setSearch: () => ({}),
                 toggleNewTabSceneDataInclude: () => ({}),
+            },
+        ],
+        firstNoResultsSearchPrefixes: [
+            {
+                recents: null,
+                persons: null,
+                eventDefinitions: null,
+                propertyDefinitions: null,
+            } as Record<NewTabSearchDataset, string | null>,
+            {
+                setFirstNoResultsSearchPrefix: (state, { dataset, prefix }) => ({
+                    ...state,
+                    [dataset]: prefix,
+                }),
+                setSearch: (state, { search }) => {
+                    if (search.trim() === '') {
+                        return {
+                            recents: null,
+                            persons: null,
+                            eventDefinitions: null,
+                            propertyDefinitions: null,
+                        }
+                    }
+                    return state
+                },
             },
         ],
     }),
@@ -1233,11 +1310,27 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
             try {
                 // Manually trigger the search and handle the result
-                const response = await api.persons.list({ search: searchTerm.trim(), limit: 5 })
+                const trimmed = searchTerm.trim()
+                const noResultsPrefix = values.firstNoResultsSearchPrefixes.persons
+
+                if (
+                    trimmed &&
+                    noResultsPrefix &&
+                    trimmed.length > noResultsPrefix.length &&
+                    trimmed.startsWith(noResultsPrefix)
+                ) {
+                    actions.loadPersonSearchResultsSuccess([])
+                    return
+                }
+
+                const response = await api.persons.list({ search: trimmed, limit: 5 })
                 breakpoint()
 
                 // Manually set the results instead of relying on the loader
                 actions.loadPersonSearchResultsSuccess(response.results)
+                if (trimmed) {
+                    actions.setFirstNoResultsSearchPrefix('persons', response.results.length === 0 ? trimmed : null)
+                }
             } catch (error) {
                 console.error('Person search failed:', error)
                 actions.loadPersonSearchResultsFailure(error as string)
@@ -1247,12 +1340,31 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             await breakpoint(300)
 
             try {
+                const trimmed = searchTerm.trim()
+                const noResultsPrefix = values.firstNoResultsSearchPrefixes.eventDefinitions
+
+                if (
+                    trimmed &&
+                    noResultsPrefix &&
+                    trimmed.length > noResultsPrefix.length &&
+                    trimmed.startsWith(noResultsPrefix)
+                ) {
+                    actions.loadEventDefinitionSearchResultsSuccess([])
+                    return
+                }
+
                 const response = await api.eventDefinitions.list({
-                    search: searchTerm.trim(),
+                    search: trimmed,
                     limit: 5,
                 })
 
                 actions.loadEventDefinitionSearchResultsSuccess(response.results ?? [])
+                if (trimmed) {
+                    actions.setFirstNoResultsSearchPrefix(
+                        'eventDefinitions',
+                        (response.results ?? []).length === 0 ? trimmed : null
+                    )
+                }
             } catch (error) {
                 console.error('Event definition search failed:', error)
                 actions.loadEventDefinitionSearchResultsFailure(error as string)
@@ -1262,12 +1374,31 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             await breakpoint(300)
 
             try {
+                const trimmed = searchTerm.trim()
+                const noResultsPrefix = values.firstNoResultsSearchPrefixes.propertyDefinitions
+
+                if (
+                    trimmed &&
+                    noResultsPrefix &&
+                    trimmed.length > noResultsPrefix.length &&
+                    trimmed.startsWith(noResultsPrefix)
+                ) {
+                    actions.loadPropertyDefinitionSearchResultsSuccess([])
+                    return
+                }
+
                 const response = await api.propertyDefinitions.list({
-                    search: searchTerm.trim(),
+                    search: trimmed,
                     limit: 5,
                 })
 
                 actions.loadPropertyDefinitionSearchResultsSuccess(response.results ?? [])
+                if (trimmed) {
+                    actions.setFirstNoResultsSearchPrefix(
+                        'propertyDefinitions',
+                        (response.results ?? []).length === 0 ? trimmed : null
+                    )
+                }
             } catch (error) {
                 console.error('Property definition search failed:', error)
                 actions.loadPropertyDefinitionSearchResultsFailure(error as string)
