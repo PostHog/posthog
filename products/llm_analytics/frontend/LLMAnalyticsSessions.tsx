@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 import { useState } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
@@ -162,18 +161,7 @@ export function LLMAnalyticsSessions(): JSX.Element {
                                     <Tooltip title={sessionId}>
                                         <Link
                                             className="ph-no-capture font-mono"
-                                            to={
-                                                combineUrl(urls.llmAnalyticsTraces(), {
-                                                    filters: [
-                                                        {
-                                                            type: PropertyFilterType.Event,
-                                                            key: '$ai_session_id',
-                                                            operator: 'exact' as any,
-                                                            value: sessionId,
-                                                        },
-                                                    ],
-                                                }).url
-                                            }
+                                            to={urls.llmAnalyticsSession(sessionId)}
                                         >
                                             {truncated}
                                         </Link>
