@@ -1,27 +1,42 @@
 use crate::store::deduplication_store::DeduplicationResult;
 use common_types::RawEvent;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
+
+/// Helper function to serialize bool as u8 (0 or 1) for ClickHouse UInt8
+fn serialize_bool_as_u8<S>(value: &bool, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_u8(if *value { 1 } else { 0 })
+}
 
 /// Represents a duplicate event detection result for publishing to Kafka
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DuplicateEvent {
-    /// The current event that was detected as a duplicate (as JSON)
-    pub source_message: serde_json::Value,
+    /// Team ID extracted from the event
+    pub team_id: Option<i64>,
 
-    /// The first occurrence of this event (from metadata) (as JSON)
-    pub duplicate_message: serde_json::Value,
+    /// Distinct ID from the event
+    pub distinct_id: String,
+
+    /// Event name
+    pub event: String,
+
+    /// UUID of the source event (the new duplicate)
+    pub source_uuid: Option<uuid::Uuid>,
+
+    /// UUID of the original event (the first occurrence)
+    pub duplicate_uuid: Option<uuid::Uuid>,
 
     /// Overall similarity score (0.0-1.0)
     pub similarity_score: f64,
 
-    /// List of fields that differ between the events
-    pub distinct_fields: Vec<DifferentField>,
-
     /// Type of duplication detected
-    #[serde(rename = "type")]
+    #[serde(rename = "dedup_type")]
     pub dedup_type: String, // "timestamp" or "uuid"
 
     /// Whether this is a confirmed duplicate
+    #[serde(rename = "is_confirmed", serialize_with = "serialize_bool_as_u8")]
     pub is_confirmed: bool,
 
     /// Optional reason for confirmed duplicates
@@ -35,6 +50,18 @@ pub struct DuplicateEvent {
 
     /// Properties similarity score
     pub properties_similarity: f64,
+
+    /// The current event that was detected as a duplicate (as JSON)
+    pub source_message: serde_json::Value,
+
+    /// The first occurrence of this event (from metadata) (as JSON)
+    pub duplicate_message: serde_json::Value,
+
+    /// List of fields that differ between the events (as JSON array)
+    pub distinct_fields: serde_json::Value,
+
+    /// Timestamp when this duplicate was detected
+    pub inserted_at: String, // ISO8601 timestamp
 }
 
 /// Represents a field that differs between two events
@@ -70,7 +97,23 @@ impl DuplicateEvent {
             }
         };
 
-        let distinct_fields = similarity
+        // For now, leave as None
+        let team_id = None;
+
+        // Extract distinct_id
+        let distinct_id = source_event
+            .extract_distinct_id()
+            .unwrap_or_else(|| "".to_string());
+
+        // Extract event name
+        let event = source_event.event.clone();
+
+        // Extract UUIDs
+        let source_uuid = source_event.uuid;
+        let duplicate_uuid = original_event.uuid;
+
+        // Convert distinct_fields to a JSON array
+        let distinct_fields_vec: Vec<DifferentField> = similarity
             .different_fields
             .iter()
             .map(|(field_name, original, new)| DifferentField {
@@ -80,21 +123,34 @@ impl DuplicateEvent {
             })
             .collect();
 
-        // Serialize the events to JSON values to avoid cloning issues
-        let source_json = serde_json::to_value(source_event).ok()?;
-        let original_json = serde_json::to_value(original_event).ok()?;
+        let distinct_fields = serde_json::to_value(&distinct_fields_vec).ok()?;
+
+        // Serialize the events to JSON values
+        let source_message = serde_json::to_value(source_event).ok()?;
+        let duplicate_message = serde_json::to_value(original_event).ok()?;
+
+        // Generate current timestamp in ISO8601 format for ClickHouse DateTime64
+        let inserted_at = chrono::Utc::now()
+            .format("%Y-%m-%d %H:%M:%S%.3f")
+            .to_string();
 
         Some(DuplicateEvent {
-            source_message: source_json,
-            duplicate_message: original_json,
+            team_id,
+            distinct_id,
+            event,
+            source_uuid,
+            duplicate_uuid,
             similarity_score: similarity.overall_score,
-            distinct_fields,
             dedup_type,
             is_confirmed,
             reason,
             version: "1.0.0".to_string(),
             different_property_count: similarity.different_property_count,
             properties_similarity: similarity.properties_similarity,
+            source_message,
+            duplicate_message,
+            distinct_fields,
+            inserted_at,
         })
     }
 }
@@ -168,14 +224,28 @@ mod tests {
             Some("OnlyUuidDifferent".to_string())
         );
         assert_eq!(duplicate_event.similarity_score, 0.9);
-        assert_eq!(duplicate_event.distinct_fields.len(), 1);
+
+        // Verify distinct_fields is a JSON array with 1 element
+        if let serde_json::Value::Array(arr) = &duplicate_event.distinct_fields {
+            assert_eq!(arr.len(), 1);
+        } else {
+            panic!("distinct_fields should be a JSON array");
+        }
+
         assert_eq!(duplicate_event.different_property_count, 1);
         assert_eq!(duplicate_event.properties_similarity, 0.8);
 
+        // Verify new fields are present
+        assert_eq!(duplicate_event.distinct_id, "user123");
+        assert_eq!(duplicate_event.event, "$pageview");
+        assert!(duplicate_event.source_uuid.is_some());
+        assert!(duplicate_event.duplicate_uuid.is_some());
+        assert!(!duplicate_event.inserted_at.is_empty());
+
         // Test serialization
         let json = serde_json::to_string(&duplicate_event).unwrap();
-        assert!(json.contains("\"type\":\"timestamp\""));
-        assert!(json.contains("\"is_confirmed\":true"));
+        assert!(json.contains("\"dedup_type\":\"timestamp\""));
+        assert!(json.contains("\"is_confirmed\":1")); // Serialized as u8
     }
 
     #[test]
