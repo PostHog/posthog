@@ -37,7 +37,9 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                 icon={<IconButton />}
                                 tooltip="Triggers workflow manually"
                                 onClick={triggerManualWorkflow}
-                            />
+                            >
+                                Trigger
+                            </LemonButton>
                         )}
                         {isSavedWorkflow && (
                             <>
