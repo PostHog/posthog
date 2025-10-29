@@ -40,6 +40,14 @@ class DesktopRecording(UUIDModel):
     notes = models.TextField(null=True, blank=True)
     error_message = models.TextField(null=True, blank=True)
 
+    # Transcript fields
+    transcript_text = models.TextField(default="", blank=True)
+    transcript_segments = models.JSONField(default=list)
+    summary = models.TextField(null=True, blank=True)
+    extracted_tasks = models.JSONField(default=list)
+    tasks_generated_at = models.DateTimeField(null=True, blank=True)
+    summary_generated_at = models.DateTimeField(null=True, blank=True)
+
     started_at = models.DateTimeField(default=timezone.now)
     completed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -56,28 +64,3 @@ class DesktopRecording(UUIDModel):
 
     def __str__(self) -> str:
         return f"{self.meeting_title or 'Recording'} ({self.platform})"
-
-
-class RecordingTranscript(models.Model):
-    recording = models.OneToOneField(DesktopRecording, on_delete=models.CASCADE, related_name="transcript")
-
-    full_text = models.TextField()
-    segments = models.JSONField(default=list)
-
-    summary = models.TextField(null=True, blank=True)
-    extracted_tasks = models.JSONField(default=list)
-
-    # AI processing timestamps
-    tasks_generated_at = models.DateTimeField(null=True, blank=True)
-    summary_generated_at = models.DateTimeField(null=True, blank=True)
-
-    search_vector = models.TextField(null=True, blank=True)
-
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "posthog_recording_transcript"
-
-    def __str__(self) -> str:
-        return f"Transcript for {self.recording}"

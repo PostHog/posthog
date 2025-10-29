@@ -11,13 +11,12 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission
 
-from .models import DesktopRecording, RecordingTranscript
+from .models import DesktopRecording
 from .serializers import (
+    AppendSegmentsSerializer,
     CreateRecordingRequestSerializer,
     CreateRecordingResponseSerializer,
     DesktopRecordingSerializer,
-    RecordingTranscriptSerializer,
-    UploadTranscriptSerializer,
 )
 from .services.recall_client import RecallAIClient
 
@@ -34,13 +33,13 @@ class DesktopRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "desktop_recording"
-    scope_object_read_actions = ["list", "retrieve", "transcript"]
-    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "transcript"]
+    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "append_segments"]
     queryset = DesktopRecording.objects.all()
 
     def safely_get_queryset(self, queryset):
         """Filter recordings to current team"""
-        queryset = queryset.filter(team=self.team).select_related("transcript")
+        queryset = queryset.filter(team=self.team)
 
         user_id = self.request.query_params.get("user_id")
         if user_id:
@@ -56,7 +55,7 @@ class DesktopRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         search = self.request.query_params.get("search")
         if search:
-            queryset = queryset.filter(transcript__full_text__icontains=search)
+            queryset = queryset.filter(transcript_text__icontains=search)
 
         return queryset
 
@@ -103,9 +102,9 @@ class DesktopRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             sdk_upload_id=upload_response["id"],
             status=DesktopRecording.Status.RECORDING,
             platform=platform,
+            transcript_text="",
+            transcript_segments=[],
         )
-
-        RecordingTranscript.objects.create(recording=recording, full_text="", segments=[])
 
         serializer = self.get_serializer(recording)
         response_data = serializer.data
@@ -114,40 +113,27 @@ class DesktopRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(response_data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
-        methods=["GET"],
-        request=None,
-        responses={200: RecordingTranscriptSerializer},
-        description="Retrieve transcript for a recording",
+        request=AppendSegmentsSerializer,
+        responses={200: DesktopRecordingSerializer},
+        description="Append transcript segments (supports batched real-time streaming)",
     )
-    @extend_schema(
-        methods=["POST"],
-        request=UploadTranscriptSerializer,
-        responses={200: RecordingTranscriptSerializer},
-        description="Upload transcript segments (supports batched real-time streaming)",
-    )
-    @action(detail=True, methods=["GET", "POST"])
-    def transcript(self, request, pk=None, **kwargs):
+    @action(detail=True, methods=["POST"])
+    def append_segments(self, request, pk=None, **kwargs):
         """
-        RESTful transcript subresource endpoint.
+        POST /recordings/{id}/append_segments/
 
-        GET: Retrieve transcript data
-        POST: Upload transcript segments in batches (supports real-time streaming)
+        Append transcript segments in batches (supports real-time streaming from desktop app).
+        Deduplicates by timestamp to handle retries.
         """
         recording = self.get_object()
 
-        if request.method == "GET":
-            # Transcript is always created with recording (auto-created empty in create())
-            serializer = RecordingTranscriptSerializer(recording.transcript)
-            return Response(serializer.data)
-
-        serializer = UploadTranscriptSerializer(data=request.data)
+        serializer = AppendSegmentsSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        segments = serializer.validated_data.get("segments", [])
-        transcript = recording.transcript
+        segments = serializer.validated_data["segments"]
 
         # Append new segments to existing ones (for batched uploads)
-        existing_segments = transcript.segments or []
+        existing_segments = recording.transcript_segments or []
         existing_timestamps = {s.get("timestamp") for s in existing_segments if s.get("timestamp") is not None}
 
         # Only add segments with new timestamps to avoid duplicates
@@ -156,8 +142,8 @@ class DesktopRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             s for s in segments if s.get("timestamp") is None or s.get("timestamp") not in existing_timestamps
         ]
 
-        transcript.segments = existing_segments + new_segments
-        transcript.full_text = " ".join(s.get("text", "") for s in transcript.segments if s.get("text"))
-        transcript.save(update_fields=["segments", "full_text", "updated_at"])
+        recording.transcript_segments = existing_segments + new_segments
+        recording.transcript_text = " ".join(s.get("text", "") for s in recording.transcript_segments if s.get("text"))
+        recording.save(update_fields=["transcript_segments", "transcript_text", "updated_at"])
 
-        return Response(RecordingTranscriptSerializer(transcript).data)
+        return Response(DesktopRecordingSerializer(recording).data)

@@ -1,40 +1,45 @@
 from rest_framework import serializers
 
-from .models import DesktopRecording, RecordingTranscript
-
-
-class RecordingTranscriptSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = RecordingTranscript
-        fields = [
-            "full_text",
-            "segments",
-            "summary",
-            "extracted_tasks",
-            "tasks_generated_at",
-            "summary_generated_at",
-            "created_at",
-            "updated_at",
-        ]
+from .models import DesktopRecording
 
 
 class TranscriptSegmentSerializer(serializers.Serializer):
-    """Serializer for individual transcript segments"""
+    """Serializer for individual transcript segments from AssemblyAI"""
 
-    text = serializers.CharField(required=True, allow_blank=False)
-    timestamp = serializers.FloatField(required=False, allow_null=True)
+    timestamp = serializers.FloatField(required=False, allow_null=True, help_text="Milliseconds from recording start")
     speaker = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    text = serializers.CharField(required=True, allow_blank=False)
+    confidence = serializers.FloatField(required=False, allow_null=True, help_text="Transcription confidence score")
+    is_final = serializers.BooleanField(required=False, allow_null=True, help_text="Whether this is the final version")
 
 
-class UploadTranscriptSerializer(serializers.Serializer):
-    """Serializer for uploading transcript segments (supports batched uploads)"""
+class TaskSerializer(serializers.Serializer):
+    """Serializer for extracted tasks"""
 
-    segments = serializers.ListField(child=TranscriptSegmentSerializer(), required=False, default=list)
-    full_text = serializers.CharField(required=False, default="", allow_blank=True)
+    title = serializers.CharField()
+    description = serializers.CharField(required=False, allow_blank=True)
+    assignee = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+
+
+class AppendSegmentsSerializer(serializers.Serializer):
+    """Serializer for appending transcript segments (supports batched real-time uploads)"""
+
+    segments = serializers.ListField(child=TranscriptSegmentSerializer(), required=True, min_length=1)
 
 
 class DesktopRecordingSerializer(serializers.ModelSerializer):
-    transcript = RecordingTranscriptSerializer(read_only=True)
+    # Type hints for JSON fields for proper OpenAPI/TypeScript generation
+    participants = serializers.ListField(
+        child=serializers.CharField(), read_only=False, required=False, help_text="List of participant names"
+    )
+
+    transcript_segments = serializers.ListField(
+        child=TranscriptSegmentSerializer(), required=False, help_text="Transcript segments with timestamps"
+    )
+
+    extracted_tasks = serializers.ListField(
+        child=TaskSerializer(), read_only=False, required=False, help_text="AI-extracted tasks from transcript"
+    )
 
     class Meta:
         model = DesktopRecording
@@ -54,11 +59,16 @@ class DesktopRecordingSerializer(serializers.ModelSerializer):
             "video_url",
             "video_size_bytes",
             "participants",
+            "transcript_text",
+            "transcript_segments",
+            "summary",
+            "extracted_tasks",
+            "tasks_generated_at",
+            "summary_generated_at",
             "started_at",
             "completed_at",
             "created_at",
             "updated_at",
-            "transcript",
         ]
         read_only_fields = [
             "id",
@@ -67,7 +77,7 @@ class DesktopRecordingSerializer(serializers.ModelSerializer):
             "sdk_upload_id",
             "created_at",
             "updated_at",
-            "transcript",
+            "transcript_text",
         ]
 
 
