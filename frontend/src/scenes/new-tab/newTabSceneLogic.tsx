@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -96,7 +96,7 @@ export interface CategoryWithItems {
 const PAGINATION_LIMIT = 10
 const GROUP_SEARCH_LIMIT = 5
 
-export type NewTabSearchDataset = 'recents' | 'persons' | 'eventDefinitions' | 'propertyDefinitions'
+export type NewTabSearchDataset = 'recents' | 'persons' | 'groups' | 'eventDefinitions' | 'propertyDefinitions'
 
 function getIconForFileSystemItem(fs: FileSystemImport): JSX.Element {
     // If the item has a direct icon property, use it with color wrapper
@@ -350,12 +350,26 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             {
                 loadGroupSearchResults: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
                     const trimmed = searchTerm.trim()
+
                     if (trimmed === '') {
+                        actions.setFirstNoResultsSearchPrefix('groups', null)
+                        return {}
+                    }
+
+                    const noResultsPrefix = values.firstNoResultsSearchPrefixes.groups
+
+                    if (
+                        trimmed &&
+                        noResultsPrefix &&
+                        trimmed.length > noResultsPrefix.length &&
+                        trimmed.startsWith(noResultsPrefix)
+                    ) {
                         return {}
                     }
 
                     const groupTypesList = Array.from(values.groupTypes.values())
                     if (groupTypesList.length === 0) {
+                        actions.setFirstNoResultsSearchPrefix('groups', null)
                         return {}
                     }
 
@@ -373,12 +387,21 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                     breakpoint()
 
-                    return Object.fromEntries(
-                        responses.map((response, index) => [
-                            groupTypesList[index].group_type_index,
-                            response.results.slice(0, GROUP_SEARCH_LIMIT),
-                        ])
-                    ) as Record<GroupTypeIndex, Group[]>
+                    const resultEntries = responses.map((response, index) => [
+                        groupTypesList[index].group_type_index,
+                        (response.results ?? []).slice(0, GROUP_SEARCH_LIMIT),
+                    ]) as [GroupTypeIndex, Group[]][]
+
+                    const combinedResultsCount = resultEntries.reduce(
+                        (count, [, groupResults]) => count + groupResults.length,
+                        0
+                    )
+
+                    if (trimmed && combinedResultsCount === 0) {
+                        actions.setFirstNoResultsSearchPrefix('groups', trimmed)
+                    }
+
+                    return Object.fromEntries(resultEntries) as Record<GroupTypeIndex, Group[]>
                 },
                 loadInitialGroups: async (_, breakpoint) => {
                     const groupTypesList = Array.from(values.groupTypes.values())
@@ -399,6 +422,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     )
 
                     breakpoint()
+
+                    actions.setFirstNoResultsSearchPrefix('groups', null)
 
                     return Object.fromEntries(
                         responses.map((response, index) => [
@@ -509,6 +534,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             {
                 recents: null,
                 persons: null,
+                groups: null,
                 eventDefinitions: null,
                 propertyDefinitions: null,
             } as Record<NewTabSearchDataset, string | null>,
@@ -522,6 +548,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         return {
                             recents: null,
                             persons: null,
+                            groups: null,
                             eventDefinitions: null,
                             propertyDefinitions: null,
                         }
@@ -1493,44 +1520,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             }
         },
         setSearch: () => {
-            const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
-
             actions.loadRecents()
-
-            // For newTabSceneData mode, trigger searches for included items
-            if (newTabSceneData) {
-                const searchTerm = values.search.trim()
-
-                // Expand 'all' to include all data types
-                const itemsToProcess = values.newTabSceneDataInclude.includes('all')
-                    ? ['persons', 'groups', 'eventDefinitions', 'propertyDefinitions', 'askAI']
-                    : values.newTabSceneDataInclude
-
-                itemsToProcess.forEach((item) => {
-                    if (searchTerm !== '') {
-                        if (item === 'persons') {
-                            actions.debouncedPersonSearch(searchTerm)
-                        } else if (item === 'groups') {
-                            actions.debouncedGroupSearch(searchTerm)
-                        } else if (item === 'eventDefinitions') {
-                            actions.debouncedEventDefinitionSearch(searchTerm)
-                        } else if (item === 'propertyDefinitions') {
-                            actions.debouncedPropertyDefinitionSearch(searchTerm)
-                        }
-                    } else {
-                        // Load initial data when no search term
-                        if (item === 'persons') {
-                            actions.loadInitialPersons({})
-                        } else if (item === 'groups') {
-                            actions.loadInitialGroups()
-                        } else if (item === 'eventDefinitions') {
-                            actions.loadInitialEventDefinitions({})
-                        } else if (item === 'propertyDefinitions') {
-                            actions.loadInitialPropertyDefinitions({})
-                        }
-                    }
-                })
-            }
+            actions.triggerSearchForIncludedItems()
         },
         toggleNewTabSceneDataInclude: ({ item }) => {
             const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
@@ -1566,24 +1557,23 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             actions.triggerSearchForIncludedItems()
         },
         debouncedPersonSearch: async ({ searchTerm }, breakpoint) => {
-            // Debounce for 300ms
+            // Manually trigger the search and handle the result
+            const trimmed = searchTerm.trim()
+            const noResultsPrefix = values.firstNoResultsSearchPrefixes.persons
+
+            if (
+                trimmed &&
+                noResultsPrefix &&
+                trimmed.length > noResultsPrefix.length &&
+                trimmed.startsWith(noResultsPrefix)
+            ) {
+                actions.loadPersonSearchResultsSuccess([])
+                return
+            }
+
             await breakpoint(300)
 
             try {
-                // Manually trigger the search and handle the result
-                const trimmed = searchTerm.trim()
-                const noResultsPrefix = values.firstNoResultsSearchPrefixes.persons
-
-                if (
-                    trimmed &&
-                    noResultsPrefix &&
-                    trimmed.length > noResultsPrefix.length &&
-                    trimmed.startsWith(noResultsPrefix)
-                ) {
-                    actions.loadPersonSearchResultsSuccess([])
-                    return
-                }
-
                 const response = await api.persons.list({ search: trimmed, limit: 5 })
                 breakpoint()
 
@@ -1592,33 +1582,34 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 if (trimmed) {
                     actions.setFirstNoResultsSearchPrefix('persons', response.results.length === 0 ? trimmed : null)
                 }
-            } catch (error) {
-                console.error('Person search failed:', error)
-                actions.loadPersonSearchResultsFailure(error as string)
+            } catch (error: any) {
+                if (!isBreakpoint(error)) {
+                    console.error('Person search failed:', error)
+                    actions.loadPersonSearchResultsFailure(error as string)
+                }
             }
         },
         debouncedEventDefinitionSearch: async ({ searchTerm }, breakpoint) => {
+            const trimmed = searchTerm.trim()
+            const noResultsPrefix = values.firstNoResultsSearchPrefixes.eventDefinitions
+
+            if (
+                trimmed &&
+                noResultsPrefix &&
+                trimmed.length > noResultsPrefix.length &&
+                trimmed.startsWith(noResultsPrefix)
+            ) {
+                actions.loadEventDefinitionSearchResultsSuccess([])
+                return
+            }
             await breakpoint(300)
 
             try {
-                const trimmed = searchTerm.trim()
-                const noResultsPrefix = values.firstNoResultsSearchPrefixes.eventDefinitions
-
-                if (
-                    trimmed &&
-                    noResultsPrefix &&
-                    trimmed.length > noResultsPrefix.length &&
-                    trimmed.startsWith(noResultsPrefix)
-                ) {
-                    actions.loadEventDefinitionSearchResultsSuccess([])
-                    return
-                }
-
                 const response = await api.eventDefinitions.list({
                     search: trimmed,
                     limit: 5,
                 })
-
+                breakpoint()
                 actions.loadEventDefinitionSearchResultsSuccess(response.results ?? [])
                 if (trimmed) {
                     actions.setFirstNoResultsSearchPrefix(
@@ -1626,33 +1617,32 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         (response.results ?? []).length === 0 ? trimmed : null
                     )
                 }
-            } catch (error) {
-                console.error('Event definition search failed:', error)
-                actions.loadEventDefinitionSearchResultsFailure(error as string)
+            } catch (error: any) {
+                if (!isBreakpoint(error)) {
+                    console.error('Event definition search failed:', error)
+                    actions.loadEventDefinitionSearchResultsFailure(error as string)
+                }
             }
         },
         debouncedPropertyDefinitionSearch: async ({ searchTerm }, breakpoint) => {
+            const trimmed = searchTerm.trim()
+            const noResultsPrefix = values.firstNoResultsSearchPrefixes.propertyDefinitions
+            if (
+                trimmed &&
+                noResultsPrefix &&
+                trimmed.length > noResultsPrefix.length &&
+                trimmed.startsWith(noResultsPrefix)
+            ) {
+                actions.loadPropertyDefinitionSearchResultsSuccess([])
+                return
+            }
             await breakpoint(300)
-
             try {
-                const trimmed = searchTerm.trim()
-                const noResultsPrefix = values.firstNoResultsSearchPrefixes.propertyDefinitions
-
-                if (
-                    trimmed &&
-                    noResultsPrefix &&
-                    trimmed.length > noResultsPrefix.length &&
-                    trimmed.startsWith(noResultsPrefix)
-                ) {
-                    actions.loadPropertyDefinitionSearchResultsSuccess([])
-                    return
-                }
-
                 const response = await api.propertyDefinitions.list({
                     search: trimmed,
                     limit: 5,
                 })
-
+                breakpoint()
                 actions.loadPropertyDefinitionSearchResultsSuccess(response.results ?? [])
                 if (trimmed) {
                     actions.setFirstNoResultsSearchPrefix(
@@ -1660,14 +1650,27 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         (response.results ?? []).length === 0 ? trimmed : null
                     )
                 }
-            } catch (error) {
-                console.error('Property definition search failed:', error)
-                actions.loadPropertyDefinitionSearchResultsFailure(error as string)
+            } catch (error: any) {
+                if (!isBreakpoint(error)) {
+                    console.error('Property definition search failed:', error)
+                    actions.loadPropertyDefinitionSearchResultsFailure(error as string)
+                }
             }
         },
         debouncedGroupSearch: async ({ searchTerm }, breakpoint) => {
-            await breakpoint(300)
+            const trimmed = searchTerm.trim()
+            const noResultsPrefix = values.firstNoResultsSearchPrefixes.groups
 
+            if (
+                trimmed &&
+                noResultsPrefix &&
+                trimmed.length > noResultsPrefix.length &&
+                trimmed.startsWith(noResultsPrefix)
+            ) {
+                actions.loadGroupSearchResultsSuccess({})
+                return
+            }
+            await breakpoint(300)
             actions.loadGroupSearchResults({ searchTerm })
         },
     })),
