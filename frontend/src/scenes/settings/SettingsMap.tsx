@@ -247,6 +247,8 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'datacapture',
                 title: 'IP data capture configuration',
+                description:
+                    'When enabled, PostHog will discard client IP addresses from all events captured in this environment. IP data will not be stored or used for location-based insights.',
                 component: <IPCapture />,
             },
             {
