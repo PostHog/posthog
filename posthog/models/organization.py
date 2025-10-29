@@ -294,13 +294,11 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
         if not is_cloud():
             instance.plugins_access_level = Organization.PluginsAccessLevel.ROOT
 
-        # Auto-enable IP anonymization for EU cloud organizations
         if instance.default_anonymize_ips is None:
             cloud_deployment = getattr(settings, "CLOUD_DEPLOYMENT", None)
             if cloud_deployment == "EU":
                 instance.default_anonymize_ips = True
             else:
-                # US cloud or self-hosted: default to False
                 instance.default_anonymize_ips = False
 
 
