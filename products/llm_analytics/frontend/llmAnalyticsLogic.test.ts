@@ -91,9 +91,9 @@ describe('llmAnalyticsLogic', () => {
             const expectedTitles = [
                 'Traces',
                 'Generative AI users',
-                'Total cost (USD)',
-                'Cost per user (USD)',
-                'Cost by model (USD)',
+                'Total cost',
+                'Cost per user',
+                'Cost by model',
                 'Generation calls',
                 'AI Errors',
                 'Generation latency by model (median)',

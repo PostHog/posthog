@@ -364,7 +364,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     },
                 },
                 {
-                    title: 'Total cost (USD)',
+                    title: 'Total cost',
                     query: {
                         kind: NodeKind.TrendsQuery,
                         series: [
@@ -402,7 +402,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     },
                 },
                 {
-                    title: 'Cost per user (USD)',
+                    title: 'Cost per user',
                     description: "Average cost for each generative AI user active in the data point's period.",
                     query: {
                         kind: NodeKind.TrendsQuery,
@@ -451,7 +451,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     },
                 },
                 {
-                    title: 'Cost by model (USD)',
+                    title: 'Cost by model',
                     query: {
                         kind: NodeKind.TrendsQuery,
                         series: [

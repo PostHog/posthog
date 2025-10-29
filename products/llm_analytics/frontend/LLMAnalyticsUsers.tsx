@@ -80,13 +80,13 @@ export function LLMAnalyticsUsers(): JSX.Element {
                         title: 'Last Seen',
                     },
                     traces: {
-                        title: 'Traces (count)',
+                        title: 'Traces',
                     },
                     generations: {
-                        title: 'Generations (count)',
+                        title: 'Generations',
                     },
                     total_cost: {
-                        title: 'Total Cost (USD)',
+                        title: 'Total cost',
                         render: function RenderCost({ value }) {
                             if (!value || !Number(value)) {
                                 return <span>N/A</span>
