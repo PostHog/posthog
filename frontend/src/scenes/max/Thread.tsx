@@ -12,6 +12,7 @@ import {
     IconHide,
     IconNotebook,
     IconRefresh,
+    IconSupport,
     IconThumbsDown,
     IconThumbsDownFilled,
     IconThumbsUp,
@@ -52,6 +53,7 @@ import {
     AssistantForm,
     AssistantMessage,
     AssistantToolCallMessage,
+    DraftSupportTicketToolOutput,
     FailureMessage,
     MultiVisualizationMessage,
     NotebookUpdateMessage,
@@ -68,6 +70,7 @@ import { InsightShortId } from '~/types'
 
 import { ContextSummary } from './Context'
 import { MarkdownMessage } from './MarkdownMessage'
+import { SupportTicketFromThreadModal } from './components/SupportTicketFromThreadModal'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { MessageStatus, ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
@@ -76,6 +79,7 @@ import {
     castAssistantQuery,
     isAssistantMessage,
     isAssistantToolCallMessage,
+    isCreateSupportTicketMessage,
     isDeepResearchReportCompletion,
     isFailureMessage,
     isHumanMessage,
@@ -389,6 +393,10 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
 
         return null
     })()
+
+    if (isCreateSupportTicketMessage(message)) {
+        return <SupportTicketAnswer draftTicketData={message.ui_payload?.create_support_ticket} />
+    }
 
     return (
         <MessageTemplate
@@ -1105,5 +1113,94 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                 </MessageTemplate>
             )}
         </>
+    )
+}
+
+interface SupportTicketAnswerProps {
+    draftTicketData: DraftSupportTicketToolOutput
+}
+
+function SupportTicketAnswer({ draftTicketData }: SupportTicketAnswerProps): JSX.Element {
+    const [submissionStatus, setSubmissionStatus] = useState<'draft' | 'submitting' | 'submitted' | 'error'>('draft')
+
+    const handleCreateTicket = (): void => {
+        let submitFn: (() => Promise<void>) | null = null
+
+        LemonDialog.open({
+            title: 'Create Support Ticket',
+            width: 600,
+            content: (closeDialog) => (
+                <SupportTicketFromThreadModal
+                    draftTicketData={draftTicketData}
+                    onSubmitted={() => {
+                        closeDialog()
+                        setSubmissionStatus('submitted')
+                    }}
+                    onSubmitRef={(fn) => {
+                        submitFn = fn
+                    }}
+                />
+            ),
+            primaryButton: {
+                children: 'Send',
+                type: 'primary',
+                onClick: async () => {
+                    if (submitFn) {
+                        await submitFn()
+                    }
+                },
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'secondary',
+            },
+        })
+    }
+
+    return (
+        <MessageTemplate type="ai">
+            <div className="flex items-center gap-2">
+                <IconSupport className="text-primary size-4" />
+                <h4 className="text-sm font-semibold m-0">Support ticket ready</h4>
+            </div>
+
+            <div className="space-y-2">
+                <p className="text-xs text-muted">
+                    Here's a draft of your support ticket. Please review and submit it to get help from PostHog support.
+                </p>
+
+                <div className="bg-bg-3000 rounded border border-border-light p-3">
+                    <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-medium text-muted">Summary</span>
+                    </div>
+                    <div className="text-sm font-medium mb-1">{draftTicketData.summary}</div>
+                </div>
+
+                <div className="flex items-center gap-2 pt-2">
+                    <LemonButton
+                        type="primary"
+                        onClick={handleCreateTicket}
+                        loading={submissionStatus === 'submitting'}
+                        disabledReason={submissionStatus === 'submitted' ? 'Ticket already submitted' : undefined}
+                    >
+                        {submissionStatus === 'submitted' ? 'Ticket Submitted' : 'Review Support Ticket'}
+                    </LemonButton>
+
+                    {submissionStatus === 'submitted' && (
+                        <div className="flex items-center gap-1 text-success text-xs">
+                            <IconCheck className="size-3" />
+                            <span>Successfully submitted</span>
+                        </div>
+                    )}
+
+                    {submissionStatus === 'error' && (
+                        <div className="flex items-center gap-1 text-danger text-xs">
+                            <IconWarning className="size-3" />
+                            <span>Failed to submit</span>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </MessageTemplate>
     )
 }

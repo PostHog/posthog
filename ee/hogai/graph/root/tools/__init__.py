@@ -1,3 +1,4 @@
+from .create_support_ticket import CreateSupportTicketTool, CreateSupportTicketToolArgs
 from .legacy import create_and_query_insight, create_dashboard, session_summarization
 from .navigate import NavigateTool, NavigateToolArgs
 from .read_data import ReadDataTool, ReadDataToolArgs
@@ -15,6 +16,8 @@ __all__ = [
     "TodoWriteToolArgs",
     "NavigateTool",
     "NavigateToolArgs",
+    "CreateSupportTicketTool",
+    "CreateSupportTicketToolArgs",
     "create_and_query_insight",
     "session_summarization",
     "create_dashboard",

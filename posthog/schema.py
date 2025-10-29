@@ -97,6 +97,7 @@ class AssistantContextualTool(StrEnum):
     READ_DATA = "read_data"
     TODO_WRITE = "todo_write"
     FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
+    CREATE_SUPPORT_TICKET = "create_support_ticket"
 
 
 class AssistantDateRange(BaseModel):
@@ -212,6 +213,7 @@ class AssistantMessageType(StrEnum):
     AI_NOTEBOOK = "ai/notebook"
     AI_PLANNING = "ai/planning"
     AI_TASK_EXECUTION = "ai/task_execution"
+    AI_SUPPORT_TICKET = "ai/support_ticket"
 
 
 class AssistantNavigateUrl(StrEnum):
@@ -992,6 +994,15 @@ class OrderBy(StrEnum):
 class OrderDirection(StrEnum):
     ASC = "asc"
     DESC = "desc"
+
+
+class DraftSupportTicketToolOutput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    priority: str
+    summary: str
+    target_area: str
 
 
 class DurationType(StrEnum):

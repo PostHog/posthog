@@ -815,7 +815,8 @@
                 "search",
                 "read_data",
                 "todo_write",
-                "filter_revenue_analytics"
+                "filter_revenue_analytics",
+                "create_support_ticket"
             ],
             "type": "string"
         },
@@ -1573,7 +1574,8 @@
                 "ai/failure",
                 "ai/notebook",
                 "ai/planning",
-                "ai/task_execution"
+                "ai/task_execution",
+                "ai/support_ticket"
             ],
             "type": "string"
         },
@@ -10436,6 +10438,22 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "DraftSupportTicketToolOutput": {
+            "additionalProperties": false,
+            "properties": {
+                "priority": {
+                    "type": "string"
+                },
+                "summary": {
+                    "type": "string"
+                },
+                "target_area": {
+                    "type": "string"
+                }
+            },
+            "required": ["summary", "target_area", "priority"],
             "type": "object"
         },
         "DurationType": {
