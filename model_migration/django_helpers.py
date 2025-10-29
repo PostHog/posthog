@@ -53,7 +53,7 @@ def ensure_model_db_tables(models_path: Path) -> bool:
     try:
         tree = ast.parse(source)
     except SyntaxError:
-        print(f"⚠️  Failed to parse {models_path} for db_table injection")
+        print(f"⚠️  Failed to parse {models_path} for db_table injection")  # noqa: T201
         return False
 
     lines = source.splitlines()
@@ -163,6 +163,12 @@ def update_foreign_key_references(line: str, model_names: set[str], app_label: s
     Returns:
         Updated line with proper app label prefixes
     """
+    # FIRST: Check if this line is a dictionary definition - don't modify dictionary keys
+    # Dictionary pattern: "Key": value or 'Key': value
+    # This check must run BEFORE any other regex patterns to prevent corruption
+    if re.search(r"""["'][A-Z][a-zA-Z]*["']\s*:""", line):
+        return line  # Skip dictionary definitions entirely
+
     # First handle direct class references: ForeignKey(ClassName, ...)
     direct_pattern = r"\b(ForeignKey|ManyToManyField|OneToOneField)\(([A-Z][a-zA-Z]*)([\),])"
 
