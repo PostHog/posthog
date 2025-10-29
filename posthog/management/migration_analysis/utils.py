@@ -206,15 +206,6 @@ def check_drop_properly_staged(
     return False
 
 
-def check_drop_table_properly_staged(table_name: str, migration: Any, loader: Any) -> bool:
-    """
-    Backward compatibility wrapper for check_drop_properly_staged.
-
-    Check if a DROP TABLE operation was preceded by proper state removal.
-    """
-    return check_drop_properly_staged("table", table_name, migration, loader)
-
-
 def _extract_model_name_from_table(table_name: str, app_label: Optional[str] = None) -> Optional[str]:
     """
     Extract Django model name from table name.

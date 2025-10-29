@@ -6,11 +6,7 @@ from typing import Any, Optional
 from django.db import models
 
 from posthog.management.migration_analysis.models import OperationRisk
-from posthog.management.migration_analysis.utils import (
-    VolatileFunctionDetector,
-    check_drop_properly_staged,
-    check_drop_table_properly_staged,
-)
+from posthog.management.migration_analysis.utils import VolatileFunctionDetector, check_drop_properly_staged
 
 # Base URL for migration safety documentation
 SAFE_MIGRATIONS_DOCS_URL = "https://github.com/PostHog/posthog/blob/master/docs/safe-django-migrations.md"
@@ -511,7 +507,7 @@ Safe pattern requires:
                     table_name = table_name_match.group(1).lower()
 
                     # Check if properly staged (model removed from state in prior migration)
-                    if check_drop_table_properly_staged(table_name, migration, loader):
+                    if check_drop_properly_staged("table", table_name, migration, loader):
                         return OperationRisk(
                             type=self.operation_type,
                             score=2,
