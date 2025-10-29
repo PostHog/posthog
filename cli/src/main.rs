@@ -27,7 +27,7 @@ fn main() {
                 Some(id) => {
                     eprintln!("Oops! {}", e.inner);
                     eprintln!();
-                    eprintln!("Exception ID: {}", id);
+                    eprintln!("Exception ID: {id}");
                 }
                 None => {
                     eprintln!("Oops! {}", e.inner);
@@ -37,7 +37,7 @@ fn main() {
                         eprintln!("\nCaused by:");
                         let mut index = 0;
                         while let Some(err) = source {
-                            eprintln!("    {}: {}", index, err);
+                            eprintln!("    {index}: {err}");
                             source = err.source();
                             index += 1;
                         }
