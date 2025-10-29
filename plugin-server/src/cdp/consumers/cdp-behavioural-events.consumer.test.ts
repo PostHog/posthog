@@ -2,7 +2,7 @@ import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { resetKafka } from '~/tests/helpers/kafka'
 
-import { createAction, getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import { createCohort, getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS } from '../../config/kafka-topics'
 import { Hub, RawClickHouseEvent, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
@@ -87,6 +87,21 @@ const TEST_FILTERS = {
     ],
 }
 
+// Helper function to create compiled_bytecode array from bytecode
+const createCompiledBytecode = (
+    bytecode: any[],
+    conditionHash: string,
+    filterPath: string = 'properties.values[0]'
+) => {
+    return [
+        {
+            filter_path: filterPath,
+            bytecode: bytecode,
+            conditionHash: conditionHash,
+        },
+    ]
+}
+
 describe('CdpBehaviouralEventsConsumer', () => {
     let processor: CdpBehaviouralEventsConsumer
     let hub: Hub
@@ -110,10 +125,12 @@ describe('CdpBehaviouralEventsConsumer', () => {
         jest.restoreAllMocks()
     })
 
-    describe('action matching and Kafka publishing', () => {
-        it('should publish pre-calculated events to Kafka when action matches', async () => {
-            // Create an action with Chrome + pageview filter
-            const actionId = await createAction(hub.postgres, team.id, 'Test action', TEST_FILTERS.chromePageview)
+    describe('cohort filter matching and Kafka publishing', () => {
+        it('should publish pre-calculated events to Kafka when cohort filter matches', async () => {
+            // Create a cohort with Chrome + pageview filter
+            const conditionHash = 'test_hash_001'
+            const compiledBytecode = createCompiledBytecode(TEST_FILTERS.chromePageview, conditionHash)
+            const cohortId = await createCohort(hub.postgres, team.id, 'Test cohort', compiledBytecode)
 
             // Create a matching event
             const personId = '550e8400-e29b-41d4-a716-446655440000'
@@ -140,7 +157,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
             // Parse messages which should create pre-calculated events
             const events = await processor._parseKafkaBatch(messages)
 
-            // Should create one pre-calculated event for the matching action
+            // Should create one pre-calculated event for the matching cohort filter
             expect(events).toHaveLength(1)
 
             const preCalculatedEvent = events[0]
@@ -152,8 +169,8 @@ describe('CdpBehaviouralEventsConsumer', () => {
                 evaluation_timestamp: '2025-03-03 18:15:46.319',
                 person_id: personId,
                 distinct_id: distinctId,
-                condition: String(actionId),
-                source: `action_${actionId}`,
+                condition: conditionHash,
+                source: `cohort_filter_${conditionHash}`,
             })
             // Test publishing the events to Kafka
             await processor['publishEvents'](events)
@@ -169,9 +186,11 @@ describe('CdpBehaviouralEventsConsumer', () => {
             expect(publishedMessage.value).toEqual(preCalculatedEvent.payload)
         })
 
-        it('should not publish to Kafka when action does not match', async () => {
-            // Create an action with Chrome + pageview filter
-            await createAction(hub.postgres, team.id, 'Test action', TEST_FILTERS.chromePageview)
+        it('should not publish to Kafka when cohort filter does not match', async () => {
+            // Create a cohort with Chrome + pageview filter
+            const conditionHash = 'test_hash_002'
+            const compiledBytecode = createCompiledBytecode(TEST_FILTERS.chromePageview, conditionHash)
+            await createCohort(hub.postgres, team.id, 'Test cohort', compiledBytecode)
 
             // Create a non-matching event (Firefox instead of Chrome)
             const personId = '550e8400-e29b-41d4-a716-446655440000'
@@ -195,7 +214,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
             // Parse messages
             const events = await processor._parseKafkaBatch(messages)
 
-            // Should not create any events since action doesn't match
+            // Should not create any events since cohort filter doesn't match
             expect(events).toHaveLength(0)
 
             // Verify nothing was published to Kafka
