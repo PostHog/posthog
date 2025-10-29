@@ -101,19 +101,7 @@ pub fn login(host_override: Option<String>) -> Result<(), Error> {
 
     info!("Token saved to: {}", provider.report_location());
 
-    // Login is the only command that doesn't have a context coming in - because it modifies the context
-    init_context(None, false)?;
-    context().capture_command_invoked("interactive_login");
-
-    println!();
-    println!("🎉 Authentication complete!");
-    println!("Credentials saved to: {}", provider.report_location());
-    println!();
-    println!("You can now use the CLI:");
-    println!("  posthog-cli schema pull");
-    println!();
-
-    Ok(())
+    complete_login(&provider, "interactive_login")
 }
 
 fn request_device_code(host: &str) -> Result<DeviceCodeResponse, Error> {
@@ -231,6 +219,22 @@ fn poll_for_authorization(
     ))
 }
 
+fn complete_login(provider: &HomeDirProvider, command_name: &str) -> Result<(), Error> {
+    // Login is the only command that doesn't have a context coming in - because it modifies the context
+    init_context(None, false)?;
+    context().capture_command_invoked(command_name);
+
+    println!();
+    println!("🎉 Authentication complete!");
+    println!("Credentials saved to: {}", provider.report_location());
+    println!();
+    println!("You can now use the CLI:");
+    println!("  posthog-cli schema pull");
+    println!();
+
+    Ok(())
+}
+
 fn manual_login() -> Result<(), Error> {
     info!("🔐 Manual login...");
 
@@ -258,13 +262,5 @@ fn manual_login() -> Result<(), Error> {
 
     info!("Token saved to: {}", provider.report_location());
 
-    println!();
-    println!("🎉 Authentication complete!");
-    println!("Credentials saved to: {}", provider.report_location());
-    println!();
-    println!("You can now use the CLI:");
-    println!("  posthog-cli schema pull");
-    println!();
-
-    Ok(())
+    complete_login(&provider, "manual_login")
 }
