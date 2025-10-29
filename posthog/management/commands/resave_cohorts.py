@@ -119,4 +119,3 @@ class Command(BaseCommand):
                     f"Done. total={total} changed={changed} realtime_now={prospective_realtime} errors={errors}"
                 )
             )
-
