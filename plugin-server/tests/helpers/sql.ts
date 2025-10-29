@@ -656,3 +656,43 @@ export async function resetBehavioralCohortsDatabase(db: PostgresRouter): Promis
         'reset-behavioral-cohorts-db'
     )
 }
+
+export const createCohort = async (
+    pg: PostgresRouter,
+    teamId: number,
+    name: string,
+    compiledBytecode: any[] | null = null,
+    cohortSettings?: Record<string, any>
+): Promise<number> => {
+    // KLUDGE: auto increment IDs can be racy in tests so we ensure IDs don't clash
+    const id = Math.round(Math.random() * 1000000000)
+    await insertRow(pg, 'posthog_cohort', {
+        id,
+        name,
+        description: `Test cohort: ${name}`,
+        team_id: teamId,
+        deleted: false,
+        filters: JSON.stringify({
+            properties: {
+                type: 'AND',
+                values: [],
+            },
+        }),
+        query: null,
+        version: null,
+        pending_version: null,
+        count: null,
+        is_calculating: false,
+        last_calculation: null,
+        errors_calculating: 0,
+        last_error_at: null,
+        is_static: false,
+        cohort_type: 'realtime',
+        compiled_bytecode: compiledBytecode ? JSON.stringify(compiledBytecode) : null,
+        created_at: new Date().toISOString(),
+        created_by_id: commonUserId,
+        groups: JSON.stringify([]),
+        ...cohortSettings,
+    })
+    return id
+}
