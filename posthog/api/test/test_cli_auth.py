@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 
@@ -111,6 +113,7 @@ class TestCLIAuthAuthorizeEndpoint(APIBaseTest):
 
         # Check the created key has correct scopes
         api_key = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
+        assert api_key is not None
         self.assertEqual(api_key.scopes, CLI_SCOPES)
         self.assertIn("CLI -", api_key.label)
 
@@ -140,7 +143,7 @@ class TestCLIAuthAuthorizeEndpoint(APIBaseTest):
     def test_authorization_rejects_expired_user_code(self):
         """Test that authorization fails with expired user code"""
         # Wait for the code to expire
-        with freeze_time(timezone.now() + timezone.timedelta(seconds=DEVICE_CODE_EXPIRY_SECONDS + 1)):
+        with freeze_time(timezone.now() + timedelta(seconds=DEVICE_CODE_EXPIRY_SECONDS + 1)):
             response = self.client.post(
                 "/api/cli-auth/authorize/",
                 {"user_code": self.user_code, "project_id": self.team.id},
@@ -273,7 +276,7 @@ class TestCLIAuthPollEndpoint(APIBaseTest):
 
     def test_poll_returns_expired_for_old_code(self):
         """Test that polling returns expired for old device codes"""
-        with freeze_time(timezone.now() + timezone.timedelta(seconds=DEVICE_CODE_EXPIRY_SECONDS + 1)):
+        with freeze_time(timezone.now() + timedelta(seconds=DEVICE_CODE_EXPIRY_SECONDS + 1)):
             response = self.client.post("/api/cli-auth/poll/", {"device_code": self.device_code})
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

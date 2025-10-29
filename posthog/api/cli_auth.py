@@ -117,7 +117,7 @@ class DevicePollResponseSerializer(serializers.Serializer):
 
     status = serializers.ChoiceField(choices=["pending", "authorized", "expired"])
     personal_api_key = serializers.CharField(required=False, help_text="The API key (only if authorized)")
-    label = serializers.CharField(required=False, help_text="Label of the created key")
+    label = serializers.CharField(required=False, help_text="Label of the created key")  # type: ignore[assignment]
     project_id = serializers.CharField(required=False, help_text="The project ID (only if authorized)")
 
 

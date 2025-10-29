@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconCheckCircle, IconCode } from '@posthog/icons'
+import { IconCode } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
@@ -18,27 +18,24 @@ export const scene: SceneExport = {
 }
 
 export function CLIAuthorize(): JSX.Element {
-    const { authorize, isSuccess, projects, projectsLoading } = useValues(cliAuthorizeLogic)
+    const { authorize, isSuccess, projects, projectsLoading, isAuthorizeSubmitting } = useValues(cliAuthorizeLogic)
     const { setAuthorizeValue } = useActions(cliAuthorizeLogic)
 
     return (
         <BridgePage
             view="login"
-            hedgehog={!isSuccess}
-            message={
-                isSuccess ? (
-                    <div className="text-center">
-                        <IconCheckCircle className="text-success text-6xl mb-4" />
-                        <div className="text-2xl font-bold">Success!</div>
-                    </div>
-                ) : (
-                    <>
-                        Authorize
-                        <br />
-                        PostHog CLI
-                    </>
-                )
-            }
+            {...(!isSuccess
+                ? {
+                      hedgehog: true as const,
+                      message: (
+                          <>
+                              Authorize
+                              <br />
+                              PostHog CLI
+                          </>
+                      ),
+                  }
+                : { hedgehog: false as const })}
         >
             {isSuccess ? (
                 <div className="text-center space-y-4">
@@ -108,7 +105,7 @@ export function CLIAuthorize(): JSX.Element {
                             data-attr="cli-authorize-submit"
                             fullWidth
                             center
-                            loading={authorize.isSubmitting}
+                            loading={isAuthorizeSubmitting}
                             size="large"
                             icon={<IconCode />}
                         >
