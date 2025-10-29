@@ -23,7 +23,7 @@ export function OrgIPAnonymizationDefault(): JSX.Element {
             checked={!!currentOrganization?.default_anonymize_ips}
             disabled={currentOrganizationLoading}
             disabledReason={restrictionReason || (currentOrganizationLoading ? 'Loading...' : undefined)}
-            label="Enable IP anonymization by default for new environments"
+            label="Enable IP anonymization by default for new projects"
             bordered
         />
     )
