@@ -407,11 +407,15 @@ export const workflowLogic = kea<workflowLogicType>([
                 })
             } catch (e) {
                 lemonToast.error('Error triggering workflow: ' + (e as Error).message)
-                return
+                // return
             }
 
-            lemonToast.success('Workflow triggered, logs will appear soon')
-            router.actions.replace(urls.workflow(values.workflow.id!, 'logs'))
+            lemonToast.success('Workflow triggered', {
+                button: {
+                    label: 'View logs',
+                    action: () => router.actions.push(urls.workflow(values.workflow.id!, 'logs')),
+                },
+            })
         },
     })),
     afterMount(({ actions }) => {
