@@ -42,7 +42,7 @@ class EventIngestionRestrictionConfig(UUIDTModel):
     )
     pipelines = ArrayField(
         models.CharField(max_length=50),
-        default=list,
+        default=lambda: ["analytics"],
         blank=True,
         help_text="List of ingestion pipelines this restriction applies to (e.g., 'analytics', 'session_recordings')",
     )
