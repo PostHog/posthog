@@ -376,8 +376,6 @@ export function determineFilterType(
         }
     }
 
-    // All behavioral events use the same type - bytecode generation handled server-side
-
     return {
         type,
         value,
