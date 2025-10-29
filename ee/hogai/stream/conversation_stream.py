@@ -19,9 +19,11 @@ from posthog.temporal.common.client import async_connect
 from ee.hogai.stream.redis_stream import (
     ConversationEvent,
     ConversationRedisStream,
+    GenerationStatusEvent,
     MessageEvent,
     StreamError,
     StreamEvent,
+    UpdateEvent,
     get_conversation_stream_key,
 )
 from ee.hogai.utils.types import AssistantOutput
@@ -155,6 +157,10 @@ class ConversationStreamManager:
         elif isinstance(message.event, ConversationEvent):
             conversation = await Conversation.objects.aget(id=message.event.payload)
             return (AssistantEventType.CONVERSATION, conversation)
+        elif isinstance(message.event, UpdateEvent):
+            return (AssistantEventType.UPDATE, message.event.payload)
+        elif isinstance(message.event, GenerationStatusEvent):
+            return (AssistantEventType.STATUS, message.event.payload)
         else:
             return None
 
