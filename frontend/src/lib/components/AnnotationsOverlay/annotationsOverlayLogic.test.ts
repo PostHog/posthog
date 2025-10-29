@@ -402,11 +402,12 @@ describe('annotationsOverlayLogic', () => {
         > = {
             UTC: {
                 second: {
-                    '2022-08-10 04:00:00+0000': [
-                        MOCK_ANNOTATION_ORG_SCOPED,
-                        MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
-                        MOCK_ANNOTATION_DASHBOARD_SCOPED,
-                    ].map((annotation) => deserializeAnnotation(annotation, 'UTC')),
+                    '2022-08-10 04:00:00+0000': [MOCK_ANNOTATION_ORG_SCOPED, MOCK_ANNOTATION_DASHBOARD_SCOPED].map(
+                        (annotation) => deserializeAnnotation(annotation, 'UTC')
+                    ),
+                    '2022-08-10 04:00:01+0000': [MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3].map((annotation) =>
+                        deserializeAnnotation(annotation, 'UTC')
+                    ),
                     '2022-08-10 04:01:00+0000': [MOCK_ANNOTATION_PROJECT_SCOPED].map((annotation) =>
                         deserializeAnnotation(annotation, 'UTC')
                     ),
@@ -517,11 +518,12 @@ describe('annotationsOverlayLogic', () => {
             'America/Phoenix': {
                 // Purposefully using Phoenix for test determinism - Arizona does NOT observe DST
                 second: {
-                    '2022-08-09 21:00:00-0700': [
-                        MOCK_ANNOTATION_ORG_SCOPED,
-                        MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
-                        MOCK_ANNOTATION_DASHBOARD_SCOPED,
-                    ].map((annotation) => deserializeAnnotation(annotation, 'America/Phoenix')),
+                    '2022-08-09 21:00:00-0700': [MOCK_ANNOTATION_ORG_SCOPED, MOCK_ANNOTATION_DASHBOARD_SCOPED].map(
+                        (annotation) => deserializeAnnotation(annotation, 'America/Phoenix')
+                    ),
+                    '2022-08-09 21:00:01-0700': [MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3].map((annotation) =>
+                        deserializeAnnotation(annotation, 'America/Phoenix')
+                    ),
                     '2022-08-09 21:01:00-0700': [MOCK_ANNOTATION_PROJECT_SCOPED].map((annotation) =>
                         deserializeAnnotation(annotation, 'America/Phoenix')
                     ),
@@ -632,11 +634,12 @@ describe('annotationsOverlayLogic', () => {
             'Europe/Moscow': {
                 // Purposefully using Moscow for test determinism - Russia does NOT observe DST
                 second: {
-                    '2022-08-10 07:00:00+0300': [
-                        MOCK_ANNOTATION_ORG_SCOPED,
-                        MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
-                        MOCK_ANNOTATION_DASHBOARD_SCOPED,
-                    ].map((annotation) => deserializeAnnotation(annotation, 'Europe/Moscow')),
+                    '2022-08-10 07:00:00+0300': [MOCK_ANNOTATION_ORG_SCOPED, MOCK_ANNOTATION_DASHBOARD_SCOPED].map(
+                        (annotation) => deserializeAnnotation(annotation, 'Europe/Moscow')
+                    ),
+                    '2022-08-10 07:00:01+0300': [MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3].map((annotation) =>
+                        deserializeAnnotation(annotation, 'Europe/Moscow')
+                    ),
                     '2022-08-10 07:01:00+0300': [MOCK_ANNOTATION_PROJECT_SCOPED].map((annotation) =>
                         deserializeAnnotation(annotation, 'Europe/Moscow')
                     ),
