@@ -1192,6 +1192,8 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 needs_write: true,
                 properties_to_set: { x: 2 },
                 properties_to_unset: [],
+                original_is_identified: false,
+                original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
             })
             expect(version).toBe(person.version + 1)
 
@@ -1240,6 +1242,8 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                     needs_write: true,
                     properties_to_set: { x: 2 },
                     properties_to_unset: [],
+                    original_is_identified: false,
+                    original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 })
             ).rejects.toThrow('secondary assert-version failure')
 

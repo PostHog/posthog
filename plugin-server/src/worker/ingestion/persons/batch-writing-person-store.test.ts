@@ -6,6 +6,11 @@ import { MessageSizeTooLarge } from '~/utils/db/error'
 
 import { captureIngestionWarning } from '../utils'
 import { BatchWritingPersonsStore, BatchWritingPersonsStoreForBatch } from './batch-writing-person-store'
+import {
+    personProfileBatchIgnoredPropertiesCounter,
+    personProfileBatchUpdateOutcomeCounter,
+    personPropertyKeyUpdateCounter,
+} from './metrics'
 import { fromInternalPerson } from './person-update-batch'
 
 // Mock the utils module
@@ -27,6 +32,8 @@ jest.mock('./metrics', () => ({
     personFlushOperationsCounter: { inc: jest.fn() },
     personMethodCallsPerBatchHistogram: { observe: jest.fn() },
     personOptimisticUpdateConflictsPerBatchCounter: { inc: jest.fn() },
+    personProfileBatchIgnoredPropertiesCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
+    personProfileBatchUpdateOutcomeCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     personPropertyKeyUpdateCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     personRetryAttemptsHistogram: { observe: jest.fn() },
     personWriteMethodAttemptCounter: { inc: jest.fn() },
@@ -1343,6 +1350,401 @@ describe('BatchWritingPersonStore', () => {
 
             // Verify the repository was NOT called
             expect(mockRepo.updateCohortsAndFeatureFlagsForMerge).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('property filtering at batch level', () => {
+        const mockPersonProfileBatchUpdateOutcomeCounter = personProfileBatchUpdateOutcomeCounter as jest.Mocked<
+            typeof personProfileBatchUpdateOutcomeCounter
+        >
+        const mockPersonProfileBatchIgnoredPropertiesCounter =
+            personProfileBatchIgnoredPropertiesCounter as jest.Mocked<typeof personProfileBatchIgnoredPropertiesCounter>
+        const mockPersonPropertyKeyUpdateCounter = personPropertyKeyUpdateCounter as jest.Mocked<
+            typeof personPropertyKeyUpdateCounter
+        >
+
+        it('should skip database write when only eventToPersonProperties are updated', async () => {
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+            // Update person with only filtered properties (existing properties being updated)
+            await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+                { ...person, properties: { $browser: 'Firefox', utm_source: 'twitter' } },
+                { $browser: 'Chrome', utm_source: 'google' },
+                [],
+                {},
+                'test'
+            )
+
+            // Flush should skip the database write since only filtered properties changed
+            await personStoreForBatch.flush()
+
+            expect(mockRepo.updatePerson).not.toHaveBeenCalled()
+            expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
+
+            // Verify metrics
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledTimes(1)
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels({ outcome: 'ignored' }).inc).toHaveBeenCalledTimes(
+                1
+            )
+            expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledTimes(2)
+            expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
+                property: '$browser',
+            })
+            expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
+                property: 'utm_source',
+            })
+            // personPropertyKeyUpdateCounter should NOT be called for 'ignored' outcomes
+            expect(mockPersonPropertyKeyUpdateCounter.labels).not.toHaveBeenCalled()
+        })
+
+        it('should skip database write when only $geoip_* properties are updated', async () => {
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+            // Update person with only geoip properties (existing properties being updated)
+            await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+                { ...person, properties: { $geoip_city_name: 'New York', $geoip_country_code: 'US' } },
+                { $geoip_city_name: 'San Francisco', $geoip_country_code: 'US' },
+                [],
+                {},
+                'test'
+            )
+
+            // Flush should skip the database write
+            await personStoreForBatch.flush()
+
+            expect(mockRepo.updatePerson).not.toHaveBeenCalled()
+            expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
+
+            // Verify metrics
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledTimes(1)
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels({ outcome: 'ignored' }).inc).toHaveBeenCalledTimes(
+                1
+            )
+            expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledTimes(1)
+            expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
+                property: '$geoip_city_name',
+            })
+            // personPropertyKeyUpdateCounter should NOT be called for 'ignored' outcomes
+            expect(mockPersonPropertyKeyUpdateCounter.labels).not.toHaveBeenCalled()
+        })
+
+        it('should write to database when filtered properties are NEW (not in existing properties)', async () => {
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+            // Person without browser property
+            const personWithoutBrowser = { ...person, properties: { name: 'John' } }
+
+            // Update person with NEW eventToPersonProperty
+            await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+                personWithoutBrowser,
+                { $browser: 'Chrome' },
+                [],
+                {},
+                'test'
+            )
+
+            // Flush SHOULD write to database since it's a new property
+            await personStoreForBatch.flush()
+
+            expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
+            expect(mockRepo.updatePerson).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    properties: { name: 'John', $browser: 'Chrome' },
+                }),
+                expect.anything(),
+                'updatePersonNoAssert'
+            )
+
+            // Verify metrics - should be 'changed' since new property triggers write
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledTimes(1)
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels({ outcome: 'changed' }).inc).toHaveBeenCalledTimes(
+                1
+            )
+            // Note: $browser would be ignored at event level (see person-update.ts), but filtering happens at batch level
+            expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
+            // personPropertyKeyUpdateCounter should be called for new property
+            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledTimes(1)
+            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: '$browser' })
+            expect(mockPersonPropertyKeyUpdateCounter.labels({ key: '$browser' }).inc).toHaveBeenCalledTimes(1)
+        })
+
+        it('should write to database when mixing filtered and non-filtered properties', async () => {
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+            // Update person with both filtered and non-filtered properties
+            await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+                { ...person, properties: { $browser: 'Firefox', name: 'Jane' } },
+                { $browser: 'Chrome', name: 'John' },
+                [],
+                {},
+                'test'
+            )
+
+            // Flush SHOULD write to database because name is not filtered
+            await personStoreForBatch.flush()
+
+            expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
+
+            // Verify metrics - should be 'changed' since non-filtered property triggers write
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledTimes(1)
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels({ outcome: 'changed' }).inc).toHaveBeenCalledTimes(
+                1
+            )
+            // Note: $browser would be ignored at event level (see person-update.ts), but filtering happens at batch level
+            expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
+            // personPropertyKeyUpdateCounter should be called for both properties
+            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledTimes(2)
+            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: '$browser' })
+            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: 'other' })
+        })
+
+        it('should write to database when unsetting any property', async () => {
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+            // Unset a filtered property
+            await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+                { ...person, properties: { $browser: 'Chrome' } },
+                {},
+                ['$browser'],
+                {},
+                'test'
+            )
+
+            // Flush SHOULD write to database because unsetting always triggers a write
+            await personStoreForBatch.flush()
+
+            expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
+
+            // Verify metrics - should be 'changed' since unsetting triggers write
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledTimes(1)
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels({ outcome: 'changed' }).inc).toHaveBeenCalledTimes(
+                1
+            )
+            // Note: $browser would be ignored at event level (see person-update.ts), but filtering happens at batch level
+            expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
+            // personPropertyKeyUpdateCounter should be called for unset property
+            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledTimes(1)
+            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: '$browser' })
+            expect(mockPersonPropertyKeyUpdateCounter.labels({ key: '$browser' }).inc).toHaveBeenCalledTimes(1)
+        })
+
+        it('integration: multiple events with only filtered properties should not trigger database write', async () => {
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+            const personWithFiltered = {
+                ...person,
+                properties: {
+                    $browser: 'Firefox',
+                    utm_source: 'twitter',
+                    $geoip_city_name: 'New York',
+                },
+            }
+
+            // Event 1: Update browser
+            await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+                personWithFiltered,
+                { $browser: 'Chrome' },
+                [],
+                {},
+                'test'
+            )
+
+            // Event 2: Update UTM source
+            await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+                personWithFiltered,
+                { utm_source: 'google' },
+                [],
+                {},
+                'test'
+            )
+
+            // Event 3: Update geoip
+            await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+                personWithFiltered,
+                { $geoip_city_name: 'Los Angeles' },
+                [],
+                {},
+                'test'
+            )
+
+            // Flush should NOT write to database - all properties are filtered
+            await personStoreForBatch.flush()
+
+            expect(mockRepo.updatePerson).not.toHaveBeenCalled()
+            expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
+
+            // Verify metrics - should be 'ignored' since all properties are filtered
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledTimes(1)
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels({ outcome: 'ignored' }).inc).toHaveBeenCalledTimes(
+                1
+            )
+            expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledTimes(3)
+            expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
+                property: '$browser',
+            })
+            expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
+                property: 'utm_source',
+            })
+            expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
+                property: '$geoip_city_name',
+            })
+            // personPropertyKeyUpdateCounter should NOT be called for 'ignored' outcomes
+            expect(mockPersonPropertyKeyUpdateCounter.labels).not.toHaveBeenCalled()
+        })
+
+        it('integration: filtered properties then non-filtered property should trigger database write', async () => {
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+            const personWithFiltered = {
+                ...person,
+                properties: {
+                    $browser: 'Firefox',
+                    utm_source: 'twitter',
+                    $os: 'Windows',
+                    name: 'Jane',
+                },
+            }
+
+            // Event 1: Update browser (filtered)
+            await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+                personWithFiltered,
+                { $browser: 'Chrome' },
+                [],
+                {},
+                'test'
+            )
+
+            // Event 2: Update UTM source (filtered)
+            await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+                personWithFiltered,
+                { utm_source: 'google' },
+                [],
+                {},
+                'test'
+            )
+
+            // Event 3: Update name (NOT filtered)
+            await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+                personWithFiltered,
+                { name: 'John' },
+                [],
+                {},
+                'test'
+            )
+
+            // Event 4: Update more filtered properties
+            await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+                personWithFiltered,
+                { $os: 'macOS' },
+                [],
+                {},
+                'test'
+            )
+
+            // Flush SHOULD write to database because event 3 has non-filtered property
+            await personStoreForBatch.flush()
+
+            expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
+            expect(mockRepo.updatePerson).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    properties: {
+                        $browser: 'Chrome',
+                        utm_source: 'google',
+                        $os: 'macOS',
+                        name: 'John',
+                    },
+                }),
+                expect.anything(),
+                'updatePersonNoAssert'
+            )
+
+            // Verify metrics - should be 'changed' since non-filtered property triggers write
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledTimes(1)
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels({ outcome: 'changed' }).inc).toHaveBeenCalledTimes(
+                1
+            )
+            // Note: some properties would be ignored at event level (see person-update.ts), but filtering happens at batch level
+            expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
+            // personPropertyKeyUpdateCounter should be called for all 4 properties
+            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledTimes(4)
+            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: '$browser' })
+            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: 'utm_source' })
+            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: '$os' })
+            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: 'other' })
+        })
+
+        it('integration: normal events for regression - custom properties always trigger writes', async () => {
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+            // Event 1: Normal custom property
+            await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+                person,
+                { plan: 'premium' },
+                [],
+                {},
+                'test'
+            )
+
+            // Event 2: Another custom property
+            await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+                person,
+                { subscription_status: 'active' },
+                [],
+                {},
+                'test'
+            )
+
+            // Flush SHOULD write to database
+            await personStoreForBatch.flush()
+
+            expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
+            expect(mockRepo.updatePerson).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    properties: {
+                        test: 'test',
+                        plan: 'premium',
+                        subscription_status: 'active',
+                    },
+                }),
+                expect.anything(),
+                'updatePersonNoAssert'
+            )
+
+            // Verify metrics - should be 'changed' since custom properties trigger write
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledTimes(1)
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels({ outcome: 'changed' }).inc).toHaveBeenCalledTimes(
+                1
+            )
+            // Note: custom properties are never ignored at event level (see person-update.ts)
+            expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
+            // personPropertyKeyUpdateCounter should be called once for 'other' (deduplicated by Set)
+            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledTimes(1)
+            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: 'other' })
+            expect(mockPersonPropertyKeyUpdateCounter.labels({ key: 'other' }).inc).toHaveBeenCalledTimes(1)
         })
     })
 })
