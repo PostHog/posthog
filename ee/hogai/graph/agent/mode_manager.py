@@ -1,4 +1,4 @@
-from typing import Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from pydantic import BaseModel, ValidationError
 
@@ -6,7 +6,8 @@ from posthog.schema import AgentMode
 
 from posthog.models import Team, User
 
-from .nodes import AgentNode, AgentToolsNode
+if TYPE_CHECKING:
+    from .nodes import AgentNode, AgentToolsNode
 
 
 class AgentModeValidator(BaseModel):
@@ -21,8 +22,8 @@ def validate_mode(mode: Any) -> AgentMode | None:
 
 
 class AgentModeManager:
-    __node: AgentNode | None = None
-    __tools_node: AgentToolsNode | None = None
+    __node: Optional["AgentNode"] = None
+    __tools_node: Optional["AgentToolsNode"] = None
 
     def __init__(self, team: Team, user: User, mode: AgentMode | None = None):
         self._team = team
@@ -30,7 +31,7 @@ class AgentModeManager:
         self._mode = mode or AgentMode.PRODUCT_ANALYTICS
 
     @property
-    def node(self) -> AgentNode:
+    def node(self) -> "AgentNode":
         if not self.__node:
             from ee.hogai.mode_registry import MODE_REGISTRY
 
@@ -41,7 +42,7 @@ class AgentModeManager:
         return self.__node
 
     @property
-    def tools_node(self) -> AgentToolsNode:
+    def tools_node(self) -> "AgentToolsNode":
         if not self.__tools_node:
             from ee.hogai.mode_registry import MODE_REGISTRY
 
