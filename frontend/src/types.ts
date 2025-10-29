@@ -239,10 +239,10 @@ export enum ProductKey {
     ERROR_TRACKING = 'error_tracking',
     REVENUE_ANALYTICS = 'revenue_analytics',
     MARKETING_ANALYTICS = 'marketing_analytics',
+    LLM_ANALYTICS = 'llm_analytics',
     MAX = 'max',
     LINKS = 'links',
     ENDPOINTS = 'endpoints',
-    LLM_ANALYTICS = 'llm_analytics',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -1372,7 +1372,7 @@ export type SearchResponse = {
     counts: Record<SearchableEntity, number | null>
 }
 
-export type GroupListParams = { group_type_index: GroupTypeIndex; search: string }
+export type GroupListParams = { group_type_index: GroupTypeIndex; search: string; limit?: number }
 
 export type CreateGroupParams = {
     group_type_index: GroupTypeIndex
@@ -2162,6 +2162,7 @@ export interface DashboardBasicType extends WithAccessControl {
     created_at: string
     created_by: UserBasicType | null
     last_accessed_at: string | null
+    last_viewed_at?: string | null
     is_shared: boolean
     deleted: boolean
     creation_mode: 'default' | 'template' | 'duplicate'

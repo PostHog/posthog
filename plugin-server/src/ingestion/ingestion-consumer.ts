@@ -158,6 +158,7 @@ export class IngestionConsumer {
             (x) => !!x
         )
         this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
+            pipeline: 'analytics',
             staticDropEventTokens: this.tokenDistinctIdsToDrop,
             staticSkipPersonTokens: this.tokenDistinctIdsToSkipPersons,
             staticForceOverflowTokens: this.tokenDistinctIdsToForceOverflow,

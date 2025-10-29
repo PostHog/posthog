@@ -2,8 +2,6 @@ from collections.abc import AsyncGenerator
 from typing import Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel
-
 from posthog.schema import (
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
@@ -29,6 +27,7 @@ from ee.hogai.utils.types import (
     AssistantState,
     PartialAssistantState,
 )
+from ee.hogai.utils.types.base import AssistantResultUnion
 from ee.hogai.utils.types.composed import MaxNodeName
 from ee.models import Conversation
 
@@ -84,17 +83,6 @@ class InsightsAssistant(BaseAssistant):
             TaxonomyNodeName.LOOP_NODE,
         }
 
-    @property
-    def VERBOSE_NODES(self) -> set[MaxNodeName]:
-        return self.STREAMING_NODES
-
-    @property
-    def THINKING_NODES(self) -> set[MaxNodeName]:
-        return self.VISUALIZATION_NODES.keys() | {
-            AssistantNodeName.QUERY_PLANNER,
-            TaxonomyNodeName.LOOP_NODE,
-        }
-
     def get_initial_state(self) -> AssistantState:
         return AssistantState(messages=[])
 
@@ -140,12 +128,12 @@ class InsightsAssistant(BaseAssistant):
             },
         )
 
-    def _process_value_update(self, update: GraphValueUpdateTuple) -> list[BaseModel] | None:
+    async def _aprocess_value_update(self, update: GraphValueUpdateTuple) -> AssistantResultUnion | None:
         _, maybe_state_update = update
         state_update = validate_value_update(maybe_state_update)
         if intersected_nodes := state_update.keys() & self.VISUALIZATION_NODES.keys():
             node_name: MaxNodeName = intersected_nodes.pop()
             node_val = state_update[node_name]
             if isinstance(node_val, PartialAssistantState) and node_val.intermediate_steps:
-                return [AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)]
-        return super()._process_value_update(update)
+                return AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
+        return await super()._aprocess_value_update(update)

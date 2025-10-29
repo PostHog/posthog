@@ -6,7 +6,7 @@ from typing import Any, Optional
 from django.db import models
 
 from posthog.management.migration_analysis.models import OperationRisk
-from posthog.management.migration_analysis.utils import VolatileFunctionDetector, check_drop_table_properly_staged
+from posthog.management.migration_analysis.utils import VolatileFunctionDetector, check_drop_properly_staged
 
 # Base URL for migration safety documentation
 SAFE_MIGRATIONS_DOCS_URL = "https://github.com/PostHog/posthog/blob/master/docs/safe-django-migrations.md"
@@ -452,6 +452,52 @@ class RunSQLAnalyzer(OperationAnalyzer):
             )
 
         if "DROP" in sql:
+            # Check for DROP COLUMN first (before DROP TABLE check)
+            # ALTER TABLE ... DROP COLUMN can contain both "TABLE" and "DROP" keywords
+            # Use regex to verify it's actually ALTER TABLE ... DROP COLUMN (not just "COLUMN" in table name)
+            column_match = re.search(
+                r"ALTER\s+TABLE\s+([a-zA-Z0-9_]+)\s+DROP\s+COLUMN\s+(?:IF\s+EXISTS\s+)?([a-zA-Z0-9_]+)", sql
+            )
+
+            if column_match:
+                if migration and loader:
+                    table_name = column_match.group(1).lower()
+                    column_name = column_match.group(2).lower()
+
+                    # Check if properly staged (field removed from state in prior migration)
+                    if check_drop_properly_staged("column", table_name, migration, loader, field_name=column_name):
+                        return OperationRisk(
+                            type=self.operation_type,
+                            score=2,
+                            reason="DROP COLUMN IF EXISTS - properly staged (prior state removal found)",
+                            details={"sql": sql, "table": table_name, "column": column_name},
+                            guidance=f"""✅ **Validated staged drop:** Found prior SeparateDatabaseAndState that removed field from state.
+
+Remaining checklist:
+- Ensure all code references removed (models, serializers, API)
+- Waited at least one full deployment cycle since state removal
+- Verify column is not used in queries or indexes
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-columns)""",
+                        )
+
+                # Not properly staged or can't validate
+                return OperationRisk(
+                    type=self.operation_type,
+                    score=5,
+                    reason="DROP COLUMN - no prior state removal found",
+                    details={"sql": sql},
+                    guidance=f"""❌ **Missing state removal:** Could not find prior SeparateDatabaseAndState that removed this field.
+
+Safe pattern requires:
+1. Prior migration with SeparateDatabaseAndState removes field from Django state
+2. All code references removed (models, serializers, API)
+3. Wait at least one full deployment cycle
+4. Then DROP COLUMN in later migration with RunSQL
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-columns)""",
+                )
+
             # Special case: DROP TABLE IF EXISTS may be safe if following proper staging pattern
             if "TABLE" in sql and "IF EXISTS" in sql:
                 # Extract table name from the DROP statement
@@ -460,7 +506,7 @@ class RunSQLAnalyzer(OperationAnalyzer):
                     table_name = table_name_match.group(1).lower()
 
                     # Check if properly staged (model removed from state in prior migration)
-                    if check_drop_table_properly_staged(table_name, migration, loader):
+                    if check_drop_properly_staged("table", table_name, migration, loader):
                         return OperationRisk(
                             type=self.operation_type,
                             score=2,

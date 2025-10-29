@@ -77,12 +77,11 @@ class EditCurrentInsightArgs(BaseModel):
 
 
 class EditCurrentInsightTool(MaxTool):
-    name: str = "create_and_query_insight"  # this is the same name as the "insights" tool in the backend, as this overwrites that tool's functionality to be able to send the result to the frontend
+    name: str = "edit_current_insight"
     description: str = (
         "Update the insight the user is currently working on, based on the current insight's JSON schema."
     )
-    thinking_message: str = "Editing your insight"
-    context_prompt_template: str = """The user is currently editing an insight (aka query). Here is that insight's current definition, which can be edited using the `create_and_query_insight` tool:
+    context_prompt_template: str = """The user is currently editing an insight (aka query). Here is that insight's current definition, which can be edited using the `edit_current_insight` tool:
 
 ```json
 {current_query}
@@ -92,7 +91,6 @@ IMPORTANT: DO NOT REMOVE ANY FIELDS FROM THE CURRENT INSIGHT DEFINITION. DO NOT 
 """.strip()
 
     args_schema: type[BaseModel] = EditCurrentInsightArgs
-    show_tool_call_message: bool = False
 
     async def _arun_impl(self, query_kind: str, query_description: str) -> tuple[str, ToolMessagesArtifact]:
         from ee.hogai.graph.graph import InsightsAssistantGraph  # avoid circular import
@@ -100,7 +98,7 @@ IMPORTANT: DO NOT REMOVE ANY FIELDS FROM THE CURRENT INSIGHT DEFINITION. DO NOT 
         if "current_query" not in self.context:
             raise ValueError("Context `current_query` is required for the `create_and_query_insight` tool")
 
-        graph = InsightsAssistantGraph(self._team, self._user).compile_full_graph()
+        graph = InsightsAssistantGraph(self._team, self._user, tool_call_id=self._tool_call_id).compile_full_graph()
         state = self._state
         last_message = state.messages[-1]
         if not isinstance(last_message, AssistantMessage):
@@ -109,7 +107,11 @@ IMPORTANT: DO NOT REMOVE ANY FIELDS FROM THE CURRENT INSIGHT DEFINITION. DO NOT 
             raise ValueError("Last message has no tool calls")
 
         state.root_tool_insight_plan = query_description
-        state.root_tool_call_id = last_message.tool_calls[0].id
+        root_tool_call_id = last_message.tool_calls[0].id
+
+        # We need to set a new root tool call id to sub-nest the graph within the contextual tool call
+        # and avoid duplicating messages in the stream
+        state.root_tool_call_id = str(uuid4())
 
         state_dict = await graph.ainvoke(state, config=self._config)
         state = AssistantState.model_validate(state_dict)
@@ -129,8 +131,7 @@ IMPORTANT: DO NOT REMOVE ANY FIELDS FROM THE CURRENT INSIGHT DEFINITION. DO NOT 
                     content=result.content,
                     ui_payload={self.get_name(): viz_message.answer.model_dump(exclude_none=True)},
                     id=str(uuid4()),
-                    tool_call_id=result.tool_call_id,
-                    visible=self.show_tool_call_message,
+                    tool_call_id=root_tool_call_id,
                 ),
             ]
         )

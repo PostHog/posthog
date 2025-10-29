@@ -1,10 +1,11 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { PaginationManual } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { FLAGS_PER_PAGE } from 'scenes/feature-flags/featureFlagsLogic'
 
 import { FeatureFlagType } from '~/types'
@@ -31,6 +32,10 @@ const DEFAULT_FILTERS: FeatureFlagModalFilters = {
 
 export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlagModalLogicType>([
     path(['scenes', 'experiments', 'create', 'selectExistingFeatureFlagModalLogic']),
+
+    connect({
+        actions: [eventUsageLogic, ['reportExperimentFeatureFlagModalOpened']],
+    }),
 
     actions({
         openSelectExistingFeatureFlagModal: true,
@@ -70,6 +75,7 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
             actions.loadFeatureFlags()
         },
         openSelectExistingFeatureFlagModal: () => {
+            actions.reportExperimentFeatureFlagModalOpened()
             actions.loadFeatureFlags()
         },
     })),
