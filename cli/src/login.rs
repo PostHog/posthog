@@ -106,7 +106,7 @@ pub fn login(host_override: Option<String>) -> Result<(), Error> {
 
 fn request_device_code(host: &str) -> Result<DeviceCodeResponse, Error> {
     let client = reqwest::blocking::Client::new();
-    let url = format!("{}/api/cli-auth/device-code/", host);
+    let url = format!("{host}/api/cli-auth/device-code/");
 
     let response = client
         .post(&url)
@@ -164,7 +164,7 @@ fn poll_for_authorization(
     expires_in_seconds: u64,
 ) -> Result<PollResponse, Error> {
     let client = reqwest::blocking::Client::new();
-    let url = format!("{}/api/cli-auth/poll/", host);
+    let url = format!("{host}/api/cli-auth/poll/");
     let max_attempts = (expires_in_seconds / interval_seconds) + 1;
     let poll_interval = Duration::from_secs(interval_seconds);
 
@@ -187,15 +187,17 @@ fn poll_for_authorization(
         if status_code.as_u16() == 202 {
             // Still pending
             if attempt % 3 == 0 {
-                info!("Still waiting for authorization... (attempt {}/{})", attempt, max_attempts);
+                info!(
+                    "Still waiting for authorization... (attempt {}/{})",
+                    attempt, max_attempts
+                );
             }
             continue;
         }
 
         // Parse response body for both success and error cases
-        let poll_response: PollResponse = response
-            .json()
-            .context("Failed to parse poll response")?;
+        let poll_response: PollResponse =
+            response.json().context("Failed to parse poll response")?;
 
         if status_code.is_success() && poll_response.status == "authorized" {
             return Ok(poll_response);
@@ -243,7 +245,8 @@ fn manual_login() -> Result<(), Error> {
         .with_validator(host_validator)
         .prompt()?;
 
-    let env_id = Text::new("Enter your project ID (the number in your PostHog homepage URL)").prompt()?;
+    let env_id =
+        Text::new("Enter your project ID (the number in your PostHog homepage URL)").prompt()?;
 
     let token = Text::new(
         "Enter your personal API token",
