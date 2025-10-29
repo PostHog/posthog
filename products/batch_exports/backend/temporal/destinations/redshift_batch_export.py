@@ -319,8 +319,8 @@ class RedshiftClient(PostgreSQLClient):
                 """\
                 WHEN MATCHED THEN UPDATE SET {update_values}
                 WHEN NOT MATCHED THEN INSERT VALUES ({insert_values})
-                """.format(update_values=update_values, insert_values=insert_values)
-            )
+                """
+            ).format(update_values=update_values, insert_values=insert_values)
 
         async with self.connection.transaction():
             async with self.connection.cursor() as cursor:
