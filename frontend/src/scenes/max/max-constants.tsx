@@ -268,19 +268,6 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
             return 'Finding impactful issues...'
         },
     },
-    experiment_results_summary: {
-        name: 'Summarize experiment results',
-        description: 'Summarize experiment results for a comprehensive rundown',
-        product: Scene.Experiment,
-        flag: 'experiments-ai-summary',
-        icon: iconForType('experiment'),
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Summarized experiment results'
-            }
-            return 'Summarizing experiment results...'
-        },
-    },
     create_survey: {
         name: 'Create surveys',
         description: 'Create surveys in seconds',
