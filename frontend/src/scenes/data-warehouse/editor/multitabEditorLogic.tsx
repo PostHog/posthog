@@ -857,8 +857,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
         updateView: async ({ view, draftId }) => {
             const latestView = await api.dataWarehouseSavedQueries.get(view.id)
+            // Only check for conflicts if there's an activity log (latest_history_id exists)
+            // When there's no activity log, both edited_history_id and latest_history_id are null/undefined,
+            // and we should allow the update to proceed without showing a false conflict
             if (
-                view.edited_history_id !== latestView?.latest_history_id &&
+                latestView?.latest_history_id != null &&
+                view.edited_history_id !== latestView.latest_history_id &&
                 view.query?.query !== latestView?.query.query
             ) {
                 actions._setSuggestionPayload({
