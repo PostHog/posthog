@@ -15,6 +15,7 @@
  *   --dry-run           Show what would be migrated without copying
  *   --workers <n>       Number of concurrent workers (default: 5)
  *   --resume            Resume from last checkpoint
+ *   --revert            Copy from SeaweedFS back to MinIO (reverse direction)
  *   --help              Show this help message
  */
 
@@ -153,6 +154,7 @@ function parseArgs() {
         dryRun: false,
         workers: 5,
         resume: false,
+        revert: false,
     }
 
     for (let i = 0; i < args.length; i++) {
@@ -171,6 +173,9 @@ function parseArgs() {
                 break
             case '--resume':
                 options.resume = true
+                break
+            case '--revert':
+                options.revert = true
                 break
             case '--help':
                 console.log(__doc__)
@@ -318,9 +323,14 @@ async function copyObject(sourceClient, destClient, bucket, key) {
 }
 
 async function migrateService(serviceName, config, options, checkpoint) {
+    const direction = options.revert ? 'SeaweedFS → MinIO' : 'MinIO → SeaweedFS'
+    const sourceName = options.revert ? 'SeaweedFS' : 'MinIO'
+    const destName = options.revert ? 'MinIO' : 'SeaweedFS'
+
     console.log(`\n${'='.repeat(80)}`)
     console.log(`📦 Migrating: ${serviceName}`)
     console.log(`   ${config.description}`)
+    console.log(`   Direction: ${direction}`)
     console.log(`   Bucket: ${config.bucket}`)
     console.log(`   Prefix: ${config.prefix}`)
     console.log(`${'='.repeat(80)}\n`)
@@ -333,8 +343,12 @@ async function migrateService(serviceName, config, options, checkpoint) {
     )
     const seaweedfsClient = await createS3Client('http://localhost:8333', 'any', 'any')
 
-    // Ensure bucket exists in SeaweedFS first
-    await ensureBucketExists(seaweedfsClient, config.bucket)
+    // Determine source and destination based on direction
+    const sourceClient = options.revert ? seaweedfsClient : minioClient
+    const destClient = options.revert ? minioClient : seaweedfsClient
+
+    // Ensure bucket exists in destination
+    await ensureBucketExists(destClient, config.bucket)
 
     // Test connectivity
     const minioOk = await testConnectivity(minioClient, 'MinIO', config.bucket)
@@ -344,8 +358,8 @@ async function migrateService(serviceName, config, options, checkpoint) {
         throw new Error('Failed to connect to storage backends')
     }
 
-    // List objects from MinIO
-    console.log('📋 Listing objects from MinIO...')
+    // List objects from source
+    console.log(`📋 Listing objects from ${sourceName}...`)
     let allObjects = []
     let continuationToken = undefined
 
@@ -355,7 +369,7 @@ async function migrateService(serviceName, config, options, checkpoint) {
             Prefix: config.prefix,
             ContinuationToken: continuationToken,
         })
-        const response = await minioClient.send(command)
+        const response = await sourceClient.send(command)
 
         if (response.Contents) {
             allObjects = allObjects.concat(response.Contents)
@@ -414,12 +428,12 @@ async function migrateService(serviceName, config, options, checkpoint) {
                     if (!obj) break
 
                     try {
-                        const exists = await objectExists(seaweedfsClient, config.bucket, obj.Key)
+                        const exists = await objectExists(destClient, config.bucket, obj.Key)
                         if (exists && !options.force) {
                             checkpoint.markSkipped(serviceName)
                             progress.increment('skipped')
                         } else {
-                            const result = await copyObject(minioClient, seaweedfsClient, config.bucket, obj.Key)
+                            const result = await copyObject(sourceClient, destClient, config.bucket, obj.Key)
                             checkpoint.markCompleted(serviceName, obj.Key)
                             progress.increment('completed', result.size)
                         }
@@ -469,7 +483,8 @@ async function migrateService(serviceName, config, options, checkpoint) {
 async function main() {
     const options = parseArgs()
 
-    console.log('🔄 MinIO to SeaweedFS Migration Tool')
+    const title = options.revert ? 'SeaweedFS to MinIO Migration Tool' : 'MinIO to SeaweedFS Migration Tool'
+    console.log(`🔄 ${title}`)
     console.log('=====================================\n')
 
     // Validate service
