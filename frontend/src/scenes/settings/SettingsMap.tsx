@@ -32,6 +32,7 @@ import { RolesAccessControls } from '~/layout/navigation-3000/sidepanel/panels/a
 import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
+import { ActivityLogSettings } from './environment/ActivityLogSettings'
 import { AutocaptureSettings, WebVitalsAutocaptureSettings } from './environment/AutocaptureSettings'
 import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
@@ -572,8 +573,13 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-activity-logs',
         title: 'Activity logs',
-        to: urls.advancedActivityLogs(),
-        settings: [],
+        settings: [
+            {
+                id: 'activity-log-settings',
+                title: 'Activity logs',
+                component: <ActivityLogSettings />,
+            },
+        ],
     },
     {
         level: 'environment',

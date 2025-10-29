@@ -152,6 +152,7 @@ export type SettingId =
     | 'base-currency'
     | 'marketing-settings'
     | 'mcp-server-configure'
+    | 'activity-log-settings'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
