@@ -189,7 +189,7 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
         is_backfill = inputs.get_is_backfill()
 
         filters = inputs.batch_export_model.filters if inputs.batch_export_model is not None else None
-        if filters is not None:
+        if filters is not None and len(filters) > 0:
             filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
                 filters, team_id=inputs.team_id, values=None
             )
