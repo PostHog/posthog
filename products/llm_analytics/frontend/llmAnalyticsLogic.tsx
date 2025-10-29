@@ -855,6 +855,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 showTestAccountFilters: true,
                 showExport: true,
                 showColumnConfigurator: true,
+                allowSorting: true,
             }),
         ],
         sessionsQuery: [
@@ -928,6 +929,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 showTestAccountFilters: true,
                 showExport: true,
                 showColumnConfigurator: true,
+                allowSorting: true,
             }),
         ],
         isRefreshing: [
