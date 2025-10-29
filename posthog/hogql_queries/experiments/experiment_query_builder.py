@@ -179,6 +179,9 @@ class ExperimentQueryBuilder:
                 step_columns = self._build_funnel_step_columns()
                 metric_events_cte.expr.select.extend(step_columns)
 
+                # For unordered funnels, we need to filter out metric events that occour _before_ the exposure
+                # event. For ordered funnel metrics, the UDF does this for us.
+                # Here, we add the field we need, first_exposure_timestamp
                 if self.metric.funnel_order_type == StepOrderValue.UNORDERED:
                     first_exposure_timestamp_expr = parse_expr(
                         "minIf(timestamp, step_0 = 1) OVER (PARTITION BY entity_id) AS first_exposure_timestamp"
@@ -186,6 +189,9 @@ class ExperimentQueryBuilder:
                     metric_events_cte.expr.select.extend([first_exposure_timestamp_expr])
 
         if self.metric.funnel_order_type == StepOrderValue.UNORDERED:
+            # For unordered funnels, we need to filter out metric events that occour _before_ the exposure
+            # event. For ordered funnel metrics, the UDF does this for us.
+            # Here, we add the where condition to filter out does events
             if query.ctes and "entity_metrics" in query.ctes:
                 entity_metrics_cte = query.ctes["entity_metrics"]
                 if isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery):
