@@ -16,18 +16,37 @@ import { StatusIcon, StatusTag } from './components/StatusComponents'
 const LIST_SIZE = 8
 
 export function OverviewTab(): JSX.Element {
-    const { activityPaginationState, totalRowsStats, totalRowsStatsLoading, tablesLoading, jobStats, jobStatsLoading } =
-        useValues(dataWarehouseSceneLogic)
-    const { setActivityCurrentPage, loadJobStats } = useActions(dataWarehouseSceneLogic)
+    const {
+        activityRunningPaginationState,
+        activityCompletedPaginationState,
+        totalRowsStats,
+        totalRowsStatsLoading,
+        tablesLoading,
+        jobStats,
+        jobStatsLoading,
+    } = useValues(dataWarehouseSceneLogic)
+    const { setActivityRunningCurrentPage, setActivityCompletedCurrentPage, loadJobStats } =
+        useActions(dataWarehouseSceneLogic)
 
-    const activityPagination = {
-        currentPage: activityPaginationState.currentPage,
-        pageCount: activityPaginationState.pageCount,
-        dataSourcePage: activityPaginationState.dataSourcePage,
-        currentStartIndex: activityPaginationState.currentStartIndex,
-        currentEndIndex: activityPaginationState.currentEndIndex,
-        entryCount: activityPaginationState.entryCount,
-        setCurrentPage: setActivityCurrentPage,
+    const activityRunningPagination = {
+        currentPage: activityRunningPaginationState.currentPage,
+        pageCount: activityRunningPaginationState.pageCount,
+        dataSourcePage: activityRunningPaginationState.dataSourcePage,
+        currentStartIndex: activityRunningPaginationState.currentStartIndex,
+        currentEndIndex: activityRunningPaginationState.currentEndIndex,
+        entryCount: activityRunningPaginationState.entryCount,
+        setCurrentPage: setActivityRunningCurrentPage,
+        pagination: { pageSize: LIST_SIZE },
+    }
+
+    const activityCompletedPagination = {
+        currentPage: activityCompletedPaginationState.currentPage,
+        pageCount: activityCompletedPaginationState.pageCount,
+        dataSourcePage: activityCompletedPaginationState.dataSourcePage,
+        currentStartIndex: activityCompletedPaginationState.currentStartIndex,
+        currentEndIndex: activityCompletedPaginationState.currentEndIndex,
+        entryCount: activityCompletedPaginationState.entryCount,
+        setCurrentPage: setActivityCompletedCurrentPage,
         pagination: { pageSize: LIST_SIZE },
     }
 
@@ -166,21 +185,46 @@ export function OverviewTab(): JSX.Element {
 
             <LemonCard className="hover:transform-none mt-4">
                 <div className="flex items-center gap-2 pb-2">
-                    <span className="font-semibold text-xl">Recent Activity</span>
-                    {tablesLoading && activityPagination.dataSourcePage.length !== 0 && (
+                    <span className="font-semibold text-xl">Currently running</span>
+                    {tablesLoading && activityRunningPagination.dataSourcePage.length !== 0 && (
                         <Spinner className="text-muted" />
                     )}
                 </div>
                 <LemonTable
-                    dataSource={activityPagination.dataSourcePage as DataWarehouseActivityRecord[]}
+                    dataSource={activityRunningPagination.dataSourcePage as DataWarehouseActivityRecord[]}
                     columns={activityColumns}
                     rowKey={(r) => `${r.type}-${r.name}-${r.created_at}`}
-                    loading={tablesLoading && activityPagination.dataSourcePage.length === 0}
+                    loading={tablesLoading && activityRunningPagination.dataSourcePage.length === 0}
                     loadingSkeletonRows={3}
+                    emptyState="No currently running activities"
                 />
-                <div className="px-4 pb-4">
-                    <PaginationControl {...activityPagination} nouns={['activity', 'activities']} />
+                {activityRunningPagination.entryCount > 0 && (
+                    <div className="px-4 pb-4">
+                        <PaginationControl {...activityRunningPagination} nouns={['activity', 'activities']} />
+                    </div>
+                )}
+            </LemonCard>
+
+            <LemonCard className="hover:transform-none mt-4">
+                <div className="flex items-center gap-2 pb-2">
+                    <span className="font-semibold text-xl">Recently completed</span>
+                    {tablesLoading && activityCompletedPagination.dataSourcePage.length !== 0 && (
+                        <Spinner className="text-muted" />
+                    )}
                 </div>
+                <LemonTable
+                    dataSource={activityCompletedPagination.dataSourcePage as DataWarehouseActivityRecord[]}
+                    columns={activityColumns}
+                    rowKey={(r) => `${r.type}-${r.name}-${r.created_at}`}
+                    loading={tablesLoading && activityCompletedPagination.dataSourcePage.length === 0}
+                    loadingSkeletonRows={3}
+                    emptyState="No recently completed activities"
+                />
+                {activityCompletedPagination.entryCount > 0 && (
+                    <div className="px-4 pb-4">
+                        <PaginationControl {...activityCompletedPagination} nouns={['activity', 'activities']} />
+                    </div>
+                )}
             </LemonCard>
         </>
     )

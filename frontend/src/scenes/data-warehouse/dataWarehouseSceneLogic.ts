@@ -54,6 +54,8 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     actions({
         loadMoreRecentActivity: true,
         setActivityCurrentPage: (page: number) => ({ page }),
+        setActivityRunningCurrentPage: (page: number) => ({ page }),
+        setActivityCompletedCurrentPage: (page: number) => ({ page }),
         checkAutoLoadMore: true,
         setActiveTab: (tab: DataWarehouseTab) => ({ tab }),
     }),
@@ -97,6 +99,20 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 loadRecentActivityResponse: () => 1,
             },
         ],
+        activityRunningCurrentPage: [
+            1 as number,
+            {
+                setActivityRunningCurrentPage: (_, { page }) => page,
+                loadRecentActivityResponse: () => 1,
+            },
+        ],
+        activityCompletedCurrentPage: [
+            1 as number,
+            {
+                setActivityCompletedCurrentPage: (_, { page }) => page,
+                loadRecentActivityResponse: () => 1,
+            },
+        ],
         recentActivityMoreLoading: [
             false as boolean,
             {
@@ -110,6 +126,18 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             (s) => [s.recentActivityResponse],
             (response: PaginatedResponse<DataWarehouseActivityRecord> | null): DataWarehouseActivityRecord[] => {
                 return response?.results || []
+            },
+        ],
+        recentActivityRunning: [
+            (s) => [s.recentActivity],
+            (activities: DataWarehouseActivityRecord[]): DataWarehouseActivityRecord[] => {
+                return activities.filter((activity) => activity.status === 'Running')
+            },
+        ],
+        recentActivityCompleted: [
+            (s) => [s.recentActivity],
+            (activities: DataWarehouseActivityRecord[]): DataWarehouseActivityRecord[] => {
+                return activities.filter((activity) => activity.status !== 'Running')
             },
         ],
         recentActivityHasMore: [
@@ -197,6 +225,50 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                     currentEndIndex: endIndex,
                     entryCount: totalData,
                     isOnLastPage: activityCurrentPage === pageCount,
+                    hasDataOnCurrentPage: dataSourcePage.length > 0,
+                }
+            },
+        ],
+        activityRunningPaginationState: [
+            (s) => [s.recentActivityRunning, s.activityRunningCurrentPage],
+            (recentActivityRunning: DataWarehouseActivityRecord[], activityRunningCurrentPage: number) => {
+                const pageSize = 8
+                const totalData = recentActivityRunning.length
+                const pageCount = Math.max(Math.ceil(totalData / pageSize), 1)
+                const startIndex = (activityRunningCurrentPage - 1) * pageSize
+                const endIndex = Math.min(startIndex + pageSize, totalData)
+                const dataSourcePage = recentActivityRunning.slice(startIndex, endIndex)
+
+                return {
+                    currentPage: activityRunningCurrentPage,
+                    pageCount,
+                    dataSourcePage,
+                    currentStartIndex: startIndex,
+                    currentEndIndex: endIndex,
+                    entryCount: totalData,
+                    isOnLastPage: activityRunningCurrentPage === pageCount,
+                    hasDataOnCurrentPage: dataSourcePage.length > 0,
+                }
+            },
+        ],
+        activityCompletedPaginationState: [
+            (s) => [s.recentActivityCompleted, s.activityCompletedCurrentPage],
+            (recentActivityCompleted: DataWarehouseActivityRecord[], activityCompletedCurrentPage: number) => {
+                const pageSize = 8
+                const totalData = recentActivityCompleted.length
+                const pageCount = Math.max(Math.ceil(totalData / pageSize), 1)
+                const startIndex = (activityCompletedCurrentPage - 1) * pageSize
+                const endIndex = Math.min(startIndex + pageSize, totalData)
+                const dataSourcePage = recentActivityCompleted.slice(startIndex, endIndex)
+
+                return {
+                    currentPage: activityCompletedCurrentPage,
+                    pageCount,
+                    dataSourcePage,
+                    currentStartIndex: startIndex,
+                    currentEndIndex: endIndex,
+                    entryCount: totalData,
+                    isOnLastPage: activityCompletedCurrentPage === pageCount,
                     hasDataOnCurrentPage: dataSourcePage.length > 0,
                 }
             },
