@@ -434,6 +434,56 @@ class TestRunSQLOperations:
         assert risk.level == RiskLevel.NEEDS_REVIEW
         assert "cascade" in risk.reason.lower()
 
+    def test_run_sql_alter_table_drop_column_if_exists(self):
+        """Test ALTER TABLE DROP COLUMN IF EXISTS - should be dangerous (score 5), not confused with DROP TABLE."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="ALTER TABLE llm_analytics_evaluation DROP COLUMN IF EXISTS prompt;",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        # Should be score 5 (BLOCKED) for dropping a column
+        assert risk.score == 5
+        assert risk.level == RiskLevel.BLOCKED
+        # Should NOT be classified as DROP TABLE
+        assert "drop table" not in risk.reason.lower()
+        # Should indicate it's a DROP COLUMN operation
+        assert "column" in risk.reason.lower() or "drop" in risk.reason.lower()
+
+    def test_run_sql_drop_table_not_confused_with_drop_column(self):
+        """Test that DROP TABLE IF EXISTS (without COLUMN keyword) is still recognized as table drop."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="DROP TABLE IF EXISTS old_table;",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        # Should be recognized as DROP TABLE (not DROP COLUMN)
+        assert risk.score == 5
+        assert risk.level == RiskLevel.BLOCKED
+        assert "drop table" in risk.reason.lower()
+        # Should NOT mention column
+        assert "column" not in risk.reason.lower()
+
+    def test_run_sql_drop_table_with_column_in_name(self):
+        """Test that DROP TABLE with 'column' in table name doesn't trigger DROP COLUMN logic."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="DROP TABLE IF EXISTS column_data;",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        # Should be recognized as DROP TABLE (not DROP COLUMN)
+        # Even though SQL contains the word "COLUMN"
+        assert risk.score == 5
+        assert risk.level == RiskLevel.BLOCKED
+        assert "drop table" in risk.reason.lower()
+        # Should NOT be classified as DROP COLUMN
+        assert "drop column" not in risk.reason.lower()
+
     def test_run_sql_comment_on(self):
         """Test COMMENT ON - metadata only (score 0)."""
         op = create_mock_operation(
@@ -763,6 +813,55 @@ class TestDropTableValidation:
         # Should be BLOCKED (score 5) when we can't validate
         assert migration_risk.level == RiskLevel.BLOCKED
         assert migration_risk.max_score == 5
+
+    def test_drop_column_with_prior_state_removal(self):
+        """
+        Valid pattern: Prior migration removes field from state, then drop column.
+
+        Migration 0006: SeparateDatabaseAndState removes Evaluation.prompt
+        Migration 0007: ALTER TABLE ... DROP COLUMN IF EXISTS prompt
+        """
+        # Create mock migration graph with proper staging
+        mock_migration = MagicMock()
+        mock_migration.app_label = "llm_analytics"
+        mock_migration.name = "0007_drop_evaluation_prompt_column"
+        mock_migration.dependencies = [("llm_analytics", "0006_remove_evaluation_prompt")]
+
+        # Create the DROP COLUMN operation
+        drop_op = create_mock_operation(
+            migrations.RunSQL,
+            sql="ALTER TABLE llm_analytics_evaluation DROP COLUMN IF EXISTS prompt;",
+        )
+        mock_migration.operations = [drop_op]
+
+        # Create parent migration with SeparateDatabaseAndState
+        parent_migration = MagicMock()
+        parent_migration.app_label = "llm_analytics"
+        parent_migration.name = "0006_remove_evaluation_prompt"
+
+        remove_field_op = create_mock_operation(migrations.RemoveField, model_name="Evaluation", name="prompt")
+        separate_op = create_mock_operation(
+            migrations.SeparateDatabaseAndState,
+            state_operations=[remove_field_op],
+            database_operations=[],
+        )
+        parent_migration.operations = [separate_op]
+
+        # Create mock loader
+        mock_loader = MagicMock()
+        mock_loader.disk_migrations = {
+            ("llm_analytics", "0006_remove_evaluation_prompt"): parent_migration,
+            ("llm_analytics", "0007_drop_evaluation_prompt_column"): mock_migration,
+        }
+
+        # Analyze with migration context
+        migration_risk = self.analyzer.analyze_migration_with_context(
+            mock_migration, "llm_analytics/migrations/0007_drop_evaluation_prompt_column.py", mock_loader
+        )
+
+        # Should be NEEDS_REVIEW (score 2) since properly staged
+        assert migration_risk.level == RiskLevel.NEEDS_REVIEW
+        assert migration_risk.max_score == 2
 
 
 class TestRunPythonOperations:

@@ -1,5 +1,6 @@
 from uuid import uuid4
 
+import posthoganalytics
 from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import (
@@ -20,8 +21,6 @@ from posthog.schema import (
     TrendsQuery,
     VisualizationMessage,
 )
-
-from posthog.exceptions_capture import capture_exception
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
@@ -53,7 +52,7 @@ class QueryExecutorNode(AssistantNode):
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         viz_message = state.messages[-1]
         if isinstance(viz_message, FailureMessage):
-            return PartialAssistantState()  # Exit early - something failed earlier
+            return None  # Exit early - something failed earlier
         if not isinstance(viz_message, VisualizationMessage):
             raise ValueError(f"Expected a visualization message, found {type(viz_message)}")
         if viz_message.answer is None:
@@ -70,7 +69,11 @@ class QueryExecutorNode(AssistantNode):
         except Exception as err:
             if isinstance(err, NotImplementedError):
                 raise
-            capture_exception(err, additional_properties=self._get_debug_props(config))
+            posthoganalytics.capture_exception(
+                err,
+                distinct_id=self._get_user_distinct_id(config),
+                properties=self._get_debug_props(config),
+            )
             return PartialAssistantState(messages=[FailureMessage(content=str(err), id=str(uuid4()))])
 
         query_result = QUERY_RESULTS_PROMPT.format(

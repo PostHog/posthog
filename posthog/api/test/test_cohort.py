@@ -2491,6 +2491,37 @@ email@example.org,
         self.assertEqual(new_cohort.errors_calculating, 0)
         self.assertEqual(new_cohort.count, 2)
 
+    def test_duplicating_static_cohort_as_static(self):
+        p1 = _create_person(distinct_ids=["p1"], team_id=self.team.pk)
+        p2 = _create_person(distinct_ids=["p2"], team_id=self.team.pk)
+
+        flush_persons_and_events()
+
+        # Create static cohort
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static cohort A",
+            is_static=True,
+        )
+        cohort.insert_users_list_by_uuid([str(p1.uuid), str(p2.uuid)], team_id=self.team.pk)
+
+        # Verify original cohort has people
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.count, 2, "Original cohort should have 2 people")
+
+        # Duplicate static cohort as static
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.pk}/duplicate_as_static_cohort")
+        self.assertEqual(response.status_code, 200, response.content)
+
+        new_cohort_id = response.json()["id"]
+        new_cohort = Cohort.objects.get(pk=new_cohort_id)
+
+        # Verify the duplicated cohort
+        self.assertEqual(new_cohort.name, "static cohort A (static copy)")
+        self.assertEqual(new_cohort.is_static, True)
+        new_cohort.refresh_from_db()
+        self.assertEqual(new_cohort.count, 2)
+
     def test_duplicating_dynamic_cohort_as_dynamic(self):
         _create_person(
             distinct_ids=["p1"],
