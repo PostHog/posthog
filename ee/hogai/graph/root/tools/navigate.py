@@ -57,7 +57,6 @@ class NavigateTool(MaxTool):
         *,
         team: Team,
         user: User,
-        tool_call_id: str,
         state: AssistantState | None = None,
         config: RunnableConfig | None = None,
         context_manager: AssistantContextManager | None = None,
@@ -69,7 +68,6 @@ class NavigateTool(MaxTool):
         return cls(
             team=team,
             user=user,
-            tool_call_id=tool_call_id,
             state=state,
             config=config,
             context_manager=context_manager,

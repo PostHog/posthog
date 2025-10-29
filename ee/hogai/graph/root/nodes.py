@@ -291,7 +291,6 @@ class RootNode(AssistantNode):
                 ContextualMaxToolClass.create_tool_class(
                     team=self._team,
                     user=self._user,
-                    tool_call_id="",
                     state=state,
                     config=config,
                     context_manager=self.context_manager,
@@ -414,7 +413,6 @@ class RootNodeTools(AssistantNode):
         tool_class = await ToolClass.create_tool_class(
             team=self._team,
             user=self._user,
-            tool_call_id=tool_call.id,
             state=state,
             config=config,
             context_manager=self.context_manager,

@@ -64,7 +64,6 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         *,
         team: Team,
         user: User,
-        tool_call_id: str,
         state: AssistantState | None = None,
         config: RunnableConfig | None = None,
         context_manager: AssistantContextManager | None = None,
@@ -85,7 +84,6 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         return cls(
             team=team,
             user=user,
-            tool_call_id=tool_call_id,
             state=state,
             config=config,
             args_schema=args,
