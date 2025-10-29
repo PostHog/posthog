@@ -18,7 +18,6 @@ use tracing::{debug, warn};
 ///
 /// # Cache Write Behavior
 /// The function only writes to Redis cache when:
-/// - Team is found in cache but missing organization_id (incomplete data)
 /// - Team is not found in cache (TokenValidationError, which maps from CustomRedisError::NotFound)
 ///
 /// The function skips cache writes for Redis errors like timeouts or unavailability
