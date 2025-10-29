@@ -119,7 +119,7 @@ def CUSTOM_METRICS_TABLE_SIZES_VIEW():
             'database', database,
             'table', table
         ) AS labels,
-        total_bytes AS value,
+        total_bytes::Float64 AS value,
         'Size of a database table on a given node (need a sum for sharded)' AS help,
         'gauge' AS type
     FROM system.tables
