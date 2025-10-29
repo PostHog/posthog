@@ -294,7 +294,7 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                         })()
 
                         return (
-                            <div key={key} className="flex flex-col gap-2">
+                            <div key={key} className="flex flex-col gap-1.5">
                                 {thinkingElement}
                                 {textElement}
                                 {toolCallElements}
