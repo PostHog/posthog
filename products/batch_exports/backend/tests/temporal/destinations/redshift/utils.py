@@ -141,6 +141,10 @@ async def assert_clickhouse_records_in_redshift(
                     else:
                         event[column] = load_result
 
+            if extra_fields:
+                for column in extra_fields:
+                    event.pop(column)
+
             inserted_records.append(event)
 
     if batch_export_model is not None:
@@ -222,9 +226,6 @@ async def assert_clickhouse_records_in_redshift(
 
     inserted_column_names = list(inserted_records[0].keys())
     expected_column_names = list(expected_records[0].keys())
-
-    if extra_fields:
-        expected_column_names = expected_column_names + extra_fields
 
     inserted_column_names.sort()
     expected_column_names.sort()
