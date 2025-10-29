@@ -37,6 +37,8 @@ type APIMockReturnType = {
         typeof apiReal,
         'create' | 'createResponse' | 'get' | 'getResponse' | 'update' | 'delete'
     >]: jest.Mock<ReturnType<(typeof apiReal)[K]>, Parameters<(typeof apiReal)[K]>>
+} & {
+    cohorts: typeof apiReal.cohorts
 }
 
 export const api = apiReal as any as APIMockReturnType

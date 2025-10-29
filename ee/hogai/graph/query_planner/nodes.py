@@ -26,7 +26,7 @@ from posthog.hogql.database.database import Database
 from posthog.models.group_type_mapping import GroupTypeMapping
 
 from ee.hogai.graph.base import AssistantNode
-from ee.hogai.graph.mixins import TaxonomyReasoningNodeMixin
+from ee.hogai.graph.mixins import TaxonomyUpdateDispatcherNodeMixin
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import dereference_schema, format_events_yaml
@@ -56,7 +56,7 @@ from .toolkit import (
 )
 
 
-class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
+class QueryPlannerNode(TaxonomyUpdateDispatcherNodeMixin, AssistantNode):
     @property
     def node_name(self) -> MaxNodeName:
         return AssistantNodeName.QUERY_PLANNER
@@ -100,6 +100,7 @@ class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
         return retrieve_entity_properties_dynamic, retrieve_entity_property_values_dynamic
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        self.dispatch_update_message(state)
         conversation = self._construct_messages(state)
 
         chain = conversation | merge_message_runs() | self._get_model(state)
@@ -159,6 +160,7 @@ class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
             # LangChain sometimes incorrectly handles reasoning items. They fixed it in the new output version.
             # Ref: https://forum.langchain.com/t/langgraph-openai-responses-api-400-error-web-search-call-was-provided-without-its-required-reasoning-item/1740/2
             output_version="responses/v1",
+            disable_streaming=True,
         ).bind_tools(
             [
                 retrieve_event_properties,

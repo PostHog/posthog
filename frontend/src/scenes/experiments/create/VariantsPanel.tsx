@@ -4,6 +4,7 @@ import { match } from 'ts-pattern'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { SelectableCard } from '~/scenes/experiments/components/SelectableCard'
 import type { Experiment, FeatureFlagType, MultivariateFlagVariant } from '~/types'
@@ -25,15 +26,23 @@ interface VariantsPanelProps {
             ensure_experience_continuity?: boolean
         }
     }) => void
+    disabled?: boolean
 }
 
-export function VariantsPanel({ experiment, updateFeatureFlag, onPrevious, onNext }: VariantsPanelProps): JSX.Element {
-    const { mode, linkedFeatureFlag } = useValues(variantsPanelLogic({ experiment }))
-    const { setMode, setLinkedFeatureFlag } = useActions(variantsPanelLogic({ experiment }))
+export function VariantsPanel({
+    experiment,
+    updateFeatureFlag,
+    onPrevious,
+    onNext,
+    disabled = false,
+}: VariantsPanelProps): JSX.Element {
+    const { mode, linkedFeatureFlag } = useValues(variantsPanelLogic({ experiment, disabled }))
+    const { setMode, setLinkedFeatureFlag } = useActions(variantsPanelLogic({ experiment, disabled }))
 
     const { openSelectExistingFeatureFlagModal, closeSelectExistingFeatureFlagModal } = useActions(
         selectExistingFeatureFlagModalLogic
     )
+    const { reportExperimentFeatureFlagSelected } = useActions(eventUsageLogic)
 
     return (
         <>
@@ -45,23 +54,32 @@ export function VariantsPanel({ experiment, updateFeatureFlag, onPrevious, onNex
                     onClick={() => {
                         setMode('create')
                     }}
+                    disabled={disabled}
+                    disabledReason="You cannot change the mode when editing an experiment."
                 />
                 <SelectableCard
                     title="Link existing feature flag"
                     description="Use an existing multivariate feature flag and inherit its variants."
                     selected={mode === 'link'}
                     onClick={() => setMode('link')}
+                    disabled={disabled}
+                    disabledReason="You cannot change the mode when editing an experiment."
                 />
             </div>
 
             {match(mode)
                 .with('create', () => (
-                    <VariantsPanelCreateFeatureFlag experiment={experiment} onChange={updateFeatureFlag} />
+                    <VariantsPanelCreateFeatureFlag
+                        experiment={experiment}
+                        onChange={updateFeatureFlag}
+                        disabled={disabled}
+                    />
                 ))
                 .with('link', () => (
                     <VariantsPanelLinkFeatureFlag
                         linkedFeatureFlag={linkedFeatureFlag}
                         setShowFeatureFlagSelector={openSelectExistingFeatureFlagModal}
+                        disabled={disabled}
                     />
                 ))
                 .exhaustive()}
@@ -80,6 +98,7 @@ export function VariantsPanel({ experiment, updateFeatureFlag, onPrevious, onNex
             <SelectExistingFeatureFlagModal
                 onClose={() => closeSelectExistingFeatureFlagModal()}
                 onSelect={(flag: FeatureFlagType) => {
+                    reportExperimentFeatureFlagSelected(flag.key)
                     setLinkedFeatureFlag(flag)
                     // Update experiment with linked flag's key and variants
                     updateFeatureFlag({

@@ -433,6 +433,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportExperimentArchived: (experiment: Experiment) => ({ experiment }),
         reportExperimentReset: (experiment: Experiment) => ({ experiment }),
         reportExperimentCreated: (experiment: Experiment) => ({ experiment }),
+        reportExperimentUpdated: (experiment: Experiment) => ({ experiment }),
         reportExperimentViewed: (experiment: Experiment, duration: number | null) => ({ experiment, duration }),
         reportExperimentLaunched: (experiment: Experiment, launchDate: Dayjs) => ({ experiment, launchDate }),
         reportExperimentStartDateChange: (experiment: Experiment, newStartDate: string) => ({
@@ -1011,6 +1012,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 name: experiment.name,
                 type: experiment.type,
                 parameters: experiment.parameters,
+            })
+        },
+        reportExperimentUpdated: ({ experiment }) => {
+            posthog.capture('experiment updated', {
+                ...getEventPropertiesForExperiment(experiment),
             })
         },
         reportExperimentViewed: ({ experiment, duration }) => {

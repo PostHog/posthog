@@ -17,7 +17,7 @@ from posthog.api.utils import action
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.file_system.file_system import FileSystem, join_path, split_path
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.file_system.file_system_view_log import annotate_file_system_with_view_logs
+from posthog.models.file_system.file_system_view_log import FileSystemViewLog, annotate_file_system_with_view_logs
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -101,6 +101,11 @@ class FileSystemViewLogSerializer(serializers.Serializer):
     type = serializers.CharField()
     ref = serializers.CharField()
     viewed_at = serializers.DateTimeField(required=False)
+
+
+class FileSystemViewLogListQuerySerializer(serializers.Serializer):
+    type = serializers.CharField(required=False, allow_blank=True)
+    limit = serializers.IntegerField(required=False, min_value=1)
 
 
 class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -498,8 +503,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response({"count": qs.count()}, status=status.HTTP_200_OK)
 
-    @action(methods=["POST"], detail=False, url_path="log_view")
+    @action(methods=["GET", "POST"], detail=False, url_path="log_view")
     def log_view(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if request.method == "GET":
+            return self._list_log_views(request)
+
         if is_impersonated_session(request):
             return Response(
                 {"detail": "Impersonated sessions cannot log file system views."},
@@ -527,6 +535,28 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _list_log_views(self, request: Request) -> Response:
+        if not request.user.is_authenticated:
+            return Response(status=status.HTTP_401_UNAUTHORIZED)
+
+        serializer = FileSystemViewLogListQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+
+        validated = serializer.validated_data
+
+        queryset = FileSystemViewLog.objects.filter(team=self.team, user=request.user)
+        log_type = validated.get("type")
+        if log_type:
+            queryset = queryset.filter(type=log_type)
+
+        queryset = queryset.order_by("-viewed_at")
+
+        limit = validated.get("limit")
+        if limit is not None:
+            queryset = queryset[:limit]
+
+        return Response(FileSystemViewLogSerializer(queryset, many=True).data)
 
     @action(methods=["POST"], detail=False)
     def count_by_path(self, request: Request, *args: Any, **kwargs: Any) -> Response:

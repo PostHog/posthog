@@ -11,10 +11,7 @@ import {
     HumanMessage,
     MultiVisualizationMessage,
     NotebookUpdateMessage,
-    PlanningMessage,
-    ReasoningMessage,
     RootAssistantMessage,
-    TaskExecutionMessage,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import {
@@ -30,10 +27,6 @@ import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } fr
 
 import { SuggestionGroup } from './maxLogic'
 import { MaxActionContext, MaxContextType, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
-
-export function isReasoningMessage(message: RootAssistantMessage | undefined | null): message is ReasoningMessage {
-    return message?.type === AssistantMessageType.Reasoning
-}
 
 export function isVisualizationMessage(
     message: RootAssistantMessage | undefined | null
@@ -69,16 +62,6 @@ export function isNotebookUpdateMessage(
     message: RootAssistantMessage | undefined | null
 ): message is NotebookUpdateMessage {
     return message?.type === AssistantMessageType.Notebook
-}
-
-export function isPlanningMessage(message: RootAssistantMessage | undefined | null): message is PlanningMessage {
-    return message?.type === AssistantMessageType.Planning
-}
-
-export function isTaskExecutionMessage(
-    message: RootAssistantMessage | undefined | null
-): message is TaskExecutionMessage {
-    return message?.type === AssistantMessageType.TaskExecution
 }
 
 export function castAssistantQuery(
