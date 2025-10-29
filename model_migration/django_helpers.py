@@ -163,11 +163,16 @@ def update_foreign_key_references(line: str, model_names: set[str], app_label: s
     Returns:
         Updated line with proper app label prefixes
     """
-    # FIRST: Check if this line is a dictionary definition - don't modify dictionary keys
-    # Dictionary pattern: "Key": value or 'Key': value
-    # This check must run BEFORE any other regex patterns to prevent corruption
+    # FIRST: Check if this line contains patterns we should never modify
+    # Skip dictionary definitions: "Key": value or 'Key': value
     if re.search(r"""["'][A-Z][a-zA-Z]*["']\s*:""", line):
-        return line  # Skip dictionary definitions entirely
+        return line
+    # Skip comparison operators: == "Value" or != "Value"
+    if re.search(r"""[=!]=\s*["'][A-Z][a-zA-Z]*["']""", line):
+        return line
+    # Skip lines with "in" checks: "Value" in something or something in "Value"
+    if re.search(r"""\bin\b.*["'][A-Z][a-zA-Z]*["']|["'][A-Z][a-zA-Z]*["'].*\bin\b""", line):
+        return line
 
     # First handle direct class references: ForeignKey(ClassName, ...)
     direct_pattern = r"\b(ForeignKey|ManyToManyField|OneToOneField)\(([A-Z][a-zA-Z]*)([\),])"
