@@ -2,7 +2,7 @@ import { actions, beforeUnmount, connect, kea, key, listeners, path, props, redu
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import '@posthog/rrweb-types'
+import { EventType } from '@posthog/rrweb-types'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -24,6 +24,51 @@ import {
 import type { snapshotDataLogicType } from './snapshotDataLogicType'
 
 const DEFAULT_V2_POLLING_INTERVAL_MS = 10000
+
+function findSourceForTimestamp(
+    sources: SessionRecordingSnapshotSource[] | null,
+    timestamp: number
+): SessionRecordingSnapshotSource | null {
+    if (!sources) {
+        return null
+    }
+    return (
+        sources.find((source) => {
+            if (!source.start_timestamp || !source.end_timestamp) {
+                return false
+            }
+            const startTime = new Date(source.start_timestamp).getTime()
+            const endTime = new Date(source.end_timestamp).getTime()
+            return startTime <= timestamp && timestamp <= endTime
+        }) || null
+    )
+}
+
+function hasMetaAndFullSnapshotBeforeTimestamp(
+    snapshots: RecordingSnapshot[],
+    timestamp: number,
+    windowId: string
+): boolean {
+    const relevantSnapshots = snapshots.filter(
+        (s) => s.windowId === windowId && s.timestamp <= timestamp
+    )
+    const hasMeta = relevantSnapshots.some((s) => s.type === EventType.Meta)
+    const hasFullSnapshot = relevantSnapshots.some((s) => s.type === EventType.FullSnapshot)
+    return hasMeta && hasFullSnapshot
+}
+
+function findEarlierSourcesForRange(
+    sources: SessionRecordingSnapshotSource[],
+    startSource: SessionRecordingSnapshotSource,
+    endSource: SessionRecordingSnapshotSource
+): SessionRecordingSnapshotSource[] {
+    const startIndex = sources.indexOf(startSource)
+    const endIndex = sources.indexOf(endSource)
+    if (startIndex === -1 || endIndex === -1) {
+        return []
+    }
+    return sources.slice(startIndex, endIndex + 1)
+}
 
 export interface SnapshotLogicProps {
     sessionRecordingId: SessionRecordingId
@@ -50,6 +95,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             sources,
         }),
         loadUntilTimestamp: (targetBufferTimestampMillis: number | null) => ({ targetBufferTimestampMillis }),
+        loadFromTimestamp: (targetStartTimestampMillis: number | null) => ({ targetStartTimestampMillis }),
     }),
     reducers(() => ({
         snapshotsBySourceSuccessCount: [
@@ -62,6 +108,13 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             null as number | null,
             {
                 loadUntilTimestamp: (_, { targetBufferTimestampMillis }) => targetBufferTimestampMillis,
+                loadFromTimestamp: (state, { targetStartTimestampMillis}) => state + targetStartTimestampMillis
+            },
+        ],
+        LoadFromTimestampMillis: [
+            0 as number,
+            {
+                loadFromTimestamp: (_, { targetStartTimestampMillis }) => targetStartTimestampMillis || 0,
             },
         ],
         loadingSources: [
@@ -224,9 +277,16 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             actions.loadNextSnapshotSource()
         },
 
+        loadFromTimestamp: ({ targetStartTimestampMillis }) => {
+            console.log('[loadFromTimestamp] Action called with timestamp:', targetStartTimestampMillis)
+            console.log('[loadFromTimestamp] Available sources:', values.snapshotSources?.length || 0)
+            actions.loadNextSnapshotSource()
+        },
+
         loadNextSnapshotSource: () => {
             // yes this is ugly duplication, but we're going to deprecate v1 and I want it to be clear which is which
             if (values.snapshotSources?.some((s) => s.source === SnapshotSourceType.blob_v2)) {
+                console.log('[Forward loading] Filtering sources, minimumLoadFromTimestamp:', values.LoadFromTimestampMillis, 'targetBuffer:', values.targetTimestampToBufferMillis)
                 const nextSourcesToLoad = values.snapshotSources.filter((s) => {
                     if (s.source === SnapshotSourceType.file) {
                         return false
@@ -241,9 +301,11 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         return sourceStartTime <= values.targetTimestampToBufferMillis
                     }
 
+                    console.log('[Forward loading] Including source', s.blob_key, '(no timestamp filter)')
                     return true
                 })
 
+                console.log('[Forward loading] Sources to load:', nextSourcesToLoad.map(s => s.blob_key))
                 // Load up to 10 sources at once
                 if (nextSourcesToLoad.length > 0) {
                     return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 10))
