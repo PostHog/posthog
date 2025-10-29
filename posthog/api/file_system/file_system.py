@@ -108,6 +108,28 @@ class FileSystemViewLogListQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(required=False, min_value=1)
 
 
+def tokenize_search(search: str) -> list[str]:
+    """Tokenize the search query while tolerating unmatched single quotes."""
+
+    def _build_lexer(allow_single_quotes: bool) -> shlex.shlex:
+        lexer = shlex.shlex(search, posix=True)
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        if not allow_single_quotes:
+            lexer.quotes = '"'
+            if "'" not in lexer.wordchars:
+                lexer.wordchars += "'"
+        return lexer
+
+    try:
+        return list(_build_lexer(allow_single_quotes=True))
+    except ValueError:
+        try:
+            return list(_build_lexer(allow_single_quotes=False))
+        except ValueError:
+            return search.split()
+
+
 class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "file_system"
     queryset = FileSystem.objects.select_related("created_by")
@@ -134,7 +156,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         -------
         search='name:report type:file -author:"Paul D" draft'
         """
-        tokens: list[str] = shlex.split(search)
+        tokens = tokenize_search(search)
         if not tokens:
             return queryset
 
