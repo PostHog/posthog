@@ -98,6 +98,7 @@ export const RecordingsUniversalFiltersEmbedButton = ({
     const { setIsFiltersExpanded } = useActions(playlistLogic)
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
     const { setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <>
@@ -136,7 +137,7 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                     </LemonButton>
                 </>
             </MaxTool>
-            <CurrentFilterIndicator />
+            {featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_REDESIGN] && <CurrentFilterIndicator />}
             <div className="flex gap-2 mt-2 justify-between">
                 <HideRecordingsMenu />
                 <SettingsMenu
