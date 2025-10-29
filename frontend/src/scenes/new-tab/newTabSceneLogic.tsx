@@ -84,7 +84,7 @@ export interface NewTabCategoryItem {
 const PAGINATION_LIMIT = 10
 const GROUP_SEARCH_LIMIT = 5
 
-type NewTabSearchDataset = 'recents' | 'persons' | 'eventDefinitions' | 'propertyDefinitions'
+export type NewTabSearchDataset = 'recents' | 'persons' | 'eventDefinitions' | 'propertyDefinitions'
 
 function getIconForFileSystemItem(fs: FileSystemImport): JSX.Element {
     // If the item has a direct icon property, use it with color wrapper
