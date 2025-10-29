@@ -279,10 +279,10 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_MAX_BATCH_AGE_MS: 10 * 1000, // 10 seconds
         SESSION_RECORDING_V2_S3_BUCKET: 'posthog',
         SESSION_RECORDING_V2_S3_PREFIX: 'session_recordings',
-        SESSION_RECORDING_V2_S3_ENDPOINT: 'http://localhost:19000',
+        SESSION_RECORDING_V2_S3_ENDPOINT: 'http://localhost:8333',
         SESSION_RECORDING_V2_S3_REGION: 'us-east-1',
-        SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'object_storage_root_user',
-        SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'object_storage_root_password',
+        SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any',
+        SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any',
         SESSION_RECORDING_V2_S3_TIMEOUT_MS: 30000, // 30 seconds
         SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: 'clickhouse_session_replay_events',
         SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: 'log_entries',
