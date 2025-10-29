@@ -1321,6 +1321,11 @@ class ExperimentSignificanceCode(StrEnum):
     HIGH_P_VALUE = "high_p_value"
 
 
+class ExperimentStatsMethod(StrEnum):
+    BAYESIAN = "bayesian"
+    FREQUENTIST = "frequentist"
+
+
 class ExperimentStatsValidationFailure(StrEnum):
     NOT_ENOUGH_EXPOSURES = "not-enough-exposures"
     BASELINE_MEAN_IS_ZERO = "baseline-mean-is-zero"
@@ -1992,6 +1997,26 @@ class MaxEventContext(BaseModel):
     id: str
     name: Optional[str] = None
     type: Literal["event"] = "event"
+
+
+class MaxExperimentVariantResultBayesian(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    chance_to_win: Optional[float] = None
+    credible_interval: Optional[list[float]] = None
+    key: str
+    significant: bool
+
+
+class MaxExperimentVariantResultFrequentist(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    confidence_interval: Optional[list[float]] = None
+    key: str
+    p_value: Optional[float] = None
+    significant: bool
 
 
 class MaxProductInfo(BaseModel):
@@ -4392,6 +4417,26 @@ class MaxBillingContextBillingPeriod(BaseModel):
     current_period_end: str
     current_period_start: str
     interval: MaxBillingContextBillingPeriodInterval
+
+
+class MaxExperimentMetricResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str
+    variant_results: list[Union[MaxExperimentVariantResultBayesian, MaxExperimentVariantResultFrequentist]]
+
+
+class MaxExperimentSummaryContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: Optional[str] = None
+    experiment_id: Union[float, str]
+    experiment_name: str
+    metrics_results: list[MaxExperimentMetricResult]
+    stats_method: ExperimentStatsMethod
+    variants: list[str]
 
 
 class NewExperimentQueryResponse(BaseModel):

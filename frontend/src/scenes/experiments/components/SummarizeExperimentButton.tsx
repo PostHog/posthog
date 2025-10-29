@@ -8,79 +8,55 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 
-import {
-    ExperimentMaxBayesianContext,
-    ExperimentMaxFrequentistContext,
-    ExperimentVariantResultBayesian,
-    ExperimentVariantResultFrequentist,
-} from '~/queries/schema/schema-general'
-import { ProductKey } from '~/types'
+import { MaxExperimentSummaryContext } from '~/queries/schema/schema-general'
+import { ExperimentStatsMethod, ProductKey } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 
 function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
     const { experiment, primaryMetricsResults } = useValues(experimentLogic)
 
-    const maxToolContext = useMemo(() => {
-        const statisticalMethod = experiment.stats_config?.method || 'bayesian'
-        const isFrequentist = statisticalMethod === 'frequentist'
+    const maxToolContext = useMemo((): MaxExperimentSummaryContext => {
+        const statsMethod = experiment.stats_config?.method || 'bayesian'
+        const variantKeys = experiment.parameters?.feature_flag_variants?.map((v: any) => v.key) || []
 
-        const formattedResults = primaryMetricsResults
+        const metricsResults = primaryMetricsResults
+            .filter((result) => result?.variant_results)
             .map((result, index) => {
-                if (!result) {
-                    return null
-                }
+                const metricName = experiment.metrics?.[index]?.name || `Metric ${index + 1}`
 
-                const metric = experiment.metrics[index]
-                const metricName = metric?.name || `Metric ${index + 1}`
-
-                let variants: (ExperimentMaxBayesianContext | ExperimentMaxFrequentistContext)[] = []
-
-                if (result.variant_results) {
-                    variants = result.variant_results.map(
-                        (variant: ExperimentVariantResultBayesian | ExperimentVariantResultFrequentist) => {
-                            const variantKey = variant.key
-
-                            if (isFrequentist) {
-                                const frequentistVariant = variant as ExperimentVariantResultFrequentist
-                                return {
-                                    key: variantKey,
-                                    p_value: frequentistVariant.p_value || 0,
-                                    confidence_interval: frequentistVariant.confidence_interval || [0, 0],
-                                    significant: frequentistVariant.significant || false,
-                                }
-                            }
-                            const bayesianVariant = variant as ExperimentVariantResultBayesian
+                const variants =
+                    result.variant_results?.map((variant: any) => {
+                        if (statsMethod === 'bayesian') {
                             return {
-                                key: variantKey,
-                                chance_to_win: bayesianVariant.chance_to_win || 0,
-                                credible_interval: bayesianVariant.credible_interval || [0, 0],
-                                significant: bayesianVariant.significant || false,
+                                key: variant.key,
+                                chance_to_win: variant.chance_to_win || null,
+                                credible_interval: variant.credible_interval || null,
+                                significant: variant.significant || false,
                             }
                         }
-                    )
-                }
+                        return {
+                            key: variant.key,
+                            p_value: variant.p_value || null,
+                            confidence_interval: variant.confidence_interval || null,
+                            significant: variant.significant || false,
+                        }
+                    }) || []
 
                 return {
-                    metric_name: metricName,
-                    variants,
+                    name: metricName,
+                    variant_results: variants,
                 }
             })
-            .filter(Boolean)
 
-        const contextData = {
+        return {
             experiment_id: experiment.id,
-            experiment_name: experiment.name,
-            hypothesis: experiment.description,
-            description: experiment.description,
-            variants: experiment.parameters?.feature_flag_variants || [],
-            results: formattedResults,
-            conclusion: experiment.conclusion,
-            conclusion_comment: experiment.conclusion_comment,
-            statistical_method: statisticalMethod,
+            experiment_name: experiment.name || 'Unnamed experiment',
+            description: experiment.description || null,
+            variants: variantKeys,
+            metrics_results: metricsResults,
+            stats_method: statsMethod as ExperimentStatsMethod,
         }
-
-        return contextData
     }, [experiment, primaryMetricsResults])
 
     const shouldShowMaxSummaryTool = useMemo(() => {

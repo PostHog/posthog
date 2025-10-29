@@ -2,11 +2,11 @@
 MaxTool for AI-powered experiment summary.
 """
 
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel, Field
 
-from posthog.schema import ExperimentMaxBayesianContext, ExperimentMaxFrequentistContext
+from posthog.schema import MaxExperimentSummaryContext
 
 from posthog.exceptions_capture import capture_exception
 
@@ -14,6 +14,8 @@ from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
 
 from .prompts import EXPERIMENT_SUMMARY_BAYESIAN_PROMPT, EXPERIMENT_SUMMARY_FREQUENTIST_PROMPT
+
+MAX_METRICS_TO_SUMMARIZE = 3
 
 
 class ExperimentSummaryArgs(BaseModel):
@@ -29,90 +31,67 @@ class ExperimentSummaryOutput(BaseModel):
     key_metrics: list[str] = Field(description="Summary of key metric performance", max_length=3)
 
 
+EXPERIMENT_SUMMARY_TOOL_DESCRIPTION = """
+Use this tool to analyze experiment results and generate an executive summary with key insights and recommendations.
+The tool processes experiment data including metrics, statistical significance, and variant performance to provide actionable insights.
+It works with both Bayesian and Frequentist statistical methods and automatically adapts to the experiment's configuration.
+
+# Examples of when to use the experiment_results_summary tool
+
+<example>
+User: Can you summarize the results of my experiment?
+Assistant: I'll analyze your experiment results and provide a summary with key insights.
+*Uses experiment_results_summary tool*
+Assistant: Based on the analysis of your experiment results...
+
+<reasoning>
+The assistant used the experiment_results_summary tool because:
+1. The user is asking for a summary of experiment results
+2. The tool can analyze the statistical data and provide actionable insights
+</reasoning>
+</example>
+
+<example>
+User: What are the key takeaways from this A/B test?
+Assistant: Let me analyze the experiment results to identify the key takeaways.
+*Uses experiment_results_summary tool*
+Assistant: The key takeaways from your A/B test are...
+
+<reasoning>
+The assistant used the experiment_results_summary tool because:
+1. The user wants to understand the main findings from their experiment
+2. The tool can extract and summarize the most important metrics and outcomes
+</reasoning>
+</example>
+""".strip()
+
+
 class ExperimentSummaryTool(MaxTool):
     name: str = "experiment_results_summary"
-    description: str = "Generate an executive summary of experiment results with key insights and recommendations"
-    thinking_message: str = "Analyzing your experiment results"
-    context_prompt_template: str = (
-        "You have access to an experiment summary tool that can analyze experiment results and generate executive summaries. "
-        "When users ask about summarizing experiments, understanding experiment outcomes, or getting recommendations from experiment results, "
-        "use the experiment_results_summary tool. Experiment data includes: {experiment_name}, {hypothesis}, {results}"
-    )
+    description: str = EXPERIMENT_SUMMARY_TOOL_DESCRIPTION
+    context_prompt_template: str = "Analyzes experiment results and generates executive summaries with key insights."
 
     args_schema: type[BaseModel] = ExperimentSummaryArgs
 
-    def _extract_experiment_results(self) -> tuple[dict[str, Any], str]:
-        if not hasattr(self, "context") or not self.context:
-            # Return empty data - will be handled by caller
-            return {}, "bayesian"
-
-        experiment_data = {
-            "name": self.context.get("experiment_name", "Unknown Experiment"),
-            "hypothesis": self.context.get("hypothesis"),
-            "description": self.context.get("description"),
-            "variants": self.context.get("variants", []),
-            "conclusion": self.context.get("conclusion"),
-            "conclusion_comment": self.context.get("conclusion_comment"),
-        }
-
-        statistical_method = self.context.get("statistical_method", "bayesian")
-        raw_results = self.context.get("results", [])
-        validated_results = []
-
-        for result in raw_results:
-            if not result:
-                continue
-
-            metric_result = {"metric_name": result.get("metric_name", "Unknown metric"), "variants": []}
-
-            raw_variants = result.get("variants", [])
-            for variant in raw_variants:
-                try:
-                    if statistical_method == "bayesian":
-                        validated_variant = ExperimentMaxBayesianContext.model_validate(variant)
-                        metric_result["variants"].append(validated_variant.model_dump())
-                    else:
-                        validated_variant_freq = ExperimentMaxFrequentistContext.model_validate(variant)
-                        metric_result["variants"].append(validated_variant_freq.model_dump())
-                except Exception as e:
-                    capture_exception(
-                        e,
-                        {
-                            "team_id": self._team.id,
-                            "user_id": self._user.id,
-                            "validation_error": str(e),
-                            "variant_data": variant,
-                            "statistical_method": statistical_method,
-                        },
-                    )
-                    continue
-
-            if metric_result["variants"]:
-                validated_results.append(metric_result)
-
-        experiment_data["results"] = validated_results
-        return experiment_data, statistical_method
-
-    async def _analyze_experiment(
-        self, experiment_data: dict[str, Any], statistical_method: str
-    ) -> ExperimentSummaryOutput:
+    async def _analyze_experiment(self, context: MaxExperimentSummaryContext) -> ExperimentSummaryOutput:
+        """Analyze experiment and generate summary."""
         try:
-            method: Literal["bayesian", "frequentist"] = (
-                statistical_method if statistical_method in ["bayesian", "frequentist"] else "bayesian"
+            if context.stats_method not in ("bayesian", "frequentist"):
+                raise ValueError(f"Unsupported statistical method: {context.stats_method}")
+
+            prompt_template = (
+                EXPERIMENT_SUMMARY_BAYESIAN_PROMPT
+                if context.stats_method == "bayesian"
+                else EXPERIMENT_SUMMARY_FREQUENTIST_PROMPT
             )
 
-            if method == "frequentist":
-                prompt_template = EXPERIMENT_SUMMARY_FREQUENTIST_PROMPT
-            else:
-                prompt_template = EXPERIMENT_SUMMARY_BAYESIAN_PROMPT
-
-            formatted_data = self._format_experiment_for_llm(experiment_data, method)
+            formatted_data = self._format_experiment_for_llm(context)
 
             llm = MaxChatOpenAI(
                 user=self._user,
                 team=self._team,
                 model="gpt-4.1",
-                temperature=0.1,  # Low temperature for consistent analysis
+                temperature=0.1,
             ).with_structured_output(ExperimentSummaryOutput)
 
             formatted_prompt = prompt_template.replace("{{{experiment_data}}}", formatted_data)
@@ -123,73 +102,56 @@ class ExperimentSummaryTool(MaxTool):
             return analysis_result
 
         except Exception as e:
-            capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
-
+            capture_exception(
+                e, {"team_id": self._team.id, "user_id": self._user.id, "experiment_id": context.experiment_id}
+            )
             return ExperimentSummaryOutput(key_metrics=[f"Analysis failed: {str(e)}"])
 
-    def _format_experiment_for_llm(
-        self, experiment_data: dict[str, Any], method: Literal["bayesian", "frequentist"]
-    ) -> str:
+    def _format_experiment_for_llm(self, context: MaxExperimentSummaryContext) -> str:
+        """Format experiment data for LLM consumption."""
         lines = []
 
-        lines.append(f"Statistical method: {method.title()}")
-        lines.append(f"Experiment: {experiment_data.get('name', 'Unknown')}")
+        lines.append(f"Statistical method: {context.stats_method.title()}")
+        lines.append(f"Experiment: {context.experiment_name}")
 
-        if experiment_data.get("hypothesis"):
-            lines.append(f"Hypothesis: {experiment_data.get('hypothesis')}")
+        if context.description:
+            lines.append(f"Hypothesis: {context.description}")
 
-        if experiment_data.get("description"):
-            lines.append(f"Description: {experiment_data.get('description')}")
+        if context.variants:
+            lines.append(f"\nVariants: {', '.join(context.variants)}")
 
-        variants = experiment_data.get("variants", [])
-        if variants:
-            lines.append(f"\nVariants: {', '.join(v.get('key', '') for v in variants)}")
+        if not context.metrics_results:
+            return "\n".join(lines)
 
-        results = experiment_data.get("results", [])
-        if results:
-            lines.append("\nResults:")
-            for result in results[:3]:  # Limit to first 3 metrics
-                metric_name = result.get("metric_name", "Unknown metric")
-                lines.append(f"\nMetric: {metric_name}")
+        lines.append("\nResults:")
 
-                if result.get("variants"):
-                    for variant in result["variants"]:
-                        key = variant.get("key", "unknown")
-                        lines.append(f"  {key}:")
+        for metric in context.metrics_results[:MAX_METRICS_TO_SUMMARIZE]:
+            lines.append(f"\nMetric: {metric.name}")
 
-                        if method == "bayesian":
-                            chance_to_win = variant.get("chance_to_win")
-                            credible_interval = variant.get("credible_interval", [])
-                            significant = variant.get("significant", False)
+            if not metric.variant_results:
+                continue
 
-                            if chance_to_win is not None:
-                                lines.append(f"    Chance to win: {chance_to_win:.1%}")
+            for variant in metric.variant_results:
+                lines.append(f"  {variant.key}:")
 
-                            if credible_interval:
-                                ci_low, ci_high = credible_interval[:2]
-                                lines.append(f"    95% credible interval: {ci_low:.1%} - {ci_high:.1%}")
+                if context.stats_method == "bayesian":
+                    if hasattr(variant, "chance_to_win") and variant.chance_to_win is not None:
+                        lines.append(f"    Chance to win: {variant.chance_to_win:.1%}")
 
-                            lines.append(f"    Significant: {'Yes' if significant else 'No'}")
+                    if hasattr(variant, "credible_interval") and variant.credible_interval:
+                        ci_low, ci_high = variant.credible_interval[:2]
+                        lines.append(f"    95% credible interval: {ci_low:.1%} - {ci_high:.1%}")
 
-                        else:
-                            p_value = variant.get("p_value")
-                            confidence_interval = variant.get("confidence_interval", [])
-                            significant = variant.get("significant", False)
+                    lines.append(f"    Significant: {'Yes' if variant.significant else 'No'}")
+                else:
+                    if hasattr(variant, "p_value") and variant.p_value is not None:
+                        lines.append(f"    P-value: {variant.p_value:.4f}")
 
-                            if p_value is not None:
-                                lines.append(f"    P-value: {p_value:.4f}")
+                    if hasattr(variant, "confidence_interval") and variant.confidence_interval:
+                        ci_low, ci_high = variant.confidence_interval[:2]
+                        lines.append(f"    95% confidence interval: {ci_low:.1%} - {ci_high:.1%}")
 
-                            if confidence_interval:
-                                ci_low, ci_high = confidence_interval[:2]
-                                lines.append(f"    95% confidence interval: {ci_low:.1%} - {ci_high:.1%}")
-
-                            lines.append(f"    Significant: {'Yes' if significant else 'No'}")
-
-        if experiment_data.get("conclusion"):
-            lines.append(f"\nConclusion: {experiment_data['conclusion']}")
-
-        if experiment_data.get("conclusion_comment"):
-            lines.append(f"Comment: {experiment_data['conclusion_comment']}")
+                    lines.append(f"    Significant: {'Yes' if variant.significant else 'No'}")
 
         return "\n".join(lines)
 
@@ -207,29 +169,42 @@ class ExperimentSummaryTool(MaxTool):
 
     async def _arun_impl(self) -> tuple[str, dict[str, Any]]:
         try:
-            experiment_id = self.context.get("experiment_id")
-            if not experiment_id:
-                return "❌ No experiment data provided", {
-                    "error": "no_experiment_data",
-                    "details": "Experiment information not found in context",
+            try:
+                validated_context = MaxExperimentSummaryContext(**self.context)
+            except Exception as e:
+                error_details = str(e)
+                error_context = {
+                    "error": "invalid_context",
+                    "details": error_details,
                 }
 
-            experiment_data, statistical_method = self._extract_experiment_results()
+                if hasattr(e, "__cause__") and e.__cause__:
+                    error_context["validation_cause"] = str(e.__cause__)
 
-            if not experiment_data.get("results"):
-                return "❌ No valid experiment results to analyze", {
-                    "error": "no_valid_results",
-                    "details": "No properly formatted experiment results found in context",
+                capture_exception(
+                    e,
+                    {
+                        "team_id": self._team.id,
+                        "user_id": self._user.id,
+                        "context_keys": list(self.context.keys()) if isinstance(self.context, dict) else None,
+                        "experiment_id": self.context.get("experiment_id") if isinstance(self.context, dict) else None,
+                    },
+                )
+
+                return f"❌ Invalid experiment context: {error_details}", error_context
+
+            if not validated_context.metrics_results:
+                return "❌ No experiment results to analyze", {
+                    "error": "no_results",
+                    "details": "No metrics results provided in context",
                 }
 
-            summary_result = await self._analyze_experiment(experiment_data, statistical_method)
-
-            experiment_name = experiment_data.get("name", "Unknown Experiment")
-            user_message = self._format_summary_for_user(summary_result, experiment_name)
+            summary_result = await self._analyze_experiment(validated_context)
+            user_message = self._format_summary_for_user(summary_result, validated_context.experiment_name)
 
             return user_message, {
-                "experiment_id": experiment_id,
-                "experiment_name": experiment_name,
+                "experiment_id": validated_context.experiment_id,
+                "experiment_name": validated_context.experiment_name,
                 "summary": summary_result.model_dump(),
             }
 
