@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
@@ -47,7 +47,12 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
     ),
     key((props) => `${props.distinctId}`),
     connect(() => ({
-        values: [projectLogic, ['currentProjectId'], featureFlagsLogic, ['featureFlags', 'pagination']],
+        values: [
+            projectLogic,
+            ['currentProjectId'],
+            featureFlagsLogic,
+            ['featureFlags', 'pagination', 'featureFlagsLoading'],
+        ],
         actions: [featureFlagsLogic, ['setFeatureFlagsFilters', 'loadFeatureFlagsSuccess']],
     })),
     actions({
@@ -93,7 +98,13 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
             },
         ],
     }),
-    selectors(({ props }) => ({
+    selectors(({ props, selectors }) => ({
+        isLoading: [
+            () => [selectors.relatedFeatureFlagsLoading, featureFlagsLogic.selectors.featureFlagsLoading],
+            (relatedLoading: boolean, featureFlagsLoading: boolean): boolean => {
+                return relatedLoading || featureFlagsLoading
+            },
+        ],
         mappedRelatedFeatureFlags: [
             (selectors) => [selectors.relatedFeatureFlags, selectors.featureFlags],
             (relatedFlags, featureFlags): RelatedFeatureFlag[] => {
@@ -178,9 +189,6 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
         loadFeatureFlagsSuccess: () => {
             actions.loadRelatedFeatureFlags()
         },
-    })),
-    events(({ actions }) => ({
-        afterMount: actions.loadRelatedFeatureFlags,
     })),
     urlToAction(({ actions }) => ({
         [urls.personByUUID('*', false)]: async (_, searchParams) => {
