@@ -23,6 +23,7 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
     actions({
         setShowPopover: (visible: boolean) => ({ visible }),
         setSearchQuery: (query: string) => ({ query }),
+        setCreatedBy: (userUuid: string | null) => ({ userUuid }),
         loadNotebooksContainingResource: true,
         loadAllNotebooks: true,
     }),
@@ -31,6 +32,12 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
             '',
             {
                 setSearchQuery: (_, { query }) => query,
+            },
+        ],
+        createdBy: [
+            null as string | null,
+            {
+                setCreatedBy: (_, { userUuid }) => userUuid,
             },
         ],
         showPopover: [
@@ -46,6 +53,12 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
             actions.loadAllNotebooks()
             actions.loadNotebooksContainingResource()
         },
+        setCreatedBy: async (_, breakpoint) => {
+            // Debouncing similarly as the search query
+            await breakpoint(300)
+            actions.loadAllNotebooks()
+            actions.loadNotebooksContainingResource()
+        },
     })),
     loaders(({ props, values }) => ({
         allNotebooks: [
@@ -53,7 +66,12 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
             {
                 loadAllNotebooks: async (_, breakpoint) => {
                     await breakpoint(100)
-                    const response = await api.notebooks.list({ search: values.searchQuery || undefined })
+                    const response = await api.notebooks.list({
+                        search: values.searchQuery || undefined,
+                        created_by: values.createdBy || undefined,
+                        order: '-last_modified_at',
+                        limit: 50,
+                    })
                     // TODO for simplicity we'll assume the results will fit into one page
                     return response.results
                 },
@@ -83,6 +101,9 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
                                   ]
                                 : undefined,
                         search: values.searchQuery || undefined,
+                        created_by: values.createdBy || undefined,
+                        order: '-last_modified_at',
+                        limit: 50,
                     })
                     // TODO for simplicity we'll assume the results will fit into one page
                     return response.results

@@ -2,9 +2,10 @@ import { BuiltLogic, useActions, useValues } from 'kea'
 import { ReactChild, ReactElement, useEffect } from 'react'
 
 import { IconNotebook, IconPlus } from '@posthog/icons'
-import { LemonDivider, LemonDropdown, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonDivider, LemonDropdown, LemonTag, ProfilePicture } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
@@ -42,6 +43,37 @@ export type NotebookSelectButtonProps = NotebookSelectProps &
         children?: ReactChild
     }
 
+// Cleaning up Session Summaries notebooks to reduce repeated noise in the picker.
+// If we match:
+//  - show a small tag "Session summaries report" in the meta line
+//  - strip that leading segment from the visible title
+export const SESSION_SUMMARY_PREFIX = 'Session summaries report'
+export const SESSION_PREFIX_REGEX = /^Session summaries report\s*[-–—:]*\s*/i
+export const LEADING_SEPARATORS_REGEX = /^[\s]*[-–—:•·]+\s*/
+export const TRAILING_DATE_REGEX = /\s*\(\d{4}-\d{2}-\d{2}\)\s*$/
+
+export function isSessionSummaryTitle(title?: string): boolean {
+    if (!title) {
+        return false
+    }
+    return SESSION_PREFIX_REGEX.test(title.trim())
+}
+export function stripSessionSummaryPrefix(title?: string): string | null {
+    if (title == null) {
+        return null
+    }
+    if (!isSessionSummaryTitle(title)) {
+        return title
+    }
+    // Remove the prefix and any immediately following separators
+    let cleaned = title.replace(SESSION_PREFIX_REGEX, '')
+    // Extra safety: if there are still leading separators, drop them
+    cleaned = cleaned.replace(LEADING_SEPARATORS_REGEX, '')
+    // Drop trailing date in parentheses e.g. (2025-10-28)
+    cleaned = cleaned.replace(TRAILING_DATE_REGEX, '')
+    return cleaned.trim()
+}
+
 function NotebooksChoiceList(props: {
     notebooks: NotebookListItemType[]
     emptyState: string
@@ -53,6 +85,10 @@ function NotebooksChoiceList(props: {
                 <div className="px-2 py-1">{props.emptyState}</div>
             ) : (
                 props.notebooks.map((notebook, i) => {
+                    const isSession = isSessionSummaryTitle(notebook.title || undefined)
+                    const renderedTitle = isSession
+                        ? stripSessionSummaryPrefix(notebook.title || undefined) || notebook.title
+                        : notebook.title
                     return (
                         <LemonButton
                             key={i}
@@ -68,7 +104,18 @@ function NotebooksChoiceList(props: {
                             fullWidth
                             onClick={() => props.onClick(notebook.short_id)}
                         >
-                            <span className="truncate">{notebook.title || `Untitled (${notebook.short_id})`}</span>
+                            <div className="flex flex-col text-left w-full">
+                                <span className="truncate">{renderedTitle || `Untitled (${notebook.short_id})`}</span>
+                                <span className="text-muted-alt text-xs">
+                                    {notebook.created_by?.first_name || notebook.created_by?.email || 'Unknown'}
+                                    {` · ${dayjs(notebook.last_modified_at ?? notebook.created_at).fromNow()}`}
+                                    {isSession ? (
+                                        <LemonTag size="small" type="muted" className="ml-2 inline-block align-middle">
+                                            {SESSION_SUMMARY_PREFIX}
+                                        </LemonTag>
+                                    ) : null}
+                                </span>
+                            </div>
                         </LemonButton>
                     )
                 })
@@ -82,9 +129,10 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
 
     const { resource, newNotebookTitle } = props
     const notebookResource = resource && typeof resource !== 'boolean' ? resource : null
-    const { notebooksLoading, notebooksContainingResource, notebooksNotContainingResource, searchQuery } =
-        useValues(logic)
-    const { setShowPopover, setSearchQuery, loadNotebooksContainingResource, loadAllNotebooks } = useActions(logic)
+    const { notebooksLoading, notebooksContainingResource, notebooksNotContainingResource, searchQuery, createdBy } =
+        useValues(logic as any)
+    const { setShowPopover, setSearchQuery, setCreatedBy, loadNotebooksContainingResource, loadAllNotebooks } =
+        useActions(logic as any)
     const { createNotebook } = useActions(notebooksModel)
 
     const openAndAddToNotebook = (notebookShortId: string, exists: boolean): void => {
@@ -124,13 +172,22 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
     return (
         <div className="flex flex-col flex-1 h-full overflow-hidden">
             <div className="deprecated-space-y-2 flex-0">
-                <LemonInput
-                    type="search"
-                    placeholder="Search notebooks..."
-                    value={searchQuery}
-                    onChange={(s) => setSearchQuery(s)}
-                    fullWidth
-                />
+                <div className="flex gap-2 items-center">
+                    <LemonInput
+                        type="search"
+                        placeholder="Search notebooks..."
+                        value={searchQuery}
+                        onChange={(s) => setSearchQuery(s)}
+                        fullWidth
+                    />
+                    <div className="min-w-48">
+                        <MemberSelect
+                            value={createdBy}
+                            onChange={(user) => setCreatedBy(user?.uuid ?? null)}
+                            size="small"
+                        />
+                    </div>
+                </div>
                 <AccessControlAction
                     resourceType={AccessControlResourceType.Notebook}
                     minAccessLevel={AccessControlLevel.Editor}
