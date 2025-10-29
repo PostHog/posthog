@@ -290,15 +290,37 @@ class RedshiftClient(PostgreSQLClient):
         MERGE INTO {final_table}
         USING (SELECT {select_stage_table_fields} FROM {stage_table}) AS stage
         ON {merge_condition}
-        {remove_duplicates}
         """
         ).format(
             final_table=final_table_identifier,
             select_stage_table_fields=select_stage_table_fields,
             stage_table=stage_table_identifier,
             merge_condition=merge_condition,
-            remove_duplicates=sql.SQL("REMOVE DUPLICATES") if remove_duplicates else sql.SQL(""),
         )
+        if remove_duplicates:
+            merge_query = merge_query + sql.SQL("REMOVE DUPLICATES")
+        else:
+            update_values = sql.SQL(",").join(
+                sql.SQL("{final_field} = {stage_field}").format(
+                    final_field=sql.Identifier(field[0]),
+                    stage_field=sql.Identifier("stage", field[0]),
+                )
+                for field in final_table_fields
+            )
+
+            insert_values = sql.SQL(",").join(
+                sql.SQL("{stage_field}").format(
+                    stage_field=sql.Identifier("stage", field[0]),
+                )
+                for field in final_table_fields
+            )
+
+            merge_query = merge_query + sql.SQL(
+                """\
+                WHEN MATCHED THEN UPDATE SET {update_values}
+                WHEN NOT MATCHED THEN INSERT VALUES ({insert_values})
+                """.format(update_values=update_values, insert_values=insert_values)
+            )
 
         async with self.connection.transaction():
             async with self.connection.cursor() as cursor:
@@ -1044,7 +1066,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
             # filter out fields that are not in the destination table
             try:
                 columns = await redshift_client.aget_table_columns(inputs.table.schema_name, inputs.table.name)
-                if len(columns) != len(table_schemas.table_schema):
+                if len(columns) > len(table_schemas.table_schema):
                     # MERGE cannot remove duplicates if table columns don't match.
                     remove_duplicates = False
                     external_logger.warning(
@@ -1389,7 +1411,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             # filter out fields that are not in the destination table
             try:
                 columns = await redshift_client.aget_table_columns(inputs.table.schema_name, inputs.table.name)
-                if len(columns) != len(table_schemas.table_schema):
+                if len(columns) > len(table_schemas.table_schema):
                     # MERGE cannot remove duplicates if table columns don't match.
                     remove_duplicates = False
                     external_logger.warning(
