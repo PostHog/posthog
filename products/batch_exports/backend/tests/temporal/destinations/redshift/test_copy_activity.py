@@ -595,7 +595,7 @@ async def test_copy_into_redshift_activity_inserts_data_with_extra_columns(
     bucket_name,
     bucket_region,
     exclude_events,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: BatchExportModel,
     generate_test_data,
     data_interval_start,
     data_interval_end,

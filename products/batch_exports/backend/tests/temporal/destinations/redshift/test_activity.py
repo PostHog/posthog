@@ -558,7 +558,7 @@ async def test_insert_into_redshift_activity_inserts_data_with_extra_columns(
     psycopg_connection,
     redshift_config,
     exclude_events,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: BatchExportModel,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -571,9 +571,16 @@ async def test_insert_into_redshift_activity_inserts_data_with_extra_columns(
     Redshift's "MERGE" command can run in a simplified mode which performs better and
     cleans up duplicates, but this requires a matching schema. We should assert we don't
     fail when we can't use this mode.
+
+    This test only runs for `use_internal_stage=True` as we don't merge the events model
+    with the old activity. Once we clean up the old activity, this disclaimer, together
+    with the `use_internal_stage` parameter, can be deleted.
     """
     if properties_data_type == "super" and MISSING_REQUIRED_ENV_VARS:
         pytest.skip("SUPER type is only available in Redshift")
+
+    if not use_internal_stage:
+        pytest.skip("MERGE of events only happens in internal stage activity")
 
     batch_export_model = model
     table_name = f"test_insert_activity_extra_column_table__{ateam.pk}"
