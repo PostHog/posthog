@@ -128,6 +128,40 @@ class RemoteConfigThrottle(BurstRateThrottle):
         return super().allow_request(request, view)
 
 
+class EvaluationTagsChecker:
+    """Helper class to check if evaluation tags feature is enabled.
+
+    This avoids repeated feature flag checks during serialization by computing
+    the result once per request.
+    """
+
+    @staticmethod
+    def is_enabled(request) -> bool:
+        """Check if evaluation tags feature is enabled for the request user."""
+        if not hasattr(request, "user") or request.user.is_anonymous:
+            return False
+
+        # Check TAGGING license
+        try:
+            if not request.user.organization.is_feature_available(AvailableFeature.TAGGING):
+                return False
+        except Exception:
+            return False
+
+        # Check FLAG_EVALUATION_TAGS feature flag
+        try:
+            return posthoganalytics.feature_enabled(
+                "flag-evaluation-tags",
+                request.user.distinct_id,
+                groups={"organization": str(request.user.organization.id)},
+                group_properties={"organization": {"id": str(request.user.organization.id)}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        except Exception:
+            return False
+
+
 class EvaluationTagSerializerMixin(serializers.Serializer):
     """
     Serializer mixin that handles evaluation tags for feature flags.
@@ -200,23 +234,7 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
         if "request" not in self.context:
             return False
 
-        request = self.context["request"]
-        if not hasattr(request, "user") or request.user.is_anonymous:
-            return False
-
-        # Check if FLAG_EVALUATION_TAGS feature flag is enabled for the user
-        try:
-            return posthoganalytics.feature_enabled(
-                "flag-evaluation-tags",
-                request.user.distinct_id,
-                groups={"organization": str(request.user.organization.id)},
-                group_properties={"organization": {"id": str(request.user.organization.id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        except Exception:
-            # If feature flag check fails, default to False (conservative approach)
-            return False
+        return EvaluationTagsChecker.is_enabled(self.context["request"])
 
     def _attempt_set_evaluation_tags(self, evaluation_tags, obj):
         """Update evaluation tags for a feature flag using efficient diff logic.
@@ -233,7 +251,7 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
 
         # If user doesn't have TAGGING access or FLAG_EVALUATION_TAGS is disabled, silently skip evaluation tag updates
         # This preserves existing evaluation tags in the database (like TaggedItemSerializerMixin does)
-        if not self._is_licensed_for_tagging() or not self._is_evaluation_tags_feature_enabled():
+        if not self._is_evaluation_tags_feature_enabled():
             return
 
         # Normalize and dedupe tags (same as TaggedItemSerializerMixin does)
@@ -282,8 +300,7 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
         # Include evaluation tags in the serialized output
         # Hide evaluation_tags if:
         # 1. User doesn't have TAGGING access (like TaggedItemSerializerMixin does for tags)
-        # 2. FLAG_EVALUATION_TAGS feature flag is disabled
-        if not self._is_licensed_for_tagging() or not self._is_evaluation_tags_feature_enabled():
+        if not self._is_licensed_for_tagging():
             ret["evaluation_tags"] = []
         elif hasattr(obj, "evaluation_tags"):
             # Django's prefetch_related creates a cache in _prefetched_objects_cache.
@@ -1284,8 +1301,16 @@ class FeatureFlagViewSet(
         response = super().list(request, *args, **kwargs)
         feature_flags_data = response.data.get("results", [])
 
-        # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
+        # Check if user has access to evaluation tags feature (once per request)
+        is_evaluation_tags_enabled = EvaluationTagsChecker.is_enabled(request)
+
+        # Populate evaluation_tags and handle encrypted payloads
         for feature_flag in feature_flags_data:
+            # Set evaluation_tags based on access
+            if not is_evaluation_tags_enabled:
+                feature_flag["evaluation_tags"] = []
+
+            # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
             if feature_flag.get("has_encrypted_payloads", False):
                 feature_flag["filters"]["payloads"] = get_decrypted_flag_payloads(
                     request, feature_flag["filters"]["payloads"]
@@ -1296,6 +1321,13 @@ class FeatureFlagViewSet(
     def retrieve(self, request, *args, **kwargs):
         response = super().retrieve(request, *args, **kwargs)
         feature_flag_data = response.data
+
+        # Check if user has access to evaluation tags feature
+        is_evaluation_tags_enabled = EvaluationTagsChecker.is_enabled(request)
+
+        # Set evaluation_tags based on access
+        if not is_evaluation_tags_enabled:
+            feature_flag_data["evaluation_tags"] = []
 
         # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
         if feature_flag_data.get("has_encrypted_payloads", False):
