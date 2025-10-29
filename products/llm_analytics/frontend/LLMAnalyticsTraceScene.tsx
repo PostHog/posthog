@@ -735,10 +735,13 @@ const EventContent = React.memo(
                                     label: 'Conversation',
                                     content: (
                                         <>
-                                            {displayOption === DisplayOption.TextView &&
-                                            isLLMEvent(event) &&
-                                            event.event === '$ai_generation' ? (
-                                                <TextViewDisplay event={event} />
+                                            {displayOption === DisplayOption.TextView ? (
+                                                isLLMEvent(event) &&
+                                                (event.event === '$ai_generation' || event.event === '$ai_span') ? (
+                                                    <TextViewDisplay event={event} />
+                                                ) : !isLLMEvent(event) ? (
+                                                    <TextViewDisplay trace={event} tree={tree} />
+                                                ) : null
                                             ) : (
                                                 <>
                                                     {isLLMEvent(event) ? (

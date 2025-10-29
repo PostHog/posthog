@@ -3,6 +3,8 @@
  */
 import { isObject } from 'lib/utils'
 
+import { safeExtractText } from './messageFormatDetector'
+
 interface ToolCall {
     function?: {
         name: string
@@ -115,8 +117,10 @@ function extractToolCallsFromContent(content: any): ToolCall[] {
     for (const block of content) {
         if (isObject(block) && 'type' in block && block.type === 'tool-call') {
             // Handle tool-call format: { type: "tool-call", function: {...} }
-            if ('function' in block) {
-                toolCalls.push({ function: block.function })
+            if ('function' in block && isObject(block.function)) {
+                toolCalls.push({
+                    function: block.function as { name: string; arguments: string | Record<string, any> },
+                })
             }
         }
     }
@@ -125,22 +129,13 @@ function extractToolCallsFromContent(content: any): ToolCall[] {
 
 /**
  * Extract text content from various message content formats
+ * Uses safe extraction with fallback for unparseable content
  */
 function extractTextContent(content: any): string {
-    if (typeof content === 'string') {
-        return content
-    }
+    // Use the new format-aware safe extraction
+    const extracted = safeExtractText(content)
 
-    // Handle object with text property (e.g., { text: "...", type: "text" })
-    if (isObject(content) && 'text' in content && typeof content.text === 'string') {
-        return content.text
-    }
-
-    // Handle object with content property (nested content)
-    if (isObject(content) && 'content' in content) {
-        return extractTextContent(content.content)
-    }
-
+    // Handle special cases that need inline formatting
     if (Array.isArray(content)) {
         const textParts: string[] = []
         for (const block of content) {
@@ -150,54 +145,42 @@ function extractTextContent(content: any): string {
                     continue
                 }
 
-                // Handle nested content property
+                // Handle tool-call content for inline display
                 if ('content' in block) {
                     const blockContent = block.content
-
-                    // Handle text content
-                    if (typeof blockContent === 'string') {
-                        textParts.push(blockContent)
-                    }
-                    // Handle tool-call content
-                    else if (isObject(blockContent) && 'toolName' in blockContent) {
-                        const toolName = blockContent.toolName || 'unknown'
-                        const args = blockContent.args || {}
+                    if (isObject(blockContent) && 'toolName' in blockContent) {
+                        const toolName = (blockContent as any).toolName || 'unknown'
+                        const args = (blockContent as any).args || ''
                         textParts.push(formatSingleToolCall(toolName, args))
+                        continue
                     }
                     // Handle tool-result content
                     else if (isObject(blockContent) && 'result' in blockContent) {
-                        const toolName = blockContent.toolName || 'unknown'
+                        const toolName = (blockContent as any).toolName || 'unknown'
                         textParts.push(`[Tool result: ${toolName}]`)
+                        continue
                     }
-                    // Recursively extract from nested content
-                    else {
-                        const extracted = extractTextContent(blockContent)
-                        if (extracted) {
-                            textParts.push(extracted)
-                        }
-                    }
-                }
-                // Handle direct text property
-                else if ('text' in block) {
-                    textParts.push(block.text)
                 }
                 // Handle tool_use type (Anthropic format)
-                else if ('type' in block && block.type === 'tool_use') {
-                    textParts.push(`[Tool use: ${block.name || 'unknown'}]`)
+                if ('type' in block && block.type === 'tool_use') {
+                    textParts.push(`[Tool use: ${(block as any).name || 'unknown'}]`)
+                    continue
                 }
-            } else {
-                textParts.push(String(block))
+            }
+
+            // For regular blocks, use safe extraction
+            const blockText = safeExtractText(block)
+            if (blockText && !blockText.startsWith('[UNABLE_TO_PARSE')) {
+                textParts.push(blockText)
             }
         }
-        return textParts.join('\n')
+
+        if (textParts.length > 0) {
+            return textParts.join('\n')
+        }
     }
 
-    // Fallback for other object types - don't stringify
-    if (isObject(content)) {
-        return ''
-    }
-
-    return String(content)
+    return extracted
 }
 
 /**
@@ -329,11 +312,17 @@ export function formatOutputMessages(aiOutput: any, aiOutputChoices: any): strin
 
             if (content || content === '') {
                 const textContent = extractTextContent(content)
-                if (textContent) {
+                // Only show text if it's not an UNABLE_TO_PARSE fallback
+                if (textContent && !textContent.startsWith('[UNABLE_TO_PARSE')) {
                     const { lines: contentLines } = truncateContent(textContent)
                     lines.push(...contentLines)
                 } else if (!allToolCalls.length) {
-                    lines.push('[empty response]')
+                    // Only show UNABLE_TO_PARSE or empty if there are no tool calls to display
+                    if (textContent && textContent.startsWith('[UNABLE_TO_PARSE')) {
+                        lines.push(textContent)
+                    } else {
+                        lines.push('[empty response]')
+                    }
                 }
             }
 

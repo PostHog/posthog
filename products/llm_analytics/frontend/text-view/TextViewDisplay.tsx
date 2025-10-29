@@ -8,10 +8,12 @@ import { IconCopy, IconExternal } from '@posthog/icons'
 import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { urls } from 'scenes/urls'
 
-import { LLMTraceEvent } from '~/queries/schema/schema-general'
+import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import { formatGenerationTextRepr } from './textFormatter'
+import { formatTraceTextRepr } from './formatters/traceFormatter'
+import { formatEventTextRepr } from './textFormatter'
 
 interface TextSegment {
     type: 'text' | 'truncated'
@@ -84,18 +86,53 @@ interface TextPart {
     content: string
 }
 
-/**
- * Parse text to find URLs and split into text/URL parts
- */
-function parseUrls(text: string): TextPart[] {
-    const parts: TextPart[] = []
-    // Match URLs (http, https, ftp protocols)
-    const urlRegex = /(https?:\/\/[^\s]+)/g
-    let lastIndex = 0
-    let match: RegExpExecArray | null
+interface EventLinkPart {
+    type: 'event_link'
+    eventId: string
+    displayText: string
+}
 
-    while ((match = urlRegex.exec(text)) !== null) {
-        // Add text before the URL
+/**
+ * Parse text to find URLs and event links, split into parts
+ */
+function parseUrls(text: string, traceId?: string): Array<TextPart | EventLinkPart> {
+    const parts: Array<TextPart | EventLinkPart> = []
+
+    // Process event links first, then URLs
+    const eventLinkRegex = /<<<EVENT_LINK\|([^|]+)\|([^>]+)>>>/g
+    const urlRegex = /(https?:\/\/[^\s]+)/g
+
+    let lastIndex = 0
+    const matches: Array<{ index: number; length: number; type: 'url' | 'event_link'; data: any }> = []
+
+    // Find all event links
+    let eventMatch: RegExpExecArray | null
+    while ((eventMatch = eventLinkRegex.exec(text)) !== null) {
+        matches.push({
+            index: eventMatch.index,
+            length: eventMatch[0].length,
+            type: 'event_link',
+            data: { eventId: eventMatch[1], displayText: eventMatch[2] },
+        })
+    }
+
+    // Find all URLs
+    let urlMatch: RegExpExecArray | null
+    while ((urlMatch = urlRegex.exec(text)) !== null) {
+        matches.push({
+            index: urlMatch.index,
+            length: urlMatch[0].length,
+            type: 'url',
+            data: { content: urlMatch[1] },
+        })
+    }
+
+    // Sort by index
+    matches.sort((a, b) => a.index - b.index)
+
+    // Build parts
+    for (const match of matches) {
+        // Add text before match
         if (match.index > lastIndex) {
             parts.push({
                 type: 'text',
@@ -103,13 +140,27 @@ function parseUrls(text: string): TextPart[] {
             })
         }
 
-        // Add URL
-        parts.push({
-            type: 'url',
-            content: match[0],
-        })
+        // Add the match
+        if (match.type === 'url') {
+            parts.push({
+                type: 'url',
+                content: match.data.content,
+            })
+        } else if (match.type === 'event_link' && traceId) {
+            parts.push({
+                type: 'event_link',
+                eventId: match.data.eventId,
+                displayText: match.data.displayText,
+            })
+        } else {
+            // Fallback to text if no traceId
+            parts.push({
+                type: 'text',
+                content: match.data.displayText || '',
+            })
+        }
 
-        lastIndex = match.index + match[0].length
+        lastIndex = match.index + match.length
     }
 
     // Add remaining text
@@ -120,7 +171,7 @@ function parseUrls(text: string): TextPart[] {
         })
     }
 
-    // If no URLs found, return the whole text as one part
+    // If no matches found, return the whole text as one part
     if (parts.length === 0) {
         parts.push({
             type: 'text',
@@ -132,10 +183,10 @@ function parseUrls(text: string): TextPart[] {
 }
 
 /**
- * Render text with clickable URLs
+ * Render text with clickable URLs and event links
  */
-function renderTextWithLinks(text: string): JSX.Element[] {
-    const parts = parseUrls(text)
+function renderTextWithLinks(text: string, traceId?: string): JSX.Element[] {
+    const parts = parseUrls(text, traceId)
     return parts.map((part, i) => {
         if (part.type === 'url') {
             return (
@@ -144,13 +195,45 @@ function renderTextWithLinks(text: string): JSX.Element[] {
                 </Link>
             )
         }
-        return <span key={i}>{part.content}</span>
+        if (part.type === 'event_link' && traceId) {
+            return (
+                <Link key={i} to={urls.llmAnalyticsTrace(traceId, { event: part.eventId })}>
+                    {part.displayText}
+                </Link>
+            )
+        }
+        // Must be TextPart
+        return <span key={i}>{(part as TextPart).content}</span>
     })
 }
 
-export function TextViewDisplay({ event }: { event: LLMTraceEvent }): JSX.Element {
+interface TraceTreeNode {
+    event: any
+    children?: TraceTreeNode[]
+}
+
+export function TextViewDisplay({
+    event,
+    trace,
+    tree,
+}: {
+    event?: LLMTraceEvent
+    trace?: LLMTrace
+    tree?: TraceTreeNode[]
+}): JSX.Element {
     const [copied, setCopied] = useState(false)
-    const textRepr = formatGenerationTextRepr(event)
+
+    // Get trace ID for event links
+    const traceId = trace?.id
+
+    // Determine what to display
+    const textRepr =
+        trace && tree
+            ? formatTraceTextRepr(trace, tree) // Full trace view
+            : event
+              ? formatEventTextRepr(event) // Single event view
+              : ''
+
     const segments = parseTextSegments(textRepr)
     const [expandedSegments, setExpandedSegments] = useState<Set<number>>(new Set())
     const [popoutSegment, setPopoutSegment] = useState<number | null>(null)
@@ -242,7 +325,7 @@ export function TextViewDisplay({ event }: { event: LLMTraceEvent }): JSX.Elemen
             <pre className="font-mono text-xs whitespace-pre-wrap p-4 bg-bg-light rounded border border-border overflow-auto max-h-[70vh]">
                 {segments.map((segment, index) => {
                     if (segment.type === 'text') {
-                        return <span key={index}>{renderTextWithLinks(segment.content)}</span>
+                        return <span key={index}>{renderTextWithLinks(segment.content, traceId)}</span>
                     }
                     const isExpanded = expandedSegments.has(index)
                     const isPopoutOpen = popoutSegment === index
@@ -250,7 +333,7 @@ export function TextViewDisplay({ event }: { event: LLMTraceEvent }): JSX.Elemen
                         <span key={index}>
                             {isExpanded ? (
                                 <>
-                                    {renderTextWithLinks(segment.fullContent || '')}
+                                    {renderTextWithLinks(segment.fullContent || '', traceId)}
                                     <button
                                         onClick={() => toggleSegment(index)}
                                         className="text-link hover:underline cursor-pointer ml-1"

@@ -1,10 +1,12 @@
 /**
- * Main text formatter for $ai_generation events
+ * Main text formatter for LLM trace events
  * Combines metadata, tools, input, and output into a readable text representation
+ * Supports both $ai_generation and $ai_span events
  */
 import { LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { formatInputMessages, formatOutputMessages } from './formatters/messageFormatter'
+import { formatSpanTextRepr } from './formatters/spanFormatter'
 import { formatTools } from './formatters/toolFormatter'
 
 const SEPARATOR = '-'.repeat(80)
@@ -45,4 +47,17 @@ export function formatGenerationTextRepr(event: LLMTraceEvent): string {
     }
 
     return lines.join('\n')
+}
+
+/**
+ * Generate complete text representation of any LLM event
+ * Routes to the appropriate formatter based on event type
+ */
+export function formatEventTextRepr(event: LLMTraceEvent): string {
+    if (event.event === '$ai_span') {
+        return formatSpanTextRepr(event)
+    }
+
+    // Default to generation formatter for $ai_generation and other events
+    return formatGenerationTextRepr(event)
 }
