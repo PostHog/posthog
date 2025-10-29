@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
                 default=False,
                 null=True,
                 blank=True,
-                help_text="Default setting for 'Discard client IP data' on new environments in this organization.",
+                help_text="Default setting for 'Discard client IP data' for new projects in this organization.",
             ),
         ),
     ]
