@@ -265,8 +265,8 @@ def extract_thinking_from_ai_message(response: BaseMessage) -> list[dict[str, An
 
 
 def normalize_ai_message(message: AIMessage | AIMessageChunk) -> AssistantMessage:
-    message_id = None
-    if isinstance(message, AIMessage):
+    message_id: str | None = None
+    if not isinstance(message, AIMessageChunk):
         message_id = str(uuid4())
     tool_calls = [
         AssistantToolCall(id=tool_call["id"], name=tool_call["name"], args=tool_call["args"] or {})
