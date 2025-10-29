@@ -949,14 +949,14 @@ class TestCSVExporter(APIBaseTest):
             distinct_id="breakdown_user_single",
             team=self.team,
             timestamp=datetime(2024, 6, 10, 13, 46),
-            properties={"test_property": "value_a"},
+            properties={"country": "USA"},
         )
         _create_event(
             event="breakdown_single_event_b",
             distinct_id="breakdown_user_single",
             team=self.team,
             timestamp=datetime(2024, 6, 10, 13, 47),
-            properties={"test_property": "value_a"},
+            properties={"country": "USA"},
         )
         flush_persons_and_events()
 
@@ -988,7 +988,7 @@ class TestCSVExporter(APIBaseTest):
                         "formula": "A+B",
                     },
                     "breakdownFilter": {
-                        "breakdown": "test_property",
+                        "breakdown": "country",
                         "breakdown_type": "event",
                     },
                 }
@@ -1001,16 +1001,13 @@ class TestCSVExporter(APIBaseTest):
             csv_exporter.export_tabular(exported_asset)
             content = object_storage.read(exported_asset.content_location)
             lines = (content or "").strip().split("\r\n")
-            # Should have clean columns with breakdown column using property name
-            assert lines[0] == "series,test_property,Total Sum"
-            # Verify we have the formula and breakdown value
-            assert len(lines) >= 2  # header + at least 1 data row
-            assert "Formula (A+B)" in lines[1]
-            assert "value_a" in lines[1] or "None (i.e. no value)" in lines[1]
-            # Verify no raw special breakdown values
-            for line in lines:
-                assert "$_posthog_breakdown_other_$" not in line
-                assert "$_posthog_breakdown_null_$" not in line
+            self.assertEqual(
+                lines,
+                [
+                    "series,country,Total Sum",
+                    "Formula (A+B),USA,2.0",
+                ],
+            )
 
     @patch("posthog.models.exported_asset.UUIDT")
     def test_csv_exporter_trends_query_with_formula_and_multiple_breakdowns(
@@ -1072,7 +1069,7 @@ class TestCSVExporter(APIBaseTest):
                     },
                     "breakdownFilter": {
                         "breakdowns": [
-                            {"property": "distinct_id", "type": "event"},
+                            {"property": "distinct_id", "type": "event_metadata"},
                             {"property": "$browser", "type": "event"},
                         ]
                     },
@@ -1086,10 +1083,15 @@ class TestCSVExporter(APIBaseTest):
             csv_exporter.export_tabular(exported_asset)
             content = object_storage.read(exported_asset.content_location)
             lines = (content or "").strip().split("\r\n")
-            # Should have clean columns with both breakdown properties
-            assert lines[0] == "series,distinct_id,$browser,Total Sum"
-            # Verify all lines have the formula and both breakdown values
-            for line in lines[1:]:
-                assert "Formula (A+B)" in line
-                parts = line.split(",")
-                assert len(parts) == 4  # series, distinct_id, $browser, Total Sum
+
+            # Sort data lines for consistent comparison (order may vary)
+            data_lines = sorted(lines[1:])
+
+            self.assertEqual(
+                lines[0:1] + data_lines,
+                [
+                    "series,distinct_id,$browser,Total Sum",
+                    "Formula (A+B),multi_breakdown_user_1,Chrome,2.0",
+                    "Formula (A+B),multi_breakdown_user_2,Firefox,1.0",
+                ],
+            )
