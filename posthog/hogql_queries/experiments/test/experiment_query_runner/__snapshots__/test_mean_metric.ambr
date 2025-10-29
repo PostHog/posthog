@@ -117,6 +117,7 @@
                exposures.entity_id AS entity_id,
                any(exposures.exposure_event_uuid) AS exposure_event_uuid,
                any(exposures.exposure_session_id) AS exposure_session_id,
+               any(exposures.first_exposure_time) AS exposure_timestamp,
                sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
         FROM
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -158,6 +159,7 @@
                   exposures.entity_id AS entity_id,
                   any(exposures.exposure_event_uuid) AS exposure_event_uuid,
                   any(exposures.exposure_session_id) AS exposure_session_id,
+                  any(exposures.first_exposure_time) AS exposure_timestamp,
                   sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
            FROM
              (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -420,6 +422,7 @@
                exposures.entity_id AS entity_id,
                any(exposures.exposure_event_uuid) AS exposure_event_uuid,
                any(exposures.exposure_session_id) AS exposure_session_id,
+               any(exposures.first_exposure_time) AS exposure_timestamp,
                sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
         FROM
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -461,6 +464,7 @@
                   exposures.entity_id AS entity_id,
                   any(exposures.exposure_event_uuid) AS exposure_event_uuid,
                   any(exposures.exposure_session_id) AS exposure_session_id,
+                  any(exposures.first_exposure_time) AS exposure_timestamp,
                   sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
            FROM
              (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -620,6 +624,7 @@
                exposures.entity_id AS entity_id,
                any(exposures.exposure_event_uuid) AS exposure_event_uuid,
                any(exposures.exposure_session_id) AS exposure_session_id,
+               any(exposures.first_exposure_time) AS exposure_timestamp,
                sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
         FROM
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -661,6 +666,7 @@
                   exposures.entity_id AS entity_id,
                   any(exposures.exposure_event_uuid) AS exposure_event_uuid,
                   any(exposures.exposure_session_id) AS exposure_session_id,
+                  any(exposures.first_exposure_time) AS exposure_timestamp,
                   sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
            FROM
              (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -874,6 +880,7 @@
             exposures.entity_id AS entity_id,
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
+            any(exposures.first_exposure_time) AS exposure_timestamp,
             avg(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1045,6 +1052,7 @@
             exposures.entity_id AS entity_id,
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
+            any(exposures.first_exposure_time) AS exposure_timestamp,
             max(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1216,6 +1224,7 @@
             exposures.entity_id AS entity_id,
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
+            any(exposures.first_exposure_time) AS exposure_timestamp,
             min(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1387,6 +1396,7 @@
             exposures.entity_id AS entity_id,
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
+            any(exposures.first_exposure_time) AS exposure_timestamp,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1558,6 +1568,7 @@
             exposures.entity_id AS entity_id,
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
+            any(exposures.first_exposure_time) AS exposure_timestamp,
             accurateCastOrNull(count(DISTINCT multiIf(and(ifNull(equals(toTypeName(metric_events.value), 'UUID'), 0), ifNull(equals(reinterpretAsUInt128(metric_events.value), 0), 0)), NULL, equals(toString(metric_events.value), ''), NULL, metric_events.value)), 'Float64') AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
