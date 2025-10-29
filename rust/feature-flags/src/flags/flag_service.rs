@@ -39,7 +39,6 @@ pub trait CacheOrFallback<K: ?Sized, R> {
 pub struct CacheMetrics {
     pub db_reads_counter: &'static str,
     pub cache_errors_counter: &'static str,
-    pub validation_errors_counter: Option<&'static str>,
 }
 
 /// Generic cache-or-fallback implementation that handles Redis cache misses and errors
@@ -84,14 +83,8 @@ where
                     Ok((result, false))
                 }
                 Err(db_error) => {
-                    if let Some(validation_counter) = metrics.validation_errors_counter {
-                        tracing::warn!("Database validation failed: {:?}", db_error);
-                        inc(
-                            validation_counter,
-                            &[("reason".to_string(), "token_not_found".to_string())],
-                            1,
-                        );
-                    }
+                    // Let the caller handle validation vs infrastructure error distinction
+                    // and appropriate metrics/logging based on context
                     Err(db_error)
                 }
             }
@@ -175,6 +168,11 @@ impl CacheOrFallback<str, (Team, String)> for TokenVerificationCache {
             Err(FlagError::RowNotFound) => {
                 // Token doesn't exist in database - this is a legitimate validation error
                 tracing::debug!("Token '{}' not found in database", token);
+                inc(
+                    TOKEN_VALIDATION_ERRORS_COUNTER,
+                    &[("reason".to_string(), "token_not_found".to_string())],
+                    1,
+                );
                 Err(FlagError::TokenValidationError)
             }
             Err(e) => {
@@ -214,7 +212,6 @@ async fn team_cache_or_fallback(
         CacheMetrics {
             db_reads_counter: DB_TEAM_READS_COUNTER,
             cache_errors_counter: TEAM_CACHE_ERRORS_COUNTER,
-            validation_errors_counter: None,
         },
     )
     .await
@@ -236,7 +233,6 @@ async fn flags_cache_or_fallback(
             CacheMetrics {
                 db_reads_counter: DB_FLAG_READS_COUNTER,
                 cache_errors_counter: FLAG_CACHE_ERRORS_COUNTER,
-                validation_errors_counter: None,
             },
         )
         .await?;
@@ -259,7 +255,6 @@ async fn token_verification_cache_or_fallback(
             CacheMetrics {
                 db_reads_counter: DB_TEAM_READS_COUNTER,
                 cache_errors_counter: TEAM_CACHE_ERRORS_COUNTER,
-                validation_errors_counter: Some(TOKEN_VALIDATION_ERRORS_COUNTER),
             },
         )
         .await?;
