@@ -73,6 +73,7 @@ pub struct CapturedEventHeaders {
     pub timestamp: Option<String>,
     pub event: Option<String>,
     pub uuid: Option<String>,
+    pub now: Option<String>,
     pub force_disable_person_processing: Option<bool>,
     pub historical_migration: Option<bool>,
 }
@@ -113,6 +114,10 @@ impl From<CapturedEventHeaders> for OwnedHeaders {
                 value: headers.uuid.as_deref(),
             })
             .insert(Header {
+                key: "now",
+                value: headers.now.as_deref(),
+            })
+            .insert(Header {
                 key: "force_disable_person_processing",
                 value: fdpp_str.as_deref(),
             })
@@ -140,6 +145,7 @@ impl From<OwnedHeaders> for CapturedEventHeaders {
             timestamp: headers_map.get("timestamp").cloned(),
             event: headers_map.get("event").cloned(),
             uuid: headers_map.get("uuid").cloned(),
+            now: headers_map.get("now").cloned(),
             force_disable_person_processing: headers_map
                 .get("force_disable_person_processing")
                 .and_then(|v| v.parse::<bool>().ok()),

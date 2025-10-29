@@ -238,6 +238,7 @@ impl KafkaSink {
         })?;
 
         let data_type = metadata.data_type;
+        let event_now = event.now.clone();
         let mut headers = CapturedEventHeaders {
             token: Some(event.token.clone()),
             distinct_id: Some(event.distinct_id.clone()),
@@ -246,6 +247,7 @@ impl KafkaSink {
                 .map(|ts| ts.timestamp_millis().to_string()),
             event: Some(metadata.event_name.clone()),
             uuid: Some(event.uuid.to_string()),
+            now: Some(event_now),
             force_disable_person_processing: None,
             historical_migration: Some(data_type == DataType::AnalyticsHistorical),
         };
@@ -640,6 +642,7 @@ mod tests {
             timestamp: Some("2023-01-01T12:00:00Z".to_string()),
             event: Some("test_event".to_string()),
             uuid: Some("test-uuid".to_string()),
+            now: Some("2023-01-01T12:00:00Z".to_string()),
             force_disable_person_processing: None,
             historical_migration: Some(true),
         };
@@ -647,6 +650,7 @@ mod tests {
         let owned_headers: OwnedHeaders = headers_historical.into();
         let parsed_headers = CapturedEventHeaders::from(owned_headers);
         assert_eq!(parsed_headers.historical_migration, Some(true));
+        assert_eq!(parsed_headers.now, Some("2023-01-01T12:00:00Z".to_string()));
 
         // Test that historical_migration=false is set in headers for AnalyticsMain
         let headers_main = CapturedEventHeaders {
@@ -655,6 +659,7 @@ mod tests {
             timestamp: Some("2023-01-01T12:00:00Z".to_string()),
             event: Some("test_event".to_string()),
             uuid: Some("test-uuid".to_string()),
+            now: Some("2023-01-01T12:00:00Z".to_string()),
             force_disable_person_processing: None,
             historical_migration: Some(false),
         };
@@ -662,5 +667,34 @@ mod tests {
         let owned_headers: OwnedHeaders = headers_main.into();
         let parsed_headers = CapturedEventHeaders::from(owned_headers);
         assert_eq!(parsed_headers.historical_migration, Some(false));
+        assert_eq!(parsed_headers.now, Some("2023-01-01T12:00:00Z".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_now_header_is_set() {
+        use common_types::CapturedEventHeaders;
+        use rdkafka::message::OwnedHeaders;
+
+        // Test that the 'now' header is correctly set and parsed
+        let test_now = "2024-01-15T10:30:45Z".to_string();
+        let headers = CapturedEventHeaders {
+            token: Some("test_token".to_string()),
+            distinct_id: Some("test_id".to_string()),
+            timestamp: Some("2024-01-15T10:30:00Z".to_string()),
+            event: Some("test_event".to_string()),
+            uuid: Some("test-uuid".to_string()),
+            now: Some(test_now.clone()),
+            force_disable_person_processing: None,
+            historical_migration: None,
+        };
+
+        // Convert to owned headers and back
+        let owned_headers: OwnedHeaders = headers.into();
+        let parsed_headers = CapturedEventHeaders::from(owned_headers);
+
+        // Verify the 'now' field is preserved
+        assert_eq!(parsed_headers.now, Some(test_now));
+        assert_eq!(parsed_headers.token, Some("test_token".to_string()));
+        assert_eq!(parsed_headers.distinct_id, Some("test_id".to_string()));
     }
 }
