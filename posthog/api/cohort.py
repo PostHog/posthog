@@ -109,11 +109,13 @@ def extract_bytecode_from_filters(
         )
 
         # Extract compiled bytecode and check if all filters have bytecode
-        compiled_bytecode = []
+        compiled_bytecode: list[dict[str, Any]] = []
         clean_filters = _extract_bytecode_to_array(filters_dict, validated_filters.properties, compiled_bytecode)
 
         # If all filters have valid bytecode, set cohort_type to REALTIME; otherwise clear it
-        cohort_type = CohortType.REALTIME if _calculate_realtime_support(validated_filters.properties) else None
+        cohort_type = (
+            CohortType.REALTIME if _calculate_realtime_support(cast(Group, validated_filters.properties)) else None
+        )
 
         return clean_filters, cohort_type, compiled_bytecode if compiled_bytecode else None
 
@@ -327,7 +329,7 @@ def _calculate_realtime_support(group: Group) -> bool:
     """Check if all filters in the group have valid bytecode to determine realtime support."""
     for value in group.values:
         if hasattr(value, "values"):  # It's another group
-            if not _calculate_realtime_support(value):
+            if not _calculate_realtime_support(cast(Group, value)):
                 return False
         else:  # It's a filter
             # Check if filter has FilterBytecodeMixin and valid bytecode

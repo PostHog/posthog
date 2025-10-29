@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 from posthog.test.base import APIBaseTest
 
 
@@ -16,7 +18,7 @@ class TestCohortBytecode(APIBaseTest):
         self.assertEqual(response.status_code, 201)
         test_cohort_id = response.json()["id"]
 
-        test_cases = [
+        test_cases: list[dict[str, Any]] = [
             {
                 "name": "BehavioralFilter",
                 "filter_class": BehavioralFilter,
@@ -41,7 +43,9 @@ class TestCohortBytecode(APIBaseTest):
 
         for case in test_cases:
             with self.subTest(filter_type=case["name"]):
-                filter_instance = case["filter_class"].model_validate(case["filter_data"], context={"team": self.team})
+                filter_instance = cast(Any, case["filter_class"]).model_validate(
+                    case["filter_data"], context={"team": self.team}
+                )
 
                 # Should have valid bytecode and no errors
                 self.assertIsNotNone(filter_instance.bytecode, f"{case['name']} should generate bytecode")
@@ -62,7 +66,7 @@ class TestCohortBytecode(APIBaseTest):
         """Test realtime support calculation based on filter types at cohort level"""
         from posthog.models.cohort.cohort import Cohort
 
-        test_cases = [
+        test_cases: list[dict[str, Any]] = [
             {
                 "name": "All supported filters",
                 "filters": [
@@ -135,7 +139,7 @@ class TestCohortBytecode(APIBaseTest):
         """Test bytecode persistence and data integrity in database"""
         from posthog.models.cohort.cohort import Cohort
 
-        test_cases = [
+        test_cases: list[dict[str, Any]] = [
             {
                 "name": "Simple filters persistence",
                 "filters": [
@@ -195,18 +199,20 @@ class TestCohortBytecode(APIBaseTest):
                     self.assertEqual(cohort.cohort_type, expected_type)
 
                 # Verify filters are clean (no embedded bytecode)
-                filter_values = cohort.filters["properties"]["values"]
+                filters_dict = cast(dict[str, Any], cohort.filters)
+                filter_values = cast(list[dict[str, Any]], filters_dict["properties"]["values"])
                 for filter_value in filter_values:
                     self.assertNotIn("bytecode", filter_value)
                     self.assertNotIn("conditionHash", filter_value)
 
                 # Verify compiled_bytecode structure
                 self.assertIsNotNone(cohort.compiled_bytecode)
-                self.assertIsInstance(cohort.compiled_bytecode, list)
-                self.assertEqual(len(cohort.compiled_bytecode), case["expected_bytecode_count"])
+                compiled = cast(list[dict[str, Any]], cohort.compiled_bytecode)
+                self.assertIsInstance(compiled, list)
+                self.assertEqual(len(compiled), cast(int, case["expected_bytecode_count"]))
 
                 # Verify each bytecode entry structure
-                for bytecode_entry in cohort.compiled_bytecode:
+                for bytecode_entry in compiled:
                     self.assertIn("filter_path", bytecode_entry)
                     self.assertIn("bytecode", bytecode_entry)
                     self.assertIn("conditionHash", bytecode_entry)
@@ -227,7 +233,7 @@ class TestCohortBytecode(APIBaseTest):
         """Test various complex cohort scenarios with different filter combinations"""
         from posthog.models.cohort.cohort import Cohort
 
-        test_cases = [
+        test_cases: list[dict[str, Any]] = [
             {
                 "name": "Complex multi-filter cohort",
                 "filters": [
@@ -319,21 +325,26 @@ class TestCohortBytecode(APIBaseTest):
                     self.assertIsNone(cohort.cohort_type)
                 else:
                     self.assertEqual(cohort.cohort_type, expected_type)
-                self.assertEqual(len(cohort.filters["properties"]["values"]), case["expected_filter_count"])
-                self.assertEqual(len(cohort.compiled_bytecode), case["expected_bytecode_count"])
+                filters_dict2 = cast(dict[str, Any], cohort.filters)
+                self.assertEqual(
+                    len(cast(list[Any], filters_dict2["properties"]["values"])),
+                    cast(int, case["expected_filter_count"]),
+                )
+                compiled2 = cast(list[dict[str, Any]], cohort.compiled_bytecode)
+                self.assertEqual(len(compiled2), cast(int, case["expected_bytecode_count"]))
 
                 # Verify all filters are clean (no embedded bytecode)
-                for filter_value in cohort.filters["properties"]["values"]:
+                for filter_value in cast(list[dict[str, Any]], filters_dict2["properties"]["values"]):
                     self.assertNotIn("bytecode", filter_value)
                     self.assertNotIn("conditionHash", filter_value)
 
                 # Verify all bytecode entries have valid structure and expected filter paths
-                filter_paths = [entry["filter_path"] for entry in cohort.compiled_bytecode]
-                for i in range(case["expected_bytecode_count"]):
+                filter_paths = [entry["filter_path"] for entry in compiled2]
+                for i in range(cast(int, case["expected_bytecode_count"])):
                     expected_path = f"properties.values[{i}]"
                     self.assertIn(expected_path, filter_paths, f"Missing bytecode for {expected_path}")
 
-                for bytecode_entry in cohort.compiled_bytecode:
+                for bytecode_entry in compiled2:
                     self.assertIn("filter_path", bytecode_entry)
                     self.assertIn("bytecode", bytecode_entry)
                     self.assertIn("conditionHash", bytecode_entry)
@@ -367,7 +378,7 @@ class TestCohortBytecode(APIBaseTest):
         cohort = Cohort.objects.get(id=cohort_id)
         self.assertEqual(cohort.cohort_type, "realtime")
         self.assertIsNotNone(cohort.compiled_bytecode)
-        base_len = len(cohort.compiled_bytecode)
+        base_len = len(cast(list[dict[str, Any]], cohort.compiled_bytecode))
 
         # Case A: make filters unsupported by adding an unsupported behavioral value
         unsupported_filters = {
@@ -395,7 +406,7 @@ class TestCohortBytecode(APIBaseTest):
         self.assertIsNone(cohort.cohort_type)
         # bytecode still generated for supported filters; length should be >= base_len
         self.assertIsNotNone(cohort.compiled_bytecode)
-        self.assertGreaterEqual(len(cohort.compiled_bytecode), base_len)
+        self.assertGreaterEqual(len(cast(list[dict[str, Any]], cohort.compiled_bytecode)), base_len)
 
         # Case B: switch back to supported by replacing the unsupported with supported behavioral
         supported_filters = {
@@ -418,4 +429,4 @@ class TestCohortBytecode(APIBaseTest):
         cohort.refresh_from_db()
         self.assertEqual(cohort.cohort_type, "realtime")
         self.assertIsNotNone(cohort.compiled_bytecode)
-        self.assertEqual(len(cohort.compiled_bytecode), 3)
+        self.assertEqual(len(cast(list[dict[str, Any]], cohort.compiled_bytecode)), 3)
