@@ -223,7 +223,7 @@ class Database(BaseModel):
     _warehouse_table_names: list[str] = []
     _warehouse_self_managed_table_names: list[str] = []
     _view_table_names: list[str] = []
-    _view_metadata: dict[str, dict[str, any]] = {}
+    _view_metadata: dict[str, dict[str, Any]] = {}
 
     _timezone: str | None
     _week_start_day: WeekStartDay | None
@@ -294,7 +294,7 @@ class Database(BaseModel):
     def get_view_names(self) -> list[str]:
         return self._view_table_names
 
-    def get_view_metadata(self) -> dict[str, dict[str, any]]:
+    def get_view_metadata(self) -> dict[str, dict[str, Any]]:
         return self._view_metadata
 
     def _add_warehouse_tables(self, node: TableNode):
@@ -307,7 +307,7 @@ class Database(BaseModel):
         for name in node.resolve_all_table_names():
             self._warehouse_self_managed_table_names.append(name)
 
-    def _add_views(self, node: TableNode, view_metadata: dict[str, dict[str, any]] | None = None):
+    def _add_views(self, node: TableNode, view_metadata: dict[str, dict[str, Any]] | None = None):
         self.tables.merge_with(node)
         for name in node.resolve_all_table_names():
             self._view_table_names.append(name)
@@ -669,7 +669,7 @@ class Database(BaseModel):
                 )
 
             # Build view metadata mapping for ALL saved queries (including materialized ones)
-            view_metadata_mapping: dict[str, dict[str, any]] = {}
+            view_metadata_mapping: dict[str, dict[str, Any]] = {}
 
             for saved_query in saved_queries:
                 with timings.measure(f"saved_query_{saved_query.name}"):

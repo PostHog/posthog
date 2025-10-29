@@ -1,4 +1,4 @@
-from typing import Union, cast
+from typing import Any, Union, cast
 
 from django.conf import settings
 
@@ -176,7 +176,7 @@ class TableCollector(TraversingVisitor):
         self.visit(node.next_join)
 
 
-def get_view_metadata_from_database(table_names: list[str], context: HogQLContext) -> dict[str, dict[str, any]]:
+def get_view_metadata_from_database(table_names: list[str], context: HogQLContext) -> dict[str, dict[str, Any]]:
     """Extract view metadata from the virtual database (no DB queries)."""
     if not table_names or not context.database:
         return {}
