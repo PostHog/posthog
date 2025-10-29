@@ -34,10 +34,11 @@ import {
     AssistantEventType,
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
+    AssistantMessage,
     AssistantMessageType,
+    AssistantUpdateEvent,
     FailureMessage,
     HumanMessage,
-    ReasoningMessage,
     RootAssistantMessage,
     TaskExecutionStatus,
 } from '~/queries/schema/schema-assistant-messages'
@@ -48,14 +49,7 @@ import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
-import {
-    isAssistantMessage,
-    isAssistantToolCallMessage,
-    isHumanMessage,
-    isNotebookUpdateMessage,
-    isReasoningMessage,
-    isTaskExecutionMessage,
-} from './utils'
+import { isAssistantMessage, isAssistantToolCallMessage, isHumanMessage, isNotebookUpdateMessage } from './utils'
 import { getRandomThinkingMessage } from './utils/thinkingMessages'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
@@ -162,6 +156,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setDeepResearchMode: (deepResearchMode: boolean) => ({ deepResearchMode }),
         processNotebookUpdate: (notebookId: string, notebookContent: JSONContent) => ({ notebookId, notebookContent }),
         setForAnotherAgenticIteration: (value: boolean) => ({ value }),
+        setToolCallUpdate: (update: AssistantUpdateEvent) => ({ update }),
     }),
 
     reducers(({ props }) => ({
@@ -195,7 +190,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
         // Specific case when the conversation is in progress on the backend, but the device doesn't have an open stream
         conversationLoading: [
-            false,
+            props.conversation?.status === ConversationStatus.InProgress,
             {
                 setConversation: (_, { conversation }) =>
                     conversation && conversation.status === ConversationStatus.InProgress,
@@ -230,6 +225,22 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 setForAnotherAgenticIteration: (_, { value }) => value,
                 askMax: () => false,
                 completeThreadGeneration: () => false,
+            },
+        ],
+
+        toolCallUpdateMap: [
+            new Map<string, string[]>(),
+            {
+                setToolCallUpdate: (value, { update }: { update: AssistantUpdateEvent }) => {
+                    const currentValue = value.get(update.tool_call_id) || []
+                    if (currentValue.includes(update.content) || update.content === '') {
+                        return value
+                    }
+
+                    const newMap = new Map(value)
+                    newMap.set(update.tool_call_id, [...currentValue, update.content])
+                    return newMap
+                },
             },
         ],
     })),
@@ -499,86 +510,87 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
 
         threadGrouped: [
-            (s) => [s.threadRaw, s.threadLoading],
-            (thread, threadLoading): ThreadMessage[][] => {
-                const isHumanMessageType = (message?: ThreadMessage): boolean =>
-                    message?.type === AssistantMessageType.Human
-                const threadGrouped: ThreadMessage[][] = []
+            (s) => [s.threadRaw, s.threadLoading, s.toolCallUpdateMap],
+            (thread, threadLoading, toolCallUpdateMap): ThreadMessage[] => {
+                // Filter out messages that shouldn't be displayed
+                let processedThread: ThreadMessage[] = []
 
                 for (let i = 0; i < thread.length; i++) {
                     const currentMessage: ThreadMessage = thread[i]
-                    const previousMessage = thread[i - 1] as ThreadMessage | undefined
 
-                    if (currentMessage.type === AssistantMessageType.ToolCall && !currentMessage.visible) {
+                    // Skip AssistantToolCallMessage - they're now merged into AssistantMessage tool_calls
+                    if (currentMessage.type === AssistantMessageType.ToolCall) {
                         continue
                     }
 
-                    // Do not use the human message type guard here, as it incorrectly infers the type
-                    if (previousMessage && isHumanMessageType(currentMessage) === isHumanMessageType(previousMessage)) {
-                        const lastThreadSoFar = threadGrouped[threadGrouped.length - 1]
-                        if (
-                            currentMessage.id &&
-                            previousMessage &&
-                            previousMessage.type === AssistantMessageType.Reasoning
-                        ) {
-                            // Only preserve the latest reasoning message, and remove once reasoning is done
-                            lastThreadSoFar[lastThreadSoFar.length - 1] = currentMessage
-                        } else if (lastThreadSoFar) {
-                            lastThreadSoFar.push(currentMessage)
-                        }
-                    } else {
-                        threadGrouped.push([currentMessage])
+                    // Skip empty assistant messages with no content, tool calls, or thinking
+                    if (
+                        currentMessage.type === AssistantMessageType.Assistant &&
+                        currentMessage.content.length === 0 &&
+                        (!currentMessage.tool_calls || currentMessage.tool_calls.length === 0) &&
+                        (!currentMessage.meta ||
+                            !currentMessage.meta.thinking ||
+                            currentMessage.meta.thinking.length === 0)
+                    ) {
+                        continue
                     }
+
+                    processedThread.push(currentMessage)
                 }
 
+                // Enhance messages with tool call status
+                processedThread = enhanceThreadToolCalls(processedThread, thread, threadLoading, toolCallUpdateMap)
+
+                // Add thinking message if loading
                 if (threadLoading) {
-                    const finalMessageSoFar = threadGrouped.at(-1)?.at(-1)
+                    const finalMessageSoFar = processedThread.at(-1)
 
-                    // Check if there's an active TaskExecutionMessage
-                    const hasActiveTaskExecution =
-                        isTaskExecutionMessage(finalMessageSoFar) &&
-                        finalMessageSoFar.tasks.some(
-                            (task) =>
-                                task.status === TaskExecutionStatus.Pending ||
-                                task.status === TaskExecutionStatus.InProgress
-                        )
+                    const thinkingMessage: AssistantMessage & ThreadMessage = {
+                        type: AssistantMessageType.Assistant,
+                        content: '',
+                        status: 'completed',
+                        id: 'loader',
+                        meta: {
+                            thinking: [
+                                {
+                                    type: 'thinking',
+                                    thinking: getRandomThinkingMessage(),
+                                },
+                            ],
+                        },
+                    }
 
-                    // Don't show thinking message if there's an active TaskExecutionMessage
-                    if (!hasActiveTaskExecution) {
-                        const thinkingMessage: ReasoningMessage & ThreadMessage = {
-                            type: AssistantMessageType.Reasoning,
-                            content: getRandomThinkingMessage(),
-                            status: 'completed',
-                            id: 'loader',
-                        }
+                    // Check if there are any tool calls in progress
+                    const toolCallsInProgress = processedThread
+                        .flatMap((message) => (isAssistantMessage(message) ? message.tool_calls : []))
+                        .filter((toolCall) => toolCall && (toolCall as any).status === TaskExecutionStatus.InProgress)
 
-                        if (finalMessageSoFar?.type === AssistantMessageType.Human || finalMessageSoFar?.id) {
-                            // If now waiting for the current node to start streaming, add "Thinking" message
-                            // so that there's _some_ indication of processing
-                            if (finalMessageSoFar.type === AssistantMessageType.Human) {
-                                // If the last message was human, we need to add a new "ephemeral" AI group
-                                threadGrouped.push([thinkingMessage])
-                            } else {
-                                // Otherwise, add to the last group
-                                threadGrouped[threadGrouped.length - 1].push(thinkingMessage)
-                            }
-                        }
+                    // Don't add thinking message if:
+                    // 1. There are tool calls in progress, OR
+                    // 2. The last message is a streaming ASSISTANT message (no id) - it will show its own thinking/content
+                    // Note: Human messages should always trigger thinking loader, only assistant messages can be "streaming"
+                    // Note: NotebookUpdateMessages do stream, but they are not added to the thread until they have an id
+                    const lastMessageIsStreamingAssistant =
+                        finalMessageSoFar && isAssistantMessage(finalMessageSoFar) && !finalMessageSoFar.id
+                    const shouldAddThinkingMessage =
+                        toolCallsInProgress.length === 0 && !lastMessageIsStreamingAssistant
 
-                        // Special case for the thread in progress
-                        if (threadGrouped.length === 0) {
-                            threadGrouped.push([thinkingMessage])
-                        }
+                    if (shouldAddThinkingMessage) {
+                        // Add thinking message to indicate processing
+                        processedThread.push(thinkingMessage)
+                    }
+
+                    // Special case for empty thread
+                    if (processedThread.length === 0) {
+                        processedThread.push(thinkingMessage)
                     }
                 }
 
-                return threadGrouped
+                return processedThread
             },
         ],
 
-        threadMessageCount: [
-            (s) => [s.threadRaw],
-            (threadRaw) => threadRaw.filter((message) => !isReasoningMessage(message)).length,
-        ],
+        threadMessageCount: [(s) => [s.threadRaw], (threadRaw) => threadRaw.length],
 
         formPending: [
             (s) => [s.threadRaw],
@@ -673,6 +685,82 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
     }),
 ])
 
+/**
+ * Enhances AssistantMessages with tool call completion status by matching
+ * AssistantToolCallMessage.tool_call_id with AssistantMessage.tool_calls[].id
+ * Also marks the last AssistantMessage with planning (todo_write tool calls)
+ */
+function enhanceThreadToolCalls(
+    group: ThreadMessage[],
+    fullThread: ThreadMessage[],
+    isLoading: boolean,
+    toolCallUpdateMap: Map<string, string[]>
+): ThreadMessage[] {
+    // Create a map of tool_call_id -> AssistantToolCallMessage for quick lookup
+    // Search in the full thread to find ToolCall messages (which are filtered from groups)
+    const toolCallCompletions = new Map<string, ThreadMessage>()
+
+    for (const message of fullThread) {
+        // Use simple type check instead of isAssistantToolCallMessage, which requires ui_payload
+        // This allows us to match tool call completions in stories/tests without ui_payload
+        if (message.type === AssistantMessageType.ToolCall && 'tool_call_id' in message) {
+            toolCallCompletions.set((message as any).tool_call_id, message)
+        }
+    }
+
+    // Find the last human message to determine the final group
+    let lastHumanMessageIndex = -1
+    for (let i = group.length - 1; i >= 0; i--) {
+        if (isHumanMessage(group[i])) {
+            lastHumanMessageIndex = i
+            break
+        }
+    }
+
+    // Find the last AssistantMessage that has todo_write tool calls (planning)
+    let lastPlanningMessageId: string | undefined
+    for (let i = group.length - 1; i >= 0; i--) {
+        const message = group[i]
+        if (
+            isAssistantMessage(message) &&
+            message.tool_calls &&
+            message.tool_calls.some((tc) => tc.name === 'todo_write')
+        ) {
+            lastPlanningMessageId = message.id
+            break
+        }
+    }
+
+    // Enhance assistant messages with tool call status
+    return group.map((message, index) => {
+        if (isAssistantMessage(message) && message.tool_calls && message.tool_calls.length > 0) {
+            // A message is in the final group if it comes after or is the last human message
+            const isFinalGroup = index >= lastHumanMessageIndex
+            const isLastPlanningMessage = message.id === lastPlanningMessageId
+            const enhancedToolCalls = message.tool_calls.map((toolCall) => {
+                const isCompleted = !!toolCallCompletions.get(toolCall.id)
+                const isFailed = !isCompleted && (!isFinalGroup || !isLoading)
+                return {
+                    ...toolCall,
+                    status: isFailed
+                        ? TaskExecutionStatus.Failed
+                        : isCompleted
+                          ? TaskExecutionStatus.Completed
+                          : TaskExecutionStatus.InProgress,
+                    isLastPlanningMessage: toolCall.name === 'todo_write' && isLastPlanningMessage,
+                    updates: toolCallUpdateMap.get(toolCall.id) ?? [],
+                }
+            })
+
+            return {
+                ...message,
+                tool_calls: enhancedToolCalls,
+            }
+        }
+        return message
+    })
+}
+
 /** Assistant streaming event handler. */
 async function onEventImplementation(
     event: string,
@@ -692,6 +780,13 @@ async function onEventImplementation(
 
         actions.setConversation(conversationWithTitle)
         actions.updateGlobalConversationCache(conversationWithTitle)
+    } else if (event === AssistantEventType.Update) {
+        const parsedResponse = parseResponse<AssistantUpdateEvent>(data)
+        if (!parsedResponse) {
+            return
+        }
+        actions.setToolCallUpdate(parsedResponse)
+        return
     } else if (event === AssistantEventType.Message) {
         const parsedResponse = parseResponse<RootAssistantMessage>(data)
         if (!parsedResponse) {
