@@ -18,7 +18,8 @@ from posthog.temporal.data_imports.sources.temporalio.temporalio import (
     TemporalIOResource,
     temporalio_source,
 )
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

@@ -14,7 +14,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 
-from posthog.warehouse.models.table import DataWarehouseTable
+from products.data_warehouse.backend.models.table import DataWarehouseTable
 
 
 class TestS3Table(BaseTest):

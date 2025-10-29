@@ -48,8 +48,9 @@ from posthog.models.property import PropertyGroup, ValueT
 from posthog.models.property.util import build_selector_regex
 from posthog.models.property_definition import PropertyType
 from posthog.utils import get_from_dict_or_attr
-from posthog.warehouse.models import DataWarehouseJoin
-from posthog.warehouse.models.util import get_view_or_table_by_name
+
+from products.data_warehouse.backend.models import DataWarehouseJoin
+from products.data_warehouse.backend.models.util import get_view_or_table_by_name
 
 GROUP_KEY_PATTERN = re.compile(r"^\$group_[0-4]$")
 

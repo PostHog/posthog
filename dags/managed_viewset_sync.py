@@ -1,7 +1,7 @@
 import dagster
 import structlog
 
-from posthog.warehouse.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 
 from dags.common import JobOwners
 

@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 
 from posthog.temporal.data_imports.sources.shopify.constants import ABANDONED_CHECKOUTS, ARTICLES
-from posthog.warehouse.types import IncrementalField, IncrementalFieldType
+
+from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
 
 # TODO: andrew - pull EndpointConfig out from reddit_ads and into common place. make this extend that class

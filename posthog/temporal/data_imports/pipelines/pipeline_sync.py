@@ -21,11 +21,12 @@ from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import get_logger
-from posthog.warehouse.models.credential import get_or_create_datawarehouse_credential
-from posthog.warehouse.models.external_data_job import ExternalDataJob
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema
-from posthog.warehouse.models.table import DataWarehouseTable
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.models.credential import get_or_create_datawarehouse_credential
+from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
+from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
 

@@ -35,9 +35,10 @@ from posthog.temporal.data_imports.pipelines.pipeline_sync import (
 from posthog.temporal.data_imports.row_tracking import decrement_rows, increment_rows, will_hit_billing_limit
 from posthog.temporal.data_imports.sources.stripe.constants import CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
-from posthog.warehouse.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
-from posthog.warehouse.models.external_data_schema import process_incremental_value
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
+from products.data_warehouse.backend.models.external_data_schema import process_incremental_value
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 class PipelineNonDLT:

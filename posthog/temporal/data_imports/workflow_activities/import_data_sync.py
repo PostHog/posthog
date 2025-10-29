@@ -18,9 +18,10 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInput
 from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from posthog.temporal.data_imports.row_tracking import setup_row_tracking
 from posthog.temporal.data_imports.sources import SourceRegistry
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema, process_incremental_value
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSource
+from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
 

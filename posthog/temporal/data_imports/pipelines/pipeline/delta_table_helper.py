@@ -16,8 +16,9 @@ from structlog.types import FilteringBoundLogger
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.utils import normalize_column_name
-from posthog.warehouse.models import ExternalDataJob
-from posthog.warehouse.s3 import ensure_bucket_exists, get_s3_client
+
+from products.data_warehouse.backend.models import ExternalDataJob
+from products.data_warehouse.backend.s3 import ensure_bucket_exists, get_s3_client
 
 
 class DeltaTableHelper:

@@ -62,15 +62,15 @@ from posthog.tasks.usage_report import (
 from posthog.test.fixtures import create_app_metric2
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_previous_day
-from posthog.warehouse.models import (
+
+from products.data_warehouse.backend.models import (
     DataWarehouseSavedQuery,
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSource,
 )
-from posthog.warehouse.types import ExternalDataSourceType
-
+from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.error_tracking.backend.models import ErrorTrackingIssue
 
 from ee.api.test.base import LicensedTestMixin

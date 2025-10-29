@@ -32,7 +32,8 @@ import structlog
 
 from posthog.temporal.data_imports.sources.hubspot.hubspot import PROPERTY_LENGTH_LIMIT, _get_properties_str
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
-from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
+
+from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
 
 pytestmark = pytest.mark.usefixtures("minio_client")
 

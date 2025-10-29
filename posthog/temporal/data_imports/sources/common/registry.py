@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from posthog.warehouse.types import ExternalDataSourceType
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
     from posthog.temporal.data_imports.sources.common.base import BaseSource

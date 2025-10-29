@@ -46,10 +46,11 @@ from posthog.temporal.data_modeling.run_workflow import (
     start_run_activity,
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse, truncate_table
-from posthog.warehouse.models.data_modeling_job import DataModelingJob
-from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from posthog.warehouse.models.modeling import DataWarehouseModelPath
-from posthog.warehouse.models.table import DataWarehouseTable
+
+from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
+from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_warehouse.backend.models.modeling import DataWarehouseModelPath
+from products.data_warehouse.backend.models.table import DataWarehouseTable
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 

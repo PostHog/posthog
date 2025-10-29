@@ -116,9 +116,9 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.exceptions_capture import capture_exception
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
-from posthog.warehouse.models.external_data_job import ExternalDataJob
-from posthog.warehouse.models.table import DataWarehouseTable, DataWarehouseTableColumns
 
+from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
+from products.data_warehouse.backend.models.table import DataWarehouseTable, DataWarehouseTableColumns
 from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
 
 if TYPE_CHECKING:
@@ -313,8 +313,7 @@ class Database(BaseModel):
         context: HogQLContext,
         include_only: Optional[set[str]] = None,
     ) -> dict[str, DatabaseSchemaTable]:
-        from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-
+        from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
         from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 
         tables: dict[str, DatabaseSchemaTable] = {}
@@ -519,7 +518,8 @@ class Database(BaseModel):
         from posthog.hogql.query import create_default_modifiers_for_team
 
         from posthog.models import Team
-        from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseSavedQuery
+
+        from products.data_warehouse.backend.models import DataWarehouseJoin, DataWarehouseSavedQuery
 
         if timings is None:
             timings = HogQLTimings()

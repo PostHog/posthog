@@ -21,7 +21,8 @@ from posthog.temporal.data_imports.sources.google_ads.google_ads import (
     get_schemas as get_google_ads_schemas,
     google_ads_source,
 )
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

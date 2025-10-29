@@ -19,7 +19,8 @@ from posthog.schema import (
 
 from posthog.management.commands.generate_source_configs import SourceConfigGenerator
 from posthog.temporal.data_imports.sources.common.base import FieldType
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 class TestSourceConfigGenerator(ClickhouseTestMixin):

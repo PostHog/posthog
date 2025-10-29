@@ -41,11 +41,12 @@ from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
 )
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 from posthog.utils import get_machine_id
-from posthog.warehouse.data_load.source_templates import create_warehouse_templates_for_source
-from posthog.warehouse.external_data_source.jobs import update_external_job_status
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
-from posthog.warehouse.models.external_data_schema import update_should_sync
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.data_load.source_templates import create_warehouse_templates_for_source
+from products.data_warehouse.backend.external_data_source.jobs import update_external_job_status
+from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.data_warehouse.backend.models.external_data_schema import update_should_sync
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
 
