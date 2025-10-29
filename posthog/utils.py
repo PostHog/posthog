@@ -195,7 +195,7 @@ def relative_date_parse_with_delta_mapping(
             parsed_dt = parsed_dt.astimezone(timezone_info)
         return parsed_dt, None, None
 
-    regex = r"\-?(?P<number>[0-9]+)?(?P<kind>[hdwmqyHDWMQY])(?P<position>Start|End)?"
+    regex = r"\-?(?P<number>[0-9]+)?(?P<kind>[hdwmqysHDWMQY])(?P<position>Start|End)?"
     match = re.search(regex, input)
     parsed_dt = (now or dt.datetime.now()).astimezone(timezone_info)
     delta_mapping: dict[str, int] = {}
@@ -271,6 +271,9 @@ def get_delta_mapping_for(
     elif kind == "M":
         if number:
             delta_mapping["minutes"] = int(number)
+    elif kind == "s":
+        if number:
+            delta_mapping["seconds"] = int(number)
     elif kind == "q":
         if number:
             delta_mapping["weeks"] = 13 * int(number)

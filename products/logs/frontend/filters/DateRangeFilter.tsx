@@ -66,7 +66,7 @@ export const DateRangeFilter = (): JSX.Element => {
                     setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
                 }}
                 allowTimePrecision
-                allowedRollingDateOptions={['minutes', 'hours', 'days', 'weeks', 'months']}
+                allowedRollingDateOptions={['seconds', 'minutes', 'hours', 'days', 'weeks', 'months']}
             />
         </span>
     )

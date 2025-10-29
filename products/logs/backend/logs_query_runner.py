@@ -234,7 +234,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             now=dt.datetime.now(),
         )
 
-        _step = (qdr.date_to() - qdr.date_from()) / 25
+        _step = (qdr.date_to() - qdr.date_from()) / 50
         interval_type = IntervalType.SECOND
 
         def find_closest(target, arr):
@@ -249,7 +249,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
         # the min interval is 1 minute and max interval is 1 day
         interval_count = find_closest(
             _step.total_seconds(),
-            [1, 5, 10, 15, 30] + [x * 60 for x in [1, 2, 5, 10, 15, 30, 60, 120, 240, 360, 720, 1440]],
+            [1, 5] + [x * 60 for x in [1, 2, 5, 10, 15, 30, 60, 120, 240, 360, 720, 1440]],
         )
 
         if _step >= dt.timedelta(minutes=1):

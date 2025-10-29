@@ -102,19 +102,15 @@ class QueryDateRange:
 
         if not self._date_range or not self._date_range.explicitDate:
             is_relative = not self._date_range or not self._date_range.date_to or delta_mapping is not None
-
-            if self.interval_name not in ("hour", "minute", "second"):
+            if compare_interval_length(self.interval_type, ">", IntervalType.HOUR):
                 date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
             elif is_relative:
-                if self.interval_name == "hour":
+                if self.interval_type == IntervalType.HOUR:
                     date_to = date_to.replace(minute=59, second=59, microsecond=999999)
-                elif self.interval_name == "second":
-                    date_to = date_to.replace(microsecond=999999)
-                else:
+                elif self.interval_type == IntervalType.MINUTE:
                     date_to = date_to.replace(second=59, microsecond=999999)
-            elif self.interval_name == "second":
-                date_to = date_to.replace(microsecond=999999)
-
+                elif self.interval_type == IntervalType.SECOND:
+                    date_to = (date_to - timedelta(seconds=1)).replace(microsecond=999999)
         return date_to
 
     def get_earliest_timestamp(self) -> datetime:
