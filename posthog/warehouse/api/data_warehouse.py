@@ -184,6 +184,158 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
 
     @action(methods=["GET"], detail=False)
+    def running_activity(self, request: Request, **kwargs) -> Response:
+        """
+        Returns currently running activities (jobs with status 'Running').
+        Supports pagination and cutoff time filtering.
+        """
+        DEFAULT_LIMIT = 20
+        MAX_LIMIT = 50
+        DEFAULT_CUTOFF_DAYS = 30
+
+        try:
+            limit = min(int(request.GET.get("limit", DEFAULT_LIMIT)), MAX_LIMIT)
+            offset = max(int(request.GET.get("offset", 0)), 0)
+            cutoff_days = int(request.GET.get("cutoff_days", DEFAULT_CUTOFF_DAYS))
+        except (ValueError, TypeError):
+            return Response(
+                {"error": "Invalid limit, offset, or cutoff_days parameter"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            cutoff_time = datetime.now(ZoneInfo("UTC")) - timedelta(days=cutoff_days)
+
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    WITH external_jobs AS (
+                        SELECT edj.id, edsrc.source_type as type, eds.name, edj.status,
+                               COALESCE(edj.rows_synced, 0) as rows, edj.created_at,
+                               edj.finished_at, edj.latest_error, edj.workflow_run_id
+                        FROM posthog_externaldatajob edj
+                        LEFT JOIN posthog_externaldataschema eds ON edj.schema_id = eds.id
+                        LEFT JOIN posthog_externaldatasource edsrc ON eds.source_id = edsrc.id
+                        WHERE edj.team_id = %s AND edj.status = 'Running' AND edj.created_at >= %s
+                    ),
+                    modeling_jobs AS (
+                        SELECT dmj.id, 'Materialized view' as type, dwsq.name, dmj.status,
+                               COALESCE(dmj.rows_materialized, 0) as rows, dmj.created_at,
+                               dmj.last_run_at as finished_at, dmj.error as latest_error, dmj.workflow_run_id
+                        FROM posthog_datamodelingjob dmj
+                        LEFT JOIN posthog_datawarehousesavedquery dwsq ON dmj.saved_query_id = dwsq.id
+                        WHERE dmj.team_id = %s AND dmj.status = 'Running' AND dmj.created_at >= %s
+                    )
+                    SELECT * FROM external_jobs
+                    UNION ALL
+                    SELECT * FROM modeling_jobs
+                    ORDER BY created_at DESC
+                    LIMIT %s OFFSET %s
+                """,
+                    [self.team_id, cutoff_time, self.team_id, cutoff_time, limit + 1, offset],
+                )
+
+                columns = [col[0] for col in cursor.description]
+                rows = cursor.fetchmany(limit + 1)
+                has_more = len(rows) > limit
+
+                actual_rows = rows[:limit]
+                results = [dict(zip(columns, row)) for row in actual_rows]
+        except Exception as e:
+            logger.exception("Database error in running_activity", exc_info=e)
+            return Response({"error": "Database error occurred"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        next_url = None
+        prev_url = None
+        if has_more:
+            next_url = f"?limit={limit}&offset={offset + limit}&cutoff_days={cutoff_days}"
+        if offset > 0:
+            prev_url = f"?limit={limit}&offset={max(0, offset - limit)}&cutoff_days={cutoff_days}"
+
+        return Response(
+            {
+                "results": results,
+                "next": next_url,
+                "previous": prev_url,
+            }
+        )
+
+    @action(methods=["GET"], detail=False)
+    def completed_activity(self, request: Request, **kwargs) -> Response:
+        """
+        Returns completed/non-running activities (jobs with status not 'Running').
+        Supports pagination and cutoff time filtering.
+        """
+        DEFAULT_LIMIT = 20
+        MAX_LIMIT = 50
+        DEFAULT_CUTOFF_DAYS = 30
+
+        try:
+            limit = min(int(request.GET.get("limit", DEFAULT_LIMIT)), MAX_LIMIT)
+            offset = max(int(request.GET.get("offset", 0)), 0)
+            cutoff_days = int(request.GET.get("cutoff_days", DEFAULT_CUTOFF_DAYS))
+        except (ValueError, TypeError):
+            return Response(
+                {"error": "Invalid limit, offset, or cutoff_days parameter"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            cutoff_time = datetime.now(ZoneInfo("UTC")) - timedelta(days=cutoff_days)
+
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    WITH external_jobs AS (
+                        SELECT edj.id, edsrc.source_type as type, eds.name, edj.status,
+                               COALESCE(edj.rows_synced, 0) as rows, edj.created_at,
+                               edj.finished_at, edj.latest_error, edj.workflow_run_id
+                        FROM posthog_externaldatajob edj
+                        LEFT JOIN posthog_externaldataschema eds ON edj.schema_id = eds.id
+                        LEFT JOIN posthog_externaldatasource edsrc ON eds.source_id = edsrc.id
+                        WHERE edj.team_id = %s AND edj.status != 'Running' AND edj.created_at >= %s
+                    ),
+                    modeling_jobs AS (
+                        SELECT dmj.id, 'Materialized view' as type, dwsq.name, dmj.status,
+                               COALESCE(dmj.rows_materialized, 0) as rows, dmj.created_at,
+                               dmj.last_run_at as finished_at, dmj.error as latest_error, dmj.workflow_run_id
+                        FROM posthog_datamodelingjob dmj
+                        LEFT JOIN posthog_datawarehousesavedquery dwsq ON dmj.saved_query_id = dwsq.id
+                        WHERE dmj.team_id = %s AND dmj.status != 'Running' AND dmj.created_at >= %s
+                    )
+                    SELECT * FROM external_jobs
+                    UNION ALL
+                    SELECT * FROM modeling_jobs
+                    ORDER BY created_at DESC
+                    LIMIT %s OFFSET %s
+                """,
+                    [self.team_id, cutoff_time, self.team_id, cutoff_time, limit + 1, offset],
+                )
+
+                columns = [col[0] for col in cursor.description]
+                rows = cursor.fetchmany(limit + 1)
+                has_more = len(rows) > limit
+
+                actual_rows = rows[:limit]
+                results = [dict(zip(columns, row)) for row in actual_rows]
+        except Exception as e:
+            logger.exception("Database error in completed_activity", exc_info=e)
+            return Response({"error": "Database error occurred"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        next_url = None
+        prev_url = None
+        if has_more:
+            next_url = f"?limit={limit}&offset={offset + limit}&cutoff_days={cutoff_days}"
+        if offset > 0:
+            prev_url = f"?limit={limit}&offset={max(0, offset - limit)}&cutoff_days={cutoff_days}"
+
+        return Response(
+            {
+                "results": results,
+                "next": next_url,
+                "previous": prev_url,
+            }
+        )
+
+    @action(methods=["GET"], detail=False)
     def job_stats(self, request: Request, **kwargs) -> Response:
         """
         Returns success and failed job statistics for the last 1, 7, or 30 days.

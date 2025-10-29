@@ -3797,6 +3797,26 @@ const api = {
                 .get(options)
         },
 
+        async runningActivity(
+            options?: ApiMethodOptions & { limit?: number; offset?: number; cutoff_days?: number }
+        ): Promise<PaginatedResponse<DataWarehouseActivityRecord>> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('running_activity')
+                .withQueryString({ limit: options?.limit, offset: options?.offset, cutoff_days: options?.cutoff_days })
+                .get(options)
+        },
+
+        async completedActivity(
+            options?: ApiMethodOptions & { limit?: number; offset?: number; cutoff_days?: number }
+        ): Promise<PaginatedResponse<DataWarehouseActivityRecord>> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('completed_activity')
+                .withQueryString({ limit: options?.limit, offset: options?.offset, cutoff_days: options?.cutoff_days })
+                .get(options)
+        },
+
         async jobStats(
             options?: ApiMethodOptions & DataWarehouseJobStatsRequestPayload
         ): Promise<DataWarehouseJobStats> {
