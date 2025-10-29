@@ -15,18 +15,25 @@ import {
 
 import { dayjs } from 'lib/dayjs'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { SyncTypeLabelMap, syncAnchorIntervalToHumanReadable } from 'scenes/data-warehouse/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ExternalDataSourceSyncSchema } from '~/types'
+import { ExternalDataSourceSyncSchema, IncrementalField } from '~/types'
 
 import { sourceWizardLogic } from '../../new/sourceWizardLogic'
 import { SyncMethodForm } from './SyncMethodForm'
 
 export default function SchemaForm(): JSX.Element {
     const containerRef = useFloatingContainer()
-    const { toggleSchemaShouldSync, openSyncMethodModal, updateSyncTimeOfDay, setIsProjectTime, toggleAllTables } =
-        useActions(sourceWizardLogic)
+    const {
+        toggleSchemaShouldSync,
+        openSyncMethodModal,
+        updateSyncTimeOfDay,
+        setIsProjectTime,
+        toggleAllTables,
+        updateSchemaSyncType,
+    } = useActions(sourceWizardLogic)
     const { databaseSchema, isProjectTime, tablesAllToggledOn } = useValues(sourceWizardLogic)
     const { currentTeam } = useValues(teamLogic)
 
