@@ -485,45 +485,6 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 })
             },
         ],
-        nativeSourcesWithStatus: [
-            (s) => [s.nativeSources],
-            (nativeSources) => {
-                return nativeSources.map((source) => {
-                    const status = getSourceStatus(
-                        { id: source.id, name: source.source_type, type: 'native', prefix: source.prefix },
-                        nativeSources,
-                        []
-                    )
-                    return {
-                        ...source,
-                        status: status.status,
-                        statusMessage: status.message,
-                    }
-                })
-            },
-        ],
-        externalTablesWithStatus: [
-            (s) => [s.externalTables],
-            (externalTables) => {
-                return externalTables.map((table) => {
-                    const status = getSourceStatus(
-                        {
-                            id: table.source_map_id,
-                            name: table.schema_name,
-                            type: table.external_type,
-                            prefix: table.source_prefix,
-                        },
-                        [],
-                        externalTables
-                    )
-                    return {
-                        ...table,
-                        status: status.status,
-                        statusMessage: status.message,
-                    }
-                })
-            },
-        ],
         allExternalTablesWithStatus: [
             (s) => [s.externalTables, s.nativeSources],
             (externalTables, nativeSources) => {
