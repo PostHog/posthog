@@ -185,7 +185,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             posthoganalytics.capture_exception(
                 e, distinct_id=self.request.user.pk, properties={"issue_id": issue.id, "cohort_id": cohort.id}
             )
-            raise ValidationError("An error occured while assigning this cohort")
+            raise ValidationError("An error occurred while assigning this cohort")
 
         return Response({"success": True})
 
