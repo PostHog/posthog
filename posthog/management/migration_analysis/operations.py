@@ -454,14 +454,13 @@ class RunSQLAnalyzer(OperationAnalyzer):
         if "DROP" in sql:
             # Check for DROP COLUMN first (before DROP TABLE check)
             # ALTER TABLE ... DROP COLUMN can contain both "TABLE" and "DROP" keywords
-            if "COLUMN" in sql:
-                # Parse table and column name from: ALTER TABLE <table> DROP COLUMN IF EXISTS <column>
-                # Pattern: ALTER TABLE table_name DROP COLUMN [IF EXISTS] column_name
-                column_match = re.search(
-                    r"ALTER\s+TABLE\s+([a-zA-Z0-9_]+)\s+DROP\s+COLUMN\s+(?:IF\s+EXISTS\s+)?([a-zA-Z0-9_]+)", sql
-                )
+            # Use regex to verify it's actually ALTER TABLE ... DROP COLUMN (not just "COLUMN" in table name)
+            column_match = re.search(
+                r"ALTER\s+TABLE\s+([a-zA-Z0-9_]+)\s+DROP\s+COLUMN\s+(?:IF\s+EXISTS\s+)?([a-zA-Z0-9_]+)", sql
+            )
 
-                if column_match and migration and loader:
+            if column_match:
+                if migration and loader:
                     table_name = column_match.group(1).lower()
                     column_name = column_match.group(2).lower()
 

@@ -467,6 +467,23 @@ class TestRunSQLOperations:
         # Should NOT mention column
         assert "column" not in risk.reason.lower()
 
+    def test_run_sql_drop_table_with_column_in_name(self):
+        """Test that DROP TABLE with 'column' in table name doesn't trigger DROP COLUMN logic."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="DROP TABLE IF EXISTS column_data;",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        # Should be recognized as DROP TABLE (not DROP COLUMN)
+        # Even though SQL contains the word "COLUMN"
+        assert risk.score == 5
+        assert risk.level == RiskLevel.BLOCKED
+        assert "drop table" in risk.reason.lower()
+        # Should NOT be classified as DROP COLUMN
+        assert "drop column" not in risk.reason.lower()
+
     def test_run_sql_comment_on(self):
         """Test COMMENT ON - metadata only (score 0)."""
         op = create_mock_operation(
