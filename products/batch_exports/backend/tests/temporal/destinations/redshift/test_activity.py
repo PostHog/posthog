@@ -56,6 +56,7 @@ async def _run_activity(
     expected_fields=None,
     expect_duplicates: bool = False,
     use_internal_stage: bool = False,
+    extra_fields=None,
 ):
     """Helper function to run Redshift main activity and assert records are exported.
 
@@ -133,6 +134,7 @@ async def _run_activity(
         properties_data_type=properties_data_type,
         sort_key=sort_key,
         expected_fields=expected_fields,
+        extra_fields=extra_fields,
     )
 
     return result
@@ -615,4 +617,5 @@ async def test_insert_into_redshift_activity_inserts_data_with_extra_columns(
         redshift_config=redshift_config,
         sort_key=sort_key,
         use_internal_stage=use_internal_stage,
+        extra_fields=["test"],
     )

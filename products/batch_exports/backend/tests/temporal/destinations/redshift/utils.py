@@ -75,6 +75,7 @@ async def assert_clickhouse_records_in_redshift(
     expected_fields: list[str] | None = None,
     primary_key: collections.abc.Sequence[str] | None = None,
     copy: bool = False,
+    extra_fields: list[str] | None = None,
 ):
     """Assert expected records are written to a given Redshift table.
 
@@ -102,6 +103,7 @@ async def assert_clickhouse_records_in_redshift(
         expected_fields: The expected fields to be exported.
         copy: Whether using Redshift's COPY or not. This impacts handling of special
             characters as Parquet+COPY can handle a lot more than JSON.
+        extra_fields: Additional fields present in the Redshift table.
     """
     super_columns = ["properties", "set", "set_once", "person_properties"]
     array_super_columns = ["urls"]
@@ -220,6 +222,10 @@ async def assert_clickhouse_records_in_redshift(
 
     inserted_column_names = list(inserted_records[0].keys())
     expected_column_names = list(expected_records[0].keys())
+
+    if extra_fields:
+        expected_column_names = expected_column_names + extra_fields
+
     inserted_column_names.sort()
     expected_column_names.sort()
 

@@ -76,6 +76,7 @@ async def _run_activity(
     sort_key: str = "event",
     expected_fields=None,
     expect_duplicates: bool = False,
+    extra_fields=None,
 ):
     """Helper function to run Redshift main COPY activity and assert records exported.
 
@@ -157,6 +158,7 @@ async def _run_activity(
         sort_key=sort_key,
         expected_fields=expected_fields,
         copy=True,
+        extra_fields=extra_fields,
     )
 
     return result
@@ -656,4 +658,5 @@ async def test_copy_into_redshift_activity_inserts_data_with_extra_columns(
         batch_export_model=batch_export_model,
         redshift_config=redshift_config,
         sort_key=sort_key,
+        extra_fields=["test"],
     )
