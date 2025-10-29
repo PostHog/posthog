@@ -87,6 +87,12 @@ export interface NewTabCategoryItem {
     description?: string
 }
 
+export interface CategoryWithItems {
+    key: NEW_TAB_CATEGORY_ITEMS
+    items: NewTabTreeDataItem[]
+    isLoading: boolean
+}
+
 const PAGINATION_LIMIT = 10
 const GROUP_SEARCH_LIMIT = 5
 
@@ -644,6 +650,41 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     groupSearchResultsLoading ||
                     groupSearchPending) &&
                 search.trim() !== '',
+        ],
+        categoryLoadingStates: [
+            (s) => [
+                s.recentsLoading,
+                s.personSearchResultsLoading,
+                s.personSearchPending,
+                s.eventDefinitionSearchResultsLoading,
+                s.eventDefinitionSearchPending,
+                s.propertyDefinitionSearchResultsLoading,
+                s.propertyDefinitionSearchPending,
+                s.groupSearchResultsLoading,
+                s.groupSearchPending,
+            ],
+            (
+                recentsLoading: boolean,
+                personSearchResultsLoading: boolean,
+                personSearchPending: boolean,
+                eventDefinitionSearchResultsLoading: boolean,
+                eventDefinitionSearchPending: boolean,
+                propertyDefinitionSearchResultsLoading: boolean,
+                propertyDefinitionSearchPending: boolean,
+                groupSearchResultsLoading: boolean,
+                groupSearchPending: boolean
+            ): Record<NEW_TAB_CATEGORY_ITEMS, boolean> => ({
+                all: false,
+                'create-new': false,
+                apps: false,
+                'data-management': false,
+                recents: recentsLoading,
+                persons: personSearchResultsLoading || personSearchPending,
+                groups: groupSearchResultsLoading || groupSearchPending,
+                eventDefinitions: eventDefinitionSearchResultsLoading || eventDefinitionSearchPending,
+                propertyDefinitions: propertyDefinitionSearchResultsLoading || propertyDefinitionSearchPending,
+                askAI: false,
+            }),
         ],
         projectTreeSearchItems: [
             (s) => [s.recents],
@@ -1259,17 +1300,32 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
         allCategories: [
-            (s) => [s.featureFlags, s.groupedFilteredItems, s.newTabSceneDataGroupedItems, s.newTabSceneDataInclude],
+            (s) => [
+                s.featureFlags,
+                s.groupedFilteredItems,
+                s.newTabSceneDataGroupedItems,
+                s.newTabSceneDataInclude,
+                s.categoryLoadingStates,
+                s.search,
+                s.firstNoResultsSearchPrefixes,
+            ],
             (
                 featureFlags: any,
                 groupedFilteredItems: Record<string, NewTabTreeDataItem[]>,
                 newTabSceneDataGroupedItems: Record<string, NewTabTreeDataItem[]>,
-                newTabSceneDataInclude: NEW_TAB_COMMANDS[]
-            ): Array<[string, NewTabTreeDataItem[]]> => {
+                newTabSceneDataInclude: NEW_TAB_COMMANDS[],
+                categoryLoadingStates: Record<NEW_TAB_CATEGORY_ITEMS, boolean>,
+                search: string,
+                firstNoResultsSearchPrefixes: Record<NewTabSearchDataset, string | null>
+            ): CategoryWithItems[] => {
                 const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
 
                 if (!newTabSceneData) {
-                    return Object.entries(groupedFilteredItems)
+                    return Object.entries(groupedFilteredItems).map(([key, items]) => ({
+                        key: key as NEW_TAB_CATEGORY_ITEMS,
+                        items,
+                        isLoading: categoryLoadingStates[key as NEW_TAB_CATEGORY_ITEMS] || false,
+                    }))
                 }
 
                 const orderedSections: string[] = []
@@ -1298,29 +1354,54 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     orderedSections.push('askAI')
                 }
 
-                return orderedSections
-                    .map(
-                        (section) =>
-                            [section, newTabSceneDataGroupedItems[section] || []] as [string, NewTabTreeDataItem[]]
+                const trimmedSearch = search.trim()
+                const hasPrefixNoResults = (dataset: NewTabSearchDataset): boolean => {
+                    const prefix = firstNoResultsSearchPrefixes[dataset]
+                    return (
+                        !!prefix &&
+                        trimmedSearch !== '' &&
+                        trimmedSearch.length > prefix.length &&
+                        trimmedSearch.startsWith(prefix)
                     )
-                    .filter(([, items]) => {
-                        // If include is NOT 'all', keep all enabled sections visible (even when empty)
-                        if (!showAll) {
-                            return true
-                        }
+                }
 
-                        // If include is 'all', hide empty sections
-                        return items.length > 0
+                return orderedSections
+                    .map((section) => {
+                        const key = section as NEW_TAB_CATEGORY_ITEMS
+                        const items = newTabSceneDataGroupedItems[section] || []
+                        const isLoading = categoryLoadingStates[key] || false
+                        const shouldHideForPrefix =
+                            (key === 'recents' && hasPrefixNoResults('recents')) ||
+                            (key === 'persons' && hasPrefixNoResults('persons')) ||
+                            (key === 'eventDefinitions' && hasPrefixNoResults('eventDefinitions')) ||
+                            (key === 'propertyDefinitions' && hasPrefixNoResults('propertyDefinitions'))
+
+                        return {
+                            key,
+                            items,
+                            isLoading: shouldHideForPrefix ? false : isLoading,
+                            shouldHideForPrefix,
+                        }
                     })
+                    .filter(({ items, isLoading, shouldHideForPrefix }) => {
+                        if (showAll) {
+                            if (shouldHideForPrefix) {
+                                return false
+                            }
+                            return items.length > 0 || isLoading
+                        }
+                        return true
+                    })
+                    .map(({ shouldHideForPrefix, ...rest }) => rest)
             },
         ],
         firstCategoryWithResults: [
             (s) => [s.allCategories],
-            (allCategories: Array<[string, NewTabTreeDataItem[]]>): string | null => {
-                for (const [category, items] of allCategories) {
+            (allCategories: CategoryWithItems[]): string | null => {
+                for (const { key, items } of allCategories) {
                     // Check if any category has items
                     if (items.length > 0) {
-                        return category
+                        return key
                     }
                 }
 
