@@ -1,4 +1,5 @@
 import { PostgresRouter, PostgresUse } from './db/postgres'
+import { parseJSON } from './json-parse'
 import { LazyLoader } from './lazy-loader'
 
 export interface RealtimeSupportedFilter {
@@ -88,7 +89,7 @@ export class RealtimeSupportedFilterManagerCDP {
             try {
                 compiledBytecode = Array.isArray(cohortRow.compiled_bytecode)
                     ? cohortRow.compiled_bytecode
-                    : JSON.parse(cohortRow.compiled_bytecode || '[]')
+                    : parseJSON(cohortRow.compiled_bytecode || '[]')
             } catch (error) {
                 console.warn(`Failed to parse compiled_bytecode for cohort ${cohortRow.cohort_id}:`, error)
                 return

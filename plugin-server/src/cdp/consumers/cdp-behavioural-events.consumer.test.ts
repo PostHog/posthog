@@ -130,7 +130,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
             // Create a cohort with Chrome + pageview filter
             const conditionHash = 'test_hash_001'
             const compiledBytecode = createCompiledBytecode(TEST_FILTERS.chromePageview, conditionHash)
-            const cohortId = await createCohort(hub.postgres, team.id, 'Test cohort', compiledBytecode)
+            await createCohort(hub.postgres, team.id, 'Test cohort', compiledBytecode)
 
             // Create a matching event
             const personId = '550e8400-e29b-41d4-a716-446655440000'
