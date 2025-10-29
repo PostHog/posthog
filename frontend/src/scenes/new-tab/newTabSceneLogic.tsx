@@ -879,6 +879,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         flag: fs.flag,
                         icon: getIconForFileSystemItem(fs),
                         record: fs,
+                        // TODO: re-enable when all data-management items support it
+                        // lastViewedAt: getLastViewedAt(getSceneKeyForFs(fs)),
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
