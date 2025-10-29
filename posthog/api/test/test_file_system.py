@@ -246,10 +246,10 @@ class TestFileSystemLogViewEndpoint(APIBaseTest):
             ref="Second",
             viewed_at=later,
         )
-
+        data: dict = {"type": "scene", "limit": 10}
         response = self.client.get(
             f"/api/environments/{self.team.id}/file_system/log_view/",
-            {"type": "scene", "limit": 10},
+            data=data,
         )
 
         assert response.status_code == status.HTTP_200_OK
