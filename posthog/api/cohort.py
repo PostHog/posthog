@@ -741,7 +741,7 @@ class CohortSerializer(serializers.ModelSerializer):
             # Validate structure
             team = self.context.get("get_team", lambda: None)()
             validated = CohortFilters.model_validate(raw, context={"team": team})
-            raw = validated.model_dump()
+            raw = validated.model_dump(exclude_none=True)
 
         except PydanticValidationError as exc:
             # pydantic → drf error shape
