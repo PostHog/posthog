@@ -177,7 +177,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
     default_anonymize_ips = models.BooleanField(
         null=True,
         blank=True,
-        help_text="Default setting for 'Discard client IP data' on new environments in this organization.",
+        help_text="Default setting for 'Discard client IP data' for new projects in this organization.",
     )
     is_hipaa = models.BooleanField(default=False, null=True, blank=True)
 
