@@ -307,7 +307,7 @@ mod tests {
         let client =
             redis::Client::open("redis://localhost:6379/").expect("Failed to create redis client");
         let mut conn = client
-            .get_async_connection()
+            .get_multiplexed_async_connection()
             .await
             .expect("Failed to get redis connection");
         conn.set::<String, String, ()>(
