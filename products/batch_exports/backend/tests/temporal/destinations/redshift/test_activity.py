@@ -597,7 +597,7 @@ async def test_insert_into_redshift_activity_inserts_data_with_extra_columns(
         async with psycopg_connection.cursor() as cursor:
             await cursor.execute(
                 sql.SQL("ALTER TABLE {} ADD COLUMN test INT DEFAULT NULL;").format(
-                    sql.Identifier(redshift_config["schema_name"], table_name)
+                    sql.Identifier(redshift_config["schema"], table_name)
                 )
             )
 
