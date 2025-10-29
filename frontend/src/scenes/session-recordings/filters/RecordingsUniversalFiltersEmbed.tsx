@@ -40,6 +40,7 @@ import { playlistLogic } from '../playlist/playlistLogic'
 import { createPlaylist, updatePlaylist } from '../playlist/playlistUtils'
 import { defaultRecordingDurationFilter } from '../playlist/sessionRecordingsPlaylistLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
+import { CurrentFilterIndicator } from './CurrentFilterIndicator'
 import { DurationFilter } from './DurationFilter'
 import { SavedFilters } from './SavedFilters'
 
@@ -135,6 +136,7 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                     </LemonButton>
                 </>
             </MaxTool>
+            <CurrentFilterIndicator />
             <div className="flex gap-2 mt-2 justify-between">
                 <HideRecordingsMenu />
                 <SettingsMenu
