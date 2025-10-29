@@ -73,6 +73,10 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
             person: {
                 title: 'Person',
             },
+            errors: {
+                title: 'Errors',
+                render: ErrorsColumn,
+            },
             totalLatency: {
                 title: 'Latency',
                 render: LatencyColumn,
@@ -149,6 +153,15 @@ const CostColumn: QueryContextColumnComponent = ({ record }) => {
     return <>–</>
 }
 CostColumn.displayName = 'CostColumn'
+
+const ErrorsColumn: QueryContextColumnComponent = ({ record }) => {
+    const row = record as LLMTrace
+    const errorCount = Array.isArray(row.events)
+        ? row.events.filter((e) => e.properties?.$ai_error || e.properties?.$ai_is_error).length
+        : 0
+    return <>{errorCount > 0 ? errorCount : '–'}</>
+}
+ErrorsColumn.displayName = 'ErrorsColumn'
 
 const InputMessageColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace

@@ -85,6 +85,9 @@ export function LLMAnalyticsUsers(): JSX.Element {
                     generations: {
                         title: 'Generations',
                     },
+                    errors: {
+                        title: 'Errors',
+                    },
                     total_cost: {
                         title: 'Total cost',
                         render: function RenderCost({ value }) {

@@ -50,6 +50,7 @@ export function getDefaultGenerationsColumns(showInputOutput: boolean): string[]
         ...(showInputOutput ? ['properties.$ai_input[-1]', 'properties.$ai_output_choices'] : []),
         'person',
         "f'{properties.$ai_model}' -- Model",
+        "if(notEmpty(properties.$ai_error) OR properties.$ai_is_error = 'true', '❌', '') -- Error",
         "f'{round(toFloat(properties.$ai_latency), 2)} s' -- Latency",
         "f'{properties.$ai_input_tokens} → {properties.$ai_output_tokens} (∑ {toInt(properties.$ai_input_tokens) + toInt(properties.$ai_output_tokens)})' -- Token usage",
         "f'${round(toFloat(properties.$ai_total_cost_usd), 6)}' -- Total cost",
@@ -719,6 +720,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                         ? ['inputState', 'outputState']
                         : []),
                     'person',
+                    'errors',
                     'totalLatency',
                     'usage',
                     'totalCost',
@@ -806,6 +808,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     argMax(user_tuple, timestamp) as user,
                     countDistinctIf(ai_trace_id, notEmpty(ai_trace_id)) as traces,
                     count() as generations,
+                    countIf(notEmpty(ai_error) OR ai_is_error = 'true') as errors,
                     round(sum(toFloat(ai_total_cost_usd)), 4) as total_cost,
                     min(timestamp) as first_seen,
                     max(timestamp) as last_seen
@@ -815,6 +818,8 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                         timestamp,
                         JSONExtractRaw(properties, '$ai_trace_id') as ai_trace_id,
                         JSONExtractRaw(properties, '$ai_total_cost_usd') as ai_total_cost_usd,
+                        JSONExtractRaw(properties, '$ai_error') as ai_error,
+                        JSONExtractString(properties, '$ai_is_error') as ai_is_error,
                         tuple(
                             distinct_id,
                             person.created_at,
@@ -836,7 +841,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                         properties: propertyFilters,
                     },
                 },
-                columns: ['user', 'traces', 'generations', 'total_cost', 'first_seen', 'last_seen'],
+                columns: ['user', 'traces', 'generations', 'errors', 'total_cost', 'first_seen', 'last_seen'],
                 showDateRange: true,
                 showReload: true,
                 showSearch: true,
