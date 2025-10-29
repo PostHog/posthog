@@ -99,11 +99,9 @@ class InkeepResponse(BaseModel):
 
 class SearchTool(MaxTool):
     name: Literal["search"] = "search"
-    thinking_message: str = "Searching for information"
     description: str = SEARCH_TOOL_PROMPT
     context_prompt_template: str = "Searches documentation, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, error tracking issues, and surveys in PostHog"
     args_schema: type[BaseModel] = SearchToolArgs
-    show_tool_call_message: bool = False
 
     async def _arun_impl(self, kind: str, query: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
         if kind == "docs":

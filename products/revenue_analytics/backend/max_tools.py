@@ -20,7 +20,7 @@ from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsN
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyErrorMessages
 from ee.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
-from ee.hogai.tool import MaxTool
+from ee.hogai.tool import MaxTool, MaxToolArgs
 from ee.hogai.utils.types.base import AssistantNodeName
 from ee.hogai.utils.types.composed import MaxNodeName
 
@@ -153,17 +153,18 @@ class RevenueAnalyticsFilterOptionsGraph(
 ):
     """Graph for generating filtering options for revenue analytics."""
 
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User, tool_call_id: str):
         super().__init__(
             team,
             user,
+            tool_call_id,
             loop_node_class=RevenueAnalyticsFilterNode,
             tools_node_class=RevenueAnalyticsFilterOptionsToolsNode,
             toolkit_class=RevenueAnalyticsFilterOptionsToolkit,
         )
 
 
-class FilterRevenueAnalyticsArgs(BaseModel):
+class FilterRevenueAnalyticsArgs(MaxToolArgs):
     change: str = Field(
         description=(
             "The specific change to be made to the revenue analytics filters, briefly described. "
@@ -183,17 +184,15 @@ class FilterRevenueAnalyticsTool(MaxTool):
       * When the user asks to search for revenue analytics or revenue
         - "search for" synonyms: "find", "look up", and similar
     """
-    thinking_message: str = "Coming up with filters"
     context_prompt_template: str = "Current revenue analytics filters are: {current_filters}"
     args_schema: type[BaseModel] = FilterRevenueAnalyticsArgs
-    show_tool_call_message: bool = False
 
-    async def _invoke_graph(self, change: str) -> dict[str, Any] | Any:
+    async def _invoke_graph(self, change: str, tool_call_id: str) -> dict[str, Any] | Any:
         """
         Reusable method to call graph to avoid code/prompt duplication and enable
         different processing of the results, based on the place the tool is used.
         """
-        graph = RevenueAnalyticsFilterOptionsGraph(team=self._team, user=self._user)
+        graph = RevenueAnalyticsFilterOptionsGraph(team=self._team, user=self._user, tool_call_id=tool_call_id)
         pretty_filters = json.dumps(self.context.get("current_filters", {}), indent=2)
         user_prompt = USER_FILTER_OPTIONS_PROMPT.format(change=change, current_filters=pretty_filters)
         graph_context = {
@@ -205,8 +204,8 @@ class FilterRevenueAnalyticsTool(MaxTool):
         result = await graph.compile_full_graph().ainvoke(graph_context)
         return result
 
-    async def _arun_impl(self, change: str) -> tuple[str, RevenueAnalyticsAssistantFilters]:
-        result = await self._invoke_graph(change)
+    async def _arun_impl(self, change: str, tool_call_id: str) -> tuple[str, RevenueAnalyticsAssistantFilters]:
+        result = await self._invoke_graph(change, tool_call_id)
         if type(result["output"]) is not RevenueAnalyticsAssistantFilters:
             content = result["intermediate_steps"][-1][0].tool_input
             filters = RevenueAnalyticsAssistantFilters.model_validate(self.context.get("current_filters", {}))

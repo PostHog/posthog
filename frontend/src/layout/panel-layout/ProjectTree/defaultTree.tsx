@@ -35,6 +35,7 @@ import {
     IconServer,
     IconStickiness,
     IconToggle,
+    IconToggleOff,
     IconTrends,
     IconUser,
     IconUserPaths,
@@ -137,8 +138,12 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         iconColor: ['var(--color-product-experiments-light)'],
     },
     feature_flag: {
-        icon: <IconToggle />,
+        icon: <IconToggle className="mt-[2px]" />,
         iconColor: ['var(--color-product-feature-flags-light)'],
+    },
+    feature_flag_off: {
+        icon: <IconToggleOff className="mt-[2px]" />,
+        iconColor: ['var(--color-bg-fill-switch)'],
     },
     data_pipeline: {
         icon: <IconPlug />,

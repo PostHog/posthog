@@ -31,6 +31,7 @@ export function ExposureCriteriaModal(): JSX.Element {
             onClose={closeExposureCriteriaModal}
             width={860}
             title="Edit exposure criteria"
+            zIndex="1169"
             footer={
                 <div className="flex items-center gap-2">
                     <LemonButton
@@ -56,6 +57,10 @@ export function ExposureCriteriaModal(): JSX.Element {
                 </div>
             }
         >
+            <div className="text-secondary text-sm mb-4">
+                Exposure determines when a user enters your experiment. Only events that occur after exposure are
+                counted in your metrics.
+            </div>
             <div className="flex gap-4 mb-4">
                 <SelectableCard
                     title="Default"

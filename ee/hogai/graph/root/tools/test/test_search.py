@@ -4,15 +4,22 @@ from uuid import uuid4
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
+from langchain_core import messages
+
 from posthog.schema import AssistantMessage
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.root.tools.search import (
+    DOC_ITEM_TEMPLATE,
+    DOCS_SEARCH_RESULTS_TEMPLATE,
     EMPTY_DATABASE_ERROR_MESSAGE,
     InkeepDocsSearchTool,
     InsightSearchTool,
     SearchTool,
 )
+from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 
@@ -28,6 +35,7 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
             user=self.user,
             state=self.state,
             context_manager=self.context_manager,
+            tool_call_id="test-tool-call-id",
         )
 
     async def test_run_docs_search_without_api_key(self):
@@ -164,6 +172,55 @@ class TestInkeepDocsSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         with patch("ee.hogai.graph.inkeep_docs.nodes.InkeepDocsNode"):
             with patch("ee.hogai.graph.root.tools.search.RunnableLambda", return_value=mock_chain):
                 await self.tool.execute("test query", "custom-tool-call-id")
+
+    @override_settings(INKEEP_API_KEY="test-inkeep-key")
+    @patch("ee.hogai.graph.root.tools.search.ChatOpenAI")
+    async def test_search_docs_with_successful_results(self, mock_llm_class):
+        response_json = """{
+            "content": [
+                {
+                    "type": "document",
+                    "record_type": "page",
+                    "url": "https://posthog.com/docs/feature",
+                    "title": "Feature Documentation",
+                    "source": {
+                        "type": "text",
+                        "content": [{"type": "text", "text": "This is documentation about the feature."}]
+                    }
+                },
+                {
+                    "type": "document",
+                    "record_type": "guide",
+                    "url": "https://posthog.com/docs/guide",
+                    "title": "Setup Guide",
+                    "source": {"type": "text", "content": [{"type": "text", "text": "How to set up the feature."}]}
+                }
+            ]
+        }"""
+
+        fake_llm = FakeChatOpenAI(responses=[messages.AIMessage(content=response_json)])
+        mock_llm_class.return_value = fake_llm
+
+        result, _ = await self.tool.execute("how to use feature", "test-tool-call-id")
+
+        expected_doc_1 = DOC_ITEM_TEMPLATE.format(
+            title="Feature Documentation",
+            url="https://posthog.com/docs/feature",
+            text="This is documentation about the feature.",
+        )
+        expected_doc_2 = DOC_ITEM_TEMPLATE.format(
+            title="Setup Guide", url="https://posthog.com/docs/guide", text="How to set up the feature."
+        )
+        expected_result = DOCS_SEARCH_RESULTS_TEMPLATE.format(
+            count=2, docs=f"{expected_doc_1}\n\n---\n\n{expected_doc_2}"
+        )
+
+        self.assertEqual(result, expected_result)
+        mock_llm_class.assert_called_once()
+        self.assertEqual(mock_llm_class.call_args.kwargs["model"], "inkeep-rag")
+        self.assertEqual(mock_llm_class.call_args.kwargs["base_url"], "https://api.inkeep.com/v1/")
+        self.assertEqual(mock_llm_class.call_args.kwargs["api_key"], "test-inkeep-key")
+        self.assertEqual(mock_llm_class.call_args.kwargs["streaming"], False)
 
 
 class TestInsightSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):

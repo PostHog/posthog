@@ -1,6 +1,6 @@
 import asyncio
 from collections.abc import Awaitable, Mapping, Sequence
-from typing import TYPE_CHECKING, Literal, Optional, TypeVar, Union, cast
+from typing import TYPE_CHECKING, Literal, TypeVar, Union
 from uuid import uuid4
 
 import structlog
@@ -19,14 +19,7 @@ from langgraph.types import Send
 from posthoganalytics import capture_exception
 from pydantic import BaseModel
 
-from posthog.schema import (
-    AssistantMessage,
-    AssistantToolCallMessage,
-    ContextMessage,
-    FailureMessage,
-    HumanMessage,
-    ReasoningMessage,
-)
+from posthog.schema import AssistantMessage, AssistantToolCallMessage, ContextMessage, FailureMessage, HumanMessage
 
 from posthog.models import Team, User
 
@@ -35,16 +28,14 @@ from ee.hogai.graph.conversation_summarizer.nodes import AnthropicConversationSu
 from ee.hogai.graph.root.compaction_manager import AnthropicConversationCompactionManager
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatAnthropic
-from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL, ToolMessagesArtifact
-from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages, normalize_ai_anthropic_message
-from ee.hogai.utils.helpers import convert_tool_messages_to_dict
+from ee.hogai.tool import ToolMessagesArtifact
+from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages
+from ee.hogai.utils.helpers import convert_tool_messages_to_dict, normalize_ai_message
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types import (
     AssistantMessageUnion,
     AssistantNodeName,
     AssistantState,
-    BaseState,
-    BaseStateWithMessages,
     PartialAssistantState,
     ReplaceMessages,
 )
@@ -169,7 +160,7 @@ class RootNode(AssistantNode):
         add_cache_control(system_prompts[-1])
 
         message = await model.ainvoke(system_prompts + langchain_messages, config)
-        assistant_message = normalize_ai_anthropic_message(message)
+        assistant_message = normalize_ai_message(message)
 
         new_messages: list[AssistantMessageUnion] = [assistant_message]
         # Replace the messages with the new message window
@@ -185,14 +176,6 @@ class RootNode(AssistantNode):
             root_conversation_start_id=window_id,
             start_id=start_id,
         )
-
-    async def get_reasoning_message(
-        self, input: BaseState, default_message: Optional[str] = None
-    ) -> ReasoningMessage | None:
-        input = cast(AssistantState, input)
-        if self.context_manager.has_awaitable_context(input):
-            return ReasoningMessage(content="Calculating context")
-        return None
 
     def router(self, state: AssistantState):
         last_message = state.messages[-1]
@@ -287,8 +270,12 @@ class RootNode(AssistantNode):
         available_tools: list[RootTool] = []
 
         # Initialize the static toolkit
+        # We set tool_call_id to an empty string here because we don't know the tool call id yet
+        # This is just to bound the tools to the model
         dynamic_tools = (
-            tool_class.create_tool_class(team=self._team, user=self._user, state=state, config=config)
+            tool_class.create_tool_class(
+                team=self._team, user=self._user, state=state, config=config, context_manager=self.context_manager
+            )
             for tool_class in default_tools
         )
         available_tools.extend(await asyncio.gather(*dynamic_tools))
@@ -301,7 +288,14 @@ class RootNode(AssistantNode):
             if ContextualMaxToolClass is None:
                 continue  # Ignoring a tool that the backend doesn't know about - might be a deployment mismatch
             awaited_contextual_tools.append(
-                ContextualMaxToolClass.create_tool_class(team=self._team, user=self._user, state=state, config=config)
+                ContextualMaxToolClass.create_tool_class(
+                    team=self._team,
+                    user=self._user,
+                    tool_call_id="",
+                    state=state,
+                    config=config,
+                    context_manager=self.context_manager,
+                )
             )
 
         available_tools.extend(await asyncio.gather(*awaited_contextual_tools))
@@ -385,34 +379,6 @@ class RootNodeTools(AssistantNode):
     def node_name(self) -> MaxNodeName:
         return AssistantNodeName.ROOT_TOOLS
 
-    async def get_reasoning_message(
-        self, input: BaseState, default_message: Optional[str] = None
-    ) -> ReasoningMessage | None:
-        if not isinstance(input, BaseStateWithMessages):
-            return None
-        if not input.messages:
-            return None
-
-        assert isinstance(input.messages[-1], AssistantMessage)
-        tool_calls = input.messages[-1].tool_calls or []
-        if len(tool_calls) == 0:
-            return None
-        tool_call = tool_calls[0]
-        content = None
-        if tool_call.name == "create_and_query_insight":
-            content = "Coming up with an insight"
-        else:
-            # This tool should be in CONTEXTUAL_TOOL_NAME_TO_TOOL, but it might not be in the rare case
-            # when the tool has been removed from the backend since the user's frontend was loaded
-            try:
-                ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL[tool_call.name]  # type: ignore
-                tool = await ToolClass.create_tool_class(team=self._team, user=self._user)
-                content = tool.thinking_message
-            except KeyError:
-                content = f"Running tool {tool_call.name}"
-
-        return ReasoningMessage(content=content) if content else None
-
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         last_message = state.messages[-1]
 
@@ -445,7 +411,14 @@ class RootNodeTools(AssistantNode):
             )
 
         # Initialize the tool and process it
-        tool_class = await ToolClass.create_tool_class(team=self._team, user=self._user, state=state, config=config)
+        tool_class = await ToolClass.create_tool_class(
+            team=self._team,
+            user=self._user,
+            tool_call_id=tool_call.id,
+            state=state,
+            config=config,
+            context_manager=self.context_manager,
+        )
         try:
             result = await tool_class.ainvoke(
                 ToolCall(type="tool_call", name=tool_call.name, args=tool_call.args, id=tool_call.id), config=config
@@ -465,7 +438,6 @@ class RootNodeTools(AssistantNode):
                         content="The tool raised an internal error. Do not immediately retry the tool call and explain to the user what happened. If the user asks you to retry, you are allowed to do that.",
                         id=str(uuid4()),
                         tool_call_id=tool_call.id,
-                        visible=False,
                     )
                 ],
             )
@@ -483,8 +455,8 @@ class RootNodeTools(AssistantNode):
                 ui_payload={tool_call.name: result.artifact},
                 id=str(uuid4()),
                 tool_call_id=tool_call.id,
-                visible=True,
             )
+            self.dispatcher.message(navigate_message)
             # Raising a `NodeInterrupt` ensures the assistant graph stops here and
             # surfaces the navigation confirmation to the client. The next user
             # interaction will resume the graph with potentially different
@@ -496,7 +468,6 @@ class RootNodeTools(AssistantNode):
             ui_payload={tool_call.name: result.artifact},
             id=str(uuid4()),
             tool_call_id=tool_call.id,
-            visible=tool_class.show_tool_call_message,
         )
 
         return PartialAssistantState(

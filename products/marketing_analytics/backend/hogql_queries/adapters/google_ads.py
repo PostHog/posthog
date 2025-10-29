@@ -22,6 +22,7 @@ class GoogleAdsAdapter(MarketingSourceAdapter[GoogleAdsConfig]):
         return {
             "google": [
                 "google",
+                "adwords",
                 "youtube",
                 "display",
                 "gmail",
@@ -78,9 +79,35 @@ class GoogleAdsAdapter(MarketingSourceAdapter[GoogleAdsConfig]):
 
     def _get_cost_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        sum = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "metrics_cost_micros"])])
-        div = ast.ArithmeticOperation(left=sum, op=ast.ArithmeticOperationOp.Div, right=ast.Constant(value=1000000))
-        return ast.Call(name="toFloat", args=[div])
+        base_currency = self.context.base_currency
+
+        # Get cost in micros and convert to standard units
+        cost_micros = ast.Field(chain=[stats_table_name, "metrics_cost_micros"])
+        cost_standard = ast.ArithmeticOperation(
+            left=cost_micros, op=ast.ArithmeticOperationOp.Div, right=ast.Constant(value=1000000)
+        )
+        cost_float = ast.Call(name="toFloat", args=[cost_standard])
+
+        # Check if currency column exists in campaign table
+        try:
+            columns = getattr(self.config.stats_table, "columns", None)
+            if columns and hasattr(columns, "__contains__") and "customer_currency_code" in columns:
+                # Convert each row's cost, then sum
+                currency_field = ast.Field(chain=[stats_table_name, "customer_currency_code"])
+                convert_currency = ast.Call(
+                    name="convertCurrency", args=[currency_field, ast.Constant(value=base_currency), cost_float]
+                )
+                convert_to_float = ast.Call(name="toFloat", args=[convert_currency])
+                return ast.Call(name="SUM", args=[convert_to_float])
+        except (TypeError, AttributeError, KeyError):
+            pass
+
+        # Currency column doesn't exist, treat as USD because it's google default and convert into base currency
+        sum_cost = ast.Call(name="SUM", args=[cost_float])
+        convert_from_usd = ast.Call(
+            name="convertCurrency", args=[ast.Constant(value="USD"), ast.Constant(value=base_currency), sum_cost]
+        )
+        return ast.Call(name="toFloat", args=[convert_from_usd])
 
     def _get_from(self) -> ast.JoinExpr:
         """Build FROM and JOIN clauses"""

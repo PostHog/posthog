@@ -28,8 +28,8 @@ interface VariantsPanelProps {
 }
 
 export function VariantsPanel({ experiment, updateFeatureFlag, onPrevious, onNext }: VariantsPanelProps): JSX.Element {
-    const { mode, linkedFeatureFlag } = useValues(variantsPanelLogic)
-    const { setMode, setLinkedFeatureFlag } = useActions(variantsPanelLogic)
+    const { mode, linkedFeatureFlag } = useValues(variantsPanelLogic({ experiment }))
+    const { setMode, setLinkedFeatureFlag } = useActions(variantsPanelLogic({ experiment }))
 
     const { openSelectExistingFeatureFlagModal, closeSelectExistingFeatureFlagModal } = useActions(
         selectExistingFeatureFlagModalLogic

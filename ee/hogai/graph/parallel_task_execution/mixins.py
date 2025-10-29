@@ -1,16 +1,15 @@
 import uuid
-from collections.abc import Callable, Coroutine, Sequence
-from typing import Any, cast
+from collections.abc import Sequence
+from typing import cast
 
 import structlog
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 
 from posthog.schema import (
-    AssistantMessage,
+    AssistantToolCall,
     AssistantToolCallMessage,
     HumanMessage,
-    TaskExecutionItem,
     TaskExecutionStatus,
     VisualizationMessage,
 )
@@ -21,8 +20,9 @@ from posthog.models.user import User
 
 from ee.hogai.graph.insights.nodes import InsightSearchNode
 from ee.hogai.graph.parallel_task_execution.prompts import AGENT_TASK_PROMPT_TEMPLATE
+from ee.hogai.utils.dispatcher import AssistantDispatcher
 from ee.hogai.utils.helpers import extract_stream_update
-from ee.hogai.utils.state import is_task_started_update, is_value_update
+from ee.hogai.utils.state import is_value_update
 from ee.hogai.utils.types import (
     AnyAssistantGeneratedQuery,
     AssistantMessageUnion,
@@ -39,8 +39,11 @@ logger = structlog.get_logger(__name__)
 class WithInsightCreationTaskExecution:
     _team: Team
     _user: User
-    _reasoning_callback: Callable[[str, str | None], Coroutine[Any, Any, None]]
-    _failed_result: Callable[[TaskExecutionItem], Coroutine[Any, Any, TaskResult]]
+    _parent_tool_call_id: str | None
+
+    @property
+    def dispatcher(self) -> AssistantDispatcher:
+        raise NotImplementedError
 
     async def _execute_create_insight(self, input_dict: dict) -> TaskResult | None:
         """Execute a single task using the full insights pipeline.
@@ -51,7 +54,7 @@ class WithInsightCreationTaskExecution:
         # Import here to avoid circular dependency
         from ee.hogai.graph.insights_graph.graph import InsightsGraph
 
-        task = input_dict["task"]
+        task = cast(AssistantToolCall, input_dict["task"])
         artifacts = input_dict["artifacts"]
         config = input_dict.get("config")
 
@@ -59,9 +62,10 @@ class WithInsightCreationTaskExecution:
 
         # This is needed by the InsightsGraph to return an AssistantToolCallMessage
         task_tool_call_id = f"task_{uuid.uuid4().hex[:8]}"
+        query = task.args["query_description"]
 
         formatted_instructions = AGENT_TASK_PROMPT_TEMPLATE.format(
-            task_prompt=task.prompt, task_description=task.description
+            task_prompt=query,
         )
 
         human_message = HumanMessage(content=formatted_instructions, id=str(uuid.uuid4()))
@@ -69,17 +73,19 @@ class WithInsightCreationTaskExecution:
             messages=[human_message],
             start_id=human_message.id,
             root_tool_call_id=task_tool_call_id,
-            root_tool_insight_plan=task.prompt,
+            root_tool_insight_plan=query,
         )
 
         subgraph_result_messages: list[AssistantMessageUnion] = []
-        assistant_graph = InsightsGraph(self._team, self._user).compile_full_graph()
+        assistant_graph = InsightsGraph(
+            self._team, self._user, tool_call_id=self._parent_tool_call_id
+        ).compile_full_graph()
         try:
             async for chunk in assistant_graph.astream(
                 input_state,
                 config,
                 subgraphs=True,
-                stream_mode=["updates", "debug"],
+                stream_mode=["updates"],
             ):
                 if not chunk:
                     continue
@@ -90,18 +96,8 @@ class WithInsightCreationTaskExecution:
                     node_name = next(iter(content.keys()))
                     messages = content[node_name]["messages"]
                     subgraph_result_messages.extend(messages)
-                elif is_task_started_update(update):
-                    _, task_update = update
-                    node_name = task_update["payload"]["name"]  # type: ignore
-                    node_input = task_update["payload"]["input"]  # type: ignore
-                    reasoning_message = await assistant_graph.aget_reasoning_message_by_node_name[node_name](
-                        node_input, ""
-                    )
-                    if reasoning_message:
-                        progress_text = reasoning_message.content
-                        if reasoning_message.substeps:
-                            progress_text = reasoning_message.substeps[-1]
-                        await self._reasoning_callback(task.id, progress_text)
+                    for message in messages:
+                        self.dispatcher.message(message)
 
         except Exception as e:
             capture_exception(e)
@@ -109,7 +105,12 @@ class WithInsightCreationTaskExecution:
 
         if len(subgraph_result_messages) == 0 or not subgraph_result_messages[-1]:
             logger.warning("Task failed: no messages received from insights subgraph", task_id=task.id)
-            return await self._failed_result(task)
+            return TaskResult(
+                id=task.id,
+                result="",
+                artifacts=[],
+                status=TaskExecutionStatus.FAILED,
+            )
 
         last_message = subgraph_result_messages[-1]
 
@@ -118,7 +119,12 @@ class WithInsightCreationTaskExecution:
                 "Task failed: last message is not AssistantToolCallMessage",
                 task_id=task.id,
             )
-            return await self._failed_result(task)
+            return TaskResult(
+                id=task.id,
+                result="",
+                artifacts=[],
+                status=TaskExecutionStatus.FAILED,
+            )
 
         response = last_message.content
 
@@ -126,20 +132,22 @@ class WithInsightCreationTaskExecution:
         if len(artifacts) == 0:
             response += "\n\nNo artifacts were generated."
             logger.warning("Task failed: no artifacts extracted", task_id=task.id)
-            return await self._failed_result(task)
-
-        await self._reasoning_callback(task.id, None)
+            return TaskResult(
+                id=task.id,
+                result=response,
+                artifacts=[],
+                status=TaskExecutionStatus.FAILED,
+            )
 
         return TaskResult(
             id=task.id,
-            description=task.description,
             result=response,
             artifacts=artifacts,
             status=TaskExecutionStatus.COMPLETED,
         )
 
     def _extract_artifacts(
-        self, subgraph_result_messages: list[AssistantMessageUnion], task: TaskExecutionItem
+        self, subgraph_result_messages: list[AssistantMessageUnion], tool_call: AssistantToolCall
     ) -> Sequence[InsightArtifact]:
         """Extract artifacts from insights subgraph execution results."""
 
@@ -147,9 +155,9 @@ class WithInsightCreationTaskExecution:
         for message in subgraph_result_messages:
             if isinstance(message, VisualizationMessage) and message.id:
                 artifact = InsightArtifact(
-                    task_id=task.id,
+                    task_id=tool_call.id,
                     id=None,  # The InsightsGraph does not create the insight objects
-                    content=task.prompt,
+                    content="",
                     query=cast(AnyAssistantGeneratedQuery, message.answer),
                 )
                 artifacts.append(artifact)
@@ -165,47 +173,57 @@ class WithInsightCreationTaskExecution:
 class WithInsightSearchTaskExecution:
     _team: Team
     _user: User
-    _reasoning_callback: Callable[[str, str | None], Coroutine[Any, Any, None]]
-    _failed_result: Callable[[TaskExecutionItem], Coroutine[Any, Any, TaskResult]]
+    _parent_tool_call_id: str | None
+
+    @property
+    def dispatcher(self) -> AssistantDispatcher:
+        raise NotImplementedError
 
     async def _execute_search_insights(self, input_dict: dict) -> TaskResult:
         """Execute a single task using a single node."""
 
-        task = cast(TaskExecutionItem, input_dict["task"])
+        task = cast(AssistantToolCall, input_dict["task"])
         config = cast(RunnableConfig, input_dict.get("config", RunnableConfig()))
+        query = task.args["search_insights_query"]
 
         task_tool_call_id = f"task_{uuid.uuid4().hex[:8]}"
 
         input_state = AssistantState(
             root_tool_call_id=task_tool_call_id,
-            search_insights_query=task.prompt,
+            search_insights_query=query,
         )
 
         try:
-            result = await InsightSearchNode(self._team, self._user).arun(input_state, config)
+            result = await InsightSearchNode(self._team, self._user, tool_call_id=self._parent_tool_call_id).arun(
+                input_state, config
+            )
 
             if not result or not result.messages:
                 logger.warning("Task failed: no messages received from node executor", task_id=task.id)
-                return await self._failed_result(task)
+                return TaskResult(
+                    id=task.id,
+                    result="",
+                    artifacts=[],
+                    status=TaskExecutionStatus.FAILED,
+                )
 
-            task_result = (
-                result.messages[0].content
-                if result.messages and isinstance(result.messages[0], AssistantMessage)
-                else ""
-            )
+            messages = list(result.messages)
+            task_result = messages[0].content if messages and isinstance(messages[0], AssistantToolCallMessage) else ""
 
-            # Extract artifacts from the result
-            extracted_artifacts = self._extract_artifacts_from_result(result, task)
+            # Extract artifacts from the result and messages
+            extracted_artifacts = self._extract_artifacts_from_messages(messages, result, task)
 
             if len(extracted_artifacts) == 0:
                 logger.warning("Task failed: no artifacts extracted", task_id=task.id)
-                return await self._failed_result(task)
-
-            await self._reasoning_callback(task.id, None)
+                return TaskResult(
+                    id=task.id,
+                    result="No insights were found.",
+                    artifacts=[],
+                    status=TaskExecutionStatus.FAILED,
+                )
 
             return TaskResult(
                 id=task.id,
-                description=task.description,
                 result=task_result,
                 artifacts=extracted_artifacts,
                 status=TaskExecutionStatus.COMPLETED,
@@ -214,24 +232,32 @@ class WithInsightSearchTaskExecution:
         except Exception as e:
             capture_exception(e)
             logger.exception(f"Task failed with exception: {e}", task_id=task.id)
-            return await self._failed_result(task)
+            return TaskResult(
+                id=task.id,
+                result="",
+                artifacts=[],
+                status=TaskExecutionStatus.FAILED,
+            )
 
-    def _extract_artifacts_from_result(
-        self, result: PartialAssistantState, task: TaskExecutionItem
+    def _extract_artifacts_from_messages(
+        self, messages: list[AssistantMessageUnion], result: PartialAssistantState, tool_call: AssistantToolCall
     ) -> list[TaskArtifact]:
-        """Extract artifacts from node execution results."""
+        """Extract artifacts from captured messages and node result."""
         artifacts: list[TaskArtifact] = []
-        content = (
-            result.messages[0].content
-            if result.messages and isinstance(result.messages[0], AssistantToolCallMessage)
-            else ""
-        )
 
+        # Get content from messages (look for AssistantToolCallMessage)
+        content = ""
+        for msg in messages:
+            if isinstance(msg, AssistantToolCallMessage):
+                content = msg.content
+                break
+
+        # Create artifacts from selected insight IDs
         if result.selected_insight_ids:
             artifacts.extend(
                 [
                     TaskArtifact(
-                        task_id=task.id,
+                        task_id=tool_call.id,
                         id=str(insight_id),
                         content=content,
                     )

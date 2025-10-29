@@ -140,6 +140,8 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         }
     };
 
+    let query_labels = [("pool".to_string(), "persons_reader".to_string())];
+
     // First query: Get person data from the distinct_id (person_id and person_properties)
     // TRICKY: sometimes we don't have a person_id ingested by the time we get a `/flags` request for a given
     // distinct_id. There's two cases for that:
@@ -161,7 +163,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     "#;
 
     let person_query_start = Instant::now();
-    let person_query_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &[]);
+    let person_query_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &query_labels);
     let (person_id, person_props): (Option<PersonId>, Option<Value>) = sqlx::query_as(person_query)
         .bind(&distinct_id)
         .bind(team_id)
@@ -209,7 +211,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
                 "#;
 
             let cohort_query_start = Instant::now();
-            let cohort_timer = common_metrics::timing_guard(FLAG_COHORT_QUERY_TIME, &[]);
+            let cohort_timer = common_metrics::timing_guard(FLAG_COHORT_QUERY_TIME, &query_labels);
             let cohort_rows = sqlx::query(cohort_query)
                 .bind(&static_cohort_ids)
                 .bind(person_id)
@@ -298,7 +300,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         let group_keys_vec: Vec<String> = group_keys.iter().cloned().collect();
 
         let group_query_start = Instant::now();
-        let group_query_timer = common_metrics::timing_guard(FLAG_GROUP_QUERY_TIME, &[]);
+        let group_query_timer = common_metrics::timing_guard(FLAG_GROUP_QUERY_TIME, &query_labels);
         let groups = sqlx::query(group_query)
             .bind(team_id)
             .bind(&group_type_indexes_vec)
@@ -789,6 +791,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "operation".to_string(),
                 "set_hash_key_overrides".to_string(),
             ),
+            ("pool".to_string(), "persons_writer".to_string()),
         ];
         let person_query_start = Instant::now();
         let person_query_timer =
@@ -862,6 +865,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "operation".to_string(),
                 "set_hash_key_overrides".to_string(),
             ),
+            ("pool".to_string(), "non_persons_reader".to_string()),
         ];
         let flags_query_start = Instant::now();
         let flags_query_timer =
@@ -925,6 +929,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "operation".to_string(),
                 "set_hash_key_overrides".to_string(),
             ),
+            ("pool".to_string(), "persons_writer".to_string()),
         ];
         let insert_start = Instant::now();
         let insert_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &insert_labels);
@@ -1129,6 +1134,7 @@ async fn try_should_write_hash_key_override(
                 "person_data_with_overrides".to_string(),
             ),
             ("operation".to_string(), "should_write_check".to_string()),
+            ("pool".to_string(), "persons_reader".to_string()),
         ];
         let person_query_timer =
             common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &person_query_labels);
@@ -1221,6 +1227,7 @@ async fn try_should_write_hash_key_override(
                 "active_flags_with_continuity".to_string(),
             ),
             ("operation".to_string(), "should_write_check".to_string()),
+            ("pool".to_string(), "non_persons_reader".to_string()),
         ];
         let flags_query_timer =
             common_metrics::timing_guard(FLAG_DEFINITION_QUERY_TIME, &flags_labels);

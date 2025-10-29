@@ -553,6 +553,9 @@
                     "$ref": "#/definitions/ErrorTrackingQuery"
                 },
                 {
+                    "$ref": "#/definitions/ErrorTrackingSimilarIssuesQuery"
+                },
+                {
                     "$ref": "#/definitions/ErrorTrackingIssueCorrelationQuery"
                 },
                 {
@@ -786,36 +789,6 @@
             },
             "type": "object"
         },
-        "AssistantContextualTool": {
-            "enum": [
-                "search_session_recordings",
-                "generate_hogql_query",
-                "fix_hogql_query",
-                "analyze_user_interviews",
-                "create_and_query_insight",
-                "create_hog_transformation_function",
-                "create_hog_function_filters",
-                "create_hog_function_inputs",
-                "create_message_template",
-                "navigate",
-                "filter_error_tracking_issues",
-                "find_error_tracking_impactful_issue_event_list",
-                "experiment_results_summary",
-                "create_survey",
-                "analyze_survey_responses",
-                "search_docs",
-                "search_insights",
-                "session_summarization",
-                "create_dashboard",
-                "edit_current_dashboard",
-                "read_taxonomy",
-                "search",
-                "read_data",
-                "todo_write",
-                "filter_revenue_analytics"
-            ],
-            "type": "string"
-        },
         "AssistantDateRange": {
             "additionalProperties": false,
             "description": "This filter only works with absolute dates.",
@@ -877,7 +850,7 @@
             "type": "string"
         },
         "AssistantEventType": {
-            "enum": ["status", "message", "conversation", "notebook"],
+            "enum": ["status", "message", "conversation", "notebook", "update"],
             "type": "string"
         },
         "AssistantForm": {
@@ -1525,6 +1498,9 @@
                 "meta": {
                     "$ref": "#/definitions/AssistantMessageMetadata"
                 },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
                 "tool_calls": {
                     "items": {
                         "$ref": "#/definitions/AssistantToolCall"
@@ -1534,9 +1510,6 @@
                 "type": {
                     "const": "ai",
                     "type": "string"
-                },
-                "visible": {
-                    "type": "boolean"
                 }
             },
             "required": ["type", "content"],
@@ -1840,6 +1813,35 @@
             "enum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
             "type": "string"
         },
+        "AssistantTool": {
+            "enum": [
+                "search_session_recordings",
+                "generate_hogql_query",
+                "fix_hogql_query",
+                "analyze_user_interviews",
+                "create_and_query_insight",
+                "create_hog_transformation_function",
+                "create_hog_function_filters",
+                "create_hog_function_inputs",
+                "create_message_template",
+                "navigate",
+                "edit_current_insight",
+                "filter_error_tracking_issues",
+                "find_error_tracking_impactful_issue_event_list",
+                "experiment_results_summary",
+                "create_survey",
+                "analyze_survey_responses",
+                "session_summarization",
+                "create_dashboard",
+                "edit_current_dashboard",
+                "read_taxonomy",
+                "search",
+                "read_data",
+                "todo_write",
+                "filter_revenue_analytics"
+            ],
+            "type": "string"
+        },
         "AssistantToolCall": {
             "additionalProperties": false,
             "properties": {
@@ -1872,6 +1874,9 @@
                 "id": {
                     "type": "string"
                 },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
                 "tool_call_id": {
                     "type": "string"
                 },
@@ -1882,9 +1887,6 @@
                 "ui_payload": {
                     "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend.",
                     "type": "object"
-                },
-                "visible": {
-                    "type": "boolean"
                 }
             },
             "required": ["type", "content", "tool_call_id"],
@@ -2195,6 +2197,22 @@
             "required": ["kind", "series"],
             "type": "object"
         },
+        "AssistantUpdateEvent": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "tool_call_id": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "tool_call_id", "content"],
+            "type": "object"
+        },
         "AttributionMode": {
             "enum": ["first_touch", "last_touch"],
             "type": "string"
@@ -2265,8 +2283,8 @@
                 "id": {
                     "type": "string"
                 },
-                "visible": {
-                    "type": "boolean"
+                "parent_tool_call_id": {
+                    "type": "string"
                 }
             },
             "type": "object"
@@ -3004,6 +3022,90 @@
                 "results": {
                     "items": {
                         "$ref": "#/definitions/ErrorTrackingIssue"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedErrorTrackingSimilarIssuesQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/SimilarIssue"
                     },
                     "type": "array"
                 },
@@ -7335,12 +7437,12 @@
                 "id": {
                     "type": "string"
                 },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
                 "type": {
                     "const": "context",
                     "type": "string"
-                },
-                "visible": {
-                    "type": "boolean"
                 }
             },
             "required": ["type", "content"],
@@ -11238,6 +11340,101 @@
             "required": ["id", "name", "description", "assignee", "status", "first_seen"],
             "type": "object"
         },
+        "ErrorTrackingSimilarIssuesQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "issueId": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "ErrorTrackingSimilarIssuesQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "maxDistance": {
+                    "type": "number"
+                },
+                "modelName": {
+                    "$ref": "#/definitions/EmbeddingModelName"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "rendering": {
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/ErrorTrackingSimilarIssuesQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["issueId", "kind"],
+            "type": "object"
+        },
+        "ErrorTrackingSimilarIssuesQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/SimilarIssue"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
         "EventDefinition": {
             "additionalProperties": false,
             "properties": {
@@ -13155,12 +13352,12 @@
                 "id": {
                     "type": "string"
                 },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
                 "type": {
                     "const": "ai/failure",
                     "type": "string"
-                },
-                "visible": {
-                    "type": "boolean"
                 }
             },
             "required": ["type"],
@@ -13327,6 +13524,7 @@
                 "early_access_feature",
                 "experiment",
                 "feature_flag",
+                "feature_flag_off",
                 "data_pipeline",
                 "data_pipeline_metadata",
                 "data_warehouse",
@@ -15101,15 +15299,15 @@
                 "id": {
                     "type": "string"
                 },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
                 "type": {
                     "const": "human",
                     "type": "string"
                 },
                 "ui_context": {
                     "$ref": "#/definitions/MaxUIContext"
-                },
-                "visible": {
-                    "type": "boolean"
                 }
             },
             "required": ["type", "content"],
@@ -15972,6 +16170,7 @@
                 "twilio",
                 "linear",
                 "github",
+                "gitlab",
                 "meta-ads",
                 "clickup",
                 "reddit-ads",
@@ -17549,12 +17748,12 @@
                 "id": {
                     "type": "string"
                 },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
                 "type": {
                     "const": "ai/multi_viz",
                     "type": "string"
-                },
-                "visible": {
-                    "type": "boolean"
                 },
                 "visualizations": {
                     "items": {
@@ -17632,6 +17831,7 @@
                 "RevenueExampleEventsQuery",
                 "RevenueExampleDataWarehouseTablesQuery",
                 "ErrorTrackingQuery",
+                "ErrorTrackingSimilarIssuesQuery",
                 "ErrorTrackingIssueCorrelationQuery",
                 "LogsQuery",
                 "SessionBatchEventsQuery",
@@ -17716,6 +17916,9 @@
                 "notebook_type": {
                     "$ref": "#/definitions/Category"
                 },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
                 "tool_calls": {
                     "items": {
                         "$ref": "#/definitions/AssistantToolCall"
@@ -17725,9 +17928,6 @@
                 "type": {
                     "const": "ai/notebook",
                     "type": "string"
-                },
-                "visible": {
-                    "type": "boolean"
                 }
             },
             "required": ["type", "notebook_id", "content"],
@@ -18189,6 +18389,9 @@
                 "id": {
                     "type": "string"
                 },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
                 "steps": {
                     "items": {
                         "$ref": "#/definitions/PlanningStep"
@@ -18197,10 +18400,8 @@
                 },
                 "type": {
                     "const": "ai/planning",
+                    "deprecated": "The class should not be used",
                     "type": "string"
-                },
-                "visible": {
-                    "type": "boolean"
                 }
             },
             "required": ["type", "steps"],
@@ -18210,6 +18411,7 @@
             "additionalProperties": false,
             "properties": {
                 "description": {
+                    "deprecated": "The class should not be used",
                     "type": "string"
                 },
                 "status": {
@@ -19180,6 +19382,55 @@
                         "results": {
                             "items": {
                                 "$ref": "#/definitions/ErrorTrackingIssue"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/SimilarIssue"
                             },
                             "type": "array"
                         },
@@ -22257,6 +22508,9 @@
                     "$ref": "#/definitions/ErrorTrackingQuery"
                 },
                 {
+                    "$ref": "#/definitions/ErrorTrackingSimilarIssuesQuery"
+                },
+                {
                     "$ref": "#/definitions/ErrorTrackingIssueCorrelationQuery"
                 },
                 {
@@ -22514,6 +22768,9 @@
                 "id": {
                     "type": "string"
                 },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
                 "substeps": {
                     "items": {
                         "type": "string"
@@ -22522,10 +22779,8 @@
                 },
                 "type": {
                     "const": "ai/reasoning",
+                    "deprecated": "The model should not be used",
                     "type": "string"
-                },
-                "visible": {
-                    "type": "boolean"
                 }
             },
             "required": ["type", "content"],
@@ -24068,31 +24323,7 @@
                     "$ref": "#/definitions/TaskExecutionMessage"
                 },
                 {
-                    "additionalProperties": false,
-                    "properties": {
-                        "content": {
-                            "type": "string"
-                        },
-                        "id": {
-                            "type": "string"
-                        },
-                        "tool_call_id": {
-                            "type": "string"
-                        },
-                        "type": {
-                            "const": "tool",
-                            "type": "string"
-                        },
-                        "ui_payload": {
-                            "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend.",
-                            "type": "object"
-                        },
-                        "visible": {
-                            "type": "boolean"
-                        }
-                    },
-                    "required": ["content", "tool_call_id", "type"],
-                    "type": "object"
+                    "$ref": "#/definitions/AssistantToolCallMessage"
                 }
             ]
         },
@@ -24841,6 +25072,31 @@
                     "type": "boolean"
                 }
             },
+            "type": "object"
+        },
+        "SimilarIssue": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "first_seen": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "library": {
+                    "type": ["string", "null"]
+                },
+                "name": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name", "description", "library", "status", "first_seen"],
             "type": "object"
         },
         "SimpleIntervalType": {
@@ -25850,6 +26106,7 @@
                     "type": "string"
                 },
                 "id": {
+                    "deprecated": "The class should not be used",
                     "type": "string"
                 },
                 "progress_text": {
@@ -25874,6 +26131,9 @@
                 "id": {
                     "type": "string"
                 },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
                 "tasks": {
                     "items": {
                         "$ref": "#/definitions/TaskExecutionItem"
@@ -25882,10 +26142,8 @@
                 },
                 "type": {
                     "const": "ai/task_execution",
+                    "deprecated": "The class should not be used",
                     "type": "string"
-                },
-                "visible": {
-                    "type": "boolean"
                 }
             },
             "required": ["type", "tasks"],
@@ -27103,6 +27361,9 @@
                 "initiator": {
                     "type": "string"
                 },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
                 "plan": {
                     "type": "string"
                 },
@@ -27116,9 +27377,6 @@
                 "type": {
                     "const": "ai/viz",
                     "type": "string"
-                },
-                "visible": {
-                    "type": "boolean"
                 }
             },
             "required": ["answer", "query", "type"],

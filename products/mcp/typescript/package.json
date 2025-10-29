@@ -32,7 +32,7 @@
         "dev": "wrangler dev",
         "deploy": "wrangler deploy",
         "cf-typegen": "wrangler types",
-        "inspector": "npx @modelcontextprotocol/inspector npx -y mcp-remote@latest http://localhost:8787/mcp",
+        "inspector": "npx @modelcontextprotocol/inspector@0.15.0 npx -y mcp-remote@latest http://localhost:8787/mcp",
         "test": "vitest",
         "test:integration": "vitest run --config vitest.integration.config.mts",
         "test:watch": "vitest watch",
