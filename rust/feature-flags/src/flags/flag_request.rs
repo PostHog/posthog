@@ -479,6 +479,8 @@ mod tests {
             redis_client.clone(),
             redis_client.clone(),
             pg_client.clone(),
+            432000, // team_cache_ttl_seconds
+            432000, // flags_cache_ttl_seconds
         );
 
         match flag_service.verify_token(&token).await {
@@ -506,6 +508,8 @@ mod tests {
             redis_reader_client.clone(),
             redis_writer_client.clone(),
             pg_client.clone(),
+            432000, // team_cache_ttl_seconds
+            432000, // flags_cache_ttl_seconds
         );
         assert!(matches!(
             flag_service.verify_token(&result).await,
