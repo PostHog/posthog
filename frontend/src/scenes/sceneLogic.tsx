@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
 import { TeamMembershipLevel } from 'lib/constants'
+import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -132,6 +133,7 @@ export const sceneLogic = kea<sceneLogicType>([
     })),
     afterMount(({ cache }) => {
         cache.mountedTabLogic = {} as Record<string, () => void>
+        cache.lastTrackedSceneByTab = {} as Record<string, { sceneId?: string; sceneKey?: string }>
     }),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -712,6 +714,13 @@ export const sceneLogic = kea<sceneLogicType>([
                 const builtLogic = exportedScene?.logic(builtLogicProps)
                 cache.mountedTabLogic[tabId] = builtLogic.mount()
             }
+
+            const trackingKey = tabId || '__default__'
+            const lastTracked = cache.lastTrackedSceneByTab?.[trackingKey]
+            if (!lastTracked || lastTracked.sceneId !== sceneId || lastTracked.sceneKey !== sceneKey) {
+                trackFileSystemLogView({ type: 'scene', ref: sceneId })
+                cache.lastTrackedSceneByTab[trackingKey] = { sceneId, sceneKey }
+            }
         },
         openScene: ({ tabId, sceneId, sceneKey, params, method }) => {
             const sceneConfig = sceneConfigurations[sceneId] || {}
@@ -1055,6 +1064,9 @@ export const sceneLogic = kea<sceneLogicType>([
                         }
                     }
                     delete cache.mountedTabLogic[id]
+                    if (cache.lastTrackedSceneByTab) {
+                        delete cache.lastTrackedSceneByTab[id]
+                    }
                 }
             }
         },

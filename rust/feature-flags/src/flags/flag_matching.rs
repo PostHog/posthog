@@ -5,7 +5,6 @@ use crate::api::types::{
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::cohorts::cohort_models::{Cohort, CohortId};
 use crate::cohorts::cohort_operations::{apply_cohort_membership_logic, evaluate_dynamic_cohorts};
-use crate::config::Config;
 use crate::database::PostgresRouter;
 use crate::flags::flag_group_type_mapping::{GroupTypeIndex, GroupTypeMappingCache};
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
@@ -185,13 +184,9 @@ pub struct FeatureFlagMatcher {
     ///     "customer" → "101"
     ///     "team" → "112"
     groups: HashMap<String, Value>,
-    /// We pass the config here because we want to be able to configure the timeouts and thresholds for the flag evaluation
-    /// without having to make code changes.
-    pub config: Arc<Config>,
 }
 
 impl FeatureFlagMatcher {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         distinct_id: String,
         team_id: TeamId,
@@ -200,7 +195,6 @@ impl FeatureFlagMatcher {
         cohort_cache: Arc<CohortCacheManager>,
         group_type_mapping_cache: Option<GroupTypeMappingCache>,
         groups: Option<HashMap<String, Value>>,
-        config: Arc<Config>,
     ) -> Self {
         FeatureFlagMatcher {
             distinct_id,
@@ -212,53 +206,7 @@ impl FeatureFlagMatcher {
                 .unwrap_or_else(|| GroupTypeMappingCache::new(project_id)),
             groups: groups.unwrap_or_default(),
             flag_evaluation_state: FlagEvaluationState::default(),
-            config,
         }
-    }
-
-    /// Test-only constructor with minimal parameters
-    #[cfg(test)]
-    pub fn test_new(
-        distinct_id: String,
-        team_id: TeamId,
-        router: PostgresRouter,
-        cohort_cache: Arc<crate::cohorts::cohort_cache_manager::CohortCacheManager>,
-    ) -> Self {
-        use crate::config::test_config;
-
-        Self::new(
-            distinct_id,
-            team_id,
-            1, // default project_id for tests
-            router,
-            cohort_cache,
-            None,
-            None,
-            test_config(),
-        )
-    }
-
-    /// Test-only constructor with groups support
-    #[cfg(test)]
-    pub fn test_new_with_groups(
-        distinct_id: String,
-        team_id: TeamId,
-        router: PostgresRouter,
-        cohort_cache: Arc<crate::cohorts::cohort_cache_manager::CohortCacheManager>,
-        groups: HashMap<String, Value>,
-    ) -> Self {
-        use crate::config::test_config;
-
-        Self::new(
-            distinct_id,
-            team_id,
-            1, // default project_id for tests
-            router,
-            cohort_cache,
-            Some(GroupTypeMappingCache::new(1)),
-            Some(groups),
-            test_config(),
-        )
     }
 
     /// Evaluates all feature flags for the current matcher context.
@@ -385,7 +333,6 @@ impl FeatureFlagMatcher {
                 target_distinct_ids.clone(),
                 self.project_id,
                 hash_key.clone(),
-                &self.config,
             )
             .await
             {
@@ -423,7 +370,6 @@ impl FeatureFlagMatcher {
             database_for_reading,
             self.team_id,
             target_distinct_ids,
-            &self.config,
         )
         .await
         {
@@ -1399,7 +1345,6 @@ impl FeatureFlagMatcher {
             &group_data.type_indexes,
             &group_data.keys,
             static_cohort_ids,
-            &self.config,
         )
         .await
         {
@@ -1550,7 +1495,6 @@ impl FeatureFlagMatcher {
                             self.router.get_persons_reader().clone(),
                             self.team_id,
                             vec![self.distinct_id.clone()],
-                            &self.config,
                         )
                         .await
                         {

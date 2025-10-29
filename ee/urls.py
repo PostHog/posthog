@@ -103,8 +103,7 @@ if settings.ADMIN_PORTAL_ENABLED:
         except NotRegistered:
             pass
 
-    from posthog.admin.admins.actions_admin import analyze_actions_view
-    from posthog.admin.admins.behavioral_cohorts_admin import analyze_behavioral_cohorts_view
+    from posthog.admin.admins.realtime_cohort_calculation_admin import analyze_realtime_cohort_calculation_view
 
     admin_urlpatterns = [
         re_path(r"^admin/oauth2/callback$", admin_oauth2_callback, name="admin_oauth2_callback"),
@@ -113,14 +112,9 @@ if settings.ADMIN_PORTAL_ENABLED:
         re_path(r"^admin/redisvalues$", redis_values_view, name="redis_values"),
         re_path(r"^admin/apikeysearch$", api_key_search_view, name="api_key_search"),
         path(
-            "admin/actions-analysis/",
-            admin.site.admin_view(analyze_actions_view),
-            name="actions-analysis",
-        ),
-        path(
-            "admin/behavioral-cohort-analysis/",
-            admin.site.admin_view(analyze_behavioral_cohorts_view),
-            name="behavioral-cohort-analysis",
+            "admin/realtime-cohorts-calculation/",
+            admin.site.admin_view(analyze_realtime_cohort_calculation_view),
+            name="realtime-cohorts-calculation",
         ),
         path("admin/", include("loginas.urls")),
         path("admin/", admin.site.urls),

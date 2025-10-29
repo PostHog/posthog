@@ -13,7 +13,7 @@ from posthog.constants import AvailableFeature
 from posthog.event_usage import groups
 from posthog.models import OrganizationDomain
 from posthog.models.organization import Organization
-from posthog.permissions import OrganizationAdminWritePermissions
+from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 
 from ee.api.scim.utils import disable_scim_for_domain, enable_scim_for_domain, get_scim_base_url, regenerate_scim_token
 
@@ -158,7 +158,7 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
 class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     scope_object = "organization"
     serializer_class = OrganizationDomainSerializer
-    permission_classes = [OrganizationAdminWritePermissions]
+    permission_classes = [OrganizationAdminWritePermissions, TimeSensitiveActionPermission]
     queryset = OrganizationDomain.objects.order_by("domain").all()
 
     @action(methods=["POST"], detail=True)

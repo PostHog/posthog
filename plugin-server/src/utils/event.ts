@@ -174,7 +174,7 @@ export function mutatePostIngestionEventWithElementsList(event: PostIngestionEve
 /// all of the processing steps.
 ///
 /// If `formPipelineEvent` is removed this can easily be combined with `normalizeEvent`.
-export function normalizeProcessPerson(event: PluginEvent, processPerson: boolean): PluginEvent {
+export function normalizeProcessPerson<T extends PipelineEvent | PluginEvent>(event: T, processPerson: boolean): T {
     const properties = event.properties ?? {}
 
     if (!processPerson || event.event === '$groupidentify') {

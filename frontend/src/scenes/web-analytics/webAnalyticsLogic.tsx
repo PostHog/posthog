@@ -1881,147 +1881,140 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                           }
                         : null,
-                    featureFlags[FEATURE_FLAGS.ACTIVE_HOURS_HEATMAP]
-                        ? {
-                              kind: 'tabs',
-                              tileId: TileId.ACTIVE_HOURS,
-                              layout: {
-                                  colSpanClassName: 'md:col-span-full',
-                              },
-                              activeTabId: activeHoursTab,
-                              setTabId: actions.setActiveHoursTab,
-                              tabs: [
-                                  {
-                                      id: ActiveHoursTab.UNIQUE,
-                                      title: 'Active Hours',
-                                      linkText: 'Unique users',
-                                      canOpenModal: true,
-                                      canOpenInsight: !!featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT],
-                                      query: {
-                                          kind: NodeKind.InsightVizNode,
-                                          source: {
-                                              kind: NodeKind.TrendsQuery,
-                                              series: [
-                                                  {
-                                                      kind: NodeKind.EventsNode,
-                                                      event: '$pageview',
-                                                      name: '$pageview',
-                                                      math: BaseMathType.UniqueUsers,
-                                                      properties: webAnalyticsFilters,
-                                                  },
-                                              ],
-                                              dateRange,
-                                              conversionGoal,
-                                              tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-                                              trendsFilter: {
-                                                  display: ChartDisplayType.CalendarHeatmap,
-                                              },
-                                          },
-                                      },
-                                      docs: {
-                                          url: 'https://posthog.com/docs/web-analytics/dashboard#active-hours',
-                                          title: 'Active hours - Unique users',
-                                          description: (
-                                              <>
-                                                  <div>
-                                                      <p>
-                                                          Active hours displays a heatmap showing the number of unique
-                                                          users who performed any pageview event, broken down by hour of
-                                                          the day and day of the week.
-                                                      </p>
-                                                      <p>
-                                                          Each cell represents the number of unique users during a
-                                                          specific hour of a specific day. The "All" column aggregates
-                                                          totals for each day, and the bottom row aggregates totals for
-                                                          each hour. The bottom-right cell shows the grand total. The
-                                                          displayed time is based on your project's date and time
-                                                          settings (UTC by default, configurable in{' '}
-                                                          <Link to={urls.settings('project', 'date-and-time')}>
-                                                              project settings
-                                                          </Link>
-                                                          ).
-                                                      </p>
-                                                      <p>
-                                                          <strong>Note:</strong> Selecting a time range longer than 7
-                                                          days will include additional occurrences of weekdays and
-                                                          hours, potentially increasing the user counts in those
-                                                          buckets. For best results, select 7 closed days or multiple of
-                                                          7 closed day ranges.
-                                                      </p>
-                                                  </div>
-                                              </>
-                                          ),
-                                      },
-                                      insightProps: createInsightProps(TileId.ACTIVE_HOURS, ActiveHoursTab.UNIQUE),
-                                  },
-                                  {
-                                      id: ActiveHoursTab.TOTAL_EVENTS,
-                                      title: 'Active Hours',
-                                      linkText: 'Total pageviews',
-                                      canOpenModal: true,
-                                      canOpenInsight: !!featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT],
-                                      query: {
-                                          kind: NodeKind.InsightVizNode,
-                                          source: {
-                                              kind: NodeKind.TrendsQuery,
-                                              series: [
-                                                  {
-                                                      kind: NodeKind.EventsNode,
-                                                      event: '$pageview',
-                                                      name: '$pageview',
-                                                      math: BaseMathType.TotalCount,
-                                                      properties: webAnalyticsFilters,
-                                                  },
-                                              ],
-                                              dateRange,
-                                              conversionGoal,
-                                              trendsFilter: {
-                                                  display: ChartDisplayType.CalendarHeatmap,
-                                              },
-                                              tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-                                          },
-                                      },
-                                      docs: {
-                                          url: 'https://posthog.com/docs/web-analytics/dashboard#active-hours',
-                                          title: 'Active hours - Total pageviews',
-                                          description: (
-                                              <>
-                                                  <div>
-                                                      <p>
-                                                          Active hours displays a heatmap showing the total number of
-                                                          pageviews, broken down by hour of the day and day of the week.
-                                                      </p>
-                                                      <p>
-                                                          Each cell represents the number of total pageviews during a
-                                                          specific hour of a specific day. The "All" column aggregates
-                                                          totals for each day, and the bottom row aggregates totals for
-                                                          each hour. The bottom-right cell shows the grand total. The
-                                                          displayed time is based on your project's date and time
-                                                          settings (UTC by default, configurable in{' '}
-                                                          <Link to={urls.settings('project', 'date-and-time')}>
-                                                              project settings
-                                                          </Link>
-                                                          ).
-                                                      </p>
-                                                      <p>
-                                                          <strong>Note:</strong> Selecting a time range longer than 7
-                                                          days will include additional occurrences of weekdays and
-                                                          hours, potentially increasing the user counts in those
-                                                          buckets. For best results, select 7 closed days or multiple of
-                                                          7 closed day ranges.
-                                                      </p>
-                                                  </div>
-                                              </>
-                                          ),
-                                      },
-                                      insightProps: createInsightProps(
-                                          TileId.ACTIVE_HOURS,
-                                          ActiveHoursTab.TOTAL_EVENTS
-                                      ),
-                                  },
-                              ],
-                          }
-                        : null,
+                    {
+                        kind: 'tabs',
+                        tileId: TileId.ACTIVE_HOURS,
+                        layout: {
+                            colSpanClassName: 'md:col-span-full',
+                        },
+                        activeTabId: activeHoursTab,
+                        setTabId: actions.setActiveHoursTab,
+                        tabs: [
+                            {
+                                id: ActiveHoursTab.UNIQUE,
+                                title: 'Active Hours',
+                                linkText: 'Unique users',
+                                canOpenModal: true,
+                                canOpenInsight: !!featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT],
+                                query: {
+                                    kind: NodeKind.InsightVizNode,
+                                    source: {
+                                        kind: NodeKind.TrendsQuery,
+                                        series: [
+                                            {
+                                                kind: NodeKind.EventsNode,
+                                                event: '$pageview',
+                                                name: '$pageview',
+                                                math: BaseMathType.UniqueUsers,
+                                                properties: webAnalyticsFilters,
+                                            },
+                                        ],
+                                        dateRange,
+                                        conversionGoal,
+                                        tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                        trendsFilter: {
+                                            display: ChartDisplayType.CalendarHeatmap,
+                                        },
+                                    },
+                                },
+                                docs: {
+                                    url: 'https://posthog.com/docs/web-analytics/dashboard#active-hours',
+                                    title: 'Active hours - Unique users',
+                                    description: (
+                                        <>
+                                            <div>
+                                                <p>
+                                                    Active hours displays a heatmap showing the number of unique users
+                                                    who performed any pageview event, broken down by hour of the day and
+                                                    day of the week.
+                                                </p>
+                                                <p>
+                                                    Each cell represents the number of unique users during a specific
+                                                    hour of a specific day. The "All" column aggregates totals for each
+                                                    day, and the bottom row aggregates totals for each hour. The
+                                                    bottom-right cell shows the grand total. The displayed time is based
+                                                    on your project's date and time settings (UTC by default,
+                                                    configurable in{' '}
+                                                    <Link to={urls.settings('project', 'date-and-time')}>
+                                                        project settings
+                                                    </Link>
+                                                    ).
+                                                </p>
+                                                <p>
+                                                    <strong>Note:</strong> Selecting a time range longer than 7 days
+                                                    will include additional occurrences of weekdays and hours,
+                                                    potentially increasing the user counts in those buckets. For best
+                                                    results, select 7 closed days or multiple of 7 closed day ranges.
+                                                </p>
+                                            </div>
+                                        </>
+                                    ),
+                                },
+                                insightProps: createInsightProps(TileId.ACTIVE_HOURS, ActiveHoursTab.UNIQUE),
+                            },
+                            {
+                                id: ActiveHoursTab.TOTAL_EVENTS,
+                                title: 'Active Hours',
+                                linkText: 'Total pageviews',
+                                canOpenModal: true,
+                                canOpenInsight: !!featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT],
+                                query: {
+                                    kind: NodeKind.InsightVizNode,
+                                    source: {
+                                        kind: NodeKind.TrendsQuery,
+                                        series: [
+                                            {
+                                                kind: NodeKind.EventsNode,
+                                                event: '$pageview',
+                                                name: '$pageview',
+                                                math: BaseMathType.TotalCount,
+                                                properties: webAnalyticsFilters,
+                                            },
+                                        ],
+                                        dateRange,
+                                        conversionGoal,
+                                        trendsFilter: {
+                                            display: ChartDisplayType.CalendarHeatmap,
+                                        },
+                                        tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                    },
+                                },
+                                docs: {
+                                    url: 'https://posthog.com/docs/web-analytics/dashboard#active-hours',
+                                    title: 'Active hours - Total pageviews',
+                                    description: (
+                                        <>
+                                            <div>
+                                                <p>
+                                                    Active hours displays a heatmap showing the total number of
+                                                    pageviews, broken down by hour of the day and day of the week.
+                                                </p>
+                                                <p>
+                                                    Each cell represents the number of total pageviews during a specific
+                                                    hour of a specific day. The "All" column aggregates totals for each
+                                                    day, and the bottom row aggregates totals for each hour. The
+                                                    bottom-right cell shows the grand total. The displayed time is based
+                                                    on your project's date and time settings (UTC by default,
+                                                    configurable in{' '}
+                                                    <Link to={urls.settings('project', 'date-and-time')}>
+                                                        project settings
+                                                    </Link>
+                                                    ).
+                                                </p>
+                                                <p>
+                                                    <strong>Note:</strong> Selecting a time range longer than 7 days
+                                                    will include additional occurrences of weekdays and hours,
+                                                    potentially increasing the user counts in those buckets. For best
+                                                    results, select 7 closed days or multiple of 7 closed day ranges.
+                                                </p>
+                                            </div>
+                                        </>
+                                    ),
+                                },
+                                insightProps: createInsightProps(TileId.ACTIVE_HOURS, ActiveHoursTab.TOTAL_EVENTS),
+                            },
+                        ],
+                    },
                     // Hiding if conversionGoal is set already because values aren't representative
                     !conversionGoal
                         ? {
@@ -2475,8 +2468,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 const isPreAggregatedEnabled =
                     values.featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES] &&
                     action?.modifiers?.useWebAnalyticsPreAggregatedTables
+                const hasConversionGoalPreAggFlag =
+                    values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_PREAGG]
 
-                if (isPreAggregatedEnabled && values.conversionGoal) {
+                if (isPreAggregatedEnabled && values.conversionGoal && !hasConversionGoalPreAggFlag) {
                     actions.setConversionGoal(null)
                     lemonToast.info(
                         'Your conversion goal has been cleared as the new query engine does not support it (yet!)'

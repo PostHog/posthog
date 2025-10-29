@@ -1,14 +1,15 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconPin, IconPinFilled } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { IconPin, IconPinFilled, IconSearch } from '@posthog/icons'
+import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { personsLogic } from 'scenes/persons/personsLogic'
 
-import { getPropertyDisplayInfo, playerMetaLogic } from '../player-meta/playerMetaLogic'
+import { playerMetaLogic } from '../player-meta/playerMetaLogic'
+import { sessionRecordingPinnedPropertiesLogic } from '../player-meta/sessionRecordingPinnedPropertiesLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 
 export type PlayerSidebarEditPinnedPropertiesPopoverProps = {
@@ -23,10 +24,10 @@ export function PlayerSidebarEditPinnedPropertiesPopover(
     const { loadPerson, loadPersonUUID } = useActions(personsLogic({ syncWithUrl: false }))
     const { person, personLoading } = useValues(personsLogic({ syncWithUrl: false }))
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { allOverviewItems, pinnedProperties, sessionPlayerMetaData, recordingPropertiesById } = useValues(
-        playerMetaLogic(logicProps)
-    )
-    const { togglePropertyPin } = useActions(playerMetaLogic(logicProps))
+    const { propertySearchQuery, filteredPropertiesWithInfo } = useValues(playerMetaLogic(logicProps))
+    const { setPropertySearchQuery } = useActions(playerMetaLogic(logicProps))
+    const { pinnedProperties } = useValues(sessionRecordingPinnedPropertiesLogic)
+    const { togglePropertyPin } = useActions(sessionRecordingPinnedPropertiesLogic)
 
     useEffect(() => {
         if (props.distinctId) {
@@ -59,55 +60,61 @@ export function PlayerSidebarEditPinnedPropertiesPopover(
         )
     }
 
-    const personPropertyKeys = person.properties ? Object.keys(person.properties).sort() : []
-    const recordingPropertyKeys = allOverviewItems.map((item) =>
-        item.type === 'property' ? item.property : item.label
-    )
-
-    // Deduplicate and create a combined list
-    const allPropertyKeys = Array.from(new Set([...recordingPropertyKeys, ...personPropertyKeys])).sort()
-
     return (
-        <div className="flex flex-col overflow-hidden max-h-96 max-w-160">
+        <div className="flex flex-col overflow-hidden max-h-96 w-[400px]">
             <div className="flex items-center gap-2 px-4 py-3 border-b">
                 <IconPinFilled className="text-muted" />
                 <h4 className="font-semibold m-0">Pinned properties</h4>
             </div>
 
+            <div className="px-4 py-2 border-b">
+                <LemonInput
+                    placeholder="Search properties..."
+                    value={propertySearchQuery}
+                    onChange={setPropertySearchQuery}
+                    prefix={<IconSearch />}
+                    size="small"
+                    fullWidth
+                    autoFocus
+                />
+            </div>
+
             <ScrollableShadows direction="vertical" className="flex-1">
                 <div className="flex flex-col">
-                    {allPropertyKeys.map((propertyKey) => {
-                        const isPinned = pinnedProperties.includes(propertyKey)
-                        const recordingProperties = sessionPlayerMetaData?.id
-                            ? recordingPropertiesById[sessionPlayerMetaData?.id] || {}
-                            : {}
-                        const propertyInfo = getPropertyDisplayInfo(propertyKey, recordingProperties)
+                    {filteredPropertiesWithInfo.length === 0 ? (
+                        <div className="px-4 py-8 text-center text-muted">
+                            {propertySearchQuery.trim() ? 'No properties match your search' : 'No properties available'}
+                        </div>
+                    ) : (
+                        filteredPropertiesWithInfo.map(({ propertyKey, propertyInfo }) => {
+                            const isPinned = pinnedProperties.includes(propertyKey)
 
-                        const handleToggle = (): void => {
-                            togglePropertyPin(propertyKey)
-                        }
+                            const handleToggle = (): void => {
+                                togglePropertyPin(propertyKey)
+                            }
 
-                        return (
-                            <LemonButton
-                                key={propertyKey}
-                                data-attr={
-                                    isPinned ? 'session-overview-unpin-property' : 'session-overview-pin-property'
-                                }
-                                size="small"
-                                fullWidth
-                                className="justify-between"
-                                onClick={handleToggle}
-                                sideIcon={isPinned ? <IconPinFilled /> : <IconPin />}
-                                tooltip={
-                                    propertyInfo.label !== propertyInfo.originalKey
-                                        ? `Sent as: ${propertyInfo.originalKey}`
-                                        : undefined
-                                }
-                            >
-                                <span>{propertyInfo.label}</span>
-                            </LemonButton>
-                        )
-                    })}
+                            return (
+                                <LemonButton
+                                    key={propertyKey}
+                                    data-attr={
+                                        isPinned ? 'session-overview-unpin-property' : 'session-overview-pin-property'
+                                    }
+                                    size="small"
+                                    fullWidth
+                                    className="justify-between"
+                                    onClick={handleToggle}
+                                    sideIcon={isPinned ? <IconPinFilled /> : <IconPin />}
+                                    tooltip={
+                                        propertyInfo.label !== propertyInfo.originalKey
+                                            ? `Sent as: ${propertyInfo.originalKey}`
+                                            : undefined
+                                    }
+                                >
+                                    <span>{propertyInfo.label}</span>
+                                </LemonButton>
+                            )
+                        })
+                    )}
                 </div>
             </ScrollableShadows>
         </div>

@@ -17,7 +17,7 @@ from products.batch_exports.backend.temporal.destinations.redshift_batch_export 
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue
 from products.batch_exports.backend.temporal.temporary_file import remove_escaped_whitespace_recursive
-from products.batch_exports.backend.tests.temporal.utils import (
+from products.batch_exports.backend.tests.temporal.utils.records import (
     get_record_batch_from_queue,
     remove_duplicates_from_records,
 )

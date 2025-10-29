@@ -18,6 +18,7 @@ common-types = { path = "../common/types" }
 envconfig = { workspace = true }
 governor = { workspace = true }
 limiters = { path = "../common/limiters" }
+metrics = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }

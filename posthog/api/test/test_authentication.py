@@ -11,7 +11,7 @@ from django.conf import settings
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.core.cache import cache
-from django.test import RequestFactory
+from django.test import RequestFactory, override_settings
 from django.utils import timezone
 
 from django_otp.oath import totp
@@ -26,6 +26,7 @@ from social_django.models import UserSocialAuth
 from two_factor.utils import totp_digits
 
 from posthog.api.authentication import password_reset_token_generator, post_login, social_login_notification
+from posthog.api.test.test_oauth import generate_rsa_key
 from posthog.auth import OAuthAccessTokenAuthentication, ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
 from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
@@ -992,6 +993,29 @@ class TestTimeSensitivePermissions(APIBaseTest):
             res = self.client.get("/api/organizations/@current")
             assert res.status_code == 200
 
+    def test_user_after_timeout_modifications_require_reauthentication(self):
+        now = datetime.now()
+        with freeze_time(now):
+            res = self.client.patch("/api/users/@me", {"first_name": "new name"})
+            assert res.status_code == 200
+
+        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE - 100)):
+            res = self.client.patch("/api/users/@me", {"first_name": "new name"})
+            assert res.status_code == 200
+
+        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+            res = self.client.patch("/api/users/@me", {"first_name": "new name"})
+            assert res.status_code == 403
+            assert res.json() == {
+                "type": "authentication_error",
+                "code": "permission_denied",
+                "detail": "This action requires you to be recently authenticated.",
+                "attr": None,
+            }
+
+            res = self.client.get("/api/users/@me")
+            assert res.status_code == 200
+
 
 class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
     def setUp(self):
@@ -1107,6 +1131,12 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         self.assertEqual(user.team, self.team)
 
 
+@override_settings(
+    OAUTH2_PROVIDER={
+        **settings.OAUTH2_PROVIDER,
+        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+    }
+)
 class TestOAuthAccessTokenAuthentication(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -1126,7 +1156,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
         self.access_token = OAuthAccessToken.objects.create(
             user=self.user,
             application=self.oauth_app,
-            token="test_access_token_123",
+            token="pha_test_access_token_123",
             expires=timezone.now() + timedelta(hours=1),
             scope="openid profile",
         )
@@ -1150,21 +1180,22 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
     def test_authenticate_with_invalid_oauth_token(self):
         wsgi_request = self.factory.get(
             "/",
-            headers={"AUTHORIZATION": "Bearer invalid_token_123"},
+            headers={"AUTHORIZATION": "Bearer pha_invalid_token_123"},
         )
         request = Request(wsgi_request)
 
         authenticator = OAuthAccessTokenAuthentication()
-        result = authenticator.authenticate(request)
 
-        # Should return None for nonexistent tokens to allow next auth method
-        self.assertIsNone(result)
+        with self.assertRaises(AuthenticationFailed) as context:
+            authenticator.authenticate(request)
+
+        self.assertEqual(str(context.exception.detail), "Invalid access token.")
 
     def test_authenticate_with_expired_oauth_token(self):
         expired_token = OAuthAccessToken.objects.create(
             user=self.user,
             application=self.oauth_app,
-            token="expired_token_123",
+            token="pha_expired_token_123",
             expires=timezone.now() - timedelta(hours=1),
             scope="openid profile",
         )
@@ -1258,7 +1289,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
         invalid_token = OAuthAccessToken.objects.create(
             user=self.user,
             application=None,  # This will cause a validation error
-            token="invalid_app_token_123",
+            token="pha_invalid_app_token_123",
             expires=timezone.now() + timedelta(hours=1),
             scope="openid profile",
         )
@@ -1283,7 +1314,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
         token_without_user = OAuthAccessToken.objects.create(
             user=None,
             application=self.oauth_app,
-            token="no_user_token_123",
+            token="pha_no_user_token_123",
             expires=timezone.now() + timedelta(hours=1),
             scope="openid profile",
         )
@@ -1335,6 +1366,20 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
                 team_id=self.user.current_team_id,
                 access_method="oauth",
             )
+
+    def test_authenticate_without_pha_prefix_returns_none(self):
+        """Test that tokens without the pha_ prefix are skipped by OAuth authentication,
+        allowing PersonalAPIKeyAuthentication to handle them."""
+        wsgi_request = self.factory.get(
+            "/",
+            headers={"AUTHORIZATION": "Bearer random_token_without_prefix"},
+        )
+        request = Request(wsgi_request)
+
+        authenticator = OAuthAccessTokenAuthentication()
+        result = authenticator.authenticate(request)
+
+        self.assertIsNone(result)
 
 
 class TestOAuthLoginNotification(APIBaseTest):

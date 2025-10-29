@@ -15,7 +15,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.resolver_utils import extract_select_queries
 
 from posthog.clickhouse.client import sync_execute
@@ -107,7 +107,6 @@ def get_clickhouse_query_stats(tag_matcher: str, cohort_id: int, start_time: dat
         return None
 
     try:
-        # Query query_log_archive using tag matcher
         result = sync_execute(
             """
             SELECT
@@ -116,14 +115,14 @@ def get_clickhouse_query_stats(tag_matcher: str, cohort_id: int, start_time: dat
                 read_rows,
                 read_bytes,
                 written_rows,
-                memory_usage
+                memory_usage,
+                exception
             FROM query_log_archive
             WHERE
                 lc_cohort_id = %(cohort_id)s
                 AND team_id = %(team_id)s
                 AND query LIKE %(matcher)s
-                AND type = 'QueryFinish'
-                AND query_kind = 'Insert'
+                AND type IN ('QueryFinish', 'ExceptionWhileProcessing')
                 AND event_date >= %(start_date)s
                 AND event_time >= %(start_time)s
             ORDER BY event_time DESC
@@ -156,6 +155,7 @@ def get_clickhouse_query_stats(tag_matcher: str, cohort_id: int, start_time: dat
                 "read_bytes": sum(get_column(result, 3)),
                 "written_rows": sum(get_column(result, 4)),
                 "memory_mb": int(sum(get_column(result, 5)) / 1024 / 1024) if get_column(result, 5) else 0,
+                "exception": first_row[6] if len(first_row) > 6 else None,
             }
 
     except Exception as e:
@@ -228,7 +228,7 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
 
     # Apply HogQL global settings to ensure consistency with regular queries
     settings = HogQLGlobalSettings()
-    return print_ast(query, context=hogql_context, dialect="clickhouse", settings=settings)
+    return prepare_and_print_ast(query, context=hogql_context, dialect="clickhouse", settings=settings)[0]
 
 
 def format_static_cohort_query(cohort: Cohort, index: int, prepend: str) -> tuple[str, dict[str, Any]]:
@@ -463,23 +463,11 @@ def _recalculate_cohortpeople_for_team_hogql(cohort: Cohort, pending_version: in
         team=team, cohort=cohort, filters=cohort.properties.to_dict() if cohort.properties.values else {}
     )
 
-    estimated_size = cohort.count if cohort.count else 0
-    total_chunks = 1
-
     try:
-        total_chunks = math.ceil(estimated_size / TARGET_CHUNK_SIZE)
-        should_chunk = not cohort.is_static and cohort.properties.values and total_chunks > 1
-        if should_chunk:
-            should_chunk = posthoganalytics.feature_enabled(
-                "cohort-calculation-chunked",
-                str(team.uuid),
-                groups={"organization": str(team.organization.id)},
-                group_properties={"organization": {"id": str(team.organization.id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-
-        if should_chunk:
+        estimated_size = cohort.count if cohort.count else 0
+        chunk_size = _get_cohort_chunking_config(cohort, team.uuid, team.organization.id, estimated_size)
+        if chunk_size is not None:
+            total_chunks = max(math.ceil(estimated_size / chunk_size), 1)
             result = _recalculate_cohortpeople_chunked(cohort, pending_version, team, total_chunks, history)
         else:
             result = _recalculate_cohortpeople_standard(cohort, pending_version, team, history)
@@ -907,3 +895,58 @@ def sort_cohorts_topologically(cohort_ids: set[int], seen_cohorts_cache: dict[in
             dfs(cohort_id, seen, sorted_cohort_ids)
 
     return sorted_cohort_ids
+
+
+def _get_cohort_chunking_config(
+    cohort: Cohort, team_uuid: uuid.UUID, organization_id: int, estimated_size: int
+) -> int | None:
+    """
+    Get chunk size from feature flag, or None if chunking is disabled.
+
+    The chunk size determines how large each chunk should be when processing
+    large cohorts. If the flag is disabled or any errors occur, returns None
+    to indicate chunking should not be used.
+
+    Args:
+        cohort: The cohort being calculated
+        team_uuid: UUID of the team
+        organization_id: ID of the organization
+
+    Returns:
+        Optional[int]: chunk_size if chunking enabled (defaults to TARGET_CHUNK_SIZE),
+                       None if chunking is disabled or cohort is static or has zero estimated size
+    """
+    if cohort.is_static:
+        return None
+
+    if estimated_size == 0:
+        return None
+
+    try:
+        result = posthoganalytics.get_feature_flag_result(
+            "cohort-calculation-chunked",
+            str(team_uuid),
+            groups={"organization": str(organization_id)},
+            group_properties={"organization": {"id": str(organization_id)}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
+        if result is None or not result.enabled or result.payload is None:
+            return None
+
+        chunk_size = result.payload.get("chunk_size")
+
+        if isinstance(chunk_size, int) and chunk_size > 0:
+            return chunk_size
+
+        return TARGET_CHUNK_SIZE
+
+    except Exception as e:
+        logger.exception(
+            "Failed to retrieve cohort chunking config, disabling chunking",
+            team_uuid=str(team_uuid),
+            organization_id=organization_id,
+            error=str(e),
+        )
+        return None

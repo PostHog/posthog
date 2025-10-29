@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -8,7 +10,7 @@ from langchain_core.messages import (
 )
 from parameterized import parameterized
 
-from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
+from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, ContextMessage, HumanMessage
 
 from ee.hogai.graph.root.compaction_manager import AnthropicConversationCompactionManager
 from ee.hogai.utils.types.base import AssistantMessageUnion
@@ -58,7 +60,7 @@ class TestAnthropicConversationCompactionManager(BaseTest):
         # Set token limit that forces early stop
         # Works backwards: processes message 3 (~2 tokens), then message 2 (~250 tokens) which breaks the limit
         result = self.window_manager.find_window_boundary(messages, max_messages=10, max_tokens=100)
-        self.assertEqual(result, "2")
+        self.assertEqual(result, "3")
 
     def test_find_window_boundary_stops_at_human_or_assistant(self):
         """Test window boundary ensures it starts at human or assistant message"""
@@ -182,3 +184,378 @@ class TestAnthropicConversationCompactionManager(BaseTest):
 
         self.assertEqual(result, 1234)
         mock_model.get_num_tokens_from_messages.assert_called_once_with(messages, thinking=thinking_config, tools=None)
+
+    def test_update_window_with_large_last_tool_call_message(self):
+        """
+        Test that update_window handles a large (128k) final AssistantToolCallMessage.
+        When the last messages are too large to fit into the window, the start human message
+        should be copied to the start of the window along with the summary message.
+        """
+        # Create a very large tool call message (128k characters)
+        large_content = "x" * (128 * 1024)
+        start_id = str(uuid4())
+        summary_id = str(uuid4())
+
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(content="Initial question", id=start_id),
+            AssistantMessage(
+                content="Let me analyze that",
+                tool_calls=[
+                    AssistantToolCall(
+                        id="tool-1",
+                        name="create_and_query_insight",
+                        args={"query_description": "test"},
+                    )
+                ],
+            ),
+            AssistantToolCallMessage(
+                content=large_content,
+                tool_call_id="tool-1",
+            ),
+        ]
+
+        summary_message = ContextMessage(content="Summary of previous conversation", id=summary_id)
+
+        result = self.window_manager.update_window(messages, summary_message, start_id=start_id)
+
+        # When the window boundary is None (messages too large), we expect:
+        # - Original messages preserved
+        # - Summary message appended
+        # - Start message copied
+        # - Window start should be the summary message
+        self.assertEqual(len(result.messages), 5)
+        self.assertEqual(result.messages[0].id, start_id)
+        self.assertEqual(result.messages[-2].id, summary_id)
+        last_msg = result.messages[-1]
+        assert isinstance(last_msg, HumanMessage)  # Type narrowing
+        self.assertEqual(last_msg.content, "Initial question")
+        self.assertNotEqual(last_msg.id, start_id)
+        self.assertEqual(result.updated_start_id, last_msg.id)
+        self.assertEqual(result.updated_window_start_id, summary_id)
+
+    def test_update_window_initiator_in_window(self):
+        """
+        Test update_window when the initiator (start) human message is within the new window boundary.
+        In this case, the summary should be inserted before the start message,
+        and the window start should be updated to the found boundary.
+        """
+        start_id = str(uuid4())
+        summary_id = str(uuid4())
+
+        # Create a conversation where the start message will be in the window
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(content="Old question 1", id=str(uuid4())),
+            AssistantMessage(content="Old response 1"),
+            HumanMessage(content="Old question 2", id=str(uuid4())),
+            AssistantMessage(content="Old response 2"),
+            HumanMessage(content="Recent question", id=start_id),
+            AssistantMessage(content="Recent response"),
+        ]
+
+        summary_message = ContextMessage(content="Summary of conversation", id=summary_id)
+
+        result = self.window_manager.update_window(messages, summary_message, start_id=start_id)
+
+        # The start message is in the window, so summary should be inserted before it
+        # Find where the summary was inserted
+        summary_idx = next(i for i, msg in enumerate(result.messages) if msg.id == summary_id)
+        start_idx = next(i for i, msg in enumerate(result.messages) if msg.id == start_id)
+
+        # Summary should come before start message
+        self.assertLess(summary_idx, start_idx)
+        # Start ID should remain the same
+        self.assertEqual(result.updated_start_id, start_id)
+        # Window start should be set to a boundary candidate
+        self.assertIsNotNone(result.updated_window_start_id)
+
+    def test_update_window_initiator_not_in_window(self):
+        """
+        Test update_window when the initiator (start) human message is NOT in the new window boundary.
+        In this case, a copy of the start message should be inserted at the window start,
+        along with the summary message.
+        """
+        start_id = str(uuid4())
+        summary_id = str(uuid4())
+
+        # Create many messages to push the start message outside the window
+        # The window boundary is determined by max_messages=16 and max_tokens=2048
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(content="Initial question", id=start_id),
+            AssistantMessage(content="Initial response"),
+        ]
+
+        # Add enough messages to push start_id out of the window
+        for i in range(20):
+            messages.append(HumanMessage(content=f"Question {i}", id=str(uuid4())))
+            messages.append(AssistantMessage(content=f"Response {i}" * 50))  # Make messages larger
+
+        summary_message = ContextMessage(content="Summary", id=summary_id)
+
+        result = self.window_manager.update_window(messages, summary_message, start_id=start_id)
+
+        # The start message should NOT be in the result (only its copy)
+        start_messages = [msg for msg in result.messages if msg.id == start_id]
+        self.assertEqual(len(start_messages), 0, "Original start message should not be in result")
+
+        # Find the copied start message (same content, different ID)
+        copied_start = next(
+            (msg for msg in result.messages if isinstance(msg, HumanMessage) and msg.content == "Initial question"),
+            None,
+        )
+        self.assertIsNotNone(copied_start, "Copied start message should exist")
+        assert copied_start is not None  # Type narrowing
+        self.assertNotEqual(copied_start.id, start_id, "Copied message should have new ID")
+
+        # The copied start message should have a new ID returned
+        self.assertEqual(result.updated_start_id, copied_start.id)
+
+        # Summary and copied start should be at the beginning of the window
+        summary_idx = next(i for i, msg in enumerate(result.messages) if msg.id == summary_id)
+        self.assertEqual(result.messages[summary_idx + 1].id, copied_start.id, "Copied start should follow summary")
+
+    def test_tool_call_complete_sequence_in_window(self):
+        """
+        Test that complete tool call sequences within the window boundary are preserved.
+        When both AssistantMessage with tool_calls and AssistantToolCallMessage are in
+        the window, they should both be preserved.
+        """
+        start_id = str(uuid4())
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(content="Old message", id=str(uuid4())),
+            AssistantMessage(content="Old response"),
+            HumanMessage(content="Recent question", id=start_id),
+            AssistantMessage(
+                content="Let me check",
+                tool_calls=[
+                    AssistantToolCall(
+                        id="tool-1",
+                        name="create_and_query_insight",
+                        args={"query": "test"},
+                    )
+                ],
+            ),
+            AssistantToolCallMessage(content="Tool result", tool_call_id="tool-1"),
+            AssistantMessage(content="Final response"),
+        ]
+
+        summary_message = ContextMessage(content="Summary", id=str(uuid4()))
+
+        result = self.window_manager.update_window(messages, summary_message, start_id=start_id)
+
+        # Count tool calls in output
+        tool_call_count = 0
+        tool_result_count = 0
+        for msg in result.messages:
+            if isinstance(msg, AssistantMessage) and msg.tool_calls:
+                tool_call_count += len(msg.tool_calls)
+            elif isinstance(msg, AssistantToolCallMessage):
+                tool_result_count += 1
+
+        # All tool calls and results should be preserved
+        self.assertEqual(tool_call_count, tool_result_count, "Tool calls and results should match in output")
+        self.assertGreater(tool_call_count, 0, "Should preserve at least some tool calls")
+
+    def test_tool_call_incomplete_at_window_boundary(self):
+        """
+        Test that incomplete tool call sequences at the window boundary are handled correctly.
+        When tool call sequences are split by the window boundary, the system should maintain
+        consistency (either preserve both parts or remove both).
+        """
+        start_id = str(uuid4())
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(content="Question 1", id=str(uuid4())),
+            AssistantMessage(
+                content="",
+                tool_calls=[
+                    AssistantToolCall(
+                        id="tool-old",
+                        name="create_and_query_insight",
+                        args={"query": "old"},
+                    )
+                ],
+            ),
+            AssistantToolCallMessage(content="Result", tool_call_id="tool-old"),
+            # Add many messages to push above out of window
+            HumanMessage(content="Q2", id=str(uuid4())),
+            AssistantMessage(content="R2" * 100),
+            HumanMessage(content="Q3", id=str(uuid4())),
+            AssistantMessage(content="R3" * 100),
+            HumanMessage(content="Q4", id=str(uuid4())),
+            AssistantMessage(content="R4" * 100),
+            HumanMessage(content="Q5", id=str(uuid4())),
+            AssistantMessage(content="R5" * 100),
+            HumanMessage(content="Q6", id=start_id),
+            AssistantMessage(
+                content="",
+                tool_calls=[
+                    AssistantToolCall(
+                        id="tool-new",
+                        name="create_and_query_insight",
+                        args={"query": "new"},
+                    )
+                ],
+            ),
+            AssistantToolCallMessage(content="New result", tool_call_id="tool-new"),
+        ]
+
+        summary_message = ContextMessage(content="Summary", id=str(uuid4()))
+
+        result = self.window_manager.update_window(messages, summary_message, start_id=start_id)
+
+        # Count tool calls in output
+        tool_call_count = 0
+        tool_result_count = 0
+        for msg in result.messages:
+            if isinstance(msg, AssistantMessage) and msg.tool_calls:
+                tool_call_count += len(msg.tool_calls)
+            elif isinstance(msg, AssistantToolCallMessage):
+                tool_result_count += 1
+
+        # Even when removing incomplete sequences, remaining should be complete
+        self.assertEqual(
+            tool_call_count,
+            tool_result_count,
+            "Even when removing incomplete sequences, remaining should be complete",
+        )
+
+    def test_tool_call_multiple_complete_sequences(self):
+        """
+        Test that multiple complete tool call sequences are all preserved.
+        When there are multiple consecutive tool calls, all complete sequences
+        should be maintained in the output.
+        """
+        start_id = str(uuid4())
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(content="Question", id=start_id),
+            AssistantMessage(
+                content="",
+                tool_calls=[
+                    AssistantToolCall(
+                        id="tool-1",
+                        name="create_and_query_insight",
+                        args={"query": "first"},
+                    )
+                ],
+            ),
+            AssistantToolCallMessage(content="First result", tool_call_id="tool-1"),
+            AssistantMessage(
+                content="",
+                tool_calls=[
+                    AssistantToolCall(
+                        id="tool-2",
+                        name="create_and_query_insight",
+                        args={"query": "second"},
+                    )
+                ],
+            ),
+            AssistantToolCallMessage(content="Second result", tool_call_id="tool-2"),
+            AssistantMessage(content="Done"),
+        ]
+
+        summary_message = ContextMessage(content="Summary", id=str(uuid4()))
+
+        result = self.window_manager.update_window(messages, summary_message, start_id=start_id)
+
+        # Count tool calls in output
+        tool_call_count = 0
+        tool_result_count = 0
+        for msg in result.messages:
+            if isinstance(msg, AssistantMessage) and msg.tool_calls:
+                tool_call_count += len(msg.tool_calls)
+            elif isinstance(msg, AssistantToolCallMessage):
+                tool_result_count += 1
+
+        # All complete sequences should be preserved
+        self.assertEqual(tool_call_count, tool_result_count, "Tool calls and results should match in output")
+        self.assertEqual(tool_call_count, 2, "Should preserve both tool calls")
+
+    def test_update_window_with_empty_messages(self):
+        """Test that update_window handles edge case of empty messages list"""
+        summary_message = ContextMessage(content="Summary", id=str(uuid4()))
+
+        # This should raise ValueError because there's no start message
+        with self.assertRaises(ValueError) as context:
+            self.window_manager.update_window([], summary_message, start_id="nonexistent")
+
+        self.assertIn("Start message not found", str(context.exception))
+
+    def test_update_window_with_nonexistent_start_id(self):
+        """
+        Test that update_window handles a nonexistent start_id.
+        When start_id doesn't exist, find_start_message falls back to the first HumanMessage.
+        """
+        actual_id = str(uuid4())
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(content="Question", id=actual_id),
+            AssistantMessage(content="Response"),
+        ]
+
+        summary_message = ContextMessage(content="Summary", id=str(uuid4()))
+
+        # When start_id doesn't exist, it falls back to the first human message
+        result = self.window_manager.update_window(messages, summary_message, start_id="nonexistent-id")
+
+        # The first human message should be used as the start message
+        self.assertIsNotNone(result)
+        # The actual_id message should be found and used
+        found_actual_id = any(msg.id == actual_id for msg in result.messages)
+        self.assertTrue(found_actual_id, "Should fall back to first human message when start_id not found")
+
+    def test_update_window_preserves_message_ids(self):
+        """Test that all messages in the result have valid IDs"""
+        start_id = str(uuid4())
+        summary_id = str(uuid4())
+
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(content="Question", id=start_id),
+            AssistantMessage(content="Response", id=str(uuid4())),
+        ]
+
+        summary_message = ContextMessage(content="Summary", id=summary_id)
+
+        result = self.window_manager.update_window(messages, summary_message, start_id=start_id)
+
+        # Verify all messages have IDs
+        for msg in result.messages:
+            self.assertIsNotNone(msg.id, f"Message should have an ID: {msg}")
+            self.assertIsInstance(msg.id, str, f"Message ID should be a string: {msg.id}")
+
+    def test_update_window_with_no_window_boundary(self):
+        """Test update_window when messages are too large to fit in window"""
+        start_id = str(uuid4())
+        summary_id = str(uuid4())
+
+        # Create messages with large content that will exceed the window
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(content="Question", id=start_id),
+            AssistantMessage(content="x" * 10000),  # Large message
+        ]
+
+        summary_message = ContextMessage(content="Summary", id=summary_id)
+
+        result = self.window_manager.update_window(messages, summary_message, start_id=start_id)
+
+        # When there's no window boundary, the summary and copied start message are appended
+        self.assertEqual(len(result.messages), 4)  # original 2 + summary + copied start
+        self.assertEqual(result.messages[-2].id, summary_id)
+        self.assertEqual(result.updated_window_start_id, summary_id)
+        # Updated start ID should be the copied message
+        self.assertNotEqual(result.updated_start_id, start_id)
+
+    def test_update_window_single_message_conversation(self):
+        """Test update_window with a minimal single-message conversation"""
+        start_id = str(uuid4())
+        summary_id = str(uuid4())
+
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(content="Question", id=start_id),
+        ]
+
+        summary_message = ContextMessage(content="Summary", id=summary_id)
+
+        result = self.window_manager.update_window(messages, summary_message, start_id=start_id)
+
+        # Should insert summary before the start message
+        self.assertGreater(len(result.messages), 1)
+        summary_idx = next(i for i, msg in enumerate(result.messages) if msg.id == summary_id)
+        self.assertIsNotNone(summary_idx)

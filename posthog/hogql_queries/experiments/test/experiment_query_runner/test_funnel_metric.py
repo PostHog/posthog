@@ -2145,3 +2145,117 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         # Verify that the 10 users exposed only to other_flag are NOT included
         # Total exposures should be 31 (13 control + 13 test + 5 both), NOT 41 (if other_flag users were included)
+
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_funnel_metric_excludes_events_after_experiment_end_date(self, name, use_new_query_builder):
+        """Test that funnel metric events after experiment end_date are excluded from results"""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 2),
+            end_date=datetime(2024, 1, 10),
+        )
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        # Control: 8 users complete within window (success), 5 complete after window (should be failure)
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2024-01-03T12:00:00Z",  # Within experiment window
+                properties={
+                    "$feature_flag_response": "control",
+                    ff_property: "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+
+            if i < 8:  # First 8 complete within window
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2024-01-05T12:00:00Z",  # Within window
+                    properties={ff_property: "control"},
+                )
+            else:  # Last 5 complete after window
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2024-01-15T12:00:00Z",  # After end_date
+                    properties={ff_property: "control"},
+                )
+
+        # Test: 6 users complete within window (success), 7 complete after window (should be failure)
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2024-01-03T12:00:00Z",  # Within experiment window
+                properties={
+                    "$feature_flag_response": "test",
+                    ff_property: "test",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+
+            if i < 6:  # First 6 complete within window
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2024-01-05T12:00:00Z",  # Within window
+                    properties={ff_property: "test"},
+                )
+            else:  # Last 7 complete after window
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2024-01-15T12:00:00Z",  # After end_date
+                    properties={ff_property: "test"},
+                )
+
+        flush_persons_and_events()
+
+        metric = ExperimentFunnelMetric(
+            series=[
+                EventsNode(event="purchase"),
+            ],
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
+
+        # Only events within experiment window should count as successes
+        self.assertEqual(control_variant.sum, 8)
+        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 5)
+        self.assertEqual(test_variant.sum, 6)
+        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)

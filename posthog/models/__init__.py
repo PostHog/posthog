@@ -36,6 +36,7 @@ from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
 from .surveys.survey import Survey
 from .file_system.file_system import FileSystem
+from .file_system.file_system_view_log import FileSystemViewLog
 from .filters import Filter, RetentionFilter
 from .group import Group
 from .group_usage_metric import GroupUsageMetric
@@ -120,6 +121,7 @@ __all__ = [
     "ExportedAsset",
     "FeatureFlag",
     "FileSystem",
+    "FileSystemViewLog",
     "Filter",
     "Group",
     "GroupUsageMetric",

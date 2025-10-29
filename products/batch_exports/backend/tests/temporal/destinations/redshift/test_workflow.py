@@ -30,7 +30,7 @@ from products.batch_exports.backend.tests.temporal.destinations.redshift.utils i
     assert_clickhouse_records_in_redshift,
     delete_all_from_s3_prefix,
 )
-from products.batch_exports.backend.tests.temporal.utils import mocked_start_batch_export_run
+from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
 
 pytestmark = [
     pytest.mark.asyncio,
