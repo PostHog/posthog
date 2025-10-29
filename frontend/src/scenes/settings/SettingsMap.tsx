@@ -714,7 +714,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'organization-ip-anonymization-default',
                 title: 'IP data capture default',
                 description:
-                    'When enabled, new environments will automatically have "Discard client IP data" turned on. This is recommended for GDPR compliance. Existing environments are not affected.',
+                    'When enabled, new projects will automatically have "Discard client IP data" turned on. This is recommended for GDPR compliance. Existing projects are not affected.',
                 component: <OrgIPAnonymizationDefault />,
             },
         ],
