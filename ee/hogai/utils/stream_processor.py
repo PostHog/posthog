@@ -49,6 +49,24 @@ class AssistantStreamProcessor:
     _chunks: AIMessageChunk
     """Tracks the current message chunk."""
 
+    def __init__(
+        self,
+        streaming_nodes: set[MaxNodeName],
+        visualization_nodes: dict[MaxNodeName, type],
+    ):
+        """
+        Initialize the stream processor with node configuration.
+
+        Args:
+            streaming_nodes: Nodes that produce streaming messages
+            visualization_nodes: Nodes that produce visualization messages
+        """
+        self._streaming_nodes = streaming_nodes
+        self._visualization_nodes = visualization_nodes
+        self._tool_call_id_to_message = {}
+        self._streamed_update_ids = set()
+        self._chunks = AIMessageChunk(content="")
+
     def process(self, event: AssistantDispatcherEvent) -> AssistantResultUnion | None:
         """
         Reduce streamed actions to client messages.
@@ -74,24 +92,6 @@ class AssistantStreamProcessor:
             return (
                 result if result is not None else AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK)
             )
-
-    def __init__(
-        self,
-        streaming_nodes: set[MaxNodeName],
-        visualization_nodes: dict[MaxNodeName, type],
-    ):
-        """
-        Initialize the stream processor with node configuration.
-
-        Args:
-            streaming_nodes: Nodes that produce streaming messages
-            visualization_nodes: Nodes that produce visualization messages
-        """
-        self._streaming_nodes = streaming_nodes
-        self._visualization_nodes = visualization_nodes
-        self._tool_call_id_to_message = {}
-        self._streamed_update_ids = set()
-        self._chunks = AIMessageChunk(content="")
 
     def _find_parent_ids(self, message: AssistantMessage) -> tuple[str | None, str | None]:
         """
