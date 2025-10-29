@@ -530,8 +530,8 @@ class CohortSerializer(serializers.ModelSerializer):
                 validated_data["filters"], team, current_cohort_type=validated_data.get("cohort_type")
             )
             validated_data["filters"] = clean_filters
-            if computed_cohort_type is not None:
-                validated_data["cohort_type"] = computed_cohort_type
+            # Always assign, including None to clear stale values when filters become unsupported
+            validated_data["cohort_type"] = computed_cohort_type
             validated_data["compiled_bytecode"] = compiled_bytecode
 
         person_ids = validated_data.pop("_create_static_person_ids", None)
@@ -829,7 +829,9 @@ class CohortSerializer(serializers.ModelSerializer):
                     filters, cohort.team, current_cohort_type=cohort.cohort_type
                 )
                 cohort.filters = clean_filters
-                cohort.cohort_type = computed_cohort_type
+                # Only override cohort_type from computation if not explicitly provided in this update
+                if "cohort_type" not in validated_data:
+                    cohort.cohort_type = computed_cohort_type
                 cohort.compiled_bytecode = compiled_bytecode
             else:
                 cohort.filters = filters
