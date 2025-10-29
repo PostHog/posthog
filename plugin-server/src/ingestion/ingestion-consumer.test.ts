@@ -92,6 +92,7 @@ const createIncomingEventsWithTeam = (events: PipelineEvent[], team: Team): Inco
                 token: e.token || '',
                 distinct_id: e.distinct_id || '',
                 force_disable_person_processing: false,
+                historical_migration: false,
             },
         })
     )
@@ -712,6 +713,7 @@ describe('IngestionConsumer', () => {
                         distinct_id: event.distinct_id || '',
                         timestamp: (Date.now() + index * 1000).toString(),
                         force_disable_person_processing: false,
+                        historical_migration: false,
                     },
                 }
             })

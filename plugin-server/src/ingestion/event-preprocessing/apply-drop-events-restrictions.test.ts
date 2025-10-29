@@ -1,4 +1,4 @@
-import { EventHeaders } from '../../types'
+import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
 import { drop, ok } from '../pipelines/results'
 import { createApplyDropRestrictionsStep } from './apply-drop-events-restrictions'
@@ -19,11 +19,10 @@ describe('createApplyDropRestrictionsStep', () => {
     it('should return success when token is present and not dropped', async () => {
         const input = {
             message: {} as any,
-            headers: {
+            headers: createTestEventHeaders({
                 token: 'valid-token-123',
                 distinct_id: 'user-456',
-                force_disable_person_processing: false,
-            },
+            }),
         }
         jest.mocked(eventIngestionRestrictionManager.shouldDropEvent).mockReturnValue(false)
 
@@ -36,11 +35,10 @@ describe('createApplyDropRestrictionsStep', () => {
     it('should return drop when token is present but should be dropped', async () => {
         const input = {
             message: {} as any,
-            headers: {
+            headers: createTestEventHeaders({
                 token: 'blocked-token-abc',
                 distinct_id: 'blocked-user-def',
-                force_disable_person_processing: false,
-            },
+            }),
         }
         jest.mocked(eventIngestionRestrictionManager.shouldDropEvent).mockReturnValue(true)
 
@@ -56,7 +54,7 @@ describe('createApplyDropRestrictionsStep', () => {
     it('should handle undefined headers', async () => {
         const input = {
             message: {} as any,
-            headers: {} as EventHeaders,
+            headers: createTestEventHeaders(),
         }
         jest.mocked(eventIngestionRestrictionManager.shouldDropEvent).mockReturnValue(false)
 
@@ -69,9 +67,7 @@ describe('createApplyDropRestrictionsStep', () => {
     it('should handle empty headers', async () => {
         const input = {
             message: {} as any,
-            headers: {
-                force_disable_person_processing: false,
-            },
+            headers: createTestEventHeaders(),
         }
         jest.mocked(eventIngestionRestrictionManager.shouldDropEvent).mockReturnValue(false)
 
