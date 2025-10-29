@@ -6,7 +6,7 @@ use std::fs;
 use std::path::Path;
 use tracing::info;
 
-use crate::utils::{auth::load_token, client::get_client};
+use crate::invocation_context::context;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct SchemaConfig {
@@ -16,15 +16,15 @@ struct SchemaConfig {
     output_paths: HashMap<String, String>,
 }
 
-pub fn pull(host: Option<String>, output_override: Option<String>) -> Result<()> {
+pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()> {
     // Select language
     let language = select_language()?;
 
     info!("Fetching {} definitions from PostHog...", language_display_name(&language));
 
     // Load credentials
-    let token = load_token()?;
-    let host = token.get_host(host.as_deref());
+    let token = context().token.clone();
+    let host = token.get_host();
 
     // Determine output path
     let output_path = determine_output_path(&language, output_override)?;
@@ -140,22 +140,15 @@ pub fn status() -> Result<()> {
     println!("\nPostHog Schema Sync Status\n");
 
     println!("Authentication:");
-    match load_token() {
-        Ok(token) => {
-            println!("  ✓ Authenticated");
-            println!("  Host: {}", token.get_host(None));
-            println!("  Project ID: {}", token.env_id);
-            let masked_token = format!("{}****{}",
-                                       &token.token[..4],
-                                       &token.token[token.token.len()-4..]
-            );
-            println!("  Token: {}", masked_token);
-        }
-        Err(_) => {
-            println!("  ✗ Not authenticated");
-            println!("  Run: posthog-cli login");
-        }
-    }
+    let token = context().token.clone();
+    println!("  ✓ Authenticated");
+    println!("  Host: {}", token.get_host());
+    println!("  Project ID: {}", token.env_id);
+    let masked_token = format!("{}****{}",
+                               &token.token[..4],
+                               &token.token[token.token.len()-4..]
+    );
+    println!("  Token: {}", masked_token);
 
     println!();
 
@@ -208,7 +201,7 @@ pub fn status() -> Result<()> {
 fn fetch_typescript_definitions(host: &str, env_id: &str, token: &str) -> Result<String> {
     let url = format!("{}/api/projects/{}/event_definitions/typescript/", host, env_id);
 
-    let client = get_client()?;
+    let client = &context().client;
     let response = client
         .get(&url)
         .bearer_auth(token)
