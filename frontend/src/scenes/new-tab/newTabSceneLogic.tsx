@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -87,13 +87,19 @@ export interface NewTabCategoryItem {
     description?: string
 }
 
+export interface CategoryWithItems {
+    key: NEW_TAB_CATEGORY_ITEMS
+    items: NewTabTreeDataItem[]
+    isLoading: boolean
+}
+
 const INITIAL_SECTION_LIMIT = 5
 const SINGLE_CATEGORY_SECTION_LIMIT = 15
 const INITIAL_RECENTS_LIMIT = 5
 const PAGINATION_LIMIT = 10
 const GROUP_SEARCH_LIMIT = 5
 
-export type NewTabSearchDataset = 'recents' | 'persons' | 'eventDefinitions' | 'propertyDefinitions'
+export type NewTabSearchDataset = 'recents' | 'persons' | 'groups' | 'eventDefinitions' | 'propertyDefinitions'
 
 function getIconForFileSystemItem(fs: FileSystemImport): JSX.Element {
     // If the item has a direct icon property, use it with color wrapper
@@ -367,12 +373,26 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             {
                 loadGroupSearchResults: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
                     const trimmed = searchTerm.trim()
+
                     if (trimmed === '') {
+                        actions.setFirstNoResultsSearchPrefix('groups', null)
+                        return {}
+                    }
+
+                    const noResultsPrefix = values.firstNoResultsSearchPrefixes.groups
+
+                    if (
+                        trimmed &&
+                        noResultsPrefix &&
+                        trimmed.length > noResultsPrefix.length &&
+                        trimmed.startsWith(noResultsPrefix)
+                    ) {
                         return {}
                     }
 
                     const groupTypesList = Array.from(values.groupTypes.values())
                     if (groupTypesList.length === 0) {
+                        actions.setFirstNoResultsSearchPrefix('groups', null)
                         return {}
                     }
 
@@ -390,12 +410,21 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                     breakpoint()
 
-                    return Object.fromEntries(
-                        responses.map((response, index) => [
-                            groupTypesList[index].group_type_index,
-                            response.results.slice(0, GROUP_SEARCH_LIMIT),
-                        ])
-                    ) as Record<GroupTypeIndex, Group[]>
+                    const resultEntries = responses.map((response, index) => [
+                        groupTypesList[index].group_type_index,
+                        (response.results ?? []).slice(0, GROUP_SEARCH_LIMIT),
+                    ]) as [GroupTypeIndex, Group[]][]
+
+                    const combinedResultsCount = resultEntries.reduce(
+                        (count, [, groupResults]) => count + groupResults.length,
+                        0
+                    )
+
+                    if (trimmed && combinedResultsCount === 0) {
+                        actions.setFirstNoResultsSearchPrefix('groups', trimmed)
+                    }
+
+                    return Object.fromEntries(resultEntries) as Record<GroupTypeIndex, Group[]>
                 },
                 loadInitialGroups: async (_, breakpoint) => {
                     const groupTypesList = Array.from(values.groupTypes.values())
@@ -416,6 +445,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     )
 
                     breakpoint()
+
+                    actions.setFirstNoResultsSearchPrefix('groups', null)
 
                     return Object.fromEntries(
                         responses.map((response, index) => [
@@ -530,6 +561,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             {
                 recents: null,
                 persons: null,
+                groups: null,
                 eventDefinitions: null,
                 propertyDefinitions: null,
             } as Record<NewTabSearchDataset, string | null>,
@@ -543,6 +575,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         return {
                             recents: null,
                             persons: null,
+                            groups: null,
                             eventDefinitions: null,
                             propertyDefinitions: null,
                         }
@@ -671,6 +704,41 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     groupSearchResultsLoading ||
                     groupSearchPending) &&
                 search.trim() !== '',
+        ],
+        categoryLoadingStates: [
+            (s) => [
+                s.recentsLoading,
+                s.personSearchResultsLoading,
+                s.personSearchPending,
+                s.eventDefinitionSearchResultsLoading,
+                s.eventDefinitionSearchPending,
+                s.propertyDefinitionSearchResultsLoading,
+                s.propertyDefinitionSearchPending,
+                s.groupSearchResultsLoading,
+                s.groupSearchPending,
+            ],
+            (
+                recentsLoading: boolean,
+                personSearchResultsLoading: boolean,
+                personSearchPending: boolean,
+                eventDefinitionSearchResultsLoading: boolean,
+                eventDefinitionSearchPending: boolean,
+                propertyDefinitionSearchResultsLoading: boolean,
+                propertyDefinitionSearchPending: boolean,
+                groupSearchResultsLoading: boolean,
+                groupSearchPending: boolean
+            ): Record<NEW_TAB_CATEGORY_ITEMS, boolean> => ({
+                all: false,
+                'create-new': false,
+                apps: false,
+                'data-management': false,
+                recents: recentsLoading,
+                persons: personSearchResultsLoading || personSearchPending,
+                groups: groupSearchResultsLoading || groupSearchPending,
+                eventDefinitions: eventDefinitionSearchResultsLoading || eventDefinitionSearchPending,
+                propertyDefinitions: propertyDefinitionSearchResultsLoading || propertyDefinitionSearchPending,
+                askAI: false,
+            }),
         ],
         projectTreeSearchItems: [
             (s) => [s.recents],
@@ -1148,28 +1216,34 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 // Check if "all" is selected
                 const showAll = newTabSceneDataInclude.includes('all')
 
+                const filteredPersonItems = filterBySearch(personSearchItems)
+                const filteredGroupItems = filterBySearch(groupSearchItems)
+                const filteredEventDefinitionItems = filterBySearch(eventDefinitionSearchItems)
+                const filteredPropertyDefinitionItems = filterBySearch(propertyDefinitionSearchItems)
+                const filteredAiSearchItems = filterBySearch(aiSearchItems)
+
                 // Group items by category and filter based on what's selected
                 const grouped: Record<string, NewTabTreeDataItem[]> = {}
 
                 // Add persons section if filter is enabled
                 if (showAll || newTabSceneDataInclude.includes('persons')) {
                     const limit = getSectionItemLimit('persons')
-                    grouped['persons'] = personSearchItems.slice(0, limit)
+                    grouped['persons'] = filteredPersonItems.slice(0, limit)
                 }
                 if (showAll || newTabSceneDataInclude.includes('groups')) {
                     const limit = getSectionItemLimit('groups')
-                    grouped['groups'] = groupSearchItems.slice(0, limit)
+                    grouped['groups'] = filteredGroupItems.slice(0, limit)
                 }
                 // Add event definitions section if filter is enabled
                 if (showAll || newTabSceneDataInclude.includes('eventDefinitions')) {
                     const limit = getSectionItemLimit('eventDefinitions')
-                    grouped['eventDefinitions'] = eventDefinitionSearchItems.slice(0, limit)
+                    grouped['eventDefinitions'] = filteredEventDefinitionItems.slice(0, limit)
                 }
 
                 // Add property definitions section if filter is enabled
                 if (showAll || newTabSceneDataInclude.includes('propertyDefinitions')) {
                     const limit = getSectionItemLimit('propertyDefinitions')
-                    grouped['propertyDefinitions'] = propertyDefinitionSearchItems.slice(0, limit)
+                    grouped['propertyDefinitions'] = filteredPropertyDefinitionItems.slice(0, limit)
                 }
 
                 // Add each category only if it's selected or if "all" is selected
@@ -1183,8 +1257,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 if (showAll || newTabSceneDataInclude.includes('apps')) {
                     const limit = getSectionItemLimit('apps')
                     grouped['apps'] = sortByLastViewedAt(
-                        filterBySearch(itemsGrid.filter((item) => item.category === 'apps')).slice(0, limit)
-                    )
+                        filterBySearch(itemsGrid.filter((item) => item.category === 'apps'))
+                    ).slice(0, limit)
                 }
 
                 if (showAll || newTabSceneDataInclude.includes('data-management')) {
@@ -1205,7 +1279,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 // Add AI section if filter is enabled
                 if (showAll || newTabSceneDataInclude.includes('askAI')) {
                     const limit = getSectionItemLimit('askAI')
-                    grouped['askAI'] = aiSearchItems.slice(0, limit)
+                    grouped['askAI'] = filteredAiSearchItems.slice(0, limit)
                 }
 
                 return grouped
@@ -1257,24 +1331,30 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 // Check if "all" is selected
                 const showAll = newTabSceneDataInclude.includes('all')
 
+                const filteredPersonItems = filterBySearch(personSearchItems)
+                const filteredGroupItems = filterBySearch(groupSearchItems)
+                const filteredEventDefinitionItems = filterBySearch(eventDefinitionSearchItems)
+                const filteredPropertyDefinitionItems = filterBySearch(propertyDefinitionSearchItems)
+                const filteredAiSearchItems = filterBySearch(aiSearchItems)
+
                 // Track full counts for each section
                 const fullCounts: Record<string, number> = {}
 
                 // Add persons section if filter is enabled
                 if (showAll || newTabSceneDataInclude.includes('persons')) {
-                    fullCounts['persons'] = personSearchItems.length
+                    fullCounts['persons'] = filteredPersonItems.length
                 }
                 if (showAll || newTabSceneDataInclude.includes('groups')) {
-                    fullCounts['groups'] = groupSearchItems.length
+                    fullCounts['groups'] = filteredGroupItems.length
                 }
                 // Add event definitions section if filter is enabled
                 if (showAll || newTabSceneDataInclude.includes('eventDefinitions')) {
-                    fullCounts['eventDefinitions'] = eventDefinitionSearchItems.length
+                    fullCounts['eventDefinitions'] = filteredEventDefinitionItems.length
                 }
 
                 // Add property definitions section if filter is enabled
                 if (showAll || newTabSceneDataInclude.includes('propertyDefinitions')) {
-                    fullCounts['propertyDefinitions'] = propertyDefinitionSearchItems.length
+                    fullCounts['propertyDefinitions'] = filteredPropertyDefinitionItems.length
                 }
 
                 // Add each category only if it's selected or if "all" is selected
@@ -1302,24 +1382,39 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                 // Add AI section if filter is enabled
                 if (showAll || newTabSceneDataInclude.includes('askAI')) {
-                    fullCounts['askAI'] = aiSearchItems.length
+                    fullCounts['askAI'] = filteredAiSearchItems.length
                 }
 
                 return fullCounts
             },
         ],
         allCategories: [
-            (s) => [s.featureFlags, s.groupedFilteredItems, s.newTabSceneDataGroupedItems, s.newTabSceneDataInclude],
+            (s) => [
+                s.featureFlags,
+                s.groupedFilteredItems,
+                s.newTabSceneDataGroupedItems,
+                s.newTabSceneDataInclude,
+                s.categoryLoadingStates,
+                s.search,
+                s.firstNoResultsSearchPrefixes,
+            ],
             (
                 featureFlags: any,
                 groupedFilteredItems: Record<string, NewTabTreeDataItem[]>,
                 newTabSceneDataGroupedItems: Record<string, NewTabTreeDataItem[]>,
-                newTabSceneDataInclude: NEW_TAB_COMMANDS[]
-            ): Array<[string, NewTabTreeDataItem[]]> => {
+                newTabSceneDataInclude: NEW_TAB_COMMANDS[],
+                categoryLoadingStates: Record<NEW_TAB_CATEGORY_ITEMS, boolean>,
+                search: string,
+                firstNoResultsSearchPrefixes: Record<NewTabSearchDataset, string | null>
+            ): CategoryWithItems[] => {
                 const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
 
                 if (!newTabSceneData) {
-                    return Object.entries(groupedFilteredItems)
+                    return Object.entries(groupedFilteredItems).map(([key, items]) => ({
+                        key: key as NEW_TAB_CATEGORY_ITEMS,
+                        items,
+                        isLoading: categoryLoadingStates[key as NEW_TAB_CATEGORY_ITEMS] || false,
+                    }))
                 }
 
                 const orderedSections: string[] = []
@@ -1348,29 +1443,68 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     orderedSections.push('askAI')
                 }
 
-                return orderedSections
-                    .map(
-                        (section) =>
-                            [section, newTabSceneDataGroupedItems[section] || []] as [string, NewTabTreeDataItem[]]
+                const trimmedSearch = search.trim()
+                const hasPrefixNoResults = (dataset: NewTabSearchDataset): boolean => {
+                    const prefix = firstNoResultsSearchPrefixes[dataset]
+                    return (
+                        !!prefix &&
+                        trimmedSearch !== '' &&
+                        trimmedSearch.length > prefix.length &&
+                        trimmedSearch.startsWith(prefix)
                     )
-                    .filter(([, items]) => {
-                        // If include is NOT 'all', keep all enabled sections visible (even when empty)
-                        if (!showAll) {
-                            return true
-                        }
+                }
 
-                        // If include is 'all', hide empty sections
-                        return items.length > 0
+                const categories = orderedSections
+                    .map((section) => {
+                        const key = section as NEW_TAB_CATEGORY_ITEMS
+                        const items = newTabSceneDataGroupedItems[section] || []
+                        const isLoading = categoryLoadingStates[key] || false
+                        const shouldHideForPrefix =
+                            (key === 'recents' && hasPrefixNoResults('recents')) ||
+                            (key === 'persons' && hasPrefixNoResults('persons')) ||
+                            (key === 'eventDefinitions' && hasPrefixNoResults('eventDefinitions')) ||
+                            (key === 'propertyDefinitions' && hasPrefixNoResults('propertyDefinitions'))
+
+                        return {
+                            key,
+                            items,
+                            isLoading: shouldHideForPrefix ? false : isLoading,
+                            shouldHideForPrefix,
+                        }
                     })
+                    .filter(({ items, isLoading, shouldHideForPrefix }) => {
+                        if (showAll) {
+                            if (shouldHideForPrefix) {
+                                return false
+                            }
+                            return items.length > 0 || isLoading
+                        }
+                        return true
+                    })
+                    .map(({ shouldHideForPrefix, ...rest }) => rest)
+
+                const [categoriesWithResults, emptyCategories] = categories.reduce(
+                    (acc, category) => {
+                        if (category.items.length === 0) {
+                            acc[1].push(category)
+                        } else {
+                            acc[0].push(category)
+                        }
+                        return acc
+                    },
+                    [[], []] as [CategoryWithItems[], CategoryWithItems[]]
+                )
+
+                return [...categoriesWithResults, ...emptyCategories]
             },
         ],
         firstCategoryWithResults: [
             (s) => [s.allCategories],
-            (allCategories: Array<[string, NewTabTreeDataItem[]]>): string | null => {
-                for (const [category, items] of allCategories) {
+            (allCategories: CategoryWithItems[]): string | null => {
+                for (const { key, items } of allCategories) {
                     // Check if any category has items
                     if (items.length > 0) {
-                        return category
+                        return key
                     }
                 }
 
@@ -1476,44 +1610,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             }
         },
         setSearch: () => {
-            const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
-
             actions.loadRecents()
-
-            // For newTabSceneData mode, trigger searches for included items
-            if (newTabSceneData) {
-                const searchTerm = values.search.trim()
-
-                // Expand 'all' to include all data types
-                const itemsToProcess = values.newTabSceneDataInclude.includes('all')
-                    ? ['persons', 'groups', 'eventDefinitions', 'propertyDefinitions', 'askAI']
-                    : values.newTabSceneDataInclude
-
-                itemsToProcess.forEach((item) => {
-                    if (searchTerm !== '') {
-                        if (item === 'persons') {
-                            actions.debouncedPersonSearch(searchTerm)
-                        } else if (item === 'groups') {
-                            actions.debouncedGroupSearch(searchTerm)
-                        } else if (item === 'eventDefinitions') {
-                            actions.debouncedEventDefinitionSearch(searchTerm)
-                        } else if (item === 'propertyDefinitions') {
-                            actions.debouncedPropertyDefinitionSearch(searchTerm)
-                        }
-                    } else {
-                        // Load initial data when no search term
-                        if (item === 'persons') {
-                            actions.loadInitialPersons({})
-                        } else if (item === 'groups') {
-                            actions.loadInitialGroups()
-                        } else if (item === 'eventDefinitions') {
-                            actions.loadInitialEventDefinitions({})
-                        } else if (item === 'propertyDefinitions') {
-                            actions.loadInitialPropertyDefinitions({})
-                        }
-                    }
-                })
-            }
+            actions.triggerSearchForIncludedItems()
         },
         toggleNewTabSceneDataInclude: ({ item }) => {
             const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
@@ -1549,24 +1647,23 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             actions.triggerSearchForIncludedItems()
         },
         debouncedPersonSearch: async ({ searchTerm }, breakpoint) => {
-            // Debounce for 300ms
+            // Manually trigger the search and handle the result
+            const trimmed = searchTerm.trim()
+            const noResultsPrefix = values.firstNoResultsSearchPrefixes.persons
+
+            if (
+                trimmed &&
+                noResultsPrefix &&
+                trimmed.length > noResultsPrefix.length &&
+                trimmed.startsWith(noResultsPrefix)
+            ) {
+                actions.loadPersonSearchResultsSuccess([])
+                return
+            }
+
             await breakpoint(300)
 
             try {
-                // Manually trigger the search and handle the result
-                const trimmed = searchTerm.trim()
-                const noResultsPrefix = values.firstNoResultsSearchPrefixes.persons
-
-                if (
-                    trimmed &&
-                    noResultsPrefix &&
-                    trimmed.length > noResultsPrefix.length &&
-                    trimmed.startsWith(noResultsPrefix)
-                ) {
-                    actions.loadPersonSearchResultsSuccess([])
-                    return
-                }
-
                 const response = await api.persons.list({ search: trimmed, limit: 5 })
                 breakpoint()
 
@@ -1575,33 +1672,34 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 if (trimmed) {
                     actions.setFirstNoResultsSearchPrefix('persons', response.results.length === 0 ? trimmed : null)
                 }
-            } catch (error) {
-                console.error('Person search failed:', error)
-                actions.loadPersonSearchResultsFailure(error as string)
+            } catch (error: any) {
+                if (!isBreakpoint(error)) {
+                    console.error('Person search failed:', error)
+                    actions.loadPersonSearchResultsFailure(error as string)
+                }
             }
         },
         debouncedEventDefinitionSearch: async ({ searchTerm }, breakpoint) => {
+            const trimmed = searchTerm.trim()
+            const noResultsPrefix = values.firstNoResultsSearchPrefixes.eventDefinitions
+
+            if (
+                trimmed &&
+                noResultsPrefix &&
+                trimmed.length > noResultsPrefix.length &&
+                trimmed.startsWith(noResultsPrefix)
+            ) {
+                actions.loadEventDefinitionSearchResultsSuccess([])
+                return
+            }
             await breakpoint(300)
 
             try {
-                const trimmed = searchTerm.trim()
-                const noResultsPrefix = values.firstNoResultsSearchPrefixes.eventDefinitions
-
-                if (
-                    trimmed &&
-                    noResultsPrefix &&
-                    trimmed.length > noResultsPrefix.length &&
-                    trimmed.startsWith(noResultsPrefix)
-                ) {
-                    actions.loadEventDefinitionSearchResultsSuccess([])
-                    return
-                }
-
                 const response = await api.eventDefinitions.list({
                     search: trimmed,
                     limit: 5,
                 })
-
+                breakpoint()
                 actions.loadEventDefinitionSearchResultsSuccess(response.results ?? [])
                 if (trimmed) {
                     actions.setFirstNoResultsSearchPrefix(
@@ -1609,33 +1707,32 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         (response.results ?? []).length === 0 ? trimmed : null
                     )
                 }
-            } catch (error) {
-                console.error('Event definition search failed:', error)
-                actions.loadEventDefinitionSearchResultsFailure(error as string)
+            } catch (error: any) {
+                if (!isBreakpoint(error)) {
+                    console.error('Event definition search failed:', error)
+                    actions.loadEventDefinitionSearchResultsFailure(error as string)
+                }
             }
         },
         debouncedPropertyDefinitionSearch: async ({ searchTerm }, breakpoint) => {
+            const trimmed = searchTerm.trim()
+            const noResultsPrefix = values.firstNoResultsSearchPrefixes.propertyDefinitions
+            if (
+                trimmed &&
+                noResultsPrefix &&
+                trimmed.length > noResultsPrefix.length &&
+                trimmed.startsWith(noResultsPrefix)
+            ) {
+                actions.loadPropertyDefinitionSearchResultsSuccess([])
+                return
+            }
             await breakpoint(300)
-
             try {
-                const trimmed = searchTerm.trim()
-                const noResultsPrefix = values.firstNoResultsSearchPrefixes.propertyDefinitions
-
-                if (
-                    trimmed &&
-                    noResultsPrefix &&
-                    trimmed.length > noResultsPrefix.length &&
-                    trimmed.startsWith(noResultsPrefix)
-                ) {
-                    actions.loadPropertyDefinitionSearchResultsSuccess([])
-                    return
-                }
-
                 const response = await api.propertyDefinitions.list({
                     search: trimmed,
                     limit: 5,
                 })
-
+                breakpoint()
                 actions.loadPropertyDefinitionSearchResultsSuccess(response.results ?? [])
                 if (trimmed) {
                     actions.setFirstNoResultsSearchPrefix(
@@ -1643,14 +1740,27 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         (response.results ?? []).length === 0 ? trimmed : null
                     )
                 }
-            } catch (error) {
-                console.error('Property definition search failed:', error)
-                actions.loadPropertyDefinitionSearchResultsFailure(error as string)
+            } catch (error: any) {
+                if (!isBreakpoint(error)) {
+                    console.error('Property definition search failed:', error)
+                    actions.loadPropertyDefinitionSearchResultsFailure(error as string)
+                }
             }
         },
         debouncedGroupSearch: async ({ searchTerm }, breakpoint) => {
-            await breakpoint(300)
+            const trimmed = searchTerm.trim()
+            const noResultsPrefix = values.firstNoResultsSearchPrefixes.groups
 
+            if (
+                trimmed &&
+                noResultsPrefix &&
+                trimmed.length > noResultsPrefix.length &&
+                trimmed.startsWith(noResultsPrefix)
+            ) {
+                actions.loadGroupSearchResultsSuccess({})
+                return
+            }
+            await breakpoint(300)
             actions.loadGroupSearchResults({ searchTerm })
         },
     })),

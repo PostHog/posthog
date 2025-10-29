@@ -112,12 +112,14 @@ function Category({
     category,
     columnIndex,
     isFirstCategoryWithResults,
+    isLoading,
 }: {
     tabId: string
     items: NewTabTreeDataItem[]
     category: string
     columnIndex: number
     isFirstCategoryWithResults: boolean
+    isLoading: boolean
 }): JSX.Element {
     const groupRef = useRef<ListBoxGroupHandle>(null)
     const pendingFocusIndexRef = useRef<number | null>(null)
@@ -127,7 +129,6 @@ function Category({
     const {
         filteredItemsGrid,
         search,
-        isSearching,
         newTabSceneDataGroupedItemsFullData,
         getSectionItemLimit,
         newTabSceneDataInclude,
@@ -188,7 +189,7 @@ function Category({
                                 {getCategoryDisplayName(category)}
                             </h3>
                         )}
-                        {category === 'recents' && isSearching && <Spinner size="small" />}
+                        {isLoading && <Spinner size="small" />}
                         {/* Show "No results found" tag for other categories when empty and include is NOT 'all' */}
                         {newTabSceneData &&
                             !['persons', 'groups', 'eventDefinitions', 'propertyDefinitions'].includes(category) &&
@@ -207,7 +208,7 @@ function Category({
                 >
                     {typedItems.length === 0 ? (
                         // Show loading for recents when searching, otherwise show nothing (tag shows in header)
-                        category === 'recents' && isSearching ? (
+                        category === 'recents' && isLoading ? (
                             <div className="flex flex-col gap-2 text-tertiary text-balance">
                                 <WrappingLoadingSkeleton>
                                     <ButtonPrimitive size="sm">Loading items...</ButtonPrimitive>
@@ -494,11 +495,13 @@ export function Results({
     const { setSearch, logCreateNewItem } = useActions(newTabSceneLogic({ tabId }))
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
+    const selectedCategoryData = allCategories.find((category) => category.key === selectedCategory)
     const items = groupedFilteredItems[selectedCategory] || []
     const typedItems = items as NewTabTreeDataItem[]
+    const selectedCategoryIsLoading = selectedCategoryData?.isLoading ?? false
 
     // Track whether we have any results
-    const hasResults = allCategories.some(([, items]) => items.length > 0)
+    const hasResults = allCategories.some((category) => category.items.length > 0)
 
     // Check if we should show NoResultsFound component
     // (include='all' + search term + no results + flag on)
@@ -520,14 +523,14 @@ export function Results({
                         <h3 className="mb-0 text-lg font-medium text-secondary">
                             {getCategoryDisplayName(selectedCategory)}
                         </h3>
-                        {selectedCategory === 'recents' && isSearching && <Spinner size="small" />}
+                        {selectedCategoryIsLoading && <Spinner size="small" />}
                     </div>
                 </div>
                 <div className="flex flex-col gap-2">
                     {selectedCategory === 'recents' && typedItems.length === 0 ? (
                         // Special handling for empty project items and persons
                         <div className="flex flex-col gap-2 text-tertiary text-balance">
-                            {isSearching ? 'Searching...' : 'No results found'}
+                            {selectedCategoryIsLoading ? 'Searching...' : 'No results found'}
                         </div>
                     ) : (
                         typedItems.map((item, index) => {
@@ -622,13 +625,14 @@ export function Results({
 
     return (
         <>
-            {allCategories.map(([category, items]: [string, NewTabTreeDataItem[]], columnIndex: number) => (
+            {allCategories.map(({ key: category, items, isLoading }, columnIndex: number) => (
                 <Category
                     tabId={tabId}
                     items={items}
                     category={category}
                     columnIndex={columnIndex}
                     isFirstCategoryWithResults={category === firstCategoryWithResults}
+                    isLoading={isLoading}
                     key={category}
                 />
             ))}
