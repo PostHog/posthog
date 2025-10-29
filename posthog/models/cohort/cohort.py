@@ -33,6 +33,7 @@ class CohortType(StrEnum):
     STATIC = "static"
     PERSON_PROPERTY = "person_property"
     BEHAVIORAL = "behavioral"
+    REALTIME = "realtime"
     ANALYTICAL = "analytical"
 
 
@@ -179,13 +180,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         blank=True,
         choices=[(cohort_type.value, cohort_type.value) for cohort_type in CohortType],
         help_text="Type of cohort based on filter complexity",
-    )
-
-    # Realtime evaluation support flag
-    realtime_supported = models.BooleanField(
-        null=True,
-        blank=True,
-        help_text="True if all filters support bytecode compilation and can be evaluated in realtime.",
     )
 
     # Compiled bytecode for realtime evaluation
