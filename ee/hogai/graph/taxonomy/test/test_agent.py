@@ -43,6 +43,7 @@ class TestTaxonomyAgent(BaseTest):
         self.agent = ConcreteTaxonomyAgent(
             team=self.team,
             user=self.user,
+            tool_call_id="test_tool_call_id",
             loop_node_class=MockTaxonomyAgentNode,
             tools_node_class=MockTaxonomyAgentToolsNode,
             toolkit_class=MockTaxonomyAgentToolkit,
@@ -74,6 +75,7 @@ class TestTaxonomyAgent(BaseTest):
             NonGenericAgent(
                 team=self.team,
                 user=self.user,
+                tool_call_id="test_tool_call_id",
                 loop_node_class=MockTaxonomyAgentNode,
                 tools_node_class=MockTaxonomyAgentToolsNode,
                 toolkit_class=MockTaxonomyAgentToolkit,

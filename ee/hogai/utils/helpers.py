@@ -1,9 +1,12 @@
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping, Sequence
 from typing import Any, Optional, TypeVar, Union, cast
+from uuid import uuid4
 
 from jsonref import replace_refs
 from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
     BaseMessage,
     HumanMessage as LangchainHumanMessage,
     merge_message_runs,
@@ -13,7 +16,9 @@ from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
     AssistantMessage,
+    AssistantMessageMetadata,
     AssistantRetentionQuery,
+    AssistantToolCall,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
     CachedTeamTaxonomyQueryResponse,
@@ -34,6 +39,7 @@ from posthog.models import Team
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 from ee.hogai.utils.types import AssistantMessageUnion
+from ee.hogai.utils.types.base import AssistantDispatcherEvent
 
 
 def remove_line_breaks(line: str) -> str:
@@ -117,13 +123,16 @@ def find_start_message(messages: Sequence[AssistantMessageUnion], start_id: str 
 def should_output_assistant_message(candidate_message: AssistantMessageUnion) -> bool:
     """
     This is used to filter out messages that are not useful for the user.
-    Filter out tool calls without a UI payload and empty assistant messages.
+    Filter out empty assistant messages and context messages.
     """
-    if isinstance(candidate_message, AssistantToolCallMessage) and candidate_message.ui_payload is None:
-        return False
-
-    if isinstance(candidate_message, AssistantMessage) and not candidate_message.content:
-        return False
+    if isinstance(candidate_message, AssistantMessage):
+        if (
+            (candidate_message.tool_calls is None or len(candidate_message.tool_calls) == 0)
+            and len(candidate_message.content) == 0
+            and candidate_message.meta is None
+        ):
+            # Empty assistant message
+            return False
 
     # Filter out context messages
     if isinstance(candidate_message, ContextMessage):
@@ -234,6 +243,45 @@ def extract_content_from_ai_message(response: BaseMessage) -> str:
     return str(response.content)
 
 
+def extract_thinking_from_ai_message(response: BaseMessage) -> list[dict[str, Any]]:
+    thinking: list[dict[str, Any]] = []
+
+    for content in response.content:
+        # Anthropic style reasoning
+        if isinstance(content, dict) and "type" in content:
+            if content["type"] in ("thinking", "redacted_thinking"):
+                thinking.append(content)
+    if response.additional_kwargs.get("reasoning") and (
+        summary := response.additional_kwargs["reasoning"].get("summary")
+    ):
+        # OpenAI style reasoning
+        thinking.append(
+            {
+                "type": "thinking",
+                "thinking": summary[0]["text"],
+            }
+        )
+    return thinking
+
+
+def normalize_ai_message(message: AIMessage | AIMessageChunk) -> AssistantMessage:
+    message_id = None
+    if isinstance(message, AIMessage):
+        message_id = str(uuid4())
+    tool_calls = [
+        AssistantToolCall(id=tool_call["id"], name=tool_call["name"], args=tool_call["args"] or {})
+        for tool_call in message.tool_calls
+    ]
+    content = extract_content_from_ai_message(message)
+    thinking = extract_thinking_from_ai_message(message)
+    return AssistantMessage(
+        content=content,
+        id=message_id,
+        tool_calls=tool_calls,
+        meta=AssistantMessageMetadata(thinking=thinking) if thinking else None,
+    )
+
+
 def cast_assistant_query(
     query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery,
 ) -> TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery:
@@ -263,10 +311,14 @@ def build_dashboard_url(team: Team, id: int) -> str:
 
 
 def extract_stream_update(update: Any) -> Any:
+    # Handle old LangGraph tuple format
     if update[1] == "custom":
         # Custom streams come from a tool call
         # If it's a LangGraph-based chunk, we remove the first two elements, which are "custom" and the parent graph namespace
         update = update[2]
+
+    if isinstance(update, AssistantDispatcherEvent):
+        return update
 
     update = update[1:]  # we remove the first element, which is the node/subgraph node name
     return update

@@ -18,13 +18,14 @@ class TaxonomyAgent(BaseAssistantGraph[StateType], Generic[StateType, PartialSta
         self,
         team: Team,
         user: User,
+        tool_call_id: str,
         loop_node_class: type["TaxonomyAgentNode"],
         tools_node_class: type["TaxonomyAgentToolsNode"],
         toolkit_class: type["TaxonomyAgentToolkit"],
     ):
         # Extract the State type from the generic parameter
         state_class, _ = self._get_state_class(TaxonomyAgent)
-        super().__init__(team, user, state_class)
+        super().__init__(team, user, state_class, parent_tool_call_id=tool_call_id)
 
         self._loop_node_class = loop_node_class
         self._tools_node_class = tools_node_class
@@ -40,12 +41,12 @@ class TaxonomyAgent(BaseAssistantGraph[StateType], Generic[StateType, PartialSta
 
         # Add the main loop node
         loop_node = self._loop_node_class(self._team, self._user, self._toolkit_class)
-        self._graph.add_node(TaxonomyNodeName.LOOP_NODE, loop_node)
+        self.add_node(TaxonomyNodeName.LOOP_NODE, loop_node)
         self._graph.add_edge(TaxonomyNodeName.START, TaxonomyNodeName.LOOP_NODE)
 
         # Add the tools node
         tools_node = self._tools_node_class(self._team, self._user, self._toolkit_class)
-        self._graph.add_node(TaxonomyNodeName.TOOLS_NODE, tools_node)
+        self.add_node(TaxonomyNodeName.TOOLS_NODE, tools_node)
         self._graph.add_edge(TaxonomyNodeName.LOOP_NODE, TaxonomyNodeName.TOOLS_NODE)
 
         # Add conditional edges based on the tools node's router

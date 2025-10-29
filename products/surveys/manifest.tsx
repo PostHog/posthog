@@ -38,6 +38,7 @@ export const manifest: ProductManifest = {
             iconType: 'survey',
             iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
             sceneKey: 'Surveys',
+            sceneKeys: ['Survey', 'Surveys'],
         },
     ],
 }

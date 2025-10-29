@@ -46,10 +46,12 @@ export class PersonEventProcessor {
 
         let personFromMerge: InternalPerson | undefined = undefined
         let identifyOrAliasKafkaAck: Promise<void> = Promise.resolve()
+        let needsPersonUpdate = true
 
         if (mergeResult.success) {
             personFromMerge = mergeResult.person
             identifyOrAliasKafkaAck = mergeResult.kafkaAck
+            needsPersonUpdate = mergeResult.needsPersonUpdate
         } else {
             const errorResult = this.handleMergeError(mergeResult.error, this.context.event)
             if (errorResult) {
@@ -61,7 +63,7 @@ export class PersonEventProcessor {
             })
         }
 
-        if (personFromMerge) {
+        if (personFromMerge && needsPersonUpdate) {
             // Try to shortcut if we have the person from identify or alias
             try {
                 const [updatedPerson, updateKafkaAck] =
@@ -71,6 +73,10 @@ export class PersonEventProcessor {
                 // Shortcut didn't work, swallow the error and try normal retry loop below
                 logger.debug('🔁', `failed update after adding distinct IDs, retrying`, { error })
             }
+        }
+
+        if (personFromMerge && !needsPersonUpdate) {
+            return [ok(personFromMerge), identifyOrAliasKafkaAck]
         }
 
         // Handle regular property updates
