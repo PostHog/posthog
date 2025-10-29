@@ -224,5 +224,103 @@ describe('CdpBehaviouralEventsConsumer', () => {
             )
             expect(kafkaMessages).toHaveLength(0)
         })
+
+        it('should deduplicate filters with same conditionHash for a team', async () => {
+            // Create two cohorts with the same filter (same conditionHash)
+            const conditionHash = 'dedup_test_hash_001'
+            const compiledBytecode = createCompiledBytecode(TEST_FILTERS.pageview, conditionHash)
+
+            // Create first cohort
+            await createCohort(hub.postgres, team.id, 'First cohort', compiledBytecode)
+            // Create second cohort with same filter
+            await createCohort(hub.postgres, team.id, 'Second cohort', compiledBytecode)
+
+            // Create a matching event
+            const personId = '550e8400-e29b-41d4-a716-446655440000'
+            const distinctId = 'test-distinct-dedup'
+            const eventUuid = 'test-uuid-dedup'
+
+            const messages = [
+                {
+                    value: Buffer.from(
+                        JSON.stringify({
+                            team_id: team.id,
+                            event: '$pageview',
+                            person_id: personId,
+                            distinct_id: distinctId,
+                            properties: JSON.stringify({}),
+                            timestamp: '2025-03-03T10:15:46.319000-08:00',
+                            uuid: eventUuid,
+                        } as RawClickHouseEvent)
+                    ),
+                } as any,
+            ]
+
+            // Parse messages
+            const events = await processor._parseKafkaBatch(messages)
+
+            // Should only create one event despite having two cohorts with same conditionHash
+            expect(events).toHaveLength(1)
+
+            const preCalculatedEvent = events[0]
+            expect(preCalculatedEvent.payload.condition).toBe(conditionHash)
+            expect(preCalculatedEvent.payload.source).toBe(`cohort_filter_${conditionHash}`)
+        })
+
+        it('should emit separate events for different cohorts with different conditionHashes', async () => {
+            // Create two cohorts with different filters
+            const conditionHash1 = 'multi_cohort_hash_001'
+            const conditionHash2 = 'multi_cohort_hash_002'
+
+            const compiledBytecode1 = createCompiledBytecode(TEST_FILTERS.pageview, conditionHash1)
+            const compiledBytecode2 = createCompiledBytecode(TEST_FILTERS.chromePageview, conditionHash2)
+
+            // Create first cohort (pageview only)
+            await createCohort(hub.postgres, team.id, 'Pageview cohort', compiledBytecode1)
+            // Create second cohort (Chrome + pageview)
+            await createCohort(hub.postgres, team.id, 'Chrome pageview cohort', compiledBytecode2)
+
+            // Create an event that matches both filters
+            const personId = '550e8400-e29b-41d4-a716-446655440000'
+            const distinctId = 'test-distinct-multi'
+            const eventUuid = 'test-uuid-multi'
+
+            const messages = [
+                {
+                    value: Buffer.from(
+                        JSON.stringify({
+                            team_id: team.id,
+                            event: '$pageview',
+                            person_id: personId,
+                            distinct_id: distinctId,
+                            properties: JSON.stringify({ $browser: 'Chrome' }),
+                            timestamp: '2025-03-03T10:15:46.319000-08:00',
+                            uuid: eventUuid,
+                        } as RawClickHouseEvent)
+                    ),
+                } as any,
+            ]
+
+            // Parse messages
+            const events = await processor._parseKafkaBatch(messages)
+
+            // Should create two events - one for each matching cohort filter
+            expect(events).toHaveLength(2)
+
+            // Sort by condition hash for consistent testing
+            events.sort((a, b) => a.payload.condition.localeCompare(b.payload.condition))
+
+            const [event1, event2] = events
+
+            // First event should be for pageview filter
+            expect(event1.payload.condition).toBe(conditionHash1)
+            expect(event1.payload.source).toBe(`cohort_filter_${conditionHash1}`)
+            expect(event1.key).toBe(distinctId)
+
+            // Second event should be for Chrome + pageview filter
+            expect(event2.payload.condition).toBe(conditionHash2)
+            expect(event2.payload.source).toBe(`cohort_filter_${conditionHash2}`)
+            expect(event2.key).toBe(distinctId)
+        })
     })
 })
