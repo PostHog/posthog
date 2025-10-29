@@ -113,6 +113,7 @@ function getEventSummary(event: any): string {
 /**
  * Render tree structure with ASCII art
  * Embeds event IDs in a special format for click handling: <<<EVENT_LINK|eventId|displayText>>>
+ * For generations and spans, also embeds expandable content: <<<GEN_EXPANDABLE|eventId|summary|encodedContent>>>
  */
 function renderTree(nodes: TraceTreeNode[], prefix = '', isLast = true, depth = 0): string[] {
     const lines: string[] = []
@@ -136,16 +137,40 @@ function renderTree(nodes: TraceTreeNode[], prefix = '', isLast = true, depth = 
         let nodePrefix = ''
         if (eventType === '$ai_generation') {
             nodePrefix = '[GEN]'
+
+            // Create expandable generation content
+            const eventId = node.event.id
+            const genContent = formatEventTextRepr(node.event)
+            const encodedContent = btoa(encodeURIComponent(genContent))
+
+            // Include summary in display text
+            const displayText = `${nodePrefix} ${summary}`
+
+            // Create expandable marker with encoded content
+            const expandableMarker = `<<<GEN_EXPANDABLE|${eventId}|${displayText}|${encodedContent}>>>`
+
+            lines.push(`${prefix}${currentPrefix}${expandableMarker}`)
         } else if (eventType === '$ai_span') {
             nodePrefix = '[SPAN]'
+
+            // Create expandable span content
+            const eventId = node.event.id
+            const spanContent = formatEventTextRepr(node.event)
+            const encodedContent = btoa(encodeURIComponent(spanContent))
+
+            // Include summary in display text
+            const displayText = `${nodePrefix} ${summary}`
+
+            // Create expandable marker with encoded content
+            const expandableMarker = `<<<GEN_EXPANDABLE|${eventId}|${displayText}|${encodedContent}>>>`
+
+            lines.push(`${prefix}${currentPrefix}${expandableMarker}`)
+        } else {
+            // For other events, use regular event link
+            const eventId = node.event.id
+            const clickablePrefix = `<<<EVENT_LINK|${eventId}|${nodePrefix}>>>`
+            lines.push(`${prefix}${currentPrefix}${clickablePrefix} ${summary}`)
         }
-
-        const eventId = node.event.id
-
-        // Only make the prefix clickable, not the entire line
-        const clickablePrefix = `<<<EVENT_LINK|${eventId}|${nodePrefix}>>>`
-
-        lines.push(`${prefix}${currentPrefix}${clickablePrefix} ${summary}`)
 
         // Recursively render children
         if (node.children && node.children.length > 0) {

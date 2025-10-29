@@ -16,23 +16,103 @@ import { formatTraceTextRepr } from './formatters/traceFormatter'
 import { formatEventTextRepr } from './textFormatter'
 
 interface TextSegment {
-    type: 'text' | 'truncated'
+    type: 'text' | 'truncated' | 'gen_expandable'
     content: string
     fullContent?: string
     charCount?: number
+    eventId?: string
 }
 
 /**
- * Parse text to find truncation markers and split into segments
+ * Parse text for only TRUNCATED markers (used for nested content)
+ */
+function parseTruncatedSegments(text: string): TextSegment[] {
+    const segments: TextSegment[] = []
+    const truncatedRegex = /<<<TRUNCATED\|([^|]+)\|(\d+)>>>/g
+
+    let lastIndex = 0
+    let truncMatch: RegExpExecArray | null
+
+    while ((truncMatch = truncatedRegex.exec(text)) !== null) {
+        // Add text before the marker
+        if (truncMatch.index > lastIndex) {
+            segments.push({
+                type: 'text',
+                content: text.slice(lastIndex, truncMatch.index),
+            })
+        }
+
+        // Add truncated segment
+        try {
+            const fullContent = decodeURIComponent(atob(truncMatch[1]))
+            segments.push({
+                type: 'truncated',
+                content: `... (${parseInt(truncMatch[2], 10)} chars truncated)`,
+                fullContent,
+                charCount: parseInt(truncMatch[2], 10),
+            })
+        } catch {
+            // If decoding fails, show as regular text
+            segments.push({
+                type: 'text',
+                content: truncMatch[0],
+            })
+        }
+
+        lastIndex = truncMatch.index + truncMatch[0].length
+    }
+
+    // Add remaining text
+    if (lastIndex < text.length) {
+        segments.push({
+            type: 'text',
+            content: text.slice(lastIndex),
+        })
+    }
+
+    return segments
+}
+
+/**
+ * Parse text to find truncation and generation expandable markers and split into segments
  */
 function parseTextSegments(text: string): TextSegment[] {
     const segments: TextSegment[] = []
-    const markerRegex = /<<<TRUNCATED\|([^|]+)\|(\d+)>>>/g
+
+    // Combined regex to match both TRUNCATED and GEN_EXPANDABLE markers
+    const truncatedRegex = /<<<TRUNCATED\|([^|]+)\|(\d+)>>>/g
+    const genExpandableRegex = /<<<GEN_EXPANDABLE\|([^|]+)\|([^|]+)\|([^>]+)>>>/g
+
+    const allMatches: Array<{ index: number; length: number; type: 'truncated' | 'gen_expandable'; data: any }> = []
+
+    // Find all truncated markers
+    let truncMatch: RegExpExecArray | null
+    while ((truncMatch = truncatedRegex.exec(text)) !== null) {
+        allMatches.push({
+            index: truncMatch.index,
+            length: truncMatch[0].length,
+            type: 'truncated',
+            data: { encodedContent: truncMatch[1], charCount: parseInt(truncMatch[2], 10) },
+        })
+    }
+
+    // Find all gen expandable markers
+    let genMatch: RegExpExecArray | null
+    while ((genMatch = genExpandableRegex.exec(text)) !== null) {
+        allMatches.push({
+            index: genMatch.index,
+            length: genMatch[0].length,
+            type: 'gen_expandable',
+            data: { eventId: genMatch[1], displayText: genMatch[2], encodedContent: genMatch[3] },
+        })
+    }
+
+    // Sort by index
+    allMatches.sort((a, b) => a.index - b.index)
 
     let lastIndex = 0
-    let match: RegExpExecArray | null
 
-    while ((match = markerRegex.exec(text)) !== null) {
+    for (const match of allMatches) {
         // Add text before the marker
         if (match.index > lastIndex) {
             segments.push({
@@ -41,26 +121,43 @@ function parseTextSegments(text: string): TextSegment[] {
             })
         }
 
-        // Add truncated segment
-        const encodedContent = match[1]
-        const charCount = parseInt(match[2], 10)
-        try {
-            const fullContent = decodeURIComponent(atob(encodedContent))
-            segments.push({
-                type: 'truncated',
-                content: `... (${charCount} chars truncated)`,
-                fullContent,
-                charCount,
-            })
-        } catch {
-            // If decoding fails, show as regular text
-            segments.push({
-                type: 'text',
-                content: match[0],
-            })
+        if (match.type === 'truncated') {
+            // Add truncated segment
+            try {
+                const fullContent = decodeURIComponent(atob(match.data.encodedContent))
+                segments.push({
+                    type: 'truncated',
+                    content: `... (${match.data.charCount} chars truncated)`,
+                    fullContent,
+                    charCount: match.data.charCount,
+                })
+            } catch {
+                // If decoding fails, show as regular text
+                segments.push({
+                    type: 'text',
+                    content: text.slice(match.index, match.index + match.length),
+                })
+            }
+        } else if (match.type === 'gen_expandable') {
+            // Add gen expandable segment
+            try {
+                const fullContent = decodeURIComponent(atob(match.data.encodedContent))
+                segments.push({
+                    type: 'gen_expandable',
+                    content: match.data.displayText,
+                    fullContent,
+                    eventId: match.data.eventId,
+                })
+            } catch {
+                // If decoding fails, show as regular text
+                segments.push({
+                    type: 'text',
+                    content: text.slice(match.index, match.index + match.length),
+                })
+            }
         }
 
-        lastIndex = match.index + match[0].length
+        lastIndex = match.index + match.length
     }
 
     // Add remaining text
@@ -212,6 +309,114 @@ interface TraceTreeNode {
     children?: TraceTreeNode[]
 }
 
+/**
+ * Render content that may contain truncated segments (used for nested content)
+ */
+function NestedContentRenderer({
+    content,
+    traceId,
+    parentKey,
+    expandedSegments,
+    setExpandedSegments,
+    popoutSegment,
+    setPopoutSegment,
+}: {
+    content: string
+    traceId?: string
+    parentKey: string
+    expandedSegments: Set<string>
+    setExpandedSegments: React.Dispatch<React.SetStateAction<Set<string>>>
+    popoutSegment: string | null
+    setPopoutSegment: React.Dispatch<React.SetStateAction<string | null>>
+}): JSX.Element {
+    const nestedSegments = parseTruncatedSegments(content)
+
+    const toggleNestedSegment = (nestedIndex: number): void => {
+        const key = `${parentKey}-${nestedIndex}`
+        setExpandedSegments((prev) => {
+            const next = new Set(prev)
+            if (next.has(key)) {
+                next.delete(key)
+            } else {
+                next.add(key)
+            }
+            return next
+        })
+    }
+
+    const toggleNestedPopout = (nestedIndex: number): void => {
+        const key = `${parentKey}-${nestedIndex}`
+        setPopoutSegment((prev) => (prev === key ? null : key))
+    }
+
+    return (
+        <>
+            {nestedSegments.map((nestedSeg, nestedIdx) => {
+                const nestedKey = `${parentKey}-${nestedIdx}`
+                const isNestedExpanded = expandedSegments.has(nestedKey)
+                const isNestedPopoutOpen = popoutSegment === nestedKey
+
+                if (nestedSeg.type === 'text') {
+                    return <span key={nestedIdx}>{renderTextWithLinks(nestedSeg.content, traceId)}</span>
+                }
+
+                // Truncated segment
+                return (
+                    <span key={nestedIdx}>
+                        {isNestedExpanded ? (
+                            <>
+                                {renderTextWithLinks(nestedSeg.fullContent || '', traceId)}
+                                <button
+                                    onClick={() => toggleNestedSegment(nestedIdx)}
+                                    className="text-link hover:underline cursor-pointer ml-1"
+                                >
+                                    [collapse]
+                                </button>
+                            </>
+                        ) : (
+                            <>
+                                <button
+                                    onClick={() => toggleNestedSegment(nestedIdx)}
+                                    className="text-link hover:underline cursor-pointer"
+                                >
+                                    {nestedSeg.content}
+                                </button>
+                                <Tooltip
+                                    title={
+                                        isNestedPopoutOpen ? (
+                                            <div
+                                                data-popout-content
+                                                className="max-h-96 overflow-auto whitespace-pre-wrap font-mono text-xs"
+                                            >
+                                                {nestedSeg.fullContent}
+                                            </div>
+                                        ) : null
+                                    }
+                                    containerClassName="max-w-4xl"
+                                    placement="top"
+                                    visible={isNestedPopoutOpen}
+                                >
+                                    <button
+                                        data-popout-button
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            toggleNestedPopout(nestedIdx)
+                                        }}
+                                        className="inline-flex items-center justify-center w-4 h-4 ml-1 text-muted hover:text-default transition-colors"
+                                        title="Preview truncated content"
+                                    >
+                                        <IconExternal className="w-3 h-3" />
+                                    </button>
+                                </Tooltip>
+                            </>
+                        )}
+                    </span>
+                )
+            })}
+        </>
+    )
+}
+
 export function TextViewDisplay({
     event,
     trace,
@@ -235,15 +440,22 @@ export function TextViewDisplay({
               : ''
 
     const segments = parseTextSegments(textRepr)
-    const [expandedSegments, setExpandedSegments] = useState<Set<number>>(new Set())
-    const [popoutSegment, setPopoutSegment] = useState<number | null>(null)
+    const [expandedSegments, setExpandedSegments] = useState<Set<number | string>>(new Set())
+    const [popoutSegment, setPopoutSegment] = useState<number | string | null>(null)
 
-    // Get indices of all truncated segments
+    // Get indices of all truncated and gen_expandable segments
     const truncatedIndices = segments
         .map((seg, idx) => (seg.type === 'truncated' ? idx : -1))
         .filter((idx) => idx !== -1)
 
-    const allExpanded = truncatedIndices.length > 0 && truncatedIndices.every((idx) => expandedSegments.has(idx))
+    const genExpandableIndices = segments
+        .map((seg, idx) => (seg.type === 'gen_expandable' ? idx : -1))
+        .filter((idx) => idx !== -1)
+
+    const allExpandableIndices = [...truncatedIndices, ...genExpandableIndices]
+
+    const allExpanded =
+        allExpandableIndices.length > 0 && allExpandableIndices.every((idx) => expandedSegments.has(idx))
 
     // Close popout when clicking outside
     useEffect(() => {
@@ -290,8 +502,8 @@ export function TextViewDisplay({
             // Collapse all
             setExpandedSegments(new Set())
         } else {
-            // Expand all
-            setExpandedSegments(new Set(truncatedIndices))
+            // Expand all (both truncated and gen_expandable segments)
+            setExpandedSegments(new Set(allExpandableIndices))
         }
     }
 
@@ -302,12 +514,12 @@ export function TextViewDisplay({
     return (
         <div className="relative">
             <div className="absolute top-2 right-2 z-10 flex gap-2">
-                {truncatedIndices.length > 0 && (
+                {allExpandableIndices.length > 0 && (
                     <LemonButton
                         type="secondary"
                         size="xsmall"
                         onClick={toggleExpandAll}
-                        tooltip={allExpanded ? 'Collapse all truncated sections' : 'Expand all truncated sections'}
+                        tooltip={allExpanded ? 'Collapse all expandable sections' : 'Expand all expandable sections'}
                     >
                         {allExpanded ? 'Collapse all' : 'Expand all'}
                     </LemonButton>
@@ -325,8 +537,51 @@ export function TextViewDisplay({
             <pre className="font-mono text-xs whitespace-pre-wrap p-4 bg-bg-light rounded border border-border overflow-auto max-h-[70vh]">
                 {segments.map((segment, index) => {
                     if (segment.type === 'text') {
-                        return <span key={index}>{renderTextWithLinks(segment.content, traceId)}</span>
+                        // Trim trailing whitespace if followed by gen_expandable
+                        const nextSegment = segments[index + 1]
+                        const content =
+                            nextSegment?.type === 'gen_expandable' ? segment.content.trimEnd() : segment.content
+                        return <span key={index}>{renderTextWithLinks(content, traceId)}</span>
                     }
+                    if (segment.type === 'gen_expandable') {
+                        const isExpanded = expandedSegments.has(index)
+                        // Extract [GEN] or [SPAN] tag and rest of content
+                        const tagMatch = segment.content.match(/^(\[(?:GEN|SPAN)\])\s*(.*)$/)
+                        const tag = tagMatch ? tagMatch[1] : segment.content
+                        const restContent = tagMatch ? tagMatch[2] : segment.content
+                        return (
+                            <span key={index}>
+                                <Link
+                                    to={urls.llmAnalyticsTrace(traceId!, { event: segment.eventId })}
+                                    title="Jump to event"
+                                >
+                                    {tag}
+                                </Link>
+                                <button
+                                    onClick={() => toggleSegment(index)}
+                                    className="text-link hover:underline cursor-pointer"
+                                    title={isExpanded ? 'Collapse' : 'Expand'}
+                                >
+                                    {isExpanded ? '[−]' : '[+]'}
+                                </button>{' '}
+                                {restContent.trim()}
+                                {isExpanded && (
+                                    <div className="ml-4 mt-2 mb-2 pl-4 border-l-2 border-border">
+                                        <NestedContentRenderer
+                                            content={segment.fullContent || ''}
+                                            traceId={traceId}
+                                            parentKey={`gen-${index}`}
+                                            expandedSegments={expandedSegments}
+                                            setExpandedSegments={setExpandedSegments}
+                                            popoutSegment={popoutSegment}
+                                            setPopoutSegment={setPopoutSegment}
+                                        />
+                                    </div>
+                                )}
+                            </span>
+                        )
+                    }
+                    // Truncated segment
                     const isExpanded = expandedSegments.has(index)
                     const isPopoutOpen = popoutSegment === index
                     return (
@@ -354,12 +609,13 @@ export function TextViewDisplay({
                                             isPopoutOpen ? (
                                                 <div
                                                     data-popout-content
-                                                    className="max-w-2xl max-h-96 overflow-auto whitespace-pre-wrap font-mono text-xs p-2"
+                                                    className="max-h-96 overflow-auto whitespace-pre-wrap font-mono text-xs"
                                                 >
                                                     {segment.fullContent}
                                                 </div>
                                             ) : null
                                         }
+                                        containerClassName="max-w-4xl"
                                         placement="top"
                                         visible={isPopoutOpen}
                                     >
