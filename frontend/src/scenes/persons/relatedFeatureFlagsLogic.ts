@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
@@ -189,9 +189,6 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
         loadFeatureFlagsSuccess: () => {
             actions.loadRelatedFeatureFlags()
         },
-    })),
-    events(({ actions }) => ({
-        afterMount: actions.loadRelatedFeatureFlags,
     })),
     urlToAction(({ actions }) => ({
         [urls.personByUUID('*', false)]: async (_, searchParams) => {
