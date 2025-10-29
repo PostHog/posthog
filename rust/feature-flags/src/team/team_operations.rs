@@ -49,7 +49,10 @@ where
             // True cache miss - key doesn't exist. Safe to write after DB fetch.
             match db_lookup().await {
                 Ok(team) => {
-                    debug!(team_id = team.id, "Found team in PostgreSQL");
+                    debug!(
+                        "Successfully fetched team {} from PostgreSQL for token {}",
+                        team.id, token
+                    );
                     // Update Redis cache for next time
                     if let Err(e) = Team::update_redis_cache(redis_writer, &team).await {
                         warn!(team_id = team.id, error = %e, "Failed to update Redis cache");
@@ -70,8 +73,8 @@ where
             match db_lookup().await {
                 Ok(team) => {
                     debug!(
-                        team_id = team.id,
-                        "Found team in PostgreSQL (skipping cache write due to Redis error)"
+                        "Successfully fetched team {} from PostgreSQL for token {} (skipping cache write due to Redis error)",
+                        team.id, token
                     );
                     Ok(team)
                 }
@@ -206,6 +209,11 @@ impl Team {
             .fetch_one(&mut *conn)
             .await?;
 
+        debug!(
+            "Successfully fetched team {} from PostgreSQL for token {}",
+            row.id, token
+        );
+
         Ok(row)
     }
 
@@ -224,6 +232,11 @@ impl Team {
             .bind(token)
             .fetch_one(&mut *conn)
             .await?;
+
+        debug!(
+            "Successfully fetched team {} from PostgreSQL for secret token {}",
+            row.id, token
+        );
 
         Ok(row)
     }
