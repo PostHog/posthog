@@ -16,7 +16,15 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { SCRATCHPAD_NOTEBOOK, notebooksModel, openNotebook } from '~/models/notebooksModel'
-import { AccessControlLevel, AccessControlResourceType, ActivityScope, CommentType, SidePanelTab } from '~/types'
+import { NodeKind } from '~/queries/schema/schema-general'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ActivityScope,
+    CommentType,
+    InsightShortId,
+    SidePanelTab,
+} from '~/types'
 
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 // NOTE: Annoyingly, if we import this then kea logic type-gen generates
@@ -130,6 +138,7 @@ export const notebookLogic = kea<notebookLogicType>([
             nodeType,
             knownStartingPosition,
         }),
+        addSavedInsightsToNotebook: (insightShortIds: InsightShortId[]) => ({ insightShortIds }),
         setShowHistory: (showHistory: boolean) => ({ showHistory }),
         setTableOfContents: (tableOfContents: TableOfContentData) => ({ tableOfContents }),
         setTextSelection: (selection: number | EditorRange) => ({ selection }),
@@ -517,6 +526,22 @@ export const notebookLogic = kea<notebookLogicType>([
                     values.editor?.insertContentAfterNode(insertionPosition, content)
                 }
             )
+        },
+        addSavedInsightsToNotebook: async ({ insightShortIds }) => {
+            for (const shortId of insightShortIds) {
+                const content: JSONContent = {
+                    type: NotebookNodeType.Query,
+                    attrs: {
+                        query: {
+                            kind: NodeKind.SavedInsightNode,
+                            shortId,
+                        },
+                    },
+                }
+
+                await actions.insertAfterLastNode(content)
+                lemonToast.success('Insight added to notebook')
+            }
         },
         setLocalContent: async ({ updateEditor, jsonContent, skipCapture }, breakpoint) => {
             if (
