@@ -127,6 +127,12 @@ class TestCohortBytecode(APIBaseTest):
 
                 # Get cohort from database and verify cohort_type
                 cohort_id = response.json()["id"]
+                # Trigger computation of cohort_type by PATCHing filters (create no longer sets type)
+                self.client.patch(
+                    f"/api/projects/{self.team.id}/cohorts/{cohort_id}/",
+                    {"filters": filters_data},
+                    format="json",
+                )
                 cohort = Cohort.objects.get(id=cohort_id)
                 expected_type = case["expected_cohort_type"]
                 if expected_type is None:
@@ -188,6 +194,12 @@ class TestCohortBytecode(APIBaseTest):
 
                 # Get cohort from database
                 cohort_id = response.json()["id"]
+                # Trigger computation of cohort_type by PATCHing filters (create no longer sets type)
+                self.client.patch(
+                    f"/api/projects/{self.team.id}/cohorts/{cohort_id}/",
+                    {"filters": filters_data},
+                    format="json",
+                )
                 cohort = Cohort.objects.get(id=cohort_id)
 
                 # Verify cohort type reflects realtime capability
@@ -316,6 +328,12 @@ class TestCohortBytecode(APIBaseTest):
 
                 # Get cohort from database
                 cohort_id = response.json()["id"]
+                # Trigger computation of cohort_type by PATCHing filters (create no longer sets type)
+                self.client.patch(
+                    f"/api/projects/{self.team.id}/cohorts/{cohort_id}/",
+                    {"filters": filters_data},
+                    format="json",
+                )
                 cohort = Cohort.objects.get(id=cohort_id)
 
                 # Verify cohort type reflects realtime capability and structure
@@ -376,7 +394,8 @@ class TestCohortBytecode(APIBaseTest):
         self.assertEqual(create_resp.status_code, 201)
         cohort_id = create_resp.json()["id"]
         cohort = Cohort.objects.get(id=cohort_id)
-        self.assertEqual(cohort.cohort_type, "realtime")
+        # cohort_type is only computed on update; create no longer sets it
+        self.assertIsNone(cohort.cohort_type)
         self.assertIsNotNone(cohort.compiled_bytecode)
         base_len = len(cast(list[dict[str, Any]], cohort.compiled_bytecode))
 

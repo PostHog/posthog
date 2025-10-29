@@ -530,8 +530,6 @@ class CohortSerializer(serializers.ModelSerializer):
                 validated_data["filters"], team, current_cohort_type=validated_data.get("cohort_type")
             )
             validated_data["filters"] = clean_filters
-            # Always assign, including None to clear stale values when filters become unsupported
-            validated_data["cohort_type"] = computed_cohort_type
             validated_data["compiled_bytecode"] = compiled_bytecode
 
         person_ids = validated_data.pop("_create_static_person_ids", None)
