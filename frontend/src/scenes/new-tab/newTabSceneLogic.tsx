@@ -87,6 +87,8 @@ export interface NewTabCategoryItem {
     description?: string
 }
 
+const INITIAL_SECTION_LIMIT = 5
+const INITIAL_RECENTS_LIMIT = 5
 const PAGINATION_LIMIT = 10
 const GROUP_SEARCH_LIMIT = 5
 
@@ -232,9 +234,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         }
                     }
 
+                    const pageLimit = effectiveOffset === 0 ? INITIAL_RECENTS_LIMIT : PAGINATION_LIMIT
+
                     const response = await api.fileSystem.list({
                         search: searchTerm,
-                        limit: PAGINATION_LIMIT + 1,
+                        limit: pageLimit + 1,
                         orderBy: '-last_viewed_at',
                         notType: 'folder',
                         offset: effectiveOffset,
@@ -247,7 +251,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     const filteredCount = searchTerm
                         ? response.results.filter((item) => matchesRecentsSearch(item, searchChunks)).length
                         : response.results.length
-                    const newResults = response.results.slice(0, PAGINATION_LIMIT)
+                    const newResults = response.results.slice(0, pageLimit)
                     const combinedResults =
                         isAppending && values.recents.searchTerm === searchTerm
                             ? [...values.recents.results, ...newResults]
@@ -255,7 +259,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     const recents = {
                         searchTerm,
                         results: combinedResults,
-                        hasMore: response.results.length > PAGINATION_LIMIT,
+                        hasMore: response.results.length > pageLimit,
                         lastCount: newResults.length,
                     }
                     if (effectiveOffset === 0) {
@@ -509,11 +513,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             {
                 showMoreInSection: (state, { section }) => ({
                     ...state,
-                    [section]: section === 'recents' ? (state[section] ?? 5) : Infinity,
+                    [section]: section === 'recents' ? (state[section] ?? INITIAL_SECTION_LIMIT) : Infinity,
                 }),
                 loadMoreRecents: (state) => ({
                     ...state,
-                    recents: (state['recents'] ?? 5) + PAGINATION_LIMIT,
+                    recents: (state['recents'] ?? INITIAL_SECTION_LIMIT) + PAGINATION_LIMIT,
                 }),
                 resetSectionLimits: () => ({}),
                 setSearch: () => ({}),
@@ -830,7 +834,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         ],
         getSectionItemLimit: [
             (s) => [s.sectionItemLimits],
-            (sectionItemLimits: Record<string, number>) => (section: string) => sectionItemLimits[section] || 5,
+            (sectionItemLimits: Record<string, number>) => (section: string) =>
+                sectionItemLimits[section] || INITIAL_SECTION_LIMIT,
         ],
         itemsGrid: [
             (s) => [
