@@ -308,10 +308,10 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                                 Filters
                             </Label>
                             <DropdownMenuSeparator />
-                            {filteredCommands.map((command) => {
+                            {filteredCommands.map((command, index) => {
                                 const isActive = activeCommands.includes(command.value)
                                 return (
-                                    <DropdownMenuItem asChild>
+                                    <DropdownMenuItem key={index} asChild>
                                         <ButtonPrimitive
                                             key={command.value as string}
                                             className="group flex items-center text-left"
