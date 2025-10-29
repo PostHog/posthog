@@ -1229,7 +1229,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     actions.createTab(hashParams.q)
                     tabAdded = true
                 } else if (values.queryInput === null) {
-                    actions.createTab(values.queryInput)
+                    actions.createTab('')
                     tabAdded = true
                 }
             }
