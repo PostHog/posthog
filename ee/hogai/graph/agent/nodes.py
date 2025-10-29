@@ -17,11 +17,19 @@ from langgraph.errors import NodeInterrupt
 from langgraph.types import Send
 from posthoganalytics import capture_exception
 
-from posthog.schema import AssistantMessage, AssistantToolCallMessage, ContextMessage, FailureMessage, HumanMessage
+from posthog.schema import (
+    AgentMode,
+    AssistantMessage,
+    AssistantToolCallMessage,
+    ContextMessage,
+    FailureMessage,
+    HumanMessage,
+)
 
 from posthog.models import Team, User
 
 from ee.hogai.context import AssistantContextManager
+from ee.hogai.graph.agent.mode_manager import validate_mode
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.conversation_summarizer.nodes import AnthropicConversationSummarizer
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
@@ -232,6 +240,7 @@ class AgentNode(BaseAgentNode):
             root_tool_calls_count=tool_call_count,
             root_conversation_start_id=window_id,
             start_id=start_id,
+            agent_mode=self._get_updated_agent_mode(assistant_message, state.agent_mode),
         )
 
     def router(self, state: AssistantState):
@@ -402,6 +411,14 @@ class AgentNode(BaseAgentNode):
         """Process the output message."""
         return normalize_ai_anthropic_message(message)
 
+    def _get_updated_agent_mode(
+        self, generated_message: AssistantMessage, current_mode: AgentMode | None
+    ) -> AgentMode | None:
+        for tool_call in generated_message.tool_calls or []:
+            if tool_call.name == "switch_mode" and (new_mode := validate_mode(tool_call.args.get("mode"))):
+                return new_mode
+        return current_mode
+
 
 class AgentToolsNode(BaseAgentNode):
     @property
@@ -497,11 +514,6 @@ class AgentToolsNode(BaseAgentNode):
             visible=tool_class.show_tool_call_message,
         )
 
-        new_mode = state.agent_mode
-        if tool_call.name == "switch_mode":
-            new_mode = result.artifact
-
         return PartialAssistantState(
             messages=[tool_message],
-            agent_mode=new_mode,
         )

@@ -1,8 +1,23 @@
+from typing import Any
+
+from pydantic import BaseModel, ValidationError
+
 from posthog.schema import AgentMode
 
 from posthog.models import Team, User
 
 from .nodes import AgentNode, AgentToolsNode
+
+
+class AgentModeValidator(BaseModel):
+    mode: AgentMode
+
+
+def validate_mode(mode: Any) -> AgentMode | None:
+    try:
+        return AgentModeValidator(mode=mode).mode
+    except ValidationError:
+        return None
 
 
 class AgentModeManager:
