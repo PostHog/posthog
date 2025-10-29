@@ -1066,7 +1066,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
             # filter out fields that are not in the destination table
             try:
                 columns = await redshift_client.aget_table_columns(inputs.table.schema_name, inputs.table.name)
-                if len(columns) > len(table_schemas.table_schema):
+                if len(columns) > len(tuple(table_schemas.table_schema)):
                     # MERGE cannot remove duplicates if table columns don't match.
                     remove_duplicates = False
                     external_logger.warning(
@@ -1075,7 +1075,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
                         inputs.table.schema_name,
                         inputs.table.name,
                         len(columns),
-                        len(table_schemas.table_schema),
+                        len(tuple(table_schemas.table_schema)),
                     )
 
                 table_fields = [field for field in table_schemas.table_schema if field[0] in columns]
@@ -1411,7 +1411,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             # filter out fields that are not in the destination table
             try:
                 columns = await redshift_client.aget_table_columns(inputs.table.schema_name, inputs.table.name)
-                if len(columns) > len(table_schemas.table_schema):
+                if len(columns) > len(tuple(table_schemas.table_schema)):
                     # MERGE cannot remove duplicates if table columns don't match.
                     remove_duplicates = False
                     external_logger.warning(
@@ -1420,7 +1420,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
                         inputs.table.schema_name,
                         inputs.table.name,
                         len(columns),
-                        len(table_schemas.table_schema),
+                        len(tuple(table_schemas.table_schema)),
                     )
 
                 table_fields = [field for field in table_schemas.table_schema if field[0] in columns]
