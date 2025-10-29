@@ -1625,64 +1625,31 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             actions.loadGroupSearchResults({ searchTerm })
         },
     })),
-    tabAwareActionToUrl(({ values }) => ({
-        setSearch: () => [
-            router.values.location.pathname,
-            {
+    tabAwareActionToUrl(({ values }) => {
+        const buildParams = (): Record<string, any> => {
+            const includeItems = values.newTabSceneDataInclude.filter((item) => item !== 'all')
+            const includeParam =
+                values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE] && includeItems.length > 0
+                    ? includeItems.join(',')
+                    : undefined
+
+            return {
                 search: values.search || undefined,
                 category:
                     !values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE] && values.selectedCategory !== 'all'
                         ? values.selectedCategory
                         : undefined,
-                include:
-                    values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE] && values.newTabSceneDataInclude.length > 0
-                        ? values.newTabSceneDataInclude.join(',')
-                        : undefined,
-            },
-        ],
-        setSelectedCategory: () => [
-            router.values.location.pathname,
-            {
-                search: values.search || undefined,
-                category:
-                    !values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE] && values.selectedCategory !== 'all'
-                        ? values.selectedCategory
-                        : undefined,
-                include:
-                    values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE] && values.newTabSceneDataInclude.length > 0
-                        ? values.newTabSceneDataInclude.join(',')
-                        : undefined,
-            },
-        ],
-        setNewTabSceneDataInclude: () => [
-            router.values.location.pathname,
-            {
-                search: values.search || undefined,
-                category:
-                    !values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE] && values.selectedCategory !== 'all'
-                        ? values.selectedCategory
-                        : undefined,
-                include:
-                    values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE] && values.newTabSceneDataInclude.length > 0
-                        ? values.newTabSceneDataInclude.join(',')
-                        : undefined,
-            },
-        ],
-        toggleNewTabSceneDataInclude: () => [
-            router.values.location.pathname,
-            {
-                search: values.search || undefined,
-                category:
-                    !values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE] && values.selectedCategory !== 'all'
-                        ? values.selectedCategory
-                        : undefined,
-                include:
-                    values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE] && values.newTabSceneDataInclude.length > 0
-                        ? values.newTabSceneDataInclude.join(',')
-                        : undefined,
-            },
-        ],
-    })),
+                include: includeParam,
+            }
+        }
+
+        return {
+            setSearch: () => [router.values.location.pathname, buildParams()],
+            setSelectedCategory: () => [router.values.location.pathname, buildParams()],
+            setNewTabSceneDataInclude: () => [router.values.location.pathname, buildParams()],
+            toggleNewTabSceneDataInclude: () => [router.values.location.pathname, buildParams()],
+        }
+    }),
     tabAwareUrlToAction(({ actions, values }) => ({
         [urls.newTab()]: (_, searchParams) => {
             const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
@@ -1721,7 +1688,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             }
 
             // Update include array if URL param differs from current state
-            const includeFromUrl: NEW_TAB_COMMANDS[] = searchParams.include
+            const includeFromUrlRaw = searchParams.include
                 ? (searchParams.include as string)
                       .split(',')
                       .filter((item): item is NEW_TAB_COMMANDS =>
@@ -1738,48 +1705,50 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                               'askAI',
                           ].includes(item)
                       )
-                : []
+                : null
 
-            const currentIncludeString = values.newTabSceneDataInclude.slice().sort().join(',')
-            const urlIncludeString = includeFromUrl.slice().sort().join(',')
+            if (includeFromUrlRaw !== null) {
+                const currentIncludeString = values.newTabSceneDataInclude.slice().sort().join(',')
+                const urlIncludeString = includeFromUrlRaw.slice().sort().join(',')
 
-            if (newTabSceneData && currentIncludeString !== urlIncludeString) {
-                actions.setNewTabSceneDataInclude(includeFromUrl)
+                if (newTabSceneData && currentIncludeString !== urlIncludeString) {
+                    actions.setNewTabSceneDataInclude(includeFromUrlRaw)
 
-                // Load data for included items
-                const searchTerm = searchParams.search ? String(searchParams.search).trim() : ''
+                    // Load data for included items
+                    const searchTerm = searchParams.search ? String(searchParams.search).trim() : ''
 
-                // Expand 'all' to include all data types
-                const itemsToProcess = includeFromUrl.includes('all')
-                    ? ['persons', 'groups', 'eventDefinitions', 'propertyDefinitions', 'askAI']
-                    : includeFromUrl
+                    // Expand 'all' to include all data types
+                    const itemsToProcess = includeFromUrlRaw.includes('all')
+                        ? ['persons', 'groups', 'eventDefinitions', 'propertyDefinitions', 'askAI']
+                        : includeFromUrlRaw
 
-                itemsToProcess.forEach((item) => {
-                    if (searchTerm !== '') {
-                        // If there's a search term, trigger search for data items only
-                        if (item === 'persons') {
-                            actions.debouncedPersonSearch(searchTerm)
-                        } else if (item === 'groups') {
-                            actions.debouncedGroupSearch(searchTerm)
-                        } else if (item === 'eventDefinitions') {
-                            actions.debouncedEventDefinitionSearch(searchTerm)
-                        } else if (item === 'propertyDefinitions') {
-                            actions.debouncedPropertyDefinitionSearch(searchTerm)
+                    itemsToProcess.forEach((item) => {
+                        if (searchTerm !== '') {
+                            // If there's a search term, trigger search for data items only
+                            if (item === 'persons') {
+                                actions.debouncedPersonSearch(searchTerm)
+                            } else if (item === 'groups') {
+                                actions.debouncedGroupSearch(searchTerm)
+                            } else if (item === 'eventDefinitions') {
+                                actions.debouncedEventDefinitionSearch(searchTerm)
+                            } else if (item === 'propertyDefinitions') {
+                                actions.debouncedPropertyDefinitionSearch(searchTerm)
+                            }
+                            // For non-data items (create-new, apps, etc.), no special search needed as they're handled by itemsGrid
+                        } else {
+                            // Load initial data when no search term for data items only
+                            if (item === 'persons') {
+                                actions.loadInitialPersons({})
+                            } else if (item === 'groups') {
+                                actions.loadInitialGroups()
+                            } else if (item === 'eventDefinitions') {
+                                actions.loadInitialEventDefinitions({})
+                            } else if (item === 'propertyDefinitions') {
+                                actions.loadInitialPropertyDefinitions({})
+                            }
                         }
-                        // For non-data items (create-new, apps, etc.), no special search needed as they're handled by itemsGrid
-                    } else {
-                        // Load initial data when no search term for data items only
-                        if (item === 'persons') {
-                            actions.loadInitialPersons({})
-                        } else if (item === 'groups') {
-                            actions.loadInitialGroups()
-                        } else if (item === 'eventDefinitions') {
-                            actions.loadInitialEventDefinitions({})
-                        } else if (item === 'propertyDefinitions') {
-                            actions.loadInitialPropertyDefinitions({})
-                        }
-                    }
-                })
+                    })
+                }
             }
 
             // Reset search, category, and include array to defaults if no URL params
