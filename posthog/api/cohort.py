@@ -112,10 +112,8 @@ def extract_bytecode_from_filters(
         compiled_bytecode = []
         clean_filters = _extract_bytecode_to_array(filters_dict, validated_filters.properties, compiled_bytecode)
 
-        # If all filters have valid bytecode, set cohort_type to REALTIME
-        cohort_type = (
-            CohortType.REALTIME if _calculate_realtime_support(validated_filters.properties) else current_cohort_type
-        )
+        # If all filters have valid bytecode, set cohort_type to REALTIME; otherwise clear it
+        cohort_type = CohortType.REALTIME if _calculate_realtime_support(validated_filters.properties) else None
 
         return clean_filters, cohort_type, compiled_bytecode if compiled_bytecode else None
 
@@ -829,8 +827,7 @@ class CohortSerializer(serializers.ModelSerializer):
                     filters, cohort.team, current_cohort_type=cohort.cohort_type
                 )
                 cohort.filters = clean_filters
-                if computed_cohort_type is not None:
-                    cohort.cohort_type = computed_cohort_type
+                cohort.cohort_type = computed_cohort_type
                 cohort.compiled_bytecode = compiled_bytecode
             else:
                 cohort.filters = filters

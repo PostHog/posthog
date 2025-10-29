@@ -341,3 +341,81 @@ class TestCohortBytecode(APIBaseTest):
                     self.assertGreater(len(bytecode_entry["bytecode"]), 0)
                     self.assertIsInstance(bytecode_entry["conditionHash"], str)
                     self.assertEqual(len(bytecode_entry["conditionHash"]), 16)
+
+    def test_update_with_changed_filters_recalculates_bytecode_and_type(self):
+        """Updating filters should re-derive compiled_bytecode and cohort_type accordingly"""
+        from posthog.models.cohort.cohort import Cohort
+
+        # Start with realtime-capable filters (person + simple behavioral)
+        base_filters = {
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {"type": "person", "key": "email", "operator": "exact", "value": "test@example.com"},
+                    {"type": "behavioral", "key": "purchase", "value": "performed_event", "event_type": "events"},
+                ],
+            }
+        }
+
+        create_resp = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "Update Recalc", "filters": base_filters},
+            format="json",
+        )
+        self.assertEqual(create_resp.status_code, 201)
+        cohort_id = create_resp.json()["id"]
+        cohort = Cohort.objects.get(id=cohort_id)
+        self.assertEqual(cohort.cohort_type, "realtime")
+        self.assertIsNotNone(cohort.compiled_bytecode)
+        base_len = len(cohort.compiled_bytecode)
+
+        # Case A: make filters unsupported by adding an unsupported behavioral value
+        unsupported_filters = {
+            "properties": {
+                "type": "AND",
+                "values": [
+                    *base_filters["properties"]["values"],
+                    {
+                        "type": "behavioral",
+                        "key": "signup",
+                        "value": "performed_event_regularly",  # unsupported
+                        "event_type": "events",
+                    },
+                ],
+            }
+        }
+
+        update_resp = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}/",
+            {"filters": unsupported_filters},
+            format="json",
+        )
+        self.assertEqual(update_resp.status_code, 200)
+        cohort.refresh_from_db()
+        self.assertIsNone(cohort.cohort_type)
+        # bytecode still generated for supported filters; length should be >= base_len
+        self.assertIsNotNone(cohort.compiled_bytecode)
+        self.assertGreaterEqual(len(cohort.compiled_bytecode), base_len)
+
+        # Case B: switch back to supported by replacing the unsupported with supported behavioral
+        supported_filters = {
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {"type": "person", "key": "email", "operator": "exact", "value": "test@example.com"},
+                    {"type": "behavioral", "key": "purchase", "value": "performed_event", "event_type": "events"},
+                    {"type": "behavioral", "key": "page_view", "value": "performed_event", "event_type": "events"},
+                ],
+            }
+        }
+
+        update_resp2 = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}/",
+            {"filters": supported_filters},
+            format="json",
+        )
+        self.assertEqual(update_resp2.status_code, 200)
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.cohort_type, "realtime")
+        self.assertIsNotNone(cohort.compiled_bytecode)
+        self.assertEqual(len(cohort.compiled_bytecode), 3)
