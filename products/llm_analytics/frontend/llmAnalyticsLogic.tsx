@@ -276,6 +276,8 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     return 'traces'
                 } else if (sceneKey === 'llmAnalyticsUsers') {
                     return 'users'
+                } else if (sceneKey === 'llmAnalyticsSessions') {
+                    return 'sessions'
                 } else if (sceneKey === 'llmAnalyticsPlayground') {
                     return 'playground'
                 } else if (sceneKey === 'llmAnalyticsDatasets') {
@@ -850,6 +852,75 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 showColumnConfigurator: true,
             }),
         ],
+        sessionsQuery: [
+            (s) => [
+                s.dateFilter,
+                s.shouldFilterTestAccounts,
+                s.propertyFilters,
+                groupsModel.selectors.groupsTaxonomicTypes,
+            ],
+            (dateFilter, shouldFilterTestAccounts, propertyFilters, groupsTaxonomicTypes): DataTableNode => ({
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.HogQLQuery,
+                    query: `
+                SELECT
+                    ai_session_id as session_id,
+                    countDistinctIf(ai_trace_id, notEmpty(ai_trace_id)) as traces,
+                    count() as generations,
+                    round(sum(toFloat(ai_total_cost_usd)), 4) as total_cost,
+                    round(sum(toFloat(ai_latency)), 2) as total_latency,
+                    min(timestamp) as first_seen,
+                    max(timestamp) as last_seen
+                FROM (
+                    SELECT
+                        timestamp,
+                        JSONExtractString(properties, '$ai_session_id') as ai_session_id,
+                        JSONExtractRaw(properties, '$ai_trace_id') as ai_trace_id,
+                        JSONExtractRaw(properties, '$ai_total_cost_usd') as ai_total_cost_usd,
+                        JSONExtractRaw(properties, '$ai_latency') as ai_latency
+                    FROM events
+                    WHERE event = '$ai_generation'
+                        AND notEmpty(JSONExtractString(properties, '$ai_session_id'))
+                        AND {filters}
+                )
+                GROUP BY ai_session_id
+                ORDER BY last_seen DESC
+                LIMIT 50
+                    `,
+                    filters: {
+                        dateRange: {
+                            date_from: dateFilter.dateFrom || null,
+                            date_to: dateFilter.dateTo || null,
+                        },
+                        filterTestAccounts: shouldFilterTestAccounts,
+                        properties: propertyFilters,
+                    },
+                },
+                columns: [
+                    'session_id',
+                    'traces',
+                    'generations',
+                    'total_cost',
+                    'total_latency',
+                    'first_seen',
+                    'last_seen',
+                ],
+                showDateRange: true,
+                showReload: true,
+                showSearch: true,
+                showPropertyFilter: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    ...groupsTaxonomicTypes,
+                    TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.HogQLExpression,
+                ],
+                showTestAccountFilters: true,
+                showExport: true,
+                showColumnConfigurator: true,
+            }),
+        ],
         isRefreshing: [
             (s) => [s.refreshStatus],
             (refreshStatus) => Object.values(refreshStatus).some((status) => status.loading),
@@ -899,6 +970,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
             [urls.llmAnalyticsGenerations()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsTraces()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsUsers()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmAnalyticsSessions()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsPlayground()]: (_, searchParams) => applySearchParams(searchParams),
         }
     }),
