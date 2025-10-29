@@ -181,7 +181,6 @@ def _get_user_prompt(schema_description: str) -> str:
 class HogQLQueryFixerTool(MaxTool):
     name: str = "fix_hogql_query"
     description: str = "Fixes any error in the current HogQL query"
-    thinking_message: str = "Fixing errors in the SQL query"
     context_prompt_template: str = SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
 
     def _run_impl(self) -> tuple[str, str | None]:

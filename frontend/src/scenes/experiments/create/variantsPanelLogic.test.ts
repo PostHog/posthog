@@ -106,7 +106,7 @@ describe('variantsPanelLogic', () => {
         experimentsLogic.mount()
         experimentsLogic.actions.loadExperiments()
 
-        logic = variantsPanelLogic({ experiment: mockExperiment })
+        logic = variantsPanelLogic({ experiment: mockExperiment, disabled: false })
         logic.mount()
         jest.clearAllMocks()
     })
