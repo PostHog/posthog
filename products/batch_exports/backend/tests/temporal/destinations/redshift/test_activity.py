@@ -545,3 +545,74 @@ async def test_insert_into_redshift_activity_handles_person_schema_changes(
         use_internal_stage=use_internal_stage,
         expected_fields=expected_fields,
     )
+
+
+@pytest.mark.parametrize("exclude_events", [None], indirect=True)
+@pytest.mark.parametrize("properties_data_type", ["super"], indirect=True)
+@pytest.mark.parametrize("model", [TEST_MODELS[1]])
+async def test_insert_into_redshift_activity_inserts_data_with_extra_columns(
+    clickhouse_client,
+    activity_environment,
+    psycopg_connection,
+    redshift_config,
+    exclude_events,
+    model: BatchExportModel | BatchExportSchema | None,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    properties_data_type,
+    ateam,
+    use_internal_stage,
+):
+    """Test data is inserted even in the presence of additional columns.
+
+    Redshift's "MERGE" command can run in a simplified mode which performs better and
+    cleans up duplicates, but this requires a matching schema. We should assert we don't
+    fail when we can't use this mode.
+    """
+    if properties_data_type == "super" and MISSING_REQUIRED_ENV_VARS:
+        pytest.skip("SUPER type is only available in Redshift")
+
+    batch_export_model = model
+    table_name = f"test_insert_activity_extra_column_table__{ateam.pk}"
+    sort_key = "event"
+
+    await _run_activity(
+        activity_environment,
+        redshift_connection=psycopg_connection,
+        clickhouse_client=clickhouse_client,
+        team=ateam,
+        table_name=table_name,
+        properties_data_type=properties_data_type,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        exclude_events=exclude_events,
+        batch_export_model=batch_export_model,
+        redshift_config=redshift_config,
+        sort_key=sort_key,
+        use_internal_stage=use_internal_stage,
+    )
+
+    async with psycopg_connection.transaction():
+        async with psycopg_connection.cursor() as cursor:
+            await cursor.execute(
+                sql.SQL("ALTER TABLE {} ADD COLUMN test INT DEFAULT NULL;").format(
+                    sql.Identifier(redshift_config["schema_name"], table_name)
+                )
+            )
+
+    await _run_activity(
+        activity_environment,
+        redshift_connection=psycopg_connection,
+        clickhouse_client=clickhouse_client,
+        team=ateam,
+        table_name=table_name,
+        properties_data_type=properties_data_type,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        exclude_events=exclude_events,
+        batch_export_model=batch_export_model,
+        redshift_config=redshift_config,
+        sort_key=sort_key,
+        use_internal_stage=use_internal_stage,
+    )

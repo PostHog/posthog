@@ -216,6 +216,7 @@ class RedshiftClient(PostgreSQLClient):
         final_table_fields: Fields,
         update_when_matched: Fields = (),
         stage_fields_cast_to_super: collections.abc.Container[str] | None = None,
+        remove_duplicates: bool = True,
     ) -> None:
         """Merge two tables in Redshift.
 
@@ -289,13 +290,14 @@ class RedshiftClient(PostgreSQLClient):
         MERGE INTO {final_table}
         USING (SELECT {select_stage_table_fields} FROM {stage_table}) AS stage
         ON {merge_condition}
-        REMOVE DUPLICATES
+        {remove_duplicates}
         """
         ).format(
             final_table=final_table_identifier,
             select_stage_table_fields=select_stage_table_fields,
             stage_table=stage_table_identifier,
             merge_condition=merge_condition,
+            remove_duplicates=sql.SQL("REMOVE DUPLICATES") if remove_duplicates else sql.SQL(""),
         )
 
         async with self.connection.transaction():
@@ -713,6 +715,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> BatchEx
             try:
                 columns = await redshift_client.aget_table_columns(inputs.table.schema_name, inputs.table.name)
                 table_fields = [field for field in table_fields if field[0] in columns]
+
             except psycopg.errors.UndefinedTable:
                 pass
 
@@ -1037,9 +1040,22 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
         )
 
         async with RedshiftClient.from_inputs(inputs.connection).connect() as redshift_client:
+            remove_duplicates = True
             # filter out fields that are not in the destination table
             try:
                 columns = await redshift_client.aget_table_columns(inputs.table.schema_name, inputs.table.name)
+                if len(columns) != len(table_schemas.table_schema):
+                    # MERGE cannot remove duplicates if table columns don't match.
+                    remove_duplicates = False
+                    external_logger.warning(
+                        "Table %s.%s has %d columns instead of %d as expected. "
+                        "MERGE command may perform worse and not properly clean up duplicates",
+                        inputs.table.schema_name,
+                        inputs.table.name,
+                        len(columns),
+                        len(table_schemas.table_schema),
+                    )
+
                 table_fields = [field for field in table_schemas.table_schema if field[0] in columns]
             except psycopg.errors.UndefinedTable:
                 table_fields = list(table_schemas.table_schema)
@@ -1088,6 +1104,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
                         merge_key=merge_settings.merge_key,
                         update_key=merge_settings.update_key,
                         stage_fields_cast_to_super=table_schemas.super_columns if table_schemas.use_super else None,
+                        remove_duplicates=remove_duplicates,
                     )
 
                 return result
