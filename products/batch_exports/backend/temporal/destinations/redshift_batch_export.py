@@ -1384,9 +1384,23 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             return result
 
         async with RedshiftClient.from_inputs(inputs.connection).connect() as redshift_client:
+            remove_duplicates = True
+
             # filter out fields that are not in the destination table
             try:
                 columns = await redshift_client.aget_table_columns(inputs.table.schema_name, inputs.table.name)
+                if len(columns) != len(table_schemas.table_schema):
+                    # MERGE cannot remove duplicates if table columns don't match.
+                    remove_duplicates = False
+                    external_logger.warning(
+                        "Table %s.%s has %d columns instead of %d as expected. "
+                        "MERGE command may perform worse and not properly clean up duplicates",
+                        inputs.table.schema_name,
+                        inputs.table.name,
+                        len(columns),
+                        len(table_schemas.table_schema),
+                    )
+
                 table_fields = [field for field in table_schemas.table_schema if field[0] in columns]
 
             except psycopg.errors.UndefinedTable:
@@ -1449,6 +1463,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
                             merge_key=merge_settings.merge_key,
                             update_key=merge_settings.update_key,
                             stage_fields_cast_to_super=table_schemas.super_columns if table_schemas.use_super else None,
+                            remove_duplicates=remove_duplicates,
                         )
 
                     external_logger.info(f"Finished {len(consumer.files_uploaded)} copying file/s into Redshift")
