@@ -113,7 +113,7 @@ impl DuplicateEvent {
         let duplicate_uuid = original_event.uuid;
 
         // Convert distinct_fields to a JSON array
-        let distinct_fields_vec: Vec<DifferentField> = similarity
+        let mut distinct_fields_vec: Vec<DifferentField> = similarity
             .different_fields
             .iter()
             .map(|(field_name, original, new)| DifferentField {
@@ -122,6 +122,53 @@ impl DuplicateEvent {
                 new_value: new.clone(),
             })
             .collect();
+
+        // Add individual property differences if there are 10 or fewer
+        if similarity.different_property_count <= 10 {
+            for (prop_name, values) in &similarity.different_properties {
+                match values {
+                    Some((original_value, new_value)) => {
+                        // Both values exist - property changed
+                        distinct_fields_vec.push(DifferentField {
+                            field_name: format!("properties.{}", prop_name),
+                            original_value: original_value.clone(),
+                            new_value: new_value.clone(),
+                        });
+                    }
+                    None => {
+                        // Property exists in one event but not the other
+                        // Check which event has the property
+                        let original_has = original_event.properties.contains_key(prop_name);
+                        let source_has = source_event.properties.contains_key(prop_name);
+
+                        let (original_val, new_val) = if original_has && !source_has {
+                            // Property was removed in new event
+                            (
+                                serde_json::to_string(&original_event.properties[prop_name])
+                                    .unwrap_or_else(|_| "null".to_string()),
+                                "null".to_string(),
+                            )
+                        } else if !original_has && source_has {
+                            // Property was added in new event
+                            (
+                                "null".to_string(),
+                                serde_json::to_string(&source_event.properties[prop_name])
+                                    .unwrap_or_else(|_| "null".to_string()),
+                            )
+                        } else {
+                            // Shouldn't happen, but handle it gracefully
+                            ("null".to_string(), "null".to_string())
+                        };
+
+                        distinct_fields_vec.push(DifferentField {
+                            field_name: format!("properties.{}", prop_name),
+                            original_value: original_val,
+                            new_value: new_val,
+                        });
+                    }
+                }
+            }
+        }
 
         let distinct_fields = serde_json::to_value(&distinct_fields_vec).ok()?;
 
@@ -274,5 +321,123 @@ mod tests {
         assert_eq!(duplicate_event.dedup_type, "uuid");
         assert!(duplicate_event.reason.is_none());
         assert_eq!(duplicate_event.similarity_score, 0.7);
+    }
+
+    #[test]
+    fn test_property_differences_granular() {
+        use std::collections::HashMap;
+        use uuid::Uuid;
+
+        // Create source event with properties
+        let mut source_props = HashMap::new();
+        source_props.insert("$browser".to_string(), json!("Chrome"));
+        source_props.insert("$os".to_string(), json!("Windows"));
+        source_props.insert("custom_prop".to_string(), json!("new_value"));
+
+        let source_event = RawEvent {
+            uuid: Some(Uuid::new_v4()),
+            event: "$pageview".to_string(),
+            distinct_id: Some("user123".into()),
+            timestamp: Some("2024-01-01T12:00:00Z".to_string()),
+            token: Some("123".to_string()),
+            properties: source_props,
+            ..Default::default()
+        };
+
+        // Create original event with different properties
+        let mut original_props = HashMap::new();
+        original_props.insert("$browser".to_string(), json!("Firefox"));
+        original_props.insert("$os".to_string(), json!("Windows"));
+        original_props.insert("removed_prop".to_string(), json!("old_value"));
+
+        let result_event = RawEvent {
+            uuid: Some(Uuid::new_v4()),
+            event: "$pageview".to_string(),
+            distinct_id: Some("user123".into()),
+            timestamp: Some("2024-01-01T12:00:00Z".to_string()),
+            token: Some("123".to_string()),
+            properties: original_props,
+            ..Default::default()
+        };
+
+        // Simulate property differences (10 or fewer)
+        let similarity = EventSimilarity {
+            overall_score: 0.8,
+            different_field_count: 1,
+            different_fields: vec![(DedupFieldName::Uuid, "uuid1".to_string(), "uuid2".to_string())],
+            properties_similarity: 0.7,
+            different_property_count: 3,
+            different_properties: vec![
+                ("$browser".to_string(), Some(("Firefox".to_string(), "Chrome".to_string()))),
+                ("custom_prop".to_string(), None), // Added in new event
+                ("removed_prop".to_string(), None), // Removed in new event
+            ],
+        };
+
+        let result = DeduplicationResult::PotentialDuplicate(
+            DeduplicationType::Timestamp,
+            similarity,
+            result_event,
+        );
+
+        let duplicate_event = DuplicateEvent::from_result(&source_event, &result).unwrap();
+
+        // Verify distinct_fields includes property differences
+        if let serde_json::Value::Array(fields) = &duplicate_event.distinct_fields {
+            // Should have 1 field difference + 3 property differences = 4 total
+            assert_eq!(fields.len(), 4);
+
+            // Check that property differences are included
+            let fields_json = serde_json::to_string(&fields).unwrap();
+            assert!(fields_json.contains("properties.$browser"));
+            assert!(fields_json.contains("properties.custom_prop"));
+            assert!(fields_json.contains("properties.removed_prop"));
+        } else {
+            panic!("distinct_fields should be a JSON array");
+        }
+    }
+
+    #[test]
+    fn test_property_differences_over_threshold() {
+        use std::collections::HashMap;
+        use uuid::Uuid;
+
+        let source_event = RawEvent {
+            uuid: Some(Uuid::new_v4()),
+            event: "$pageview".to_string(),
+            distinct_id: Some("user123".into()),
+            timestamp: Some("2024-01-01T12:00:00Z".to_string()),
+            token: Some("123".to_string()),
+            properties: HashMap::new(),
+            ..Default::default()
+        };
+
+        let result_event = RawEvent::default();
+
+        // Simulate more than 10 property differences
+        let similarity = EventSimilarity {
+            overall_score: 0.5,
+            different_field_count: 0,
+            different_fields: vec![],
+            properties_similarity: 0.3,
+            different_property_count: 15, // More than 10
+            different_properties: vec![], // Would normally have 15 entries
+        };
+
+        let result = DeduplicationResult::PotentialDuplicate(
+            DeduplicationType::Timestamp,
+            similarity,
+            result_event,
+        );
+
+        let duplicate_event = DuplicateEvent::from_result(&source_event, &result).unwrap();
+
+        // Verify distinct_fields does NOT include property differences (only field differences)
+        if let serde_json::Value::Array(fields) = &duplicate_event.distinct_fields {
+            // Should only have field differences, not property differences
+            assert_eq!(fields.len(), 0);
+        } else {
+            panic!("distinct_fields should be a JSON array");
+        }
     }
 }
