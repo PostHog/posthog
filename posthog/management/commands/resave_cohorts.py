@@ -120,6 +120,3 @@ class Command(BaseCommand):
                 )
             )
 
-    # Keeping a stub to avoid accidental import errors if referenced elsewhere in future
-    def _parse_team_ids(self, *_args: Any, **_kwargs: Any) -> list[int] | None:
-        return None
