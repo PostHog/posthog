@@ -1,6 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -136,5 +138,37 @@ describe('newTabSceneLogic - recents search', () => {
         expect(listMock).toHaveBeenCalledWith(expect.objectContaining({ offset: INITIAL_LIMIT }))
         expect(logic.values.recents.results).toHaveLength(INITIAL_LIMIT + PAGINATION_LIMIT)
         expect(logic.values.sectionItemLimits.recents).toBe(PAGINATION_LIMIT + INITIAL_LIMIT)
+    })
+
+    it('expands the limit when a single category is selected', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]: true,
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setNewTabSceneDataInclude(['apps'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.getSectionItemLimit('apps')).toBe(15)
+    })
+
+    it('increments recents from the expanded base limit', async () => {
+        const PAGINATION_LIMIT = 10
+
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]: true,
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setNewTabSceneDataInclude(['recents'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        const initialLimit = logic.values.getSectionItemLimit('recents')
+        expect(initialLimit).toBe(15)
+
+        logic.actions.loadMoreRecents()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.sectionItemLimits.recents).toBe(initialLimit + PAGINATION_LIMIT)
     })
 })

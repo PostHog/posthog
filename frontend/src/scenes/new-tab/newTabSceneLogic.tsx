@@ -88,6 +88,7 @@ export interface NewTabCategoryItem {
 }
 
 const INITIAL_SECTION_LIMIT = 5
+const SINGLE_CATEGORY_SECTION_LIMIT = 15
 const INITIAL_RECENTS_LIMIT = 5
 const PAGINATION_LIMIT = 10
 const GROUP_SEARCH_LIMIT = 5
@@ -163,6 +164,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         triggerSearchForIncludedItems: true,
         refreshDataAfterToggle: true,
         showMoreInSection: (section: string) => ({ section }),
+        setSectionItemLimit: (section: string, limit: number) => ({ section, limit }),
         resetSectionLimits: true,
         askAI: (searchTerm: string) => ({ searchTerm }),
         logCreateNewItem: (href: string | null | undefined) => ({ href }),
@@ -515,9 +517,9 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     ...state,
                     [section]: section === 'recents' ? (state[section] ?? INITIAL_SECTION_LIMIT) : Infinity,
                 }),
-                loadMoreRecents: (state) => ({
+                setSectionItemLimit: (state, { section, limit }) => ({
                     ...state,
-                    recents: (state['recents'] ?? INITIAL_SECTION_LIMIT) + PAGINATION_LIMIT,
+                    [section]: limit,
                 }),
                 resetSectionLimits: () => ({}),
                 setSearch: () => ({}),
@@ -833,9 +835,31 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
         getSectionItemLimit: [
-            (s) => [s.sectionItemLimits],
-            (sectionItemLimits: Record<string, number>) => (section: string) =>
-                sectionItemLimits[section] || INITIAL_SECTION_LIMIT,
+            (s) => [s.sectionItemLimits, s.newTabSceneDataInclude, s.featureFlags],
+            (
+                sectionItemLimits: Record<string, number>,
+                newTabSceneDataInclude: NEW_TAB_COMMANDS[],
+                featureFlags: any
+            ) => {
+                const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
+                const singleSelectedCategory: NEW_TAB_COMMANDS | null =
+                    newTabSceneData && newTabSceneDataInclude.length === 1 && newTabSceneDataInclude[0] !== 'all'
+                        ? newTabSceneDataInclude[0]
+                        : null
+
+                return (section: string): number => {
+                    const manualLimit = sectionItemLimits[section]
+                    if (manualLimit !== undefined) {
+                        return manualLimit
+                    }
+
+                    if (singleSelectedCategory && section === singleSelectedCategory) {
+                        return SINGLE_CATEGORY_SECTION_LIMIT
+                    }
+
+                    return INITIAL_SECTION_LIMIT
+                }
+            },
         ],
         itemsGrid: [
             (s) => [
@@ -1377,6 +1401,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         loadMoreRecents: () => {
             if (values.recentsLoading) {
                 return
+            }
+
+            const currentLimit = values.getSectionItemLimit('recents')
+            if (Number.isFinite(currentLimit)) {
+                actions.setSectionItemLimit('recents', currentLimit + PAGINATION_LIMIT)
             }
 
             if (values.recents.hasMore) {
