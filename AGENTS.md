@@ -3,23 +3,23 @@
 ## Commands
 
 - Environment:
-    - Auto-detect flox environment before running terminal commands
-    - If flox is available, and you run into trouble executing commands, try with `flox activate -- bash -c "<command>"` pattern
-        - Never use `flox activate` in interactive sessions (it hangs if you try)
+  - Auto-detect flox environment before running terminal commands
+  - If flox is available, and you run into trouble executing commands, try with `flox activate -- bash -c "<command>"` pattern
+    - Never use `flox activate` in interactive sessions (it hangs if you try)
 - Tests:
-    - All tests: `pytest`
-    - Single test: `pytest path/to/test.py::TestClass::test_method`
-    - Frontend: `pnpm --filter=@posthog/frontend test`
-    - Single frontend test: `pnpm --filter=@posthog/frontend jest <test_file>`
+  - All tests: `pytest`
+  - Single test: `pytest path/to/test.py::TestClass::test_method`
+  - Frontend: `pnpm --filter=@posthog/frontend test`
+  - Single frontend test: `pnpm --filter=@posthog/frontend jest <test_file>`
 - Lint:
-    - Python:
-        - `ruff check . --fix` and `ruff format .`
-        - Do not run mypy for type checks. It takes too long.
-    - Frontend: `pnpm --filter=@posthog/frontend format`
-    - TypeScript check: `pnpm --filter=@posthog/frontend typescript:check`
+  - Python:
+    - `ruff check . --fix` and `ruff format .`
+    - Do not run mypy for type checks. It takes too long.
+  - Frontend: `pnpm --filter=@posthog/frontend format`
+  - TypeScript check: `pnpm --filter=@posthog/frontend typescript:check`
 - Build:
-    - Frontend: `pnpm --filter=@posthog/frontend build`
-    - Start dev: `./bin/start`
+  - Frontend: `pnpm --filter=@posthog/frontend build`
+  - Start dev: `./bin/start`
 
 ## ClickHouse Migrations
 

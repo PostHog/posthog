@@ -3,10 +3,23 @@ import { BaseMathType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { SchemaPropertyGroupProperty } from '../schema/schemaManagementLogic'
 
+const MAX_PROPERTIES = 25
+
+export interface PropertyGroupTrendsQueryResult {
+    query: InsightVizNode
+    isTruncated: boolean
+    totalProperties: number
+    displayedProperties: number
+}
+
 export function buildPropertyGroupTrendsQuery(
     eventName: string,
     properties: SchemaPropertyGroupProperty[]
-): InsightVizNode {
+): PropertyGroupTrendsQueryResult {
+    // Limit to 25 properties since we use letters B-Z for series labels (A is reserved for the base series)
+    const isTruncated = properties.length > MAX_PROPERTIES
+    const limitedProperties = isTruncated ? properties.slice(0, MAX_PROPERTIES) : properties
+
     const baseSeries: EventsNode = {
         kind: NodeKind.EventsNode,
         event: eventName,
@@ -16,7 +29,7 @@ export function buildPropertyGroupTrendsQuery(
 
     const series: EventsNode[] = [
         baseSeries,
-        ...properties.map(
+        ...limitedProperties.map(
             (property): EventsNode => ({
                 kind: NodeKind.EventsNode,
                 event: eventName,
@@ -34,7 +47,8 @@ export function buildPropertyGroupTrendsQuery(
         ),
     ]
 
-    const formulaNodes = properties.map((property, index) => {
+    const formulaNodes = limitedProperties.map((property, index) => {
+        // Generate series labels B, C, D, ... Z (ASCII 66 = 'B', 67 = 'C', etc.)
         const seriesLetter = String.fromCharCode(66 + index)
         return {
             formula: `${seriesLetter}/A * 100`,
@@ -60,11 +74,16 @@ export function buildPropertyGroupTrendsQuery(
     }
 
     return {
-        kind: NodeKind.InsightVizNode,
-        source: trendsQuery,
-        showHeader: false,
-        showTable: false,
-        showFilters: false,
-        embedded: true,
+        query: {
+            kind: NodeKind.InsightVizNode,
+            source: trendsQuery,
+            showHeader: false,
+            showTable: false,
+            showFilters: false,
+            embedded: true,
+        },
+        isTruncated,
+        totalProperties: properties.length,
+        displayedProperties: limitedProperties.length,
     }
 }

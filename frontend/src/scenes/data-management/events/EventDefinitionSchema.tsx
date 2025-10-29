@@ -48,20 +48,20 @@ function PropertyGroupCard({
     onEdit: () => void
     onRemove: () => void
 }): JSX.Element {
-    const query = useMemo(
+    const queryResult = useMemo(
         () => buildPropertyGroupTrendsQuery(eventName, schema.property_group.properties),
         [eventName, schema.property_group.properties]
     )
 
     const linkQuery = useMemo(
         () => ({
-            ...query,
+            ...queryResult.query,
             showHeader: true,
             showTable: true,
             showFilters: true,
             embedded: false,
         }),
-        [query]
+        [queryResult.query]
     )
 
     const insightUrl = useMemo(() => urls.insightNew({ query: linkQuery }), [linkQuery])
@@ -112,8 +112,14 @@ function PropertyGroupCard({
                                 <IconInfo className="text-xl text-secondary shrink-0" />
                             </Tooltip>
                         </h4>
+                        {queryResult.isTruncated && (
+                            <div className="mb-2 px-2 py-1 bg-warning-highlight text-warning text-xs rounded">
+                                Only showing {queryResult.displayedProperties} of {queryResult.totalProperties}{' '}
+                                properties. Chart is limited to 25 properties.
+                            </div>
+                        )}
                         <div>
-                            <Query query={query} readOnly embedded />
+                            <Query query={queryResult.query} readOnly embedded />
                         </div>
                     </div>
                 </>
