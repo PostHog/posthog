@@ -69,7 +69,7 @@ class TestCohortBytecode(APIBaseTest):
                     {"type": "person", "key": "email", "operator": "exact", "value": "test@example.com"},
                     {"type": "behavioral", "key": "purchase", "value": "performed_event", "event_type": "events"},
                 ],
-                "expected_realtime_supported": True,
+                "expected_cohort_type": "realtime",
             },
             {
                 "name": "Behavioral with temporal logic",
@@ -85,7 +85,7 @@ class TestCohortBytecode(APIBaseTest):
                         "operator_value": 3,
                     },
                 ],
-                "expected_realtime_supported": True,  # Still supported because behavioral filters generate bytecode for event matching
+                "expected_cohort_type": "realtime",  # Still supported because behavioral filters generate bytecode for event matching
             },
             {
                 "name": "Unsupported behavioral filter type",
@@ -100,7 +100,7 @@ class TestCohortBytecode(APIBaseTest):
                         "time_interval": "day",
                     },
                 ],
-                "expected_realtime_supported": False,  # Should be False due to unsupported behavioral type
+                "expected_cohort_type": None,  # Should remain None due to unsupported behavioral type
             },
         ]
 
@@ -121,14 +121,15 @@ class TestCohortBytecode(APIBaseTest):
                 )
                 self.assertEqual(response.status_code, 201)
 
-                # Get cohort from database and verify realtime support
+                # Get cohort from database and verify cohort_type
                 cohort_id = response.json()["id"]
                 cohort = Cohort.objects.get(id=cohort_id)
-                self.assertEqual(
-                    cohort.realtime_supported,
-                    case["expected_realtime_supported"],
-                    f"Expected realtime_supported={case['expected_realtime_supported']} for {case['name']}",
-                )
+                expected_type = case["expected_cohort_type"]
+                if expected_type is None:
+                    # Should remain None for unsupported filters
+                    self.assertIsNone(cohort.cohort_type)
+                else:
+                    self.assertEqual(cohort.cohort_type, expected_type)
 
     def test_cohort_database_persistence(self):
         """Test bytecode persistence and data integrity in database"""
@@ -142,7 +143,7 @@ class TestCohortBytecode(APIBaseTest):
                     {"type": "behavioral", "key": "purchase", "value": "performed_event", "event_type": "events"},
                 ],
                 "expected_bytecode_count": 2,
-                "expected_realtime_supported": True,
+                "expected_cohort_type": "realtime",
             },
             {
                 "name": "Temporal behavioral filter preservation",
@@ -159,7 +160,7 @@ class TestCohortBytecode(APIBaseTest):
                     }
                 ],
                 "expected_bytecode_count": 1,
-                "expected_realtime_supported": True,
+                "expected_cohort_type": "realtime",
                 "check_temporal_preservation": True,
             },
         ]
@@ -185,8 +186,13 @@ class TestCohortBytecode(APIBaseTest):
                 cohort_id = response.json()["id"]
                 cohort = Cohort.objects.get(id=cohort_id)
 
-                # Verify realtime support
-                self.assertEqual(cohort.realtime_supported, case["expected_realtime_supported"])
+                # Verify cohort type reflects realtime capability
+                expected_type = case["expected_cohort_type"]
+                if expected_type is None:
+                    # Should remain None for unsupported filters
+                    self.assertIsNone(cohort.cohort_type)
+                else:
+                    self.assertEqual(cohort.cohort_type, expected_type)
 
                 # Verify filters are clean (no embedded bytecode)
                 filter_values = cohort.filters["properties"]["values"]
@@ -251,7 +257,7 @@ class TestCohortBytecode(APIBaseTest):
                     # Person property check
                     {"type": "person", "key": "firstName", "operator": "is_set"},
                 ],
-                "expected_realtime_supported": True,
+                "expected_cohort_type": "realtime",
                 "expected_bytecode_count": 4,
                 "expected_filter_count": 4,
             },
@@ -279,7 +285,7 @@ class TestCohortBytecode(APIBaseTest):
                     # Person filter
                     {"type": "person", "key": "email", "operator": "exact", "value": "test@example.com"},
                 ],
-                "expected_realtime_supported": True,
+                "expected_cohort_type": "realtime",
                 "expected_bytecode_count": 3,
                 "expected_filter_count": 3,
             },
@@ -306,8 +312,13 @@ class TestCohortBytecode(APIBaseTest):
                 cohort_id = response.json()["id"]
                 cohort = Cohort.objects.get(id=cohort_id)
 
-                # Verify realtime support and structure
-                self.assertEqual(cohort.realtime_supported, case["expected_realtime_supported"])
+                # Verify cohort type reflects realtime capability and structure
+                expected_type = case["expected_cohort_type"]
+                if expected_type is None:
+                    # Should remain None for unsupported filters
+                    self.assertIsNone(cohort.cohort_type)
+                else:
+                    self.assertEqual(cohort.cohort_type, expected_type)
                 self.assertEqual(len(cohort.filters["properties"]["values"]), case["expected_filter_count"])
                 self.assertEqual(len(cohort.compiled_bytecode), case["expected_bytecode_count"])
 
