@@ -10742,6 +10742,9 @@
                         }
                     ]
                 },
+                "cohort": {
+                    "$ref": "#/definitions/ErrorTrackingIssueCohort"
+                },
                 "description": {
                     "type": ["string", "null"]
                 },
@@ -10860,6 +10863,9 @@
                             "type": "null"
                         }
                     ]
+                },
+                "cohort": {
+                    "$ref": "#/definitions/ErrorTrackingIssueCohort"
                 },
                 "description": {
                     "type": ["string", "null"]
@@ -10991,6 +10997,19 @@
         "ErrorTrackingIssueAssigneeType": {
             "enum": ["user", "role"],
             "type": "string"
+        },
+        "ErrorTrackingIssueCohort": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name"],
+            "type": "object"
         },
         "ErrorTrackingIssueCorrelationQuery": {
             "additionalProperties": false,
@@ -11318,6 +11337,9 @@
                             "type": "null"
                         }
                     ]
+                },
+                "cohort": {
+                    "$ref": "#/definitions/ErrorTrackingIssueCohort"
                 },
                 "description": {
                     "type": ["string", "null"]

@@ -25,7 +25,7 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property.util import property_to_django_filter
 from posthog.utils import relative_date_parse
 
-from products.error_tracking.backend.api.issues import ErrorTrackingIssueSerializer
+from products.error_tracking.backend.api.issues import ErrorTrackingIssuePreviewSerializer
 from products.error_tracking.backend.models import ErrorTrackingIssue
 
 logger = structlog.get_logger(__name__)
@@ -655,10 +655,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
     def error_tracking_issues(self, ids):
         status = self.query.status
         queryset = (
-            ErrorTrackingIssue.objects.with_first_seen()
-            .select_related("assignment")
-            .prefetch_related("external_issues__integration")
-            .filter(team=self.team, id__in=ids)
+            ErrorTrackingIssue.objects.with_first_seen().select_related("assignment").filter(team=self.team, id__in=ids)
         )
 
         if self.query.issueId:
@@ -676,7 +673,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         for filter in self.issue_properties:
             queryset = property_to_django_filter(queryset, filter)
 
-        serializer = ErrorTrackingIssueSerializer(queryset, many=True)
+        serializer = ErrorTrackingIssuePreviewSerializer(queryset, many=True)
         return {issue["id"]: issue for issue in serializer.data}
 
     def prefetch_issue_ids(self) -> list[str]:
