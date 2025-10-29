@@ -18,6 +18,10 @@ INGESTION_PIPELINES = [
 ]
 
 
+def default_pipelines():
+    return ["analytics"]
+
+
 class RestrictionType(models.TextChoices):
     SKIP_PERSON_PROCESSING = "skip_person_processing"
     DROP_EVENT_FROM_INGESTION = "drop_event_from_ingestion"
@@ -42,7 +46,7 @@ class EventIngestionRestrictionConfig(UUIDTModel):
     )
     pipelines = ArrayField(
         models.CharField(max_length=50),
-        default=lambda: ["analytics"],
+        default=default_pipelines,
         blank=True,
         help_text="List of ingestion pipelines this restriction applies to (e.g., 'analytics', 'session_recordings')",
     )

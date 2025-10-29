@@ -3,6 +3,8 @@
 from django.contrib.postgres.fields import ArrayField
 from django.db import migrations, models
 
+import posthog.models.event_ingestion_restriction_config
+
 
 class Migration(migrations.Migration):
     dependencies = [
@@ -15,9 +17,10 @@ class Migration(migrations.Migration):
             name="pipelines",
             field=ArrayField(
                 base_field=models.CharField(max_length=50),
-                default=lambda: ["analytics"],
+                default=posthog.models.event_ingestion_restriction_config.default_pipelines,
                 blank=True,
                 help_text="List of ingestion pipelines this restriction applies to (e.g., 'analytics', 'session_recordings')",
+                size=None,
             ),
         ),
     ]
