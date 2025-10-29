@@ -368,3 +368,278 @@ class TestDataWarehouseAPI(APIBaseTest):
         self.assertIn(today_key, data["breakdown"])
         self.assertEqual(data["breakdown"][today_key]["successful"], 2)
         self.assertEqual(data["breakdown"][today_key]["failed"], 1)
+
+    def test_running_activity_returns_only_running_jobs(self):
+        """Test running_activity endpoint returns only running jobs"""
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/running_activity"
+
+        source = ExternalDataSource.objects.create(
+            source_id="test-id", connection_id="conn-id", destination_id="dest-id", team=self.team, source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(name="customers", team=self.team, source=source)
+
+        ExternalDataJob.objects.create(
+            pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=100, status="Running"
+        )
+        ExternalDataJob.objects.create(
+            pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=200, status="Completed"
+        )
+        ExternalDataJob.objects.create(
+            pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=300, status="Failed"
+        )
+
+        DataModelingJob.objects.create(team=self.team, status="Running", rows_materialized=50)
+        DataModelingJob.objects.create(team=self.team, status="Completed", rows_materialized=75)
+
+        response = self.client.get(endpoint)
+        data = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(data["results"]), 2)
+
+        statuses = [activity["status"] for activity in data["results"]]
+        self.assertTrue(all(status == "Running" for status in statuses))
+
+        types = [activity["type"] for activity in data["results"]]
+        self.assertIn("Stripe", types)
+        self.assertIn("Materialized view", types)
+
+    def test_completed_activity_returns_only_non_running_jobs(self):
+        """Test completed_activity endpoint returns only non-running jobs"""
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/completed_activity"
+
+        source = ExternalDataSource.objects.create(
+            source_id="test-id", connection_id="conn-id", destination_id="dest-id", team=self.team, source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(name="customers", team=self.team, source=source)
+
+        ExternalDataJob.objects.create(
+            pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=100, status="Running"
+        )
+        ExternalDataJob.objects.create(
+            pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=200, status="Completed"
+        )
+        ExternalDataJob.objects.create(
+            pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=300, status="Failed"
+        )
+
+        DataModelingJob.objects.create(team=self.team, status="Running", rows_materialized=50)
+        DataModelingJob.objects.create(team=self.team, status="Completed", rows_materialized=75)
+        DataModelingJob.objects.create(team=self.team, status="Failed", rows_materialized=25)
+
+        response = self.client.get(endpoint)
+        data = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(data["results"]), 4)
+
+        statuses = [activity["status"] for activity in data["results"]]
+        self.assertTrue(all(status != "Running" for status in statuses))
+
+        types = [activity["type"] for activity in data["results"]]
+        self.assertEqual(types.count("Stripe"), 2)
+        self.assertEqual(types.count("Materialized view"), 2)
+
+    def test_running_activity_pagination(self):
+        """Test running_activity endpoint pagination"""
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/running_activity"
+
+        source = ExternalDataSource.objects.create(
+            source_id="test-id", connection_id="conn-id", destination_id="dest-id", team=self.team, source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(name="customers", team=self.team, source=source)
+
+        for i in range(5):
+            ExternalDataJob.objects.create(
+                pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=100 + i, status="Running"
+            )
+
+        response = self.client.get(f"{endpoint}?limit=2&offset=0")
+        first_page_data = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(first_page_data["results"]), 2)
+        self.assertIsNotNone(first_page_data["next"])
+
+        response = self.client.get(f"{endpoint}?limit=2&offset=2")
+        second_page_data = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(second_page_data["results"]), 2)
+
+    def test_completed_activity_pagination(self):
+        """Test completed_activity endpoint pagination"""
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/completed_activity"
+
+        source = ExternalDataSource.objects.create(
+            source_id="test-id", connection_id="conn-id", destination_id="dest-id", team=self.team, source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(name="customers", team=self.team, source=source)
+
+        for i in range(7):
+            status = "Completed" if i % 2 == 0 else "Failed"
+            ExternalDataJob.objects.create(
+                pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=100 + i, status=status
+            )
+
+        response = self.client.get(f"{endpoint}?limit=3&offset=0")
+        first_page_data = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(first_page_data["results"]), 3)
+        self.assertIsNotNone(first_page_data["next"])
+
+        response = self.client.get(f"{endpoint}?limit=3&offset=3")
+        second_page_data = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(second_page_data["results"]), 3)
+
+    def test_running_activity_cutoff_days(self):
+        """Test running_activity endpoint respects cutoff_days parameter"""
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/running_activity"
+
+        source = ExternalDataSource.objects.create(
+            source_id="test-id", connection_id="conn-id", destination_id="dest-id", team=self.team, source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(name="customers", team=self.team, source=source)
+
+        ExternalDataJob.objects.create(
+            pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=100, status="Running"
+        )
+
+        old_job = ExternalDataJob.objects.create(
+            pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=200, status="Running"
+        )
+        ExternalDataJob.objects.filter(pk=old_job.pk).update(created_at=timezone.now() - timedelta(days=35))
+
+        response = self.client.get(f"{endpoint}?cutoff_days=30")
+        data = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["rows"], 100)
+
+        response = self.client.get(f"{endpoint}?cutoff_days=40")
+        data = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(data["results"]), 2)
+
+    def test_completed_activity_cutoff_days(self):
+        """Test completed_activity endpoint respects cutoff_days parameter"""
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/completed_activity"
+
+        source = ExternalDataSource.objects.create(
+            source_id="test-id", connection_id="conn-id", destination_id="dest-id", team=self.team, source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(name="customers", team=self.team, source=source)
+
+        ExternalDataJob.objects.create(
+            pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=100, status="Completed"
+        )
+
+        old_job = ExternalDataJob.objects.create(
+            pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=200, status="Failed"
+        )
+        ExternalDataJob.objects.filter(pk=old_job.pk).update(created_at=timezone.now() - timedelta(days=35))
+
+        response = self.client.get(f"{endpoint}?cutoff_days=30")
+        data = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["rows"], 100)
+
+    def test_running_activity_empty_state(self):
+        """Test running_activity endpoint with no running jobs"""
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/running_activity"
+
+        source = ExternalDataSource.objects.create(
+            source_id="test-id", connection_id="conn-id", destination_id="dest-id", team=self.team, source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(name="customers", team=self.team, source=source)
+
+        ExternalDataJob.objects.create(
+            pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=100, status="Completed"
+        )
+
+        response = self.client.get(endpoint)
+        data = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(data["results"]), 0)
+
+    def test_completed_activity_empty_state(self):
+        """Test completed_activity endpoint with no completed jobs"""
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/completed_activity"
+
+        source = ExternalDataSource.objects.create(
+            source_id="test-id", connection_id="conn-id", destination_id="dest-id", team=self.team, source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(name="customers", team=self.team, source=source)
+
+        ExternalDataJob.objects.create(
+            pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=100, status="Running"
+        )
+
+        response = self.client.get(endpoint)
+        data = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(data["results"]), 0)
+
+    def test_running_activity_ordering(self):
+        """Test running_activity endpoint returns results ordered by created_at DESC"""
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/running_activity"
+
+        for i in range(3):
+            DataModelingJob.objects.create(team=self.team, status="Running", rows_materialized=100 + i)
+
+        response = self.client.get(endpoint)
+        data = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        created_dates = [result["created_at"] for result in data["results"]]
+        self.assertEqual(created_dates, sorted(created_dates, reverse=True))
+
+    def test_completed_activity_ordering(self):
+        """Test completed_activity endpoint returns results ordered by created_at DESC"""
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/completed_activity"
+
+        for i in range(3):
+            status = "Completed" if i % 2 == 0 else "Failed"
+            DataModelingJob.objects.create(team=self.team, status=status, rows_materialized=100 + i)
+
+        response = self.client.get(endpoint)
+        data = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        created_dates = [result["created_at"] for result in data["results"]]
+        self.assertEqual(created_dates, sorted(created_dates, reverse=True))
+
+    def test_running_activity_invalid_parameters(self):
+        """Test running_activity endpoint rejects invalid parameters"""
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/running_activity"
+
+        response = self.client.get(f"{endpoint}?limit=invalid")
+        self.assertEqual(response.status_code, 400)
+
+        response = self.client.get(f"{endpoint}?offset=invalid")
+        self.assertEqual(response.status_code, 400)
+
+        response = self.client.get(f"{endpoint}?cutoff_days=invalid")
+        self.assertEqual(response.status_code, 400)
+
+    def test_completed_activity_invalid_parameters(self):
+        """Test completed_activity endpoint rejects invalid parameters"""
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/completed_activity"
+
+        response = self.client.get(f"{endpoint}?limit=invalid")
+        self.assertEqual(response.status_code, 400)
+
+        response = self.client.get(f"{endpoint}?offset=invalid")
+        self.assertEqual(response.status_code, 400)
+
+        response = self.client.get(f"{endpoint}?cutoff_days=invalid")
+        self.assertEqual(response.status_code, 400)
