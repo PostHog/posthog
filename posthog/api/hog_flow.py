@@ -71,8 +71,6 @@ class HogFlowActionSerializer(serializers.Serializer):
                     serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
                     serializer.is_valid(raise_exception=True)
                     data["config"]["filters"] = serializer.validated_data
-            elif data.get("config", {}).get("type") == "manual":
-                pass
             else:
                 raise serializers.ValidationError({"config": "Invalid trigger type"})
 
