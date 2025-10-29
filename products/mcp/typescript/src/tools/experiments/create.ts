@@ -1,6 +1,7 @@
 import { ExperimentCreateSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 import type { z } from 'zod'
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 
 const schema = ExperimentCreateSchema
 
@@ -29,7 +30,7 @@ export const createExperimentHandler = async (context: Context, params: Params) 
         content: [
             {
                 type: 'text',
-                text: JSON.stringify(experimentWithUrl, null, 2),
+                text: formatResponse(experimentWithUrl),
             },
         ],
     }

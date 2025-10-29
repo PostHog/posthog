@@ -2,6 +2,7 @@ import { SurveyGetAllSchema } from '@/schema/tool-inputs'
 import { formatSurveys } from '@/tools/surveys/utils/survey-utils'
 import type { Context, ToolBase } from '@/tools/types'
 import type { z } from 'zod'
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 
 const schema = SurveyGetAllSchema
 type Params = z.infer<typeof schema>
@@ -22,7 +23,7 @@ export const getAllHandler = async (context: Context, params: Params) => {
     }
 
     return {
-        content: [{ type: 'text', text: JSON.stringify(response) }],
+        content: [{ type: 'text', text: formatResponse(response) }],
     }
 }
 

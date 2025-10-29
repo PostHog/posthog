@@ -1,6 +1,7 @@
 import { InsightCreateSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 import type { z } from 'zod'
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 
 const schema = InsightCreateSchema
 
@@ -19,7 +20,7 @@ export const createHandler = async (context: Context, params: Params) => {
         url: `${context.api.getProjectBaseUrl(projectId)}/insights/${insightResult.data.short_id}`,
     }
 
-    return { content: [{ type: 'text', text: JSON.stringify(insightWithUrl) }] }
+    return { content: [{ type: 'text', text: formatResponse(insightWithUrl) }] }
 }
 
 const tool = (): ToolBase<typeof schema> => ({

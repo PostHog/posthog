@@ -2,6 +2,7 @@ import { SurveyUpdateSchema } from '@/schema/tool-inputs'
 import { formatSurvey } from '@/tools/surveys/utils/survey-utils'
 import type { Context, ToolBase } from '@/tools/types'
 import type { z } from 'zod'
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 
 const schema = SurveyUpdateSchema
 type Params = z.infer<typeof schema>
@@ -41,7 +42,7 @@ export const updateHandler = async (context: Context, params: Params) => {
     const formattedSurvey = formatSurvey(surveyResult.data, context, projectId)
 
     return {
-        content: [{ type: 'text', text: JSON.stringify(formattedSurvey) }],
+        content: [{ type: 'text', text: formatResponse(formattedSurvey) }],
     }
 }
 

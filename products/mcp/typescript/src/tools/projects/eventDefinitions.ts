@@ -2,6 +2,7 @@ import { EventDefinitionSchema } from '@/schema/properties'
 import { ProjectEventDefinitionsSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 import type { z } from 'zod'
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 
 const schema = ProjectEventDefinitionsSchema
 
@@ -21,7 +22,7 @@ export const eventDefinitionsHandler = async (context: Context, _params: Params)
     const simplifiedEvents = eventDefsResult.data.map((def) => EventDefinitionSchema.parse(def))
 
     return {
-        content: [{ type: 'text', text: JSON.stringify(simplifiedEvents) }],
+        content: [{ type: 'text', text: formatResponse(simplifiedEvents) }],
     }
 }
 

@@ -1,6 +1,7 @@
 import { LLMAnalyticsGetCostsSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 import type { z } from 'zod'
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 
 const schema = LLMAnalyticsGetCostsSchema
 
@@ -38,7 +39,7 @@ export const getLLMCostsHandler = async (context: Context, params: Params) => {
         throw new Error(`Failed to get LLM costs: ${costsResult.error.message}`)
     }
     return {
-        content: [{ type: 'text', text: JSON.stringify(costsResult.data.results) }],
+        content: [{ type: 'text', text: formatResponse(costsResult.data.results) }],
     }
 }
 

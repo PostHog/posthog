@@ -2,6 +2,7 @@ import { ExperimentResultsResponseSchema } from '@/schema/experiments'
 import { ExperimentResultsGetSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 import type { z } from 'zod'
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 
 const schema = ExperimentResultsGetSchema
 
@@ -38,7 +39,7 @@ export const getResultsHandler = async (context: Context, params: Params) => {
         content: [
             {
                 type: 'text',
-                text: JSON.stringify(parsedExperiment, null, 2),
+                text: formatResponse(parsedExperiment),
             },
         ],
     }

@@ -1,6 +1,7 @@
 import { InsightQueryInputSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 import type { z } from 'zod'
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 
 const schema = InsightQueryInputSchema
 
@@ -33,7 +34,7 @@ export const queryHandler = async (context: Context, params: Params) => {
         results: queryResult.data.results,
     }
 
-    return { content: [{ type: 'text', text: JSON.stringify(responseData) }] }
+    return { content: [{ type: 'text', text: formatResponse(responseData) }] }
 }
 
 const tool = (): ToolBase<typeof schema> => ({

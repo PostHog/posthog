@@ -1,6 +1,7 @@
 import { DashboardGetSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 import type { z } from 'zod'
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 
 const schema = DashboardGetSchema
 
@@ -15,7 +16,7 @@ export const getHandler = async (context: Context, params: Params) => {
         throw new Error(`Failed to get dashboard: ${dashboardResult.error.message}`)
     }
 
-    return { content: [{ type: 'text', text: JSON.stringify(dashboardResult.data) }] }
+    return { content: [{ type: 'text', text: formatResponse(dashboardResult.data) }] }
 }
 
 const tool = (): ToolBase<typeof schema> => ({
