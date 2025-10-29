@@ -239,10 +239,10 @@ export enum ProductKey {
     ERROR_TRACKING = 'error_tracking',
     REVENUE_ANALYTICS = 'revenue_analytics',
     MARKETING_ANALYTICS = 'marketing_analytics',
+    LLM_ANALYTICS = 'llm_analytics',
     MAX = 'max',
     LINKS = 'links',
     ENDPOINTS = 'endpoints',
-    LLM_ANALYTICS = 'llm_analytics',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -1372,7 +1372,7 @@ export type SearchResponse = {
     counts: Record<SearchableEntity, number | null>
 }
 
-export type GroupListParams = { group_type_index: GroupTypeIndex; search: string }
+export type GroupListParams = { group_type_index: GroupTypeIndex; search: string; limit?: number }
 
 export type CreateGroupParams = {
     group_type_index: GroupTypeIndex
@@ -1521,6 +1521,7 @@ export enum PersonsTabType {
 }
 
 export enum GroupsTabType {
+    FEED = 'feed',
     NOTES = 'notes',
     OVERVIEW = 'overview',
 }
@@ -2161,6 +2162,7 @@ export interface DashboardBasicType extends WithAccessControl {
     created_at: string
     created_by: UserBasicType | null
     last_accessed_at: string | null
+    last_viewed_at?: string | null
     is_shared: boolean
     deleted: boolean
     creation_mode: 'default' | 'template' | 'duplicate'
@@ -4358,6 +4360,7 @@ export const INTEGRATION_KINDS = [
     'twilio',
     'linear',
     'github',
+    'gitlab',
     'meta-ads',
     'clickup',
     'reddit-ads',
@@ -4538,6 +4541,7 @@ export type APIScopeObject =
     | 'dashboard'
     | 'dashboard_template'
     | 'dataset'
+    | 'desktop_recording'
     | 'early_access_feature'
     | 'endpoint'
     | 'error_tracking'
@@ -5850,7 +5854,7 @@ export interface DataWarehouseActivityRecord {
     id: string
     type: string
     name: string | null
-    status: string
+    status: ExternalDataJobStatus
     rows: number
     created_at: string
     finished_at: string | null
@@ -5865,6 +5869,37 @@ export interface DataWarehouseDashboardDataSource {
     lastSync: string | null
     rowCount: number | null
     url: string
+}
+
+export interface DataWarehouseJobStatsRequestPayload {
+    days: 1 | 7 | 30
+}
+
+export interface DataWarehouseJobStats {
+    days: number
+    cutoff_time: string
+    total_jobs: number
+    successful_jobs: number
+    failed_jobs: number
+    external_data_jobs: {
+        total: number
+        running: number
+        successful: number
+        failed: number
+    }
+    modeling_jobs: {
+        total: number
+        running: number
+        successful: number
+        failed: number
+    }
+    breakdown: Record<
+        string,
+        {
+            successful: number
+            failed: number
+        }
+    >
 }
 
 export enum OnboardingStepKey {
