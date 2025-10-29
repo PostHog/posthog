@@ -223,6 +223,13 @@ class CLIAuthViewSet(viewsets.ViewSet):
                 {"error": "expired", "error_description": "Device code expired"}, status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Prevent duplicate authorization (race condition)
+        if device_data.get("status") == "authorized":
+            return Response(
+                {"error": "already_authorized", "error_description": "This code has already been authorized"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         # Verify user has access to the project
         user: User = request.user
         from posthog.models import Team
