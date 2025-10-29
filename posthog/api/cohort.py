@@ -222,10 +222,6 @@ class FilterBytecodeMixin(BaseModel):
     @model_validator(mode="after")
     def _generate_bytecode(self, info):
         """Generate bytecode for the filter if team context is available."""
-        # Check if this filter should generate bytecode
-        if hasattr(self, "_should_generate_bytecode") and not self._should_generate_bytecode():
-            return self
-
         if info and info.context:
             team = info.context.get("team")
             if team:
@@ -270,10 +266,6 @@ class BehavioralFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
     min_periods: int | None = None
     event_filters: list[Union[EventPropFilter, HogQLFilter]] | None = None
     explicit_datetime: str | None = None
-
-    def _should_generate_bytecode(self) -> bool:
-        """Generate bytecode for simple event matching behavioral filters - ignore temporal logic"""
-        return self.value in ["performed_event", "performed_event_multiple"]
 
 
 class CohortFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
