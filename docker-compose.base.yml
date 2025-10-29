@@ -477,6 +477,15 @@ services:
         volumes:
             - '/var/run/docker.sock:/var/run/docker.sock'
 
+    s3rver:
+        container_name: '${S3RVER_DOCKER_NAME:-s3rver-main}'
+        image: node:18-alpine
+        command: npx s3rver --directory /data --address 0.0.0.0 --port 4568 --silent
+        ports:
+            - '127.0.0.1:4568:4568' # s3rver S3-compatible API
+        volumes:
+            - './data/s3rver:/data'
+
 networks:
     otel_network:
         driver: bridge

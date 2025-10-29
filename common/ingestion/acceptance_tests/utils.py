@@ -10,7 +10,7 @@ def get_service_url(service: str = "proxy") -> str:
 
     service_urls = {
         "proxy": "http://localhost:8010",
-        "s3": "http://localhost:19000",
+        "s3": "http://localhost:4568",  # s3rver (was MinIO port 19000)
         "clickhouse": "http://localhost:8123",
     }
 
