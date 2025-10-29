@@ -11,21 +11,10 @@ class Migration(migrations.Migration):
     operations = [
         # Drop the deprecated prompt column from the database
         # The prompt data was migrated to evaluation_config in migration 0004
-        # The field was removed from the model in migration 0006
+        # The field was removed from the model in migration 0006 (deployed in PR #40089)
         # This is the final cleanup step after one full deployment cycle
-        #
-        # We use RunSQL because:
-        # - The field is already removed from Django's state (in migration 0006)
-        # - We only need to drop the physical database column
-        # - IF EXISTS makes this idempotent and safe
-        # - reverse_sql is noop because we can't restore deleted data
-        migrations.SeparateDatabaseAndState(
-            state_operations=[],
-            database_operations=[
-                migrations.RunSQL(
-                    sql="ALTER TABLE llm_analytics_evaluation DROP COLUMN IF EXISTS prompt",
-                    reverse_sql=migrations.RunSQL.noop,
-                ),
-            ],
+        migrations.RunSQL(
+            sql="ALTER TABLE llm_analytics_evaluation DROP COLUMN IF EXISTS prompt",
+            reverse_sql=migrations.RunSQL.noop,
         ),
     ]
