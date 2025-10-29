@@ -28,7 +28,7 @@ opentelemetry-otlp = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 rand = { workspace = true }
 rdkafka = { workspace = true }
-redis = { version = "0.23.3", features = [
+redis = { version = "0.32.7", features = [
     "tokio-comp",
     "cluster",
     "cluster-async",
