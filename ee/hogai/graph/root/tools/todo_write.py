@@ -3,6 +3,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from ee.hogai.tool import MaxTool
+from ee.hogai.utils.types.base import TodoItem
 
 TODO_WRITE_PROMPT = """
 Use this tool to build and maintain a structured to-do list for the current session. It helps you monitor progress, organize complex work, and show thoroughness. It also makes both task progress and the overall status of the user’s requests clear to the user.
@@ -136,13 +137,6 @@ The assistant did not use the todo list because this is an informational request
 
 When unsure, use this tool. Proactive task management shows attentiveness and helps ensure all requirements are met.
 """.strip()
-
-
-class TodoItem(BaseModel):
-    content: str = Field(..., min_length=1)
-    status: Literal["pending", "in_progress", "completed"]
-    id: str
-    priority: Literal["low", "medium", "high"]
 
 
 class TodoWriteToolArgs(BaseModel):

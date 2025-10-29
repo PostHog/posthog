@@ -448,3 +448,10 @@ AssistantActionUnion = MessageAction | MessageChunkAction | NodeStartAction
 class AssistantDispatcherEvent(BaseModel):
     action: AssistantActionUnion = Field(discriminator="type")
     node_name: str
+
+
+class TodoItem(BaseModel):
+    content: str = Field(..., min_length=1)
+    status: Literal["pending", "in_progress", "completed"]
+    id: str
+    priority: Literal["low", "medium", "high"]

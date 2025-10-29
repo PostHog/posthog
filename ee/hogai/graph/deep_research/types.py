@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 from enum import StrEnum
-from typing import TYPE_CHECKING, Annotated, Optional
+from typing import Annotated, Optional
 
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
@@ -11,13 +11,11 @@ from ee.hogai.utils.types.base import (
     AssistantMessageUnion,
     BaseStateWithMessages,
     BaseStateWithTasks,
+    TodoItem,
     add_and_merge_messages,
     append,
     replace,
 )
-
-if TYPE_CHECKING:
-    from ee.hogai.graph.root.tools.todo_write import TodoItem
 
 NotebookInfo = DeepResearchNotebook
 
@@ -32,7 +30,7 @@ class DeepResearchIntermediateResult(BaseModel):
 
 
 class _SharedDeepResearchState(BaseStateWithMessages, BaseStateWithTasks):
-    todos: Annotated[Optional[list["TodoItem"]], replace] = Field(default=None)
+    todos: Annotated[Optional[list[TodoItem]], replace] = Field(default=None)
     """
     The current TO-DO list.
     """

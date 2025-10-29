@@ -19,8 +19,7 @@ import products
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.mixins import AssistantContextMixin
-from ee.hogai.utils.types import AssistantState
-from ee.hogai.utils.types.base import AssistantMessageUnion
+from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantState
 
 CONTEXTUAL_TOOL_NAME_TO_TOOL: dict[AssistantTool, type["MaxTool"]] = {}
 
