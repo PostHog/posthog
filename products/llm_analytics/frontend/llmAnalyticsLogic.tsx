@@ -103,6 +103,9 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         setGenerationsQuery: (query: DataTableNode) => ({ query }),
         setGenerationsColumns: (columns: string[]) => ({ columns }),
         setTracesQuery: (query: DataTableNode) => ({ query }),
+        setSessionsSort: (column: string, direction: 'ASC' | 'DESC') => ({ column, direction }),
+        setUsersSort: (column: string, direction: 'ASC' | 'DESC') => ({ column, direction }),
+        setGenerationsSort: (column: string, direction: 'ASC' | 'DESC') => ({ column, direction }),
         refreshAllDashboardItems: true,
         setRefreshStatus: (tileId: string, loading?: boolean) => ({ tileId, loading }),
         toggleGenerationExpanded: (uuid: string, traceId: string) => ({ uuid, traceId }),
@@ -160,10 +163,31 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
             },
         ],
 
+        generationsSort: [
+            { column: 'timestamp', direction: 'DESC' } as { column: string; direction: 'ASC' | 'DESC' },
+            {
+                setGenerationsSort: (_, { column, direction }) => ({ column, direction }),
+            },
+        ],
+
         tracesQueryOverride: [
             null as DataTableNode | null,
             {
                 setTracesQuery: (_, { query }) => query,
+            },
+        ],
+
+        sessionsSort: [
+            { column: 'last_seen', direction: 'DESC' } as { column: string; direction: 'ASC' | 'DESC' },
+            {
+                setSessionsSort: (_, { column, direction }) => ({ column, direction }),
+            },
+        ],
+
+        usersSort: [
+            { column: 'last_seen', direction: 'DESC' } as { column: string; direction: 'ASC' | 'DESC' },
+            {
+                setUsersSort: (_, { column, direction }) => ({ column, direction }),
             },
         ],
 
@@ -752,6 +776,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 s.shouldFilterTestAccounts,
                 s.propertyFilters,
                 s.generationsColumns,
+                s.generationsSort,
                 groupsModel.selectors.groupsTaxonomicTypes,
                 featureFlagLogic.selectors.featureFlags,
             ],
@@ -760,6 +785,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 shouldFilterTestAccounts,
                 propertyFilters,
                 generationsColumns,
+                generationsSort,
                 groupsTaxonomicTypes,
                 featureFlags
             ): DataTableNode => ({
@@ -769,7 +795,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     select:
                         generationsColumns ||
                         getDefaultGenerationsColumns(!!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]),
-                    orderBy: ['timestamp DESC'],
+                    orderBy: [`${generationsSort.column} ${generationsSort.direction}`],
                     after: dateFilter.dateFrom || undefined,
                     before: dateFilter.dateTo || undefined,
                     filterTestAccounts: shouldFilterTestAccounts,
@@ -797,9 +823,16 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 s.dateFilter,
                 s.shouldFilterTestAccounts,
                 s.propertyFilters,
+                s.usersSort,
                 groupsModel.selectors.groupsTaxonomicTypes,
             ],
-            (dateFilter, shouldFilterTestAccounts, propertyFilters, groupsTaxonomicTypes): DataTableNode => ({
+            (
+                dateFilter,
+                shouldFilterTestAccounts,
+                propertyFilters,
+                usersSort,
+                groupsTaxonomicTypes
+            ): DataTableNode => ({
                 kind: NodeKind.DataTableNode,
                 source: {
                     kind: NodeKind.HogQLQuery,
@@ -829,7 +862,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     WHERE event = '$ai_generation' AND {filters}
                 )
                 GROUP BY distinct_id
-                ORDER BY total_cost DESC
+                ORDER BY ${usersSort.column} ${usersSort.direction}
                 LIMIT 50
                     `,
                     filters: {
@@ -863,9 +896,16 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 s.dateFilter,
                 s.shouldFilterTestAccounts,
                 s.propertyFilters,
+                s.sessionsSort,
                 groupsModel.selectors.groupsTaxonomicTypes,
             ],
-            (dateFilter, shouldFilterTestAccounts, propertyFilters, groupsTaxonomicTypes): DataTableNode => ({
+            (
+                dateFilter,
+                shouldFilterTestAccounts,
+                propertyFilters,
+                sessionsSort,
+                groupsTaxonomicTypes
+            ): DataTableNode => ({
                 kind: NodeKind.DataTableNode,
                 source: {
                     kind: NodeKind.HogQLQuery,
@@ -873,7 +913,8 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 SELECT
                     ai_session_id as session_id,
                     countDistinctIf(ai_trace_id, notEmpty(ai_trace_id)) as traces,
-                    count() as generations,
+                    countIf(event_type = '$ai_span') as spans,
+                    countIf(event_type = '$ai_generation') as generations,
                     countIf(notEmpty(ai_error) OR ai_is_error = 'true') as errors,
                     round(sum(toFloat(ai_total_cost_usd)), 4) as total_cost,
                     round(sum(toFloat(ai_latency)), 2) as total_latency,
@@ -881,6 +922,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     max(timestamp) as last_seen
                 FROM (
                     SELECT
+                        event as event_type,
                         timestamp,
                         JSONExtractString(properties, '$ai_session_id') as ai_session_id,
                         JSONExtractRaw(properties, '$ai_trace_id') as ai_trace_id,
@@ -889,12 +931,12 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                         JSONExtractRaw(properties, '$ai_error') as ai_error,
                         JSONExtractString(properties, '$ai_is_error') as ai_is_error
                     FROM events
-                    WHERE event = '$ai_generation'
+                    WHERE (event = '$ai_generation' OR event = '$ai_span')
                         AND notEmpty(JSONExtractString(properties, '$ai_session_id'))
                         AND {filters}
                 )
                 GROUP BY ai_session_id
-                ORDER BY last_seen DESC
+                ORDER BY ${sessionsSort.column} ${sessionsSort.direction}
                 LIMIT 50
                     `,
                     filters: {
@@ -909,6 +951,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 columns: [
                     'session_id',
                     'traces',
+                    'spans',
                     'generations',
                     'errors',
                     'total_cost',

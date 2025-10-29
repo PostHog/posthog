@@ -191,17 +191,24 @@ function SessionSceneWrapper(): JSX.Element {
                                                     ) : fullTraces[trace.id] ? (
                                                         (() => {
                                                             const fullTrace = fullTraces[trace.id]
-                                                            const generationEvents =
-                                                                fullTrace.events?.filter(
-                                                                    (e) => e.event === '$ai_generation'
-                                                                ) || []
+                                                            const allEvents =
+                                                                fullTrace.events
+                                                                    ?.filter(
+                                                                        (e) =>
+                                                                            e.event === '$ai_generation' ||
+                                                                            e.event === '$ai_span'
+                                                                    )
+                                                                    .sort(
+                                                                        (a, b) =>
+                                                                            new Date(a.createdAt).getTime() -
+                                                                            new Date(b.createdAt).getTime()
+                                                                    ) || []
 
-                                                            return generationEvents.length > 0 ? (
+                                                            return allEvents.length > 0 ? (
                                                                 <>
-                                                                    <div className="text-xs font-semibold text-muted uppercase">
-                                                                        Generations ({generationEvents.length})
-                                                                    </div>
-                                                                    {generationEvents.map((event) => {
+                                                                    {allEvents.map((event) => {
+                                                                        const isGeneration =
+                                                                            event.event === '$ai_generation'
                                                                         const eventForDetails: EventType = {
                                                                             id: event.id,
                                                                             distinct_id: '',
@@ -210,13 +217,24 @@ function SessionSceneWrapper(): JSX.Element {
                                                                             timestamp: event.createdAt,
                                                                             elements: [],
                                                                         }
-                                                                        const isGenerationExpanded =
-                                                                            expandedGenerationIds.has(event.id)
+                                                                        const isExpanded = expandedGenerationIds.has(
+                                                                            event.id
+                                                                        )
+                                                                        const latency = event.properties.$ai_latency
+                                                                        const hasError =
+                                                                            event.properties.$ai_error ||
+                                                                            event.properties.$ai_is_error
+
+                                                                        // Generation-specific properties
                                                                         const model =
                                                                             event.properties.$ai_model ||
                                                                             'Unknown model'
-                                                                        const latency = event.properties.$ai_latency
                                                                         const cost = event.properties.$ai_total_cost_usd
+
+                                                                        // Span-specific properties
+                                                                        const spanName =
+                                                                            event.properties.$ai_span_name ||
+                                                                            'Unnamed span'
 
                                                                         return (
                                                                             <div
@@ -230,7 +248,7 @@ function SessionSceneWrapper(): JSX.Element {
                                                                                     }
                                                                                 >
                                                                                     <div className="flex-shrink-0">
-                                                                                        {isGenerationExpanded ? (
+                                                                                        {isExpanded ? (
                                                                                             <IconChevronDown className="text-base" />
                                                                                         ) : (
                                                                                             <IconChevronRight className="text-base" />
@@ -238,14 +256,30 @@ function SessionSceneWrapper(): JSX.Element {
                                                                                     </div>
                                                                                     <div className="flex-1 flex items-center gap-2 flex-wrap min-w-0">
                                                                                         <LemonTag
-                                                                                            type="success"
+                                                                                            type={
+                                                                                                isGeneration
+                                                                                                    ? 'success'
+                                                                                                    : 'default'
+                                                                                            }
                                                                                             size="small"
                                                                                             className="uppercase"
                                                                                         >
-                                                                                            Generation
+                                                                                            {isGeneration
+                                                                                                ? 'Generation'
+                                                                                                : 'Span'}
                                                                                         </LemonTag>
+                                                                                        {hasError && (
+                                                                                            <LemonTag
+                                                                                                type="danger"
+                                                                                                size="small"
+                                                                                            >
+                                                                                                Error
+                                                                                            </LemonTag>
+                                                                                        )}
                                                                                         <span className="text-xs truncate">
-                                                                                            {model}
+                                                                                            {isGeneration
+                                                                                                ? model
+                                                                                                : spanName}
                                                                                         </span>
                                                                                         {typeof latency ===
                                                                                             'number' && (
@@ -256,17 +290,21 @@ function SessionSceneWrapper(): JSX.Element {
                                                                                                 {latency.toFixed(2)}s
                                                                                             </LemonTag>
                                                                                         )}
-                                                                                        {typeof cost === 'number' && (
-                                                                                            <LemonTag
-                                                                                                type="muted"
-                                                                                                size="small"
-                                                                                            >
-                                                                                                {formatLLMCost(cost)}
-                                                                                            </LemonTag>
-                                                                                        )}
+                                                                                        {isGeneration &&
+                                                                                            typeof cost ===
+                                                                                                'number' && (
+                                                                                                <LemonTag
+                                                                                                    type="muted"
+                                                                                                    size="small"
+                                                                                                >
+                                                                                                    {formatLLMCost(
+                                                                                                        cost
+                                                                                                    )}
+                                                                                                </LemonTag>
+                                                                                            )}
                                                                                     </div>
                                                                                 </div>
-                                                                                {isGenerationExpanded && (
+                                                                                {isExpanded && (
                                                                                     <div className="border-t">
                                                                                         <EventDetails
                                                                                             event={eventForDetails}
@@ -279,7 +317,7 @@ function SessionSceneWrapper(): JSX.Element {
                                                                 </>
                                                             ) : (
                                                                 <div className="text-muted text-sm">
-                                                                    No generation events found in this trace.
+                                                                    No generation or span events found in this trace.
                                                                     {fullTrace.events
                                                                         ? ` (Trace has ${fullTrace.events.length} total events)`
                                                                         : ' (No events loaded)'}

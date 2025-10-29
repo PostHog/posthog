@@ -22,8 +22,8 @@ import { llmAnalyticsLogic } from './llmAnalyticsLogic'
 import { formatLLMCost } from './utils'
 
 export function LLMAnalyticsSessions(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsLogic)
-    const { sessionsQuery, dateFilter } = useValues(llmAnalyticsLogic)
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setSessionsSort } = useActions(llmAnalyticsLogic)
+    const { sessionsQuery, dateFilter, sessionsSort } = useValues(llmAnalyticsLogic)
     const [expandedSessionIds, setExpandedSessionIds] = useState<Set<string>>(new Set())
     const [expandedTraceIds, setExpandedTraceIds] = useState<Set<string>>(new Set())
     const [expandedGenerationIds, setExpandedGenerationIds] = useState<Set<string>>(new Set())
@@ -90,6 +90,27 @@ export function LLMAnalyticsSessions(): JSX.Element {
         setExpandedGenerationIds(newExpanded)
     }
 
+    const handleColumnClick = (column: string): void => {
+        // Toggle sort direction if clicking same column, otherwise default to DESC
+        const newDirection = sessionsSort.column === column && sessionsSort.direction === 'DESC' ? 'ASC' : 'DESC'
+        setSessionsSort(column, newDirection)
+    }
+
+    const renderSortableColumnTitle = (column: string, title: string): JSX.Element => {
+        const isSorted = sessionsSort.column === column
+        const direction = sessionsSort.direction
+        return (
+            <span
+                onClick={() => handleColumnClick(column)}
+                style={{ cursor: 'pointer', userSelect: 'none' }}
+                className="flex items-center gap-1"
+            >
+                {title}
+                {isSorted && (direction === 'DESC' ? ' ▼' : ' ▲')}
+            </span>
+        )
+    }
+
     const handleTraceExpand = async (traceId: string): Promise<void> => {
         const newExpanded = new Set(expandedTraceIds)
         if (newExpanded.has(traceId)) {
@@ -154,8 +175,7 @@ export function LLMAnalyticsSessions(): JSX.Element {
                         title: 'Session ID',
                         render: function RenderSessionId(x) {
                             const sessionId = x.value as string
-                            const truncated =
-                                sessionId.length > 16 ? `${sessionId.slice(0, 8)}...${sessionId.slice(-8)}` : sessionId
+                            const truncated = `${sessionId.slice(0, 4)}...${sessionId.slice(-4)}`
                             return (
                                 <strong>
                                     <Tooltip title={sessionId}>
@@ -171,16 +191,19 @@ export function LLMAnalyticsSessions(): JSX.Element {
                         },
                     },
                     traces: {
-                        title: 'Traces',
+                        renderTitle: () => renderSortableColumnTitle('traces', 'Traces'),
+                    },
+                    spans: {
+                        renderTitle: () => renderSortableColumnTitle('spans', 'Spans'),
                     },
                     generations: {
-                        title: 'Generations',
+                        renderTitle: () => renderSortableColumnTitle('generations', 'Generations'),
                     },
                     errors: {
-                        title: 'Errors',
+                        renderTitle: () => renderSortableColumnTitle('errors', 'Errors'),
                     },
                     total_cost: {
-                        title: 'Total cost',
+                        renderTitle: () => renderSortableColumnTitle('total_cost', 'Total cost'),
                         render: function RenderCost({ value }) {
                             if (!value || !Number(value)) {
                                 return <span>N/A</span>
@@ -189,7 +212,7 @@ export function LLMAnalyticsSessions(): JSX.Element {
                         },
                     },
                     total_latency: {
-                        title: 'Total latency',
+                        renderTitle: () => renderSortableColumnTitle('total_latency', 'Total latency'),
                         render: function RenderLatency({ value }) {
                             if (!value || !Number(value)) {
                                 return <span>N/A</span>
@@ -198,13 +221,13 @@ export function LLMAnalyticsSessions(): JSX.Element {
                         },
                     },
                     first_seen: {
-                        title: 'First Seen',
+                        renderTitle: () => renderSortableColumnTitle('first_seen', 'First Seen'),
                         render: function RenderFirstSeen({ value }) {
                             return <TZLabel time={value as string} />
                         },
                     },
                     last_seen: {
-                        title: 'Last Seen',
+                        renderTitle: () => renderSortableColumnTitle('last_seen', 'Last Seen'),
                         render: function RenderLastSeen({ value }) {
                             return <TZLabel time={value as string} />
                         },
@@ -290,17 +313,24 @@ export function LLMAnalyticsSessions(): JSX.Element {
                                                             ) : fullTraces[trace.id] ? (
                                                                 (() => {
                                                                     const fullTrace = fullTraces[trace.id]
-                                                                    const generationEvents =
-                                                                        fullTrace.events?.filter(
-                                                                            (e) => e.event === '$ai_generation'
-                                                                        ) || []
+                                                                    const allEvents =
+                                                                        fullTrace.events
+                                                                            ?.filter(
+                                                                                (e) =>
+                                                                                    e.event === '$ai_generation' ||
+                                                                                    e.event === '$ai_span'
+                                                                            )
+                                                                            .sort(
+                                                                                (a, b) =>
+                                                                                    new Date(a.createdAt).getTime() -
+                                                                                    new Date(b.createdAt).getTime()
+                                                                            ) || []
 
-                                                                    return generationEvents.length > 0 ? (
+                                                                    return allEvents.length > 0 ? (
                                                                         <>
-                                                                            <div className="text-xs font-semibold text-muted uppercase">
-                                                                                Generations ({generationEvents.length})
-                                                                            </div>
-                                                                            {generationEvents.map((event) => {
+                                                                            {allEvents.map((event) => {
+                                                                                const isGeneration =
+                                                                                    event.event === '$ai_generation'
                                                                                 const eventForDetails: EventType = {
                                                                                     id: event.id,
                                                                                     distinct_id: '',
@@ -309,15 +339,25 @@ export function LLMAnalyticsSessions(): JSX.Element {
                                                                                     timestamp: event.createdAt,
                                                                                     elements: [],
                                                                                 }
-                                                                                const isGenerationExpanded =
+                                                                                const isExpanded =
                                                                                     expandedGenerationIds.has(event.id)
+                                                                                const latency =
+                                                                                    event.properties.$ai_latency
+                                                                                const hasError =
+                                                                                    event.properties.$ai_error ||
+                                                                                    event.properties.$ai_is_error
+
+                                                                                // Generation-specific properties
                                                                                 const model =
                                                                                     event.properties.$ai_model ||
                                                                                     'Unknown model'
-                                                                                const latency =
-                                                                                    event.properties.$ai_latency
                                                                                 const cost =
                                                                                     event.properties.$ai_total_cost_usd
+
+                                                                                // Span-specific properties
+                                                                                const spanName =
+                                                                                    event.properties.$ai_span_name ||
+                                                                                    'Unnamed span'
 
                                                                                 return (
                                                                                     <div
@@ -333,7 +373,7 @@ export function LLMAnalyticsSessions(): JSX.Element {
                                                                                             }
                                                                                         >
                                                                                             <div className="flex-shrink-0">
-                                                                                                {isGenerationExpanded ? (
+                                                                                                {isExpanded ? (
                                                                                                     <IconChevronDown className="text-base" />
                                                                                                 ) : (
                                                                                                     <IconChevronRight className="text-base" />
@@ -341,14 +381,30 @@ export function LLMAnalyticsSessions(): JSX.Element {
                                                                                             </div>
                                                                                             <div className="flex-1 flex items-center gap-2 flex-wrap min-w-0">
                                                                                                 <LemonTag
-                                                                                                    type="success"
+                                                                                                    type={
+                                                                                                        isGeneration
+                                                                                                            ? 'success'
+                                                                                                            : 'default'
+                                                                                                    }
                                                                                                     size="small"
                                                                                                     className="uppercase"
                                                                                                 >
-                                                                                                    Generation
+                                                                                                    {isGeneration
+                                                                                                        ? 'Generation'
+                                                                                                        : 'Span'}
                                                                                                 </LemonTag>
+                                                                                                {hasError && (
+                                                                                                    <LemonTag
+                                                                                                        type="danger"
+                                                                                                        size="small"
+                                                                                                    >
+                                                                                                        Error
+                                                                                                    </LemonTag>
+                                                                                                )}
                                                                                                 <span className="text-xs truncate">
-                                                                                                    {model}
+                                                                                                    {isGeneration
+                                                                                                        ? model
+                                                                                                        : spanName}
                                                                                                 </span>
                                                                                                 {typeof latency ===
                                                                                                     'number' && (
@@ -362,20 +418,21 @@ export function LLMAnalyticsSessions(): JSX.Element {
                                                                                                         s
                                                                                                     </LemonTag>
                                                                                                 )}
-                                                                                                {typeof cost ===
-                                                                                                    'number' && (
-                                                                                                    <LemonTag
-                                                                                                        type="muted"
-                                                                                                        size="small"
-                                                                                                    >
-                                                                                                        {formatLLMCost(
-                                                                                                            cost
-                                                                                                        )}
-                                                                                                    </LemonTag>
-                                                                                                )}
+                                                                                                {isGeneration &&
+                                                                                                    typeof cost ===
+                                                                                                        'number' && (
+                                                                                                        <LemonTag
+                                                                                                            type="muted"
+                                                                                                            size="small"
+                                                                                                        >
+                                                                                                            {formatLLMCost(
+                                                                                                                cost
+                                                                                                            )}
+                                                                                                        </LemonTag>
+                                                                                                    )}
                                                                                             </div>
                                                                                         </div>
-                                                                                        {isGenerationExpanded && (
+                                                                                        {isExpanded && (
                                                                                             <div className="border-t">
                                                                                                 <EventDetails
                                                                                                     event={
@@ -390,7 +447,8 @@ export function LLMAnalyticsSessions(): JSX.Element {
                                                                         </>
                                                                     ) : (
                                                                         <div className="text-muted text-sm">
-                                                                            No generation events found in this trace.
+                                                                            No generation or span events found in this
+                                                                            trace.
                                                                             {fullTrace.events
                                                                                 ? ` (Trace has ${fullTrace.events.length} total events)`
                                                                                 : ' (No events loaded)'}

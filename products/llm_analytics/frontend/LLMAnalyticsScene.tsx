@@ -131,14 +131,37 @@ function LLMAnalyticsGenerations(): JSX.Element {
         setPropertyFilters,
         setGenerationsColumns,
         toggleGenerationExpanded,
+        setGenerationsSort,
     } = useActions(llmAnalyticsLogic)
     const {
         generationsQuery,
         propertyFilters: currentPropertyFilters,
         expandedGenerationIds,
         loadedTraces,
+        generationsSort,
     } = useValues(llmAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    const handleColumnClick = (column: string): void => {
+        // Toggle sort direction if clicking same column, otherwise default to DESC
+        const newDirection = generationsSort.column === column && generationsSort.direction === 'DESC' ? 'ASC' : 'DESC'
+        setGenerationsSort(column, newDirection)
+    }
+
+    const renderSortableColumnTitle = (column: string, title: string): JSX.Element => {
+        const isSorted = generationsSort.column === column
+        const direction = generationsSort.direction
+        return (
+            <span
+                onClick={() => handleColumnClick(column)}
+                style={{ cursor: 'pointer', userSelect: 'none' }}
+                className="flex items-center gap-1"
+            >
+                {title}
+                {isSorted && (direction === 'DESC' ? ' ▼' : ' ▲')}
+            </span>
+        )
+    }
 
     return (
         <DataTable
@@ -191,6 +214,18 @@ function LLMAnalyticsGenerations(): JSX.Element {
                                 </strong>
                             )
                         },
+                    },
+                    "f'{properties.$ai_model}' -- Model": {
+                        renderTitle: () => renderSortableColumnTitle('properties.$ai_model', 'Model'),
+                    },
+                    "f'{round(toFloat(properties.$ai_latency), 2)} s' -- Latency": {
+                        renderTitle: () => renderSortableColumnTitle('properties.$ai_latency', 'Latency'),
+                    },
+                    "f'${round(toFloat(properties.$ai_total_cost_usd), 6)}' -- Total cost": {
+                        renderTitle: () => renderSortableColumnTitle('properties.$ai_total_cost_usd', 'Total cost'),
+                    },
+                    timestamp: {
+                        renderTitle: () => renderSortableColumnTitle('timestamp', 'Time'),
                     },
                 },
                 expandable: {

@@ -27,8 +27,29 @@ const mapPerson = (person: any): { distinct_id: string; created_at: string; prop
 }
 
 export function LLMAnalyticsUsers(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsLogic)
-    const { usersQuery } = useValues(llmAnalyticsLogic)
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setUsersSort } = useActions(llmAnalyticsLogic)
+    const { usersQuery, usersSort } = useValues(llmAnalyticsLogic)
+
+    const handleColumnClick = (column: string): void => {
+        // Toggle sort direction if clicking same column, otherwise default to DESC
+        const newDirection = usersSort.column === column && usersSort.direction === 'DESC' ? 'ASC' : 'DESC'
+        setUsersSort(column, newDirection)
+    }
+
+    const renderSortableColumnTitle = (column: string, title: string): JSX.Element => {
+        const isSorted = usersSort.column === column
+        const direction = usersSort.direction
+        return (
+            <span
+                onClick={() => handleColumnClick(column)}
+                style={{ cursor: 'pointer', userSelect: 'none' }}
+                className="flex items-center gap-1"
+            >
+                {title}
+                {isSorted && (direction === 'DESC' ? ' ▼' : ' ▲')}
+            </span>
+        )
+    }
 
     return (
         <DataTable
@@ -74,22 +95,22 @@ export function LLMAnalyticsUsers(): JSX.Element {
                         },
                     },
                     first_seen: {
-                        title: 'First Seen',
+                        renderTitle: () => renderSortableColumnTitle('first_seen', 'First Seen'),
                     },
                     last_seen: {
-                        title: 'Last Seen',
+                        renderTitle: () => renderSortableColumnTitle('last_seen', 'Last Seen'),
                     },
                     traces: {
-                        title: 'Traces',
+                        renderTitle: () => renderSortableColumnTitle('traces', 'Traces'),
                     },
                     generations: {
-                        title: 'Generations',
+                        renderTitle: () => renderSortableColumnTitle('generations', 'Generations'),
                     },
                     errors: {
-                        title: 'Errors',
+                        renderTitle: () => renderSortableColumnTitle('errors', 'Errors'),
                     },
                     total_cost: {
-                        title: 'Total cost',
+                        renderTitle: () => renderSortableColumnTitle('total_cost', 'Total cost'),
                         render: function RenderCost({ value }) {
                             if (!value || !Number(value)) {
                                 return <span>N/A</span>
