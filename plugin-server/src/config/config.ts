@@ -74,8 +74,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         CONSUMER_BATCH_SIZE: 500,
         CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: 30_000,
-        CONSUMER_LOOP_STALL_THRESHOLD_MS: 60_000, // 1 minute - consider loop stalled after this
-        CONSUMER_LOOP_BASED_HEALTH_CHECK: false, // Use consumer loop monitoring for health checks instead of heartbeats
+        CONSUMER_LOOP_STALL_THRESHOLD_MS: 60_000,
+        CONSUMER_LOOP_BASED_HEALTH_CHECK: false,
         CONSUMER_MAX_BACKGROUND_TASKS: 1,
         CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: false,
         CONSUMER_AUTO_CREATE_TOPICS: true,
@@ -279,11 +279,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_MAX_BATCH_AGE_MS: 10 * 1000, // 10 seconds
         SESSION_RECORDING_V2_S3_BUCKET: 'posthog',
         SESSION_RECORDING_V2_S3_PREFIX: 'session_recordings',
-        SESSION_RECORDING_V2_S3_ENDPOINT: 'http://localhost:4568',
+        SESSION_RECORDING_V2_S3_ENDPOINT: 'http://localhost:19000',
         SESSION_RECORDING_V2_S3_REGION: 'us-east-1',
-        SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'S3RVER',
-        SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'S3RVER',
-        SESSION_RECORDING_V2_S3_TIMEOUT_MS: 30000,
+        SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'object_storage_root_user',
+        SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'object_storage_root_password',
+        SESSION_RECORDING_V2_S3_TIMEOUT_MS: 30000, // 30 seconds
         SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: 'clickhouse_session_replay_events',
         SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: 'log_entries',
         SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,

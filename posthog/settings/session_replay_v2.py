@@ -6,10 +6,12 @@ from posthog.settings.base_variables import DEBUG, TEST
 from posthog.settings.utils import str_to_bool
 
 if TEST or DEBUG:
-    SESSION_RECORDING_V2_S3_ENDPOINT = os.getenv("SESSION_RECORDING_V2_S3_ENDPOINT", "http://s3rver:4568")
-    SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: Optional[str] = os.getenv("SESSION_RECORDING_V2_S3_ACCESS_KEY_ID", "S3RVER")
+    SESSION_RECORDING_V2_S3_ENDPOINT = os.getenv("SESSION_RECORDING_V2_S3_ENDPOINT", "http://object_storage:19000")
+    SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: Optional[str] = os.getenv(
+        "SESSION_RECORDING_V2_S3_ACCESS_KEY_ID", "object_storage_root_user"
+    )
     SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: Optional[str] = os.getenv(
-        "SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY", "S3RVER"
+        "SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY", "object_storage_root_password"
     )
 else:
     SESSION_RECORDING_V2_S3_ENDPOINT = os.getenv("SESSION_RECORDING_V2_S3_ENDPOINT", "")
