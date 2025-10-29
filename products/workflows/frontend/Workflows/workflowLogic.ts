@@ -400,10 +400,18 @@ export const workflowLogic = kea<workflowLogicType>([
 
             const webhookUrl = publicWebhooksHostOrigin() + '/public/webhooks/' + values.workflow.id
 
-            await api.create(webhookUrl, {
-                user_id: values.user.id,
-            })
-            lemonToast.success('Workflow triggered successfully.')
+            lemonToast.info('Triggering workflow...')
+            try {
+                await api.create(webhookUrl, {
+                    user_id: values.user.id,
+                })
+            } catch (e) {
+                lemonToast.error('Error triggering workflow: ' + (e as Error).message)
+                return
+            }
+
+            lemonToast.success('Workflow triggered, logs will appear soon')
+            router.actions.replace(urls.workflow(values.workflow.id!, 'logs'))
         },
     })),
     afterMount(({ actions }) => {
