@@ -30,7 +30,8 @@ export const BillingProductAddonActions = ({
     buttonSize,
     ctaTextOverride,
 }: BillingProductAddonActionsProps): JSX.Element => {
-    const { billing, billingError, currentPlatformAddon, unusedPlatformAddonAmount } = useValues(billingLogic)
+    const { billing, billingError, currentPlatformAddon, unusedPlatformAddonAmount, switchPlanLoading } =
+        useValues(billingLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const {
         currentAndUpgradePlans,
@@ -61,9 +62,10 @@ export const BillingProductAddonActions = ({
                     <LemonButton
                         fullWidth
                         disabledReason={
-                            isDataPipelinesDeprecated
+                            (switchPlanLoading ? 'Switching plans...' : undefined) ||
+                            (isDataPipelinesDeprecated
                                 ? `Data pipelines have moved to new, usage-based pricing with generous free allowance, and old ingestion-based pricing ended on ${DATA_PIPELINES_CUTOFF_DATE}.`
-                                : undefined
+                                : undefined)
                         }
                         onClick={() => {
                             setSurveyResponse('$survey_response_1', addon.type)
@@ -215,6 +217,7 @@ export const BillingProductAddonActions = ({
                 overlay={
                     <LemonButton
                         fullWidth
+                        disabledReason={switchPlanLoading ? 'Switching plans...' : undefined}
                         onClick={() => {
                             reportBillingAddonPlanSwitchStarted(currentPlatformAddon.type, addon.type, 'downgrade')
                             showConfirmDowngradeModal()
@@ -244,6 +247,7 @@ export const BillingProductAddonActions = ({
 
                 <LemonButton
                     type="primary"
+                    disabledReason={switchPlanLoading ? 'Switching plans...' : undefined}
                     onClick={() => {
                         reportBillingAddonPlanSwitchStarted(currentPlatformAddon.type, addon.type, 'upgrade')
                         showConfirmUpgradeModal()

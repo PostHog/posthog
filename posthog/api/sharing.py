@@ -172,6 +172,12 @@ def get_themes_for_team(team: Team):
     return themes
 
 
+def get_global_themes():
+    global_themes = DataColorTheme.objects.filter(Q(team_id=None))
+    themes = DataColorThemeSerializer(global_themes, many=True).data
+    return themes
+
+
 def build_shared_app_context(team: Team, request: Request) -> dict[str, Any]:
     """
     Build app context for shared dashboards/insights similar to what render_template creates.
@@ -391,6 +397,11 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
     def refresh(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
         context = self.get_serializer_context()
         instance = self._get_sharing_configuration(context)
+
+        if context.get("recording"):
+            recording = cast(SessionRecording, context.get("recording"))
+            # Special case where we need to save the instance for recordings so that the actual record gets created
+            recording.save()
 
         check_can_edit_sharing_configuration(self, request, instance)
 

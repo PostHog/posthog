@@ -2,11 +2,15 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSwitch, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSwitch, Link, Spinner, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
+import { DataWarehouseManagedViewsetImpactModal } from 'scenes/data-management/managed-viewsets/DataWarehouseManagedViewsetImpactModal'
+import { disableDataWarehouseManagedViewsetModalLogic } from 'scenes/data-management/managed-viewsets/disableDataWarehouseManagedViewsetModalLogic'
 import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
@@ -15,6 +19,7 @@ import { urls } from 'scenes/urls'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { AccessControlLevel, AccessControlResourceType, ExternalDataSource } from '~/types'
 
+import { disableRevenueSourceModalLogic } from './disableRevenueSourceModalLogic'
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
 const VALID_REVENUE_SOURCES: ExternalDataSource['source_type'][] = ['Stripe']
@@ -25,8 +30,17 @@ export function ExternalDataSourceConfiguration({
     buttonRef?: React.RefObject<HTMLButtonElement>
 }): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading, joins } = useValues(revenueAnalyticsSettingsLogic)
+    const { views, source: sourceToBeDisabled } = useValues(disableRevenueSourceModalLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
     const { updateSourceRevenueAnalyticsConfig, deleteJoin } = useActions(revenueAnalyticsSettingsLogic)
     const { toggleEditJoinModal, toggleNewJoinModal } = useActions(viewLinkLogic)
+    const { openModal } = useActions(
+        disableDataWarehouseManagedViewsetModalLogic({ type: 'ExternalDataSourceConfiguration' })
+    )
+    const { setSource: setSourceToBeDisabled } = useActions(disableRevenueSourceModalLogic)
+
+    const managedViewsetsEnabled = featureFlags[FEATURE_FLAGS.MANAGED_VIEWSETS]
 
     const revenueSources =
         dataWarehouseSources?.results.filter((source) => VALID_REVENUE_SOURCES.includes(source.source_type)) ?? []
@@ -39,6 +53,26 @@ export function ExternalDataSourceConfiguration({
             return 'Updating...'
         }
         return undefined
+    }
+
+    const onDisableSource = async (): Promise<boolean> => {
+        if (!sourceToBeDisabled) {
+            return false
+        }
+
+        try {
+            updateSourceRevenueAnalyticsConfig({
+                source: sourceToBeDisabled,
+                config: { enabled: false },
+            })
+            setSourceToBeDisabled(null)
+
+            lemonToast.success(`Revenue analytics disabled for ${sourceToBeDisabled.source_type}`)
+            return true
+        } catch (error: any) {
+            lemonToast.error(`Failed to disable source: ${error.message || 'Unknown error'}`)
+            return false
+        }
     }
 
     return (
@@ -99,12 +133,19 @@ export function ExternalDataSourceConfiguration({
                                         <LemonSwitch
                                             checked={source.revenue_analytics_config.enabled}
                                             disabledReason={dataWarehouseSourcesLoading ? 'Updating...' : undefined}
-                                            onChange={(checked) =>
-                                                updateSourceRevenueAnalyticsConfig({
-                                                    source,
-                                                    config: { enabled: checked },
-                                                })
-                                            }
+                                            onChange={(checked) => {
+                                                if (!checked && managedViewsetsEnabled) {
+                                                    // Show confirmation modal when disabling (if feature flag enabled)
+                                                    setSourceToBeDisabled(source)
+                                                    openModal('revenue_analytics')
+                                                } else {
+                                                    // Enable directly without confirmation, or disable directly if feature flag is off
+                                                    updateSourceRevenueAnalyticsConfig({
+                                                        source,
+                                                        config: { enabled: checked },
+                                                    })
+                                                }
+                                            }}
                                         />
                                     </AccessControlAction>
                                 </span>
@@ -317,6 +358,28 @@ export function ExternalDataSourceConfiguration({
 
             {/* To be used above by the join features */}
             <ViewLinkModal mode="revenue_analytics" />
+            {managedViewsetsEnabled && (
+                <DataWarehouseManagedViewsetImpactModal
+                    type="ExternalDataSourceConfiguration"
+                    title={`Disable revenue analytics for ${sourceToBeDisabled ? `${sourceToBeDisabled.source_type}${sourceToBeDisabled.prefix ? ` (${sourceToBeDisabled.prefix})` : ''}` : ''}?`}
+                    action={onDisableSource}
+                    confirmText={sourceToBeDisabled?.prefix || sourceToBeDisabled?.source_type || ''}
+                    views={views}
+                    warningItems={[
+                        'Permanently delete all revenue views created from this source',
+                        'Break any existing queries, insights, or dashboards that reference these views',
+                        'Stop all scheduled materialization jobs for these views',
+                    ]}
+                    infoMessage={
+                        <>
+                            <strong>Important:</strong> The source will no longer be included in revenue calculations
+                            for revenue analytics. It'll also trigger re-materialization of all remaining revenue views.
+                        </>
+                    }
+                    viewsActionText="will be deleted"
+                    confirmButtonText="Yes, disable source"
+                />
+            )}
         </SceneSection>
     )
 }

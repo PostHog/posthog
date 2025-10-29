@@ -2,36 +2,37 @@
 
 ## Overview
 
-This document describes the high-level architecture and test scenarios for the LLM Analytics capture pipeline integration test suite. The tests validate the complete end-to-end flow from multipart request ingestion through S3 storage to event processing.
+This document describes the Rust integration test suite for the LLM Analytics capture service. These tests validate HTTP endpoint behavior, multipart parsing, and validation logic without requiring external dependencies.
 
 **Implementation Requirement**: Each phase in the implementation plan must pass its corresponding integration tests before proceeding to the next phase. This ensures incremental validation and prevents regression as new features are added.
+
+**See Also**: `llma-acceptance-test-suite.md` for end-to-end tests that require full PostHog infrastructure.
 
 ## Test Architecture
 
 ### Test Environment
 
-- **Local PostHog Deployment**: Complete local PostHog setup including capture service with `/ai` endpoint
-- **S3-Compatible Storage**: Local S3-compatible storage for blob storage with direct access for verification
-- **PostHog Query API**: Used to fetch processed events from the ingestion pipeline for validation
-- **Direct S3 Access**: Test suite has direct S3 client access to verify blob storage and retrieval
-- **Test Fixtures**: Predefined multipart requests with various blob sizes and types
+- **In-Memory Router**: Axum router running in test process using `axum-test-helper::TestClient`
+- **Multipart Construction**: Using `reqwest::multipart::Form` to build proper multipart bodies
+- **Mock Dependencies**: Mock Redis, time source, and event sink for isolation
+- **No External Services**: No database, S3, Kafka, or real authentication required
 
 ### Test Framework
 
-- **Integration Tests**: Full pipeline tests from HTTP request through ingestion to event storage
-- **PostHog API Client**: Direct integration with PostHog query API to verify event processing
-- **S3 Client**: Direct access to verify S3 blob storage, metadata, and retrieval
+- **Integration Tests**: Capture service tests from HTTP request through parsing and validation
 - **Parameterized Tests**: Test variations across different event types, blob sizes, and configurations
 - **Async Testing**: Support for testing concurrent requests and large payload processing
+- **Test Utilities**:
+  - `CapturingSink`: Mock event sink that stores events in memory for Kafka output verification
+  - `FixedTime`: Deterministic time source for reproducible tests
+  - `TestSink`: Simple no-op sink for HTTP endpoint tests
 
 ### Test Data
 
-- **AI Event Types**: `$ai_trace`, `$ai_span`, `$ai_generation`, `$ai_embedding`, `$ai_metric`, `$ai_feedback`
-- **Blob Sizes**: Small (1KB), Medium (100KB), Large (1MB), Extra Large (10MB+)
+- **AI Event Types**: Primarily `$ai_generation` for validation testing
+- **Blob Sizes**: Small (< 1KB), Medium (~100KB), Empty
 - **Content Types**: `application/json`, `text/plain`, `application/octet-stream`
-- **Compression**: Gzipped and uncompressed blobs
-- **Encoding**: Raw binary, text, and base64-encoded blobs
-- **Multipart Boundaries**: Various boundary strings to test collision handling
+- **Multipart Boundaries**: Various boundary strings including custom boundaries
 
 ## Test Scenarios
 
@@ -41,91 +42,74 @@ This document describes the high-level architecture and test scenarios for the L
 
 #### Scenario 1.1: Basic Routing
 
-- **Test**: Verify `/ai` endpoint is accessible and returns correct response codes
+- **Test**: Verify `/i/v0/ai` endpoint is accessible and returns correct response codes
 - **Validation**: HTTP 200 for valid requests, proper error codes for invalid requests
+- **Tests Implemented**:
+  - `test_ai_endpoint_get_returns_405`: GET requests return 405
+  - `test_ai_endpoint_put_returns_405`: PUT requests return 405
+  - `test_ai_endpoint_delete_returns_405`: DELETE requests return 405
+  - `test_ai_endpoint_no_auth_returns_401`: No auth header returns 401
 
 #### Scenario 1.2: Multipart Parsing
 
 - **Test**: Send multipart requests with various boundary strings and blob configurations
-- **Validation**: All parts parsed correctly, blob data extracted without corruption§
+- **Validation**: All parts parsed correctly, blob data extracted without corruption
 - **Variations**: Different boundary formats, multiple blobs, mixed content types
+- **Tests Implemented**:
+  - `test_multipart_parsing_with_multiple_blobs`: Parse 4 parts (event + 3 blobs)
+  - `test_multipart_parsing_with_mixed_content_types`: JSON, text, binary
+  - `test_multipart_parsing_with_large_blob`: Large blob (~100KB)
+  - `test_multipart_parsing_with_empty_blob`: Empty blob handling
 
 #### Scenario 1.3: Boundary Validation
 
 - **Test**: Send requests with malformed boundaries, missing boundaries, boundary collisions
 - **Validation**: Appropriate error responses, no server crashes, proper error logging
+- **Tests Implemented**:
+  - `test_multipart_missing_boundary_returns_400`: Missing boundary parameter
+  - `test_multipart_corrupted_boundary_returns_400`: Mismatched boundary
 
-#### Scenario 1.4: Event Processing Verification
+#### Scenario 1.4: Basic Validation
 
-- **Test**: Send multipart request and verify event reaches PostHog query API
-- **Validation**: Use PostHog query API to fetch processed event, verify blob placeholders correctly inserted
+- **Test**: Send events with valid/invalid event types, missing required properties, duplicate blob properties
+- **Validation**: Only accepted AI event types (`$ai_generation`, `$ai_trace`, `$ai_span`, `$ai_embedding`, `$ai_metric`, `$ai_feedback`) are processed; invalid events rejected with proper error messages
+- **Tests Implemented**:
+  - `test_all_allowed_ai_event_types_accepted`: All six accepted event types pass validation
+  - `test_invalid_ai_event_type_returns_400`: Invalid AI event types rejected (e.g., `$ai_unknown`, `$ai_custom`)
+  - `test_invalid_event_name_not_ai_prefix_returns_400`: Non-AI event names rejected
+  - `test_invalid_event_name_regular_event_returns_400`: Regular events rejected (e.g., `$pageview`)
+  - `test_invalid_event_name_custom_event_returns_400`: Custom events rejected
+  - `test_missing_required_ai_properties_returns_400`: Missing `$ai_model`
+  - `test_empty_event_name_returns_400`: Empty event names
+  - `test_missing_distinct_id_returns_400`: Missing distinct_id
+  - `test_multipart_event_not_first_returns_400`: Event part ordering
 
-#### Scenario 1.5: Basic Validation
+#### Scenario 1.5: Content Type Validation
 
-- **Test**: Send events with invalid names (not starting with `$ai_`), duplicate blob properties
-- **Validation**: Invalid events rejected, valid events processed, proper error messages
+- **Test**: Send requests with wrong content type or empty body
+- **Validation**: Only `multipart/form-data` accepted
+- **Tests Implemented**:
+  - `test_ai_endpoint_wrong_content_type_returns_400`: Non-multipart type
+  - `test_ai_endpoint_empty_body_returns_400`: Empty body
 
-### Phase 2: Basic S3 Uploads
+#### Scenario 1.6: Kafka Publishing and S3 Placeholders
 
-#### Scenario 2.1: Individual Blob Upload
-
-- **Test**: Upload blobs of various sizes as separate S3 objects
-- **Validation**: Verify each blob stored correctly, S3 URLs generated in event properties
-- **Variations**: Small/medium/large blobs, different content types
-
-#### Scenario 2.2: S3 URL Generation and Access
-
-- **Test**: Verify generated S3 URLs in PostHog events point to accessible objects
-- **Validation**: Query PostHog API for events, extract S3 URLs, verify blobs retrievable from S3
-
-#### Scenario 2.3: Blob Metadata Storage
-
-- **Test**: Verify S3 object metadata is stored correctly
-- **Validation**: Use S3 client to inspect object metadata - Content-Type, size, team_id present
-
-#### Scenario 2.4: Team Data Isolation
-
-- **Test**: Multiple teams uploading simultaneously
-- **Validation**: Verify S3 key prefixes are team-scoped, no cross-team data access, proper S3 path isolation
-
-### Phase 3: S3 Infrastructure & Deployment
-
-#### Scenario 3.1: S3 Bucket Configuration
-
-- **Test**: Verify S3 bucket structure and lifecycle policies
-- **Validation**: Use S3 client to verify correct `llma/` prefix structure, retention policies configured
-
-### Phase 4: Multipart File Processing
-
-#### Scenario 4.1: Multipart File Creation
-
-- **Test**: Upload events with multiple blobs, verify multipart/mixed format
-- **Validation**: Use S3 client to verify single S3 file contains all blobs, proper MIME boundaries, metadata preserved
-- **Variations**: 2-10 blobs per event, mixed content types, different blob sizes
-
-#### Scenario 4.2: Byte Range URLs and Access
-
-- **Test**: Verify S3 URLs in PostHog events include correct byte range parameters
-- **Validation**: Query PostHog API for events, verify URLs contain range parameters, use S3 client to test range requests
-
-#### Scenario 4.3: Content Type Handling
-
-- **Test**: Mix of JSON, text, and binary blobs in single multipart file
-- **Validation**: Content types preserved in multipart format, correctly parsed
+- **Test**: Verify events are correctly published to Kafka with S3 placeholder URLs
+- **Validation**: Events contain S3 placeholders with sequential byte ranges pointing to same file
+- **Tests Implemented**:
+  - `test_ai_event_published_to_kafka`: Basic event publishing verification
+  - `test_ai_event_with_blobs_published_with_s3_placeholders`: S3 placeholder URL format and sequential ranges
+  - `test_ai_event_with_multiple_blobs_sequential_ranges`: Multiple blobs with correct sequential byte ranges
+  - `test_ai_event_metadata_preserved_in_kafka`: Event metadata preservation in Kafka
 
 ### Phase 5: Authorization
 
-#### Scenario 5.1: API Key Authentication
-
-- **Test**: Send requests with valid/invalid/missing API keys
-- **Validation**: Valid keys accepted, invalid keys rejected with 401, proper error messages
-
-#### Scenario 5.2: Request Signature Verification
+#### Scenario 5.1: Request Signature Verification
 
 - **Test**: Test signature validation for various request formats
 - **Validation**: Valid signatures accepted, invalid signatures rejected
 
-#### Scenario 5.3: Pre-processing Authentication
+#### Scenario 5.2: Pre-processing Authentication
 
 - **Test**: Verify authentication occurs before multipart parsing
 - **Validation**: Invalid auth rejected immediately, no resource consumption for unauthorized requests
@@ -141,11 +125,6 @@ This document describes the high-level architecture and test scenarios for the L
 
 - **Test**: Send uncompressed JSON/text blobs
 - **Validation**: Server compresses before S3 storage, compression metadata preserved
-
-#### Scenario 7.3: Mixed Compression
-
-- **Test**: Single request with both compressed and uncompressed blobs
-- **Validation**: Each blob handled according to its compression state
 
 ### Phase 8: Schema Validation
 
@@ -165,12 +144,6 @@ This document describes the high-level architecture and test scenarios for the L
 - **Test**: Mismatched Content-Length headers and actual blob sizes
 - **Validation**: Mismatches detected and handled appropriately
 
-### Phase 9: Limits (Optional) - DO NOT IMPLEMENT, TBD
-
-### Phase 10: Data Deletion (Optional) - DO NOT IMPLEMENT, TBD
-
-### Cross-Team Isolation Testing
-
 ## Error Recovery and Edge Cases
 
 ### Edge Case Scenarios
@@ -180,213 +153,42 @@ This document describes the high-level architecture and test scenarios for the L
 - **Test**: Invalid JSON, corrupted multipart data, missing required headers
 - **Validation**: Graceful error handling, no server crashes, proper error responses
 
-#### Scenario E.2: S3 Service Interruption
-
-- **Test**: Simulate S3 unavailability during uploads
-- **Validation**: Proper error responses, retry logic works, no data loss
-
-#### Scenario E.3: Kafka Unavailability
-
-- **Test**: Simulate Kafka unavailability during event publishing
-- **Validation**: Appropriate error handling, request failure communicated to client
-
 ## Local Development Testing
 
 ### Test Implementation
 
-The integration test suite will be implemented in Rust to align with the capture service's existing toolchain and avoid introducing additional dependencies.
+**Location**: `rust/capture/tests/integration_ai_endpoint.rs`
 
-#### Test Structure
+**Framework**: Tokio async tests with `axum-test-helper`
 
-- **Location**: `tests/integration/llma/` directory within the capture service codebase
-- **Framework**: Standard Rust testing framework with `tokio-test` for async operations
-- **Dependencies**:
-  - `reqwest` for HTTP client operations
-  - `aws-sdk-s3` for S3 client operations
-  - `serde_json` for JSON manipulation
-  - `multipart` for constructing test requests
+**Dependencies**:
 
-#### Test Organization
+- `reqwest` with `multipart` feature for constructing test requests
+- `axum-test-helper` for in-memory HTTP testing
+- `serde_json` for JSON manipulation
 
-```text
-tests/
-└── integration/
-    └── llma/
-        ├── mod.rs              # Common test utilities and setup
-        ├── phase_01_http.rs    # Phase 1: HTTP Endpoint tests
-        ├── phase_02_s3.rs      # Phase 2: Basic S3 Upload tests
-        ├── phase_03_infra.rs   # Phase 3: S3 Infrastructure tests
-        ├── phase_04_multipart.rs # Phase 4: Multipart File tests
-        ├── phase_05_auth.rs    # Phase 5: Authorization tests
-        ├── phase_07_compression.rs # Phase 7: Compression tests
-        ├── phase_08_validation.rs # Phase 8: Schema Validation tests
-        └── fixtures/           # Test data and multipart request templates
-```
-
-### Local Test Environment Setup
-
-#### Prerequisites
-
-- **Local PostHog Instance**: Full PostHog deployment running locally
-- **Local S3 Storage**: S3-compatible storage (configured via PostHog local setup)
-- **Capture Service**: Running with `/ai` endpoint enabled
-- **Test Configuration**: Environment variables for service endpoints and credentials
-
-#### Environment Configuration
+### Running Tests
 
 ```bash
-# PostHog Local Instance
-export POSTHOG_HOST="http://localhost:8000"
-export POSTHOG_API_KEY="test_api_key_123"
-export POSTHOG_PROJECT_ID="1"
+# Run all AI endpoint integration tests
+cargo test --test integration_ai_endpoint
 
-# Local S3 Configuration
-export AWS_ENDPOINT_URL="http://localhost:9000"  # Local S3-compatible endpoint
-export AWS_ACCESS_KEY_ID="minioadmin"
-export AWS_SECRET_ACCESS_KEY="minioadmin"
-export AWS_DEFAULT_REGION="us-east-1"
-export LLMA_S3_BUCKET="posthog-llma-test"
-
-# Capture Service
-export CAPTURE_ENDPOINT="http://localhost:3000"
-export LLMA_TEST_MODE="local"
-```
-
-### Test Execution
-
-#### Running Tests
-
-```bash
-# Run all LLMA integration tests
-cargo test --test llma_integration
-
-# Run specific phase tests
-cargo test --test llma_integration phase_01
-cargo test --test llma_integration phase_02
+# Run specific test
+cargo test --test integration_ai_endpoint test_multipart_parsing_with_multiple_blobs
 
 # Run with detailed output
-cargo test --test llma_integration -- --nocapture
-
-# Run tests in sequence (important for phase gating)
-cargo test --test llma_integration -- --test-threads=1
+cargo test --test integration_ai_endpoint -- --nocapture
 ```
 
-#### Test Utilities
+### Test Characteristics
 
-Each test phase will include common utilities for:
-
-- **Multipart Request Builder**: Construct multipart/form-data requests with event JSON and blob parts
-- **S3 Client Wrapper**: Direct S3 operations for validation and cleanup
-- **PostHog API Client**: Query PostHog API to verify event processing
-- **Test Data Generators**: Create various blob sizes, content types, and event payloads
-- **Cleanup Helpers**: Remove test data from S3 and PostHog between test runs
-
-#### Test Data Management
-
-- **Isolated Test Teams**: Each test uses unique team IDs to prevent interference
-- **Cleanup Between Tests**: Automatic cleanup of S3 objects and PostHog test data
-- **Fixture Data**: Predefined multipart requests and blob data for consistent testing
-- **Random Data Generation**: Configurable blob sizes and content for stress testing
+- Run in-memory with no external dependencies
+- Mock Redis, time source, and event sink
+- Fast execution suitable for CI/CD
+- Test HTTP request/response handling only
 
 ## Phase Gating
 
 - **Mandatory Testing**: All integration tests for a phase must pass before proceeding to implementation of the next phase
 - **Regression Prevention**: Previous phase tests continue to run to ensure no regression
 - **Incremental Validation**: Each phase builds upon validated functionality from previous phases
-
-## Production Testing
-
-### Overview
-
-For validating the LLM Analytics capture pipeline in production environments, the test suite can be configured to run against live PostHog instances with real AWS S3 storage.
-
-### Configuration Requirements
-
-#### PostHog Credentials
-
-- **Project API Key**: PostHog project private API key for authentication
-- **PostHog URL**: PostHog instance URL (cloud or self-hosted)
-- **Project ID**: PostHog project identifier for query API access
-
-#### AWS S3 Credentials
-
-- **AWS Access Key ID**: Limited IAM user with read-only S3 access
-- **AWS Secret Access Key**: Corresponding secret key
-- **S3 Bucket Name**: Production S3 bucket name
-- **Region**: AWS region for S3 bucket
-
-### IAM Policy for S3 Read Access
-
-The following IAM policy provides minimal read-only access for a specific team prefix:
-
-```json
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Action": [
-                "s3:GetObject",
-                "s3:GetObjectMetadata",
-                "s3:ListBucket"
-            ],
-            "Resource": [
-                "arn:aws:s3:::your-llma-bucket/llma/TEAM_ID/*",
-                "arn:aws:s3:::your-llma-bucket"
-            ],
-            "Condition": {
-                "StringLike": {
-                    "s3:prefix": "llma/TEAM_ID/*"
-                }
-            }
-        }
-    ]
-}
-```
-
-### AWS CLI Script for S3 Key Generation
-
-A separate script (`generate-s3-test-keys.sh`) will be implemented to generate limited S3 read-only credentials for LLMA testing. The script will create IAM users with team-specific permissions and output the necessary environment variables for testing.
-
-### Production Test Configuration
-
-#### Environment Variables
-
-```bash
-# PostHog Configuration
-export POSTHOG_PROJECT_API_KEY="your_posthog_api_key"
-export POSTHOG_HOST="https://app.posthog.com"  # or your self-hosted URL
-export POSTHOG_PROJECT_ID="12345"
-
-# AWS S3 Configuration
-export AWS_ACCESS_KEY_ID="your_limited_access_key"
-export AWS_SECRET_ACCESS_KEY="your_limited_secret_key"
-export AWS_DEFAULT_REGION="us-east-1"
-export LLMA_S3_BUCKET="your-llma-bucket"
-export LLMA_TEAM_ID="123"
-
-# Test Configuration
-export LLMA_TEST_MODE="production"
-```
-
-### Production Test Execution
-
-#### Safety Measures
-
-- **Read-Only Operations**: Production tests only read data, never write or modify
-- **Team Isolation**: Tests only access data for the specified team ID
-- **Rate Limiting**: Production tests include delays to avoid overwhelming services
-- **Data Validation**: Verify S3 objects exist and are accessible without downloading large payloads
-
-#### Usage Example
-
-```bash
-# Generate S3 test credentials (script to be implemented)
-./generate-s3-test-keys.sh 123 posthog-llm-analytics
-
-# Configure environment
-source production-test.env
-
-# Run production validation tests
-pytest tests/integration/production/ -v --tb=short
-```

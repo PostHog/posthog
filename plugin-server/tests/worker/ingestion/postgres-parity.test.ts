@@ -3,7 +3,6 @@ import { DateTime } from 'luxon'
 import { PluginServer } from '../../../src/server'
 import {
     Hub,
-    LogLevel,
     PluginServerMode,
     PluginsServerConfig,
     PropertyUpdateOperation,
@@ -26,7 +25,7 @@ jest.mock('../../../src/utils/logger')
 jest.setTimeout(30000)
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
-    LOG_LEVEL: LogLevel.Info,
+    LOG_LEVEL: 'info',
 }
 
 describe('postgres parity', () => {

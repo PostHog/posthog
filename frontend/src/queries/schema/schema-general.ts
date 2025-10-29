@@ -91,6 +91,7 @@ export enum NodeKind {
     RevenueExampleEventsQuery = 'RevenueExampleEventsQuery',
     RevenueExampleDataWarehouseTablesQuery = 'RevenueExampleDataWarehouseTablesQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
+    ErrorTrackingSimilarIssuesQuery = 'ErrorTrackingSimilarIssuesQuery',
     ErrorTrackingIssueCorrelationQuery = 'ErrorTrackingIssueCorrelationQuery',
     LogsQuery = 'LogsQuery',
     SessionBatchEventsQuery = 'SessionBatchEventsQuery',
@@ -155,6 +156,7 @@ export enum NodeKind {
     TracesQuery = 'TracesQuery',
     TraceQuery = 'TraceQuery',
     VectorSearchQuery = 'VectorSearchQuery',
+    DocumentSimilarityQuery = 'DocumentSimilarityQuery',
 
     // Customer analytics
     UsageMetricsQuery = 'UsageMetricsQuery',
@@ -194,6 +196,7 @@ export type AnyDataNode =
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
+    | ErrorTrackingSimilarIssuesQuery
     | ErrorTrackingIssueCorrelationQuery
     | LogsQuery
     | ExperimentFunnelsQuery
@@ -229,11 +232,13 @@ export type QuerySchema =
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
+    | ErrorTrackingSimilarIssuesQuery
     | ErrorTrackingIssueCorrelationQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | ExperimentQuery
     | ExperimentExposureQuery
+    | DocumentSimilarityQuery
 
     // Web Analytics + Web Vitals
     | WebOverviewQuery
@@ -364,6 +369,7 @@ export interface HogQLQueryModifiers {
     convertToProjectTimezone?: boolean
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level **/
     usePreaggregatedTableTransforms?: boolean
+    optimizeProjections?: boolean
 }
 
 export interface DataWarehouseEventsModifier {
@@ -445,17 +451,21 @@ export interface RecordingsQueryResponse {
     has_next: boolean
 }
 
-export type RecordingOrder =
-    | 'duration'
-    | 'recording_duration'
-    | 'inactive_seconds'
-    | 'active_seconds'
-    | 'start_time'
-    | 'console_error_count'
-    | 'click_count'
-    | 'keypress_count'
-    | 'mouse_activity_count'
-    | 'activity_score'
+export const VALID_RECORDING_ORDERS = [
+    'duration',
+    'recording_duration',
+    'inactive_seconds',
+    'active_seconds',
+    'start_time',
+    'console_error_count',
+    'click_count',
+    'keypress_count',
+    'mouse_activity_count',
+    'activity_score',
+    'recording_ttl',
+] as const
+
+export type RecordingOrder = (typeof VALID_RECORDING_ORDERS)[number]
 
 export type RecordingOrderDirection = 'ASC' | 'DESC'
 
@@ -524,6 +534,7 @@ export interface HogQLMetadataResponse {
     notices: HogQLNotice[]
     query_status?: never
     table_names?: string[]
+    ch_table_names?: string[]
 }
 
 export type AutocompleteCompletionItemKind =
@@ -852,6 +863,7 @@ export interface DataTableNode
     hiddenColumns?: HogQLExpression[]
     /** Columns that are sticky when scrolling horizontally */
     pinnedColumns?: HogQLExpression[]
+    tags?: QueryLogTags
 }
 
 export interface GoalLine {
@@ -998,6 +1010,8 @@ interface DataTableNodeViewProps {
     embedded?: boolean
     /** Context for the table, used by components like ColumnConfigurator */
     context?: DataTableNodeViewPropsContext
+    /** Default columns to use when resetting column configuration */
+    defaultColumns?: string[]
 }
 
 // Saved insight node
@@ -1245,6 +1259,11 @@ export interface CompareFilter {
     compare_to?: string
 }
 
+export interface IntegrationFilter {
+    /** Selected integration source IDs to filter by (e.g., table IDs or source map IDs) */
+    integrationSourceIds?: string[]
+}
+
 /** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params */
 export type FunnelsFilterLegacy = Omit<
     FunnelsFilterType,
@@ -1344,6 +1363,8 @@ export type RetentionFilter = {
     /** @default Day */
     period?: RetentionFilterLegacy['period']
     cumulative?: RetentionFilterLegacy['cumulative']
+    /** @description The time window mode to use for retention calculations */
+    timeWindowMode?: 'strict_calendar_dates' | '24_hour_windows'
 
     //frontend only
     meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
@@ -1537,6 +1558,7 @@ export interface EndpointRequest {
     description?: string
     query?: HogQLQuery | InsightQueryNode
     is_active?: boolean
+    cache_age_seconds?: number
 }
 
 export interface EndpointRunRequest {
@@ -2202,6 +2224,17 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     personId?: string
 }
 
+export interface ErrorTrackingSimilarIssuesQuery extends DataNode<ErrorTrackingSimilarIssuesQueryResponse> {
+    kind: NodeKind.ErrorTrackingSimilarIssuesQuery
+    issueId: ErrorTrackingIssue['id']
+    modelName?: EmbeddingModelName
+    rendering?: string
+    maxDistance?: number
+    dateRange?: DateRange
+    limit?: integer
+    offset?: integer
+}
+
 export interface ErrorTrackingIssueCorrelationQuery extends DataNode<ErrorTrackingIssueCorrelationQueryResponse> {
     kind: NodeKind.ErrorTrackingIssueCorrelationQuery
     events: string[]
@@ -2304,7 +2337,100 @@ export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase {
 }
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
 
+export type SimilarIssue = {
+    id: string
+    name: string
+    description: string
+    library: string | null
+    status: string
+    first_seen: string
+}
+
+export interface ErrorTrackingSimilarIssuesQueryResponse extends AnalyticsQueryResponseBase {
+    results: SimilarIssue[]
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+export type CachedErrorTrackingSimilarIssuesQueryResponse = CachedQueryResponse<ErrorTrackingSimilarIssuesQueryResponse>
+
+export type EmbeddingModelName = 'text-embedding-3-small-1536' | 'text-embedding-3-large-3072'
+
+export interface DocumentSimilarityQuery extends DataNode<DocumentSimilarityQueryResponse> {
+    // Query metadata
+    kind: NodeKind.DocumentSimilarityQuery
+
+    // Standard
+    dateRange: DateRange
+    order_direction: 'asc' | 'desc'
+    order_by: 'distance' | 'timestamp'
+    limit?: integer
+    offset?: integer
+
+    // Embedding-specifics
+    // To what point are all distances being measured?
+    origin: EmbeddedDocument // | string -- TODO, we should support ad-hoc querying too, but it requires a modification of the cross join
+    distance_func: 'L1Distance' | 'L2Distance' | 'cosineDistance' // How is the distance being measured?
+    threshold?: number // Some distance under-or-over which results will be excluded - useful mainly if sorting by timestamp
+    model: string // Model to do the query with. Only documents embedded with this model will be considered.
+
+    // TODO - these are a hack, and we should expose them as proper HogQL filterables instead, but
+    // I don't want to go to war in the taxonomic filter mines right now
+    products: string[] // Limit the results to specific products. Empty means all.
+    document_types: string[] // Limit the results to specific document types. Empty means all.
+    renderings: string[] // Limit the results to specific renderings. Empty means all.
+}
+
+// A single embedded document, which is a collection of all the ways
+// the document has been embedded, across different models and renderings
+export interface EmbeddedDocument {
+    product: string
+    document_type: string
+    document_id: string
+    /**  @format date-time */
+    timestamp: string
+}
+
+// A specific embedding of a document, with a specific model and rendering
+export type EmbeddingRecord = EmbeddedDocument & {
+    model_name: EmbeddingModelName
+    rendering: string
+}
+
+export interface EmbeddingDistance {
+    result: EmbeddingRecord
+    origin?: EmbeddingRecord
+    distance: number // How far was this particular embedding from the query
+}
+
+export interface DocumentSimilarityQueryResponse extends AnalyticsQueryResponseBase {
+    results: EmbeddingDistance[]
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+
+export type CachedDocumentSimilarityQueryResponse = CachedQueryResponse<DocumentSimilarityQueryResponse>
+
 export type LogSeverityLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
+
+export interface LogMessage {
+    uuid: string
+    trace_id: string
+    span_id: string
+    body: string
+    attributes: Record<string, any>
+    /**  @format date-time */
+    timestamp: string
+    /**  @format date-time */
+    observed_timestamp: string
+    severity_text: LogSeverityLevel
+    severity_number: number
+    level: LogSeverityLevel
+    resource_attributes: any
+    instrumentation_scope: string
+    event_name: string
+}
 
 export interface LogsQuery extends DataNode<LogsQueryResponse> {
     kind: NodeKind.LogsQuery
@@ -2319,7 +2445,7 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
-    results: unknown
+    results: unknown // TODO: Type this to LogMessage[] and fix the issues it creates on the backend
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -2369,24 +2495,6 @@ export type CachedSessionBatchEventsQueryResponse = CachedEventsQueryResponse & 
 }
 export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
 
-export interface LogMessage {
-    uuid: string
-    trace_id: string
-    span_id: string
-    body: string
-    attributes: Record<string, any>
-    /**  @format date-time */
-    timestamp: string
-    /**  @format date-time */
-    observed_timestamp: string
-    severity_text: LogSeverityLevel
-    severity_number: number
-    level: LogSeverityLevel
-    resource: string
-    instrumentation_scope: string
-    event_name: string
-}
-
 export interface FileSystemCount {
     count: number
 }
@@ -2406,6 +2514,8 @@ export interface FileSystemEntry {
     meta?: Record<string, any>
     /** Timestamp when file was added. Used to check persistence */
     created_at?: string
+    /** Timestamp when the file system entry was last viewed */
+    last_viewed_at?: string | null
     /** Whether this is a shortcut or the actual item */
     shortcut?: boolean
     /** Used to indicate pending actions, frontend only */
@@ -2417,12 +2527,14 @@ export interface FileSystemEntry {
 }
 
 export type FileSystemIconType =
+    | 'default_icon_type'
     | 'dashboard'
     | 'llm_analytics'
     | 'product_analytics'
     | 'revenue_analytics'
     | 'revenue_analytics_metadata'
     | 'marketing_settings'
+    | 'managed_viewsets'
     | 'endpoints'
     | 'sql_editor'
     | 'web_analytics'
@@ -2434,21 +2546,24 @@ export type FileSystemIconType =
     | 'early_access_feature'
     | 'experiment'
     | 'feature_flag'
+    | 'feature_flag_off'
     | 'data_pipeline'
     | 'data_pipeline_metadata'
     | 'data_warehouse'
     | 'task'
     | 'link'
     | 'logs'
-    | 'messaging'
+    | 'workflows'
     | 'notebook'
     | 'action'
     | 'comment'
     | 'annotation'
+    | 'event'
     | 'event_definition'
     | 'property_definition'
     | 'ingestion_warning'
-    | 'person'
+    | 'persons'
+    | 'user'
     | 'cohort'
     | 'group'
     | 'insight/funnels'
@@ -2460,6 +2575,10 @@ export type FileSystemIconType =
     | 'insight/hog'
     | 'team_activity'
     | 'home'
+    | 'apps'
+    | 'live'
+    | 'chat'
+
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType
@@ -2474,6 +2593,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     category?: string
     /** Color of the icon */
     iconColor?: FileSystemIconColor
+    /** Match this with the a base scene key or a specific one */
+    sceneKey?: string
 }
 
 export interface PersistedFolder {
@@ -2484,6 +2605,8 @@ export interface PersistedFolder {
     created_at: string
     updated_at: string
 }
+
+export type DataWarehouseManagedViewsetKind = 'revenue_analytics'
 
 export type InsightQueryNode =
     | TrendsQuery
@@ -2594,6 +2717,8 @@ export interface ExperimentMetricBaseProperties extends Node {
     conversion_window?: integer
     conversion_window_unit?: FunnelConversionWindowTimeUnit
     goal?: ExperimentMetricGoal
+    isSharedMetric?: boolean
+    sharedMetricId?: number
 }
 
 export type ExperimentMetricOutlierHandling = {
@@ -2777,6 +2902,8 @@ export interface ExperimentMetricTimeseries {
     computed_at: string | null
     created_at: string
     updated_at: string
+    recalculation_status?: string | null
+    recalculation_created_at?: string | null
 }
 
 /**
@@ -3366,6 +3493,7 @@ export interface LLMTracePerson {
 
 export interface LLMTrace {
     id: string
+    aiSessionId?: string
     createdAt: string
     person: LLMTracePerson
     totalLatency?: number
@@ -3759,6 +3887,8 @@ export interface MarketingAnalyticsTableQuery
     compareFilter?: CompareFilter
     /** Include conversion goal rows even when they don't match campaign costs table */
     includeAllConversions?: boolean
+    /** Filter by integration type */
+    integrationFilter?: IntegrationFilter
 }
 
 export interface MarketingAnalyticsItem extends WebAnalyticsItemBase<number | string> {
@@ -3794,6 +3924,8 @@ export interface MarketingAnalyticsAggregatedQuery
     select?: HogQLExpression[]
     /** Draft conversion goal that can be set in the UI without saving */
     draftConversionGoal?: ConversionGoalFilter
+    /** Filter by integration IDs */
+    integrationFilter?: IntegrationFilter
 }
 
 export interface WebAnalyticsExternalSummaryRequest {
@@ -3926,6 +4058,7 @@ export interface MarketingAnalyticsConfig {
     conversion_goals?: ConversionGoalFilter[]
     attribution_window_days?: number
     attribution_mode?: AttributionMode
+    campaign_name_mappings?: Record<string, Record<string, string[]>>
 }
 
 export enum MarketingAnalyticsBaseColumns {
@@ -4060,6 +4193,7 @@ export const externalDataSources = [
     'LinkedinAds',
     'RedditAds',
     'TikTokAds',
+    'Shopify',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -4104,6 +4238,8 @@ export interface UsageMetric {
     id: string
     name: string
     value: number
+    previous: number
+    change_from_previous_pct: number | null
     format: UsageMetricFormat
     display: UsageMetricDisplay
     interval: integer

@@ -569,8 +569,7 @@ export const billingLogic = kea<billingLogicType>([
                 if (!currentPlatformAddon || !timeTotalInSeconds) {
                     return 0
                 }
-                const currentPlan = currentPlatformAddon.plans?.[0]
-                const unitAmount = parseFloat(currentPlan?.unit_amount_usd || '0')
+                const unitAmount = parseFloat(currentPlatformAddon.current_amount_usd || '0')
                 const ratio = Math.max(0, Math.min(1, timeRemainingInSeconds / timeTotalInSeconds))
                 const amount = unitAmount * ratio
                 return Math.round(amount * 100) / 100

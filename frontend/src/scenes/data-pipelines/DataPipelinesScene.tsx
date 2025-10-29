@@ -8,6 +8,7 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
@@ -209,9 +210,10 @@ export function DataPipelinesScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Data pipelines"
+                name={sceneConfigurations[Scene.DataPipelines].name}
+                description={sceneConfigurations[Scene.DataPipelines].description}
                 resourceType={{
-                    type: 'data_pipeline',
+                    type: sceneConfigurations[Scene.DataPipelines].iconType || 'default_icon_type',
                 }}
                 actions={<SceneAction />}
             />

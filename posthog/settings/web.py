@@ -21,7 +21,9 @@ AXES_HANDLER = "axes.handlers.cache.AxesCacheHandler"
 AXES_FAILURE_LIMIT = get_from_env("AXES_FAILURE_LIMIT", 30, type_cast=int)
 AXES_COOLOFF_TIME = timedelta(minutes=10)
 AXES_LOCKOUT_CALLABLE = "posthog.api.authentication.axes_locked_out"
-AXES_META_PRECEDENCE_ORDER = ["HTTP_X_FORWARDED_FOR", "REMOTE_ADDR"]
+AXES_IPWARE_META_PRECEDENCE_ORDER = ["HTTP_X_FORWARDED_FOR", "REMOTE_ADDR"]
+# Keep legacy 403 status code for lockouts (django-axes 6.0+ defaults to 429)
+AXES_HTTP_RESPONSE_CODE = 403
 
 ####
 # Application definition
@@ -37,6 +39,8 @@ PRODUCTS_APPS = [
     "products.llm_analytics.backend.apps.LlmAnalyticsConfig",
     "products.endpoints.backend.apps.EndpointsConfig",
     "products.marketing_analytics.backend.apps.MarketingAnalyticsConfig",
+    "products.error_tracking.backend.apps.ErrorTrackingConfig",
+    "products.notebooks.backend.apps.NotebooksConfig",
 ]
 
 INSTALLED_APPS = [
@@ -55,6 +59,7 @@ INSTALLED_APPS = [
     "social_django",
     "django_filters",
     "axes",
+    "django_structlog",
     "drf_spectacular",
     *PRODUCTS_APPS,
     "django_otp",
@@ -75,7 +80,6 @@ MIDDLEWARE = [
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
-    "django_structlog.middlewares.CeleryMiddleware",
     "posthog.middleware.Fix204Middleware",
     "django.middleware.security.SecurityMiddleware",
     # NOTE: we need healthcheck high up to avoid hitting middlewares that may be
@@ -87,6 +91,7 @@ MIDDLEWARE = [
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "corsheaders.middleware.CorsMiddleware",
+    "posthog.middleware.CSPMiddleware",
     "django.middleware.common.CommonMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
@@ -105,9 +110,10 @@ MIDDLEWARE = [
     "posthog.middleware.CHQueries",
     "django_prometheus.middleware.PrometheusAfterMiddleware",
     "posthog.middleware.PostHogTokenCookieMiddleware",
-    "posthog.middleware.AdminCSPMiddleware",
     "posthoganalytics.integrations.django.PosthogContextMiddleware",
 ]
+
+DJANGO_STRUCTLOG_CELERY_ENABLED = True
 
 if DEBUG:
     # rebase_migration command
@@ -508,10 +514,14 @@ OAUTH2_PROVIDER = {
         "*": "Full access to all scopes",
         **get_scope_descriptions(),
     },
-    "ALLOWED_REDIRECT_URI_SCHEMES": ["https"],
+    # Allow both http and https schemes to support localhost callbacks
+    # Security validation in OAuthApplication.clean() ensures http is only allowed for loopback addresses (localhost, 127.0.0.0/8) in production
+    "ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https"],
     "AUTHORIZATION_CODE_EXPIRE_SECONDS": 60
     * 5,  # client has 5 minutes to complete the OAuth flow before the authorization code expires
     "DEFAULT_SCOPES": ["openid"],
+    "ACCESS_TOKEN_GENERATOR": "posthog.models.utils.generate_random_oauth_access_token",
+    "REFRESH_TOKEN_GENERATOR": "posthog.models.utils.generate_random_oauth_refresh_token",
     "OAUTH2_VALIDATOR_CLASS": "posthog.api.oauth.OAuthValidator",
     "ACCESS_TOKEN_EXPIRE_SECONDS": 60 * 60,  # 1 hour
     "ROTATE_REFRESH_TOKEN": True,  # Rotate the refresh token whenever a new access token is issued
@@ -533,6 +543,3 @@ OAUTH2_PROVIDER_GRANT_MODEL = "posthog.OAuthGrant"
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes
-
-if DEBUG:
-    OAUTH2_PROVIDER["ALLOWED_REDIRECT_URI_SCHEMES"] = ["http", "https"]

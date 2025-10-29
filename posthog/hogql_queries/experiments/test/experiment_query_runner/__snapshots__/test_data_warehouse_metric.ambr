@@ -34,7 +34,7 @@
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
-        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -44,7 +44,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=39728447488,
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
@@ -86,7 +86,7 @@
                posthog_test_usage.userid AS entity_identifier,
                1 AS value
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
-        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -96,7 +96,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=39728447488,
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
@@ -148,7 +148,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=39728447488,
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
@@ -200,7 +200,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=39728447488,
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
@@ -242,7 +242,7 @@
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
-        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -252,7 +252,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=39728447488,
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
@@ -304,7 +304,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=39728447488,
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
@@ -356,7 +356,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=39728447488,
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
@@ -408,7 +408,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=39728447488,
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
@@ -460,7 +460,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=39728447488,
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
@@ -495,7 +495,7 @@
                posthog_test_usage.userid AS entity_identifier,
                1 AS value
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
-        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')), 1)) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -505,7 +505,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=39728447488,
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
@@ -557,7 +557,7 @@
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
-        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -567,7 +567,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=39728447488,
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
@@ -609,7 +609,7 @@
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
-        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -619,7 +619,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=39728447488,
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
@@ -661,7 +661,7 @@
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
-        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -671,7 +671,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=39728447488,
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
@@ -713,7 +713,7 @@
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
-        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -723,7 +723,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=39728447488,
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
@@ -765,7 +765,7 @@
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
-        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -775,7 +775,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=39728447488,
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
@@ -817,7 +817,7 @@
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
-        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -827,7 +827,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=39728447488,
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
@@ -872,7 +872,7 @@
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
-        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -882,7 +882,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=39728447488,
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
@@ -924,7 +924,7 @@
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
-        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -934,7 +934,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=39728447488,
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
@@ -949,13 +949,14 @@
          read_rows,
          read_bytes,
          written_rows,
-         memory_usage
+         memory_usage,
+  exception
   FROM query_log_archive
   WHERE lc_cohort_id = 99999
     AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
-    AND type = 'QueryFinish'
-    AND query_kind = 'Insert'
+    AND type IN ('QueryFinish',
+                 'ExceptionWhileProcessing')
     AND event_date >= 'today'
     AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
@@ -1009,7 +1010,7 @@
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
-        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -1019,7 +1020,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=39728447488,
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
@@ -1061,7 +1062,7 @@
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
-        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -1071,7 +1072,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=39728447488,
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
@@ -1121,7 +1122,7 @@
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
-        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -1131,7 +1132,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=39728447488,
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
@@ -1173,7 +1174,7 @@
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
-        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -1183,7 +1184,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=39728447488,
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
@@ -1225,7 +1226,7 @@
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
-        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -1235,7 +1236,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=39728447488,
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
@@ -1277,7 +1278,7 @@
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
-        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -1287,7 +1288,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=39728447488,
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
@@ -1345,7 +1346,7 @@
           (SELECT posthog_test_stripe_customers.customer_email AS customer_email,
                   posthog_test_stripe_customers.customer_id AS posthog_test_stripe_subscriptions__subscription_customer___customer_id
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_stripe_customers/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`customer_id` String, `signup_count` Int32, `customer_name` String, `customer_email` String, `customer_created_at` DateTime') AS posthog_test_stripe_customers) AS posthog_test_stripe_subscriptions__subscription_customer ON equals(posthog_test_stripe_subscriptions.subscription_customer_id, posthog_test_stripe_subscriptions__subscription_customer.posthog_test_stripe_subscriptions__subscription_customer___customer_id)
-        WHERE and(ifNull(greaterOrEquals(toTimeZone(posthog_test_stripe_subscriptions.subscription_created_at, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0), ifNull(less(toTimeZone(posthog_test_stripe_subscriptions.subscription_created_at, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0), 1)) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
+        WHERE and(ifNull(greaterOrEquals(toTimeZone(posthog_test_stripe_subscriptions.subscription_created_at, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0), ifNull(less(toTimeZone(posthog_test_stripe_subscriptions.subscription_created_at, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -1355,7 +1356,101 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_ratio_metric_with_different_join_keys
+  '''
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares,
+         sum(metric_events.denominator_value) AS denominator_sum,
+         sum(power(metric_events.denominator_value, 2)) AS denominator_sum_squares,
+         sum(multiply(metric_events.value, metric_events.denominator_value)) AS numerator_denominator_sum_product
+  FROM
+    (SELECT num_agg.variant AS variant,
+            num_agg.entity_id AS entity_id,
+            coalesce(num_agg.numerator_value, 0) AS value,
+            coalesce(denom_agg.denominator_value, 0) AS denominator_value
+     FROM
+       (SELECT exposures.variant AS variant,
+               exposures.entity_id AS entity_id,
+               sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS numerator_value
+        FROM
+          (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+                  argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+                  argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+           FROM events
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+           GROUP BY entity_id,
+                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposures
+        LEFT JOIN
+          (SELECT posthog_test_usage.ds AS timestamp,
+                  posthog_test_usage.userid AS entity_identifier,
+                  posthog_test_usage.usage AS value
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
+           WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
+        GROUP BY exposures.variant,
+                 exposures.entity_id) AS num_agg
+     LEFT JOIN
+       (SELECT exposures.variant AS variant,
+               exposures.entity_id AS entity_id,
+               sum(coalesce(accurateCastOrNull(denominator_events.value, 'Float64'), 0)) AS denominator_value
+        FROM
+          (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+                  argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+                  argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+           FROM events
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+           GROUP BY entity_id,
+                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposures
+        LEFT JOIN
+          (SELECT toTimeZone(posthog_test_stripe_subscriptions.subscription_created_at, 'UTC') AS timestamp,
+                  posthog_test_stripe_subscriptions__subscription_customer.customer_email AS entity_identifier,
+                  1 AS value
+           FROM
+             (SELECT *
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_stripe_subscriptions/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`subscription_id` String, `subscription_amount` Int64, `subscription_created_at` DateTime, `subscription_customer_id` String')) AS posthog_test_stripe_subscriptions
+           LEFT JOIN
+             (SELECT posthog_test_stripe_customers.customer_email AS customer_email,
+                     posthog_test_stripe_customers.customer_id AS posthog_test_stripe_subscriptions__subscription_customer___customer_id
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_stripe_customers/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`customer_id` String, `signup_count` Int32, `customer_name` String, `customer_email` String, `customer_created_at` DateTime') AS posthog_test_stripe_customers) AS posthog_test_stripe_subscriptions__subscription_customer ON equals(posthog_test_stripe_subscriptions.subscription_customer_id, posthog_test_stripe_subscriptions__subscription_customer.posthog_test_stripe_subscriptions__subscription_customer___customer_id)
+           WHERE and(ifNull(greaterOrEquals(toTimeZone(posthog_test_stripe_subscriptions.subscription_created_at, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0), ifNull(less(toTimeZone(posthog_test_stripe_subscriptions.subscription_created_at, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0))) AS denominator_events ON and(equals(toString(exposures.exposure_identifier), toString(denominator_events.entity_identifier)), greaterOrEquals(denominator_events.timestamp, exposures.first_exposure_time))
+        GROUP BY exposures.variant,
+                 exposures.entity_id) AS denom_agg ON and(equals(num_agg.variant, denom_agg.variant), equals(toString(num_agg.entity_id), toString(denom_agg.entity_id)))) AS metric_events
+  GROUP BY metric_events.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,

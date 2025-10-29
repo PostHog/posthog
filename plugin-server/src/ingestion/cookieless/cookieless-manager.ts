@@ -13,7 +13,7 @@ import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
-import { cookielessRedisErrorCounter, eventDroppedCounter } from '../../main/ingestion-queues/metrics'
+import { cookielessRedisErrorCounter } from '../../main/ingestion-queues/metrics'
 import {
     CookielessServerHashMode,
     EventHeaders,
@@ -293,7 +293,7 @@ export class CookielessManager {
             // Drop all cookieless events if there are any errors.
             // We fail close here as Cookieless is a new feature, not available for general use yet, and we don't want any
             // errors to interfere with the processing of other events.
-            return this.dropAllCookielessEvents(events, 'cookieless-fail-close')
+            return this.dropAllCookielessEvents(events, 'cookieless_fail_close')
         }
     }
 
@@ -318,13 +318,7 @@ export class CookielessManager {
 
             if (event.event === '$create_alias' || event.event === '$merge_dangerously') {
                 // $alias and $merge events are not supported in cookieless mode, drop them
-                eventDroppedCounter
-                    .labels({
-                        event_type: 'analytics',
-                        drop_cause: 'cookieless_disallowed_event',
-                    })
-                    .inc()
-                results[i] = drop('Event type not supported in cookieless mode')
+                results[i] = drop('cookieless_unsupported_event')
                 continue
             }
             if (
@@ -332,13 +326,7 @@ export class CookielessManager {
                 team.cookieless_server_hash_mode === CookielessServerHashMode.Stateless
             ) {
                 // $identify events are not supported in stateless cookieless mode, drop them
-                eventDroppedCounter
-                    .labels({
-                        event_type: 'analytics',
-                        drop_cause: 'cookieless_stateless_disallowed_identify',
-                    })
-                    .inc()
-                results[i] = drop('$identify not supported in stateless cookieless mode')
+                results[i] = drop('cookieless_stateless_no_identify')
                 continue
             }
 
@@ -347,25 +335,13 @@ export class CookielessManager {
                 team.cookieless_server_hash_mode === CookielessServerHashMode.Disabled
             ) {
                 // if the specific team doesn't have cookieless enabled, drop the event
-                eventDroppedCounter
-                    .labels({
-                        event_type: 'analytics',
-                        drop_cause: 'cookieless_team_disabled',
-                    })
-                    .inc()
-                results[i] = drop('Cookieless disabled for team')
+                results[i] = drop('cookieless_team_disabled')
                 continue
             }
             const timestamp = event.timestamp ?? event.sent_at ?? event.now
 
             if (!timestamp) {
-                eventDroppedCounter
-                    .labels({
-                        event_type: 'analytics',
-                        drop_cause: 'cookieless_no_timestamp',
-                    })
-                    .inc()
-                results[i] = drop('Missing timestamp')
+                results[i] = drop('cookieless_missing_timestamp')
                 continue
             }
 
@@ -388,17 +364,9 @@ export class CookielessManager {
                 timezone: eventTimeZone,
             } = getProperties(event, timestamp)
             if (!userAgent || !ip || !host) {
-                eventDroppedCounter
-                    .labels({
-                        event_type: 'analytics',
-                        drop_cause: !userAgent
-                            ? 'cookieless_missing_ua'
-                            : !ip
-                              ? 'cookieless_missing_ip'
-                              : 'cookieless_missing_host',
-                    })
-                    .inc()
-                results[i] = drop(!userAgent ? 'Missing user agent' : !ip ? 'Missing IP' : 'Missing host')
+                results[i] = drop(
+                    !userAgent ? 'cookieless_missing_ua' : !ip ? 'cookieless_missing_ip' : 'cookieless_missing_host'
+                )
                 continue
             }
 
@@ -638,12 +606,6 @@ export class CookielessManager {
     ): PipelineResult<IncomingEventWithTeam>[] {
         return events.map((incomingEvent) => {
             if (incomingEvent.event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
-                eventDroppedCounter
-                    .labels({
-                        event_type: 'analytics',
-                        drop_cause: dropCause,
-                    })
-                    .inc()
                 return drop(dropCause)
             } else {
                 return ok(incomingEvent)

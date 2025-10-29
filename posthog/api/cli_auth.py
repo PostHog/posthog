@@ -117,7 +117,7 @@ class DevicePollResponseSerializer(serializers.Serializer):
 
     status = serializers.ChoiceField(choices=["pending", "authorized", "expired"])
     personal_api_key = serializers.CharField(required=False, help_text="The API key (only if authorized)")
-    label = serializers.CharField(required=False, help_text="Label of the created key")
+    label = serializers.CharField(required=False, help_text="Label of the created key")  # type: ignore[assignment]
     project_id = serializers.CharField(required=False, help_text="The project ID (only if authorized)")
 
 
@@ -221,6 +221,13 @@ class CLIAuthViewSet(viewsets.ViewSet):
         if not device_data:
             return Response(
                 {"error": "expired", "error_description": "Device code expired"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Prevent duplicate authorization (race condition)
+        if device_data.get("status") == "authorized":
+            return Response(
+                {"error": "already_authorized", "error_description": "This code has already been authorized"},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         # Verify user has access to the project

@@ -12,6 +12,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -23,7 +24,7 @@ import { IntegrationKind, IntegrationType } from '~/types'
 
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 
-const ERROR_TRACKING_INTEGRATIONS: IntegrationKind[] = ['linear', 'github']
+const ERROR_TRACKING_INTEGRATIONS: IntegrationKind[] = ['linear', 'github', 'gitlab']
 
 type onSubmitFormType = (integrationId: number, config: Record<string, string>) => void
 
@@ -49,6 +50,8 @@ export const ExternalReferences = (): JSX.Element | null => {
     const onClickCreateIssue = (integration: IntegrationType): void => {
         if (integration.kind === 'github') {
             createGitHubIssueForm(issue, integration, createExternalReference)
+        } else if (integration.kind === 'gitlab') {
+            createGitLabIssueForm(issue, integration, createExternalReference)
         } else if (integration && integration.kind === 'linear') {
             createLinearIssueForm(issue, integration, createExternalReference)
         }
@@ -76,14 +79,16 @@ export const ExternalReferences = (): JSX.Element | null => {
                     </DropdownMenuTrigger>
 
                     <DropdownMenuContent loop matchTriggerWidth>
-                        {errorTrackingIntegrations.map((integration) => (
-                            <DropdownMenuItem key={integration.id} asChild>
-                                <ButtonPrimitive menuItem onClick={() => onClickCreateIssue(integration)}>
-                                    <IntegrationIcon kind={integration.kind} />
-                                    {integration.display_name}
-                                </ButtonPrimitive>
-                            </DropdownMenuItem>
-                        ))}
+                        <DropdownMenuGroup>
+                            {errorTrackingIntegrations.map((integration) => (
+                                <DropdownMenuItem key={integration.id} asChild>
+                                    <ButtonPrimitive menuItem onClick={() => onClickCreateIssue(integration)}>
+                                        <IntegrationIcon kind={integration.kind} />
+                                        {integration.display_name}
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ))}
+                        </DropdownMenuGroup>
                     </DropdownMenuContent>
                 </DropdownMenu>
             ) : (
@@ -147,6 +152,41 @@ const createGitHubIssueForm = (
         },
         onSubmit: ({ title, body, repositories }) => {
             onSubmit(integration.id, { repository: repositories[0], title, body })
+        },
+    })
+}
+
+const createGitLabIssueForm = (
+    issue: ErrorTrackingRelationalIssue,
+    integration: IntegrationType,
+    onSubmit: onSubmitFormType
+): void => {
+    const posthogUrl = window.location.origin + window.location.pathname
+    const body = issue.description + '\n<br/>\n<br/>\n' + `**PostHog issue:** ${posthogUrl}`
+
+    LemonDialog.openForm({
+        title: 'Create GitLab issue',
+        shouldAwaitSubmit: true,
+        initialValues: {
+            title: issue.name,
+            body: body,
+            integrationId: integration.id,
+        },
+        content: (
+            <div className="flex flex-col gap-y-2">
+                <LemonField name="title" label="Title">
+                    <LemonInput data-attr="issue-title" placeholder="Issue title" size="small" />
+                </LemonField>
+                <LemonField name="body" label="Body">
+                    <LemonTextArea data-attr="issue-body" placeholder="Start typing..." />
+                </LemonField>
+            </div>
+        ),
+        errors: {
+            title: (title) => (!title ? 'You must enter a title' : undefined),
+        },
+        onSubmit: ({ title, body }) => {
+            onSubmit(integration.id, { title, body })
         },
     })
 }

@@ -22,11 +22,21 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        # Check for missing migrations first
+        missing_migrations_warning = self.check_missing_migrations()
+
         migrations = self.get_unapplied_migrations()
 
-        if not migrations:
-            # Return silently when no migrations to analyze (for CI)
+        if not migrations and not missing_migrations_warning:
+            # Return silently when no migrations to analyze and no missing migrations (for CI)
             return
+
+        # Print missing migrations warning if present
+        if missing_migrations_warning:
+            print(missing_migrations_warning)
+            if not migrations:
+                # If only missing migrations, exit early
+                return
 
         # Check batch-level policies (e.g., multiple migrations per app)
         batch_policy_violations = self.check_batch_policies(migrations)
@@ -78,14 +88,73 @@ class Command(BaseCommand):
 
     def analyze_loaded_migrations(self, migrations: list[tuple[str, migrations.Migration]]) -> list[MigrationRisk]:
         """Analyze a list of loaded migrations."""
+        from django.db import connection
+        from django.db.migrations.executor import MigrationExecutor
+
         analyzer = RiskAnalyzer()
         results = []
 
+        # Get migration loader for enhanced validation
+        try:
+            executor = MigrationExecutor(connection)
+            loader = executor.loader
+        except Exception:
+            loader = None
+
         for label, migration in migrations:
-            risk = analyzer.analyze_migration(migration, label)
+            if loader:
+                risk = analyzer.analyze_migration_with_context(migration, label, loader)
+            else:
+                risk = analyzer.analyze_migration(migration, label)
             results.append(risk)
 
         return results
+
+    def check_missing_migrations(self) -> str:
+        """Check if there are model changes that need migrations."""
+        import sys
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        # Capture stdout/stderr
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        stdout_capture = StringIO()
+        stderr_capture = StringIO()
+
+        try:
+            sys.stdout = stdout_capture
+            sys.stderr = stderr_capture
+
+            try:
+                call_command("makemigrations", "--check", "--dry-run")
+                # Exit code 0 means no migrations needed
+                return ""
+            except SystemExit:
+                # Exit code 1 means migrations needed
+                output = stdout_capture.getvalue()
+                if output.strip():
+                    # Check if ALL operations are "Remove field" (likely deprecated fields)
+                    # Django-deprecate-fields hides deprecated fields when sys.argv doesn't
+                    # contain 'makemigrations'. Since we load models before calling makemigrations,
+                    # fields are hidden, causing false positives for deprecated-but-not-yet-removed fields.
+                    lines = [line.strip() for line in output.split("\n") if line.strip()]
+                    operation_lines = [line for line in lines if line.startswith("- ")]
+
+                    # If all operations are "Remove field", skip the warning
+                    if operation_lines and all(line.startswith("- Remove field") for line in operation_lines):
+                        return ""
+
+                    # Prepend Summary for CI workflow, wrap Django's output in code block
+                    return f"**Summary:** ⚠️ Missing migrations detected\n\n```\n{output}```\n\nRun `python manage.py makemigrations` to create them.\n"
+                return ""
+        except Exception:
+            # Ignore other errors (e.g., can't connect to DB)
+            return ""
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
 
     def print_report(self, results):
         """Print formatted risk report."""

@@ -3,7 +3,7 @@ import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { resetKafka } from '~/tests/helpers/kafka'
 
 import { createAction, getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
-import { KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES } from '../../config/kafka-topics'
+import { KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS } from '../../config/kafka-topics'
 import { Hub, RawClickHouseEvent, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { CdpBehaviouralEventsConsumer } from './cdp-behavioural-events.consumer'
@@ -96,14 +96,12 @@ describe('CdpBehaviouralEventsConsumer', () => {
         await resetKafka()
         await resetTestDatabase()
 
+        mockProducerObserver.resetKafkaProducer()
         hub = await createHub()
         team = await getFirstTeam(hub)
 
         processor = new CdpBehaviouralEventsConsumer(hub)
         await processor.start()
-
-        // Clear any previous mock calls
-        mockProducerObserver.resetKafkaProducer()
     })
 
     afterEach(async () => {
@@ -113,12 +111,14 @@ describe('CdpBehaviouralEventsConsumer', () => {
     })
 
     describe('action matching and Kafka publishing', () => {
-        it('should publish behavioral cohort match to Kafka when action matches', async () => {
+        it('should publish pre-calculated events to Kafka when action matches', async () => {
             // Create an action with Chrome + pageview filter
             const actionId = await createAction(hub.postgres, team.id, 'Test action', TEST_FILTERS.chromePageview)
 
             // Create a matching event
             const personId = '550e8400-e29b-41d4-a716-446655440000'
+            const distinctId = 'test-distinct-123'
+            const eventUuid = 'test-uuid-1'
             const timestamp = '2025-03-03T10:15:46.319000-08:00'
 
             const messages = [
@@ -128,46 +128,45 @@ describe('CdpBehaviouralEventsConsumer', () => {
                             team_id: team.id,
                             event: '$pageview',
                             person_id: personId,
+                            distinct_id: distinctId,
                             properties: JSON.stringify({ $browser: 'Chrome' }),
                             timestamp,
-                            uuid: 'test-uuid-1',
+                            uuid: eventUuid,
                         } as RawClickHouseEvent)
                     ),
                 } as any,
             ]
 
-            // Parse messages which should create behavioral cohort match events
+            // Parse messages which should create pre-calculated events
             const events = await processor._parseKafkaBatch(messages)
 
-            // Should create one match event for the matching action
+            // Should create one pre-calculated event for the matching action
             expect(events).toHaveLength(1)
 
-            const matchEvent = events[0]
-            expect(matchEvent.key).toBe(personId) // Partitioned by person_id
+            const preCalculatedEvent = events[0]
+            expect(preCalculatedEvent.key).toBe(distinctId) // Partitioned by distinct_id
 
-            // Hash the action bytecode to get expected condition
-            const expectedCondition = processor['createFilterHash'](TEST_FILTERS.chromePageview)
-
-            expect(matchEvent.payload).toMatchObject({
+            expect(preCalculatedEvent.payload).toMatchObject({
+                uuid: eventUuid,
                 team_id: team.id,
-                cohort_id: actionId, // Using action ID as cohort_id
+                evaluation_timestamp: '2025-03-03 18:15:46.319',
                 person_id: personId,
-                condition: expectedCondition,
-                latest_event_is_match: true,
+                distinct_id: distinctId,
+                condition: String(actionId),
+                source: `action_${actionId}`,
             })
-
             // Test publishing the events to Kafka
             await processor['publishEvents'](events)
 
             // Check published messages to Kafka
             const kafkaMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(
-                KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES
+                KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS
             )
             expect(kafkaMessages).toHaveLength(1)
 
             const publishedMessage = kafkaMessages[0]
-            expect(publishedMessage.key).toBe(personId)
-            expect(publishedMessage.value).toEqual(matchEvent.payload)
+            expect(publishedMessage.key).toBe(distinctId)
+            expect(publishedMessage.value).toEqual(preCalculatedEvent.payload)
         })
 
         it('should not publish to Kafka when action does not match', async () => {
@@ -184,6 +183,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
                             team_id: team.id,
                             event: '$pageview',
                             person_id: personId,
+                            distinct_id: 'test-distinct-456',
                             properties: JSON.stringify({ $browser: 'Firefox' }), // Different browser
                             timestamp: '2025-03-03T10:15:46.319000-08:00',
                             uuid: 'test-uuid-2',
@@ -201,7 +201,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
             // Verify nothing was published to Kafka
             await processor['publishEvents'](events)
             const kafkaMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(
-                KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES
+                KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS
             )
             expect(kafkaMessages).toHaveLength(0)
         })

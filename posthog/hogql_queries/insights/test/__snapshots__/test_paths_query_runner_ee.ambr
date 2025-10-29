@@ -1543,7 +1543,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE and(ifNull(equals(last_path_key, '2_step two'), 0), 1)
+     WHERE ifNull(equals(last_path_key, '2_step two'), 0)
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -1901,7 +1901,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE and(ifNull(equals(last_path_key, '3_step three'), 0), 1)
+     WHERE ifNull(equals(last_path_key, '3_step three'), 0)
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -2259,7 +2259,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE and(ifNull(equals(last_path_key, '4_step four'), 0), 1)
+     WHERE ifNull(equals(last_path_key, '4_step four'), 0)
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -12976,7 +12976,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE and(ifNull(equals(last_path_key, '2_step two'), 0), 1)
+     WHERE ifNull(equals(last_path_key, '2_step two'), 0)
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -13334,7 +13334,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE and(ifNull(equals(last_path_key, '3_step three'), 0), 1)
+     WHERE ifNull(equals(last_path_key, '3_step three'), 0)
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -13692,7 +13692,7 @@
                    arrayEnumerate(session_paths) AS session_index) ARRAY
            JOIN limited_path_timings AS joined_path_tuple,
                 arrayEnumerate(limited_path_timings) AS event_in_session_index))
-     WHERE and(ifNull(equals(last_path_key, '4_step four'), 0), 1)
+     WHERE ifNull(equals(last_path_key, '4_step four'), 0)
      GROUP BY person_id) AS source
   ORDER BY source.id ASC
   LIMIT 101

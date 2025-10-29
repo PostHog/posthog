@@ -1,18 +1,6 @@
 import { arrayMove } from '@dnd-kit/sortable'
 import equal from 'fast-deep-equal'
-import {
-    BuiltLogic,
-    actions,
-    afterMount,
-    beforeUnmount,
-    connect,
-    kea,
-    listeners,
-    path,
-    props,
-    reducers,
-    selectors,
-} from 'kea'
+import { BuiltLogic, actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
@@ -21,6 +9,7 @@ import { useEffect, useState } from 'react'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
 import { TeamMembershipLevel } from 'lib/constants'
+import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -122,6 +111,7 @@ export const sceneLogic = kea<sceneLogicType>([
         }
     ),
     path(['scenes', 'sceneLogic']),
+
     connect(() => ({
         logic: [router, userLogic, preflightLogic],
         actions: [
@@ -143,6 +133,7 @@ export const sceneLogic = kea<sceneLogicType>([
     })),
     afterMount(({ cache }) => {
         cache.mountedTabLogic = {} as Record<string, () => void>
+        cache.lastTrackedSceneByTab = {} as Record<string, { sceneId?: string; sceneKey?: string }>
     }),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -207,6 +198,7 @@ export const sceneLogic = kea<sceneLogicType>([
 
         newTab: (href?: string | null) => ({ href }),
         setTabs: (tabs: SceneTab[]) => ({ tabs }),
+        closeTabId: (tabId: string) => ({ tabId }),
         removeTab: (tab: SceneTab) => ({ tab }),
         activateTab: (tab: SceneTab) => ({ tab }),
         clickOnTab: (tab: SceneTab) => ({ tab }),
@@ -569,6 +561,12 @@ export const sceneLogic = kea<sceneLogicType>([
         renameTab: ({ tab }) => {
             actions.startTabEdit(tab)
         },
+        closeTabId: ({ tabId }) => {
+            const tab = values.tabs.find(({ id }) => id === tabId)
+            if (tab) {
+                actions.removeTab(tab)
+            }
+        },
         removeTab: ({ tab }) => {
             if (tab.active) {
                 // values.activeTab will already be the new active tab from the reducer
@@ -715,6 +713,13 @@ export const sceneLogic = kea<sceneLogicType>([
                 const builtLogicProps = { tabId, ...exportedScene?.paramsToProps?.(params) }
                 const builtLogic = exportedScene?.logic(builtLogicProps)
                 cache.mountedTabLogic[tabId] = builtLogic.mount()
+            }
+
+            const trackingKey = tabId || '__default__'
+            const lastTracked = cache.lastTrackedSceneByTab?.[trackingKey]
+            if (!lastTracked || lastTracked.sceneId !== sceneId || lastTracked.sceneKey !== sceneKey) {
+                trackFileSystemLogView({ type: 'scene', ref: sceneId })
+                cache.lastTrackedSceneByTab[trackingKey] = { sceneId, sceneKey }
             }
         },
         openScene: ({ tabId, sceneId, sceneKey, params, method }) => {
@@ -1059,32 +1064,35 @@ export const sceneLogic = kea<sceneLogicType>([
                         }
                     }
                     delete cache.mountedTabLogic[id]
+                    if (cache.lastTrackedSceneByTab) {
+                        delete cache.lastTrackedSceneByTab[id]
+                    }
                 }
             }
         },
     })),
     afterMount(({ actions, cache, values }) => {
-        cache.onKeyDown = (event: KeyboardEvent) => {
-            if ((event.ctrlKey || event.metaKey) && event.key === 'b') {
-                const element = event.target as HTMLElement
-                if (element?.closest('.NotebookEditor')) {
-                    return
-                }
-
-                event.preventDefault()
-                event.stopPropagation()
-                if (event.shiftKey) {
-                    if (values.activeTab) {
-                        actions.removeTab(values.activeTab)
+        cache.disposables.add(() => {
+            const onKeyDown = (event: KeyboardEvent): void => {
+                if ((event.ctrlKey || event.metaKey) && event.key === 'b') {
+                    const element = event.target as HTMLElement
+                    if (element?.closest('.NotebookEditor')) {
+                        return
                     }
-                } else {
-                    actions.newTab()
+
+                    event.preventDefault()
+                    event.stopPropagation()
+                    if (event.shiftKey) {
+                        if (values.activeTab) {
+                            actions.removeTab(values.activeTab)
+                        }
+                    } else {
+                        actions.newTab()
+                    }
                 }
             }
-        }
-        window.addEventListener('keydown', cache.onKeyDown)
-    }),
-    beforeUnmount(({ cache }) => {
-        window.removeEventListener('keydown', cache.onKeyDown)
+            window.addEventListener('keydown', onKeyDown)
+            return () => window.removeEventListener('keydown', onKeyDown)
+        }, 'keydownListener')
     }),
 ])

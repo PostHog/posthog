@@ -10,7 +10,8 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -95,10 +96,10 @@ export function LinksScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Links"
-                description="Start creating links for your marketing campaigns, referral programs, and more."
+                name={sceneConfigurations[Scene.Links].name}
+                description={sceneConfigurations[Scene.Links].description}
                 resourceType={{
-                    type: 'link',
+                    type: sceneConfigurations[Scene.Links].iconType || 'default_icon_type',
                 }}
                 actions={
                     <LemonButton

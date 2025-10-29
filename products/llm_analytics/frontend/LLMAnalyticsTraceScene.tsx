@@ -42,6 +42,7 @@ import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { LLMInputOutput } from './LLMInputOutput'
 import { SearchHighlight } from './SearchHighlight'
+import { EvalsTabContent } from './components/EvalsTabContent'
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
 import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
@@ -57,11 +58,16 @@ import {
     getEventType,
     getSessionID,
     getTraceTimestamp,
-    hasSessionID,
-    isLLMTraceEvent,
+    isLLMEvent,
     normalizeMessages,
     removeMilliseconds,
 } from './utils'
+
+enum TraceViewMode {
+    Conversation = 'conversation',
+    Raw = 'raw',
+    Evals = 'evals',
+}
 
 export const scene: SceneExport = {
     component: LLMAnalyticsTraceScene,
@@ -76,6 +82,21 @@ export function LLMAnalyticsTraceScene(): JSX.Element {
             <TraceSceneWrapper />
         </BindLogic>
     )
+}
+
+function getSessionFilterUrl(sessionId: string): string {
+    const filter = [
+        {
+            key: '$ai_session_id',
+            value: [sessionId],
+            operator: 'exact',
+            type: 'event',
+        },
+    ]
+    // Build URL with filters as query params
+    const params = new URLSearchParams()
+    params.set('filters', JSON.stringify(filter))
+    return `${urls.llmAnalyticsTraces()}?${params.toString()}`
 }
 
 function TraceSceneWrapper(): JSX.Element {
@@ -101,7 +122,7 @@ function TraceSceneWrapper(): JSX.Element {
             ) : !trace ? (
                 <NotFound object="trace" />
             ) : (
-                <div className="relative deprecated-space-y-4 flex flex-col">
+                <div className="relative flex flex-col gap-3">
                     <SceneBreadcrumbBackButton />
                     <div className="flex items-start justify-between">
                         <TraceMetadata
@@ -109,12 +130,12 @@ function TraceSceneWrapper(): JSX.Element {
                             metricEvents={metricEvents as LLMTraceEvent[]}
                             feedbackEvents={feedbackEvents as LLMTraceEvent[]}
                         />
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap justify-end items-center gap-x-2 gap-y-1">
                             <DisplayOptionsSelect />
                             <CopyTraceButton trace={trace} tree={enrichedTree} />
                         </div>
                     </div>
-                    <div className="flex flex-1 min-h-0 gap-4 flex-col md:flex-row">
+                    <div className="flex flex-1 min-h-0 gap-3 flex-col md:flex-row">
                         <TraceSidebar trace={trace} eventId={eventId} tree={enrichedTree} />
                         <EventContent
                             trace={trace}
@@ -168,10 +189,17 @@ function TraceMetadata({
     feedbackEvents: LLMTraceEvent[]
 }): JSX.Element {
     return (
-        <header className="flex gap-2 flex-wrap">
+        <header className="flex gap-1.5 flex-wrap">
             {'person' in trace && (
                 <Chip title="Person">
                     <PersonDisplay withIcon="sm" person={trace.person} />
+                </Chip>
+            )}
+            {trace.aiSessionId && (
+                <Chip title="AI Session ID - Click to filter traces by this session">
+                    <Link to={getSessionFilterUrl(trace.aiSessionId)} subtle>
+                        <span className="font-mono">{trace.aiSessionId.slice(0, 8)}...</span>
+                    </Link>
                 </Chip>
             )}
             <UsageChip event={trace} />
@@ -343,7 +371,7 @@ const TreeNode = React.memo(function TraceNode({
     const isCollapsedDueToFilter = !eventTypeExpanded(eventType)
 
     const children = [
-        isLLMTraceEvent(item) && item.properties.$ai_is_error && (
+        isLLMEvent(item) && item.properties.$ai_is_error && (
             <LemonTag key="error-tag" type="danger">
                 Error
             </LemonTag>
@@ -403,7 +431,7 @@ const TreeNode = React.memo(function TraceNode({
 })
 
 export function renderModelRow(event: LLMTrace | LLMTraceEvent, searchQuery?: string): React.ReactNode | null {
-    if (isLLMTraceEvent(event)) {
+    if (isLLMEvent(event)) {
         if (event.event === '$ai_generation') {
             // if we don't have a span name, we don't want to render the model row as its covered by the event title
             if (!event.properties.$ai_span_name) {
@@ -546,18 +574,23 @@ const EventContent = React.memo(
     }): JSX.Element => {
         const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
         const { featureFlags } = useValues(featureFlagLogic)
-        const [viewMode, setViewMode] = useState<'conversation' | 'raw'>('conversation')
 
-        const node = event && isLLMTraceEvent(event) ? findNodeForEvent(tree, event.id) : null
+        const [viewMode, setViewMode] = useState(TraceViewMode.Conversation)
+
+        const node = event && isLLMEvent(event) ? findNodeForEvent(tree, event.id) : null
         const aggregation = node?.aggregation || null
 
-        const showPlaygroundButton =
-            event &&
-            isLLMTraceEvent(event) &&
-            event.event === '$ai_generation' &&
-            featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]
+        const childEventsForSessionId: LLMTraceEvent[] | undefined = node?.children?.map((child) => child.event)
+        const sessionId = event ? getSessionID(event, childEventsForSessionId) : null
+        const hasSessionRecording = !!sessionId
+
+        const isGenerationEvent = event && isLLMEvent(event) && event.event === '$ai_generation'
+
+        const showPlaygroundButton = isGenerationEvent && featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]
 
         const showSaveToDatasetButton = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
+
+        const showEvalsTab = isGenerationEvent && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]
 
         const handleTryInPlayground = (): void => {
             if (!event) {
@@ -568,7 +601,7 @@ const EventContent = React.memo(
             let input: any = undefined
             let tools: any = undefined
 
-            if (isLLMTraceEvent(event)) {
+            if (isLLMEvent(event)) {
                 model = event.properties.$ai_model
                 // Prefer $ai_input if available, otherwise fallback to $ai_input_state
                 input = event.properties.$ai_input ?? event.properties.$ai_input_state
@@ -591,7 +624,7 @@ const EventContent = React.memo(
                                     {formatLLMEventTitle(event)}
                                 </h3>
                             </div>
-                            {isLLMTraceEvent(event) ? (
+                            {isLLMEvent(event) ? (
                                 <MetadataHeader
                                     isError={event.properties.$ai_is_error}
                                     inputTokens={event.properties.$ai_input_tokens}
@@ -612,7 +645,7 @@ const EventContent = React.memo(
                                     timestamp={event.createdAt}
                                 />
                             )}
-                            {isLLMTraceEvent(event) && <ParametersHeader eventProperties={event.properties} />}
+                            {isLLMEvent(event) && <ParametersHeader eventProperties={event.properties} />}
                             {aggregation && (
                                 <div className="flex flex-row flex-wrap items-center gap-2">
                                     {aggregation.totalCost > 0 && (
@@ -633,7 +666,7 @@ const EventContent = React.memo(
                                     )}
                                 </div>
                             )}
-                            {(showPlaygroundButton || hasSessionID(event) || showSaveToDatasetButton) && (
+                            {(showPlaygroundButton || hasSessionRecording || showSaveToDatasetButton) && (
                                 <div className="flex flex-row items-center gap-2">
                                     {showPlaygroundButton && (
                                         <LemonButton
@@ -652,12 +685,12 @@ const EventContent = React.memo(
                                             timestamp={trace.createdAt}
                                             sourceId={event.id}
                                             input={
-                                                isLLMTraceEvent(event)
+                                                isLLMEvent(event)
                                                     ? (event.properties.$ai_input ?? event.properties.$ai_input_state)
                                                     : event.inputState
                                             }
                                             output={
-                                                isLLMTraceEvent(event)
+                                                isLLMEvent(event)
                                                     ? (event.properties.$ai_output_choices ??
                                                       event.properties.$ai_output ??
                                                       event.properties.$ai_output_state ??
@@ -667,13 +700,13 @@ const EventContent = React.memo(
                                             metadata={eventMetadata}
                                         />
                                     )}
-                                    {hasSessionID(event) && (
+                                    {hasSessionRecording && (
                                         <ViewRecordingButton
                                             inModal
                                             type="secondary"
                                             size="xsmall"
                                             data-attr="llm-analytics"
-                                            sessionId={getSessionID(event) || undefined}
+                                            sessionId={sessionId || undefined}
                                             timestamp={removeMilliseconds(event.createdAt)}
                                         />
                                     )}
@@ -685,11 +718,11 @@ const EventContent = React.memo(
                             onChange={setViewMode}
                             tabs={[
                                 {
-                                    key: 'conversation',
+                                    key: TraceViewMode.Conversation,
                                     label: 'Conversation',
                                     content: (
                                         <>
-                                            {isLLMTraceEvent(event) ? (
+                                            {isLLMEvent(event) ? (
                                                 event.event === '$ai_generation' ? (
                                                     <ConversationMessagesDisplay
                                                         inputNormalized={normalizeMessages(
@@ -735,7 +768,7 @@ const EventContent = React.memo(
                                     ),
                                 },
                                 {
-                                    key: 'raw',
+                                    key: TraceViewMode.Raw,
                                     label: 'Raw',
                                     content: (
                                         <div className="p-2">
@@ -743,6 +776,15 @@ const EventContent = React.memo(
                                         </div>
                                     ),
                                 },
+                                ...(showEvalsTab
+                                    ? [
+                                          {
+                                              key: TraceViewMode.Evals,
+                                              label: 'Evaluations',
+                                              content: <EvalsTabContent generationEventId={event.id} />,
+                                          },
+                                      ]
+                                    : []),
                             ]}
                         />
                     </>

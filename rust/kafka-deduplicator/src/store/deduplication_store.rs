@@ -4,11 +4,12 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use common_types::RawEvent;
-use rocksdb::{ColumnFamilyDescriptor, Options};
+use rocksdb::{ColumnFamilyDescriptor, Options, SliceTransform};
 use tracing::info;
 
+use crate::metrics::MetricsHelper;
 use crate::rocksdb::dedup_metadata::EventSimilarity;
-use crate::rocksdb::store::RocksDbStore;
+use crate::rocksdb::store::{block_based_table_factory, RocksDbStore};
 
 use super::keys::{TimestampKey, UuidIndexKey, UuidKey};
 use super::metadata::{TimestampMetadata, UuidMetadata};
@@ -115,25 +116,50 @@ impl DeduplicationStore {
 
     pub fn new(config: DeduplicationStoreConfig, topic: String, partition: i32) -> Result<Self> {
         // Create metrics helper for the RocksDB store
-        let metrics = crate::metrics::MetricsHelper::with_partition(&topic, partition)
+        let metrics = MetricsHelper::with_partition(&topic, partition)
             .with_label("service", "kafka-deduplicator");
 
+        let cf_descriptors = Self::get_cf_descriptors();
         // Create all three column families
-        let store = RocksDbStore::new(
-            &config.path,
-            vec![
-                ColumnFamilyDescriptor::new(Self::TIMESTAMP_CF, Options::default()),
-                ColumnFamilyDescriptor::new(Self::UUID_CF, Options::default()),
-                ColumnFamilyDescriptor::new(Self::UUID_TIMESTAMP_INDEX_CF, Options::default()),
-            ],
-            metrics,
-        )?;
+        let store = RocksDbStore::new(&config.path, cf_descriptors, metrics)?;
 
         Ok(Self {
             store: Arc::new(store),
             topic,
             partition,
         })
+    }
+
+    fn get_cf_descriptors() -> Vec<ColumnFamilyDescriptor> {
+        let block_opts = block_based_table_factory();
+
+        // ----- CF: TimestampKey (prefix = 8-byte BE timestamp)
+        let mut ts_cf_opts = Options::default();
+        ts_cf_opts.set_block_based_table_factory(&block_opts);
+        ts_cf_opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(8)); // <- per-CF
+        ts_cf_opts.set_write_buffer_size(8 * 1024 * 1024);
+        ts_cf_opts.set_max_write_buffer_number(3);
+
+        // ----- CF: UuidIndexKey ([ts][uuid_key] => same 8-byte prefix)
+        let mut uuid_timestamp_index_cf_opts = Options::default();
+        uuid_timestamp_index_cf_opts.set_block_based_table_factory(&block_opts);
+        uuid_timestamp_index_cf_opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(8));
+        uuid_timestamp_index_cf_opts.set_write_buffer_size(8 * 1024 * 1024);
+        uuid_timestamp_index_cf_opts.set_max_write_buffer_number(3);
+
+        // ----- CF: UuidKey (point-gets; no prefix extractor)
+        let mut uuid_cf_opts = Options::default();
+        uuid_cf_opts.set_block_based_table_factory(&block_opts);
+
+        let cf_descriptors = vec![
+            ColumnFamilyDescriptor::new(Self::TIMESTAMP_CF, ts_cf_opts),
+            ColumnFamilyDescriptor::new(Self::UUID_CF, uuid_cf_opts),
+            ColumnFamilyDescriptor::new(
+                Self::UUID_TIMESTAMP_INDEX_CF,
+                uuid_timestamp_index_cf_opts,
+            ),
+        ];
+        cf_descriptors
     }
 
     // Storage operations for each column family
@@ -432,9 +458,7 @@ impl DeduplicationStore {
 
     /// Flush the store to disk
     pub fn flush(&self) -> Result<()> {
-        self.store.flush_cf(Self::TIMESTAMP_CF)?;
-        self.store.flush_cf(Self::UUID_CF)?;
-        Ok(())
+        self.store.flush_all_cf()
     }
 
     /// Update metrics for this store (including database size)
@@ -446,22 +470,45 @@ impl DeduplicationStore {
         Ok(())
     }
 
-    /// Create a checkpoint and return the SST files at the time of checkpoint
+    /// Create a checkpoint and return metadata about the checkpoint
+    /// This ensures consistency by:
+    /// 1. Flushing WAL to disk
+    /// 2. Flushing all column families
+    /// 3. Capturing sequence number for consistency verification
+    /// 4. Creating the checkpoint with hard links
     pub fn create_checkpoint_with_metadata<P: AsRef<std::path::Path>>(
         &self,
         checkpoint_path: P,
-    ) -> Result<Vec<String>> {
-        // Flush before checkpoint to ensure all data is in SST files
+    ) -> Result<LocalCheckpointInfo> {
+        // Step 1: Flush WAL to ensure durability
+        self.store.flush_wal(true)?;
+
+        // Step 2: Flush all column families to ensure data is in SST files
         self.flush()?;
 
-        // Get SST files before checkpoint
+        // Step 3: Get sequence number for consistency tracking
+        let sequence = self.store.latest_sequence_number();
+
+        // Step 4: Get SST files after flush
         let sst_files = self.get_sst_file_names()?;
 
-        // Create the checkpoint
+        // Step 5: Create the checkpoint (RocksDB internally handles file deletion safety)
         self.store.create_checkpoint(checkpoint_path)?;
 
-        Ok(sst_files)
+        Ok(LocalCheckpointInfo {
+            sst_files,
+            sequence,
+        })
     }
+}
+
+/// Information about a local RocksDB checkpoint
+#[derive(Debug, Clone)]
+pub struct LocalCheckpointInfo {
+    /// SST files included in the checkpoint
+    pub sst_files: Vec<String>,
+    /// RocksDB sequence number at checkpoint time
+    pub sequence: u64,
 }
 
 #[cfg(test)]

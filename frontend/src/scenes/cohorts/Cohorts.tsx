@@ -18,15 +18,14 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { cohortsSceneLogic } from 'scenes/cohorts/cohortsSceneLogic'
 import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { CohortType, ProductKey } from '~/types'
-
-const RESOURCE_TYPE = 'cohort'
 
 export const scene: SceneExport = {
     component: Cohorts,
@@ -216,9 +215,10 @@ export function Cohorts(): JSX.Element {
             <PersonsManagementSceneTabs tabKey="cohorts" />
 
             <SceneTitleSection
-                name="Cohorts"
+                name={sceneConfigurations[Scene.Cohorts].name}
+                description={sceneConfigurations[Scene.Cohorts].description}
                 resourceType={{
-                    type: RESOURCE_TYPE,
+                    type: sceneConfigurations[Scene.Cohorts].iconType || 'default_icon_type',
                 }}
                 actions={
                     <LemonButton

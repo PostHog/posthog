@@ -322,6 +322,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         props.id,
                         {
                             layoutSize: values.currentLayoutSize,
+                            filtersOverride: values.urlFilters,
+                            variablesOverride: values.urlVariables,
                         },
                         // onMessage callback - handles both metadata and tiles
                         (data) => {
@@ -1259,7 +1261,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
     })),
-    events(({ actions, cache, props, values }) => ({
+    events(({ actions, props, values }) => ({
         afterMount: () => {
             // NOTE: initial dashboard load is done after variables are loaded in initialVariablesLoaded
             if (props.id) {
@@ -1288,10 +1290,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         beforeUnmount: () => {
             actions.abortAnyRunningQuery()
-            if (cache.autoRefreshInterval) {
-                window.clearInterval(cache.autoRefreshInterval)
-                cache.autoRefreshInterval = null
-            }
         },
     })),
     sharedListeners(({ values, props, actions }) => ({
@@ -1675,11 +1673,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.resetInterval()
         },
         resetInterval: () => {
-            if (cache.autoRefreshInterval) {
-                window.clearInterval(cache.autoRefreshInterval)
-                cache.autoRefreshInterval = null
-            }
-
             if (values.autoRefresh.enabled) {
                 // Refresh right now after enabling if we haven't refreshed recently
                 if (
@@ -1692,12 +1685,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         forceRefresh: true,
                     })
                 }
-                cache.autoRefreshInterval = window.setInterval(() => {
-                    actions.refreshDashboardItems({
-                        action: RefreshDashboardItemsAction.Refresh,
-                        forceRefresh: true,
-                    })
-                }, values.autoRefresh.interval * 1000)
+                cache.disposables.add(() => {
+                    const intervalId = window.setInterval(() => {
+                        actions.refreshDashboardItems({
+                            action: RefreshDashboardItemsAction.Refresh,
+                            forceRefresh: true,
+                        })
+                    }, values.autoRefresh.interval * 1000)
+                    return () => clearInterval(intervalId)
+                }, 'autoRefreshInterval')
             }
         },
         loadDashboardSuccess: [

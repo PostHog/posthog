@@ -175,7 +175,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE and(equals(events.team_id, 99999), 1)
+                          WHERE equals(events.team_id, 99999)
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -278,32 +278,32 @@
                            `stripe.posthog_test.revenue_item_revenue_view`.currency AS currency,
                            `stripe.posthog_test.revenue_item_revenue_view`.amount AS amount
                     FROM
-                      (SELECT NULL AS id,
-                              NULL AS invoice_item_id,
-                              NULL AS source_label,
-                              NULL AS timestamp,
-                              NULL AS created_at,
-                              NULL AS is_recurring,
-                              NULL AS product_id,
-                              NULL AS customer_id,
-                              NULL AS group_0_key,
-                              NULL AS group_1_key,
-                              NULL AS group_2_key,
-                              NULL AS group_3_key,
-                              NULL AS group_4_key,
-                              NULL AS invoice_id,
-                              NULL AS subscription_id,
-                              NULL AS session_id,
-                              NULL AS event_name,
-                              NULL AS coupon,
-                              NULL AS coupon_id,
-                              NULL AS original_currency,
-                              NULL AS original_amount,
-                              NULL AS enable_currency_aware_divider,
-                              NULL AS currency_aware_divider,
-                              NULL AS currency_aware_amount,
-                              NULL AS currency,
-                              NULL AS amount
+                      (SELECT '' AS id,
+                              '' AS invoice_item_id,
+                              '' AS source_label,
+                              toDateTime64('1970-01-01 00:00:00.000000', 6, 'UTC') AS timestamp,
+                              toDateTime64('1970-01-01 00:00:00.000000', 6, 'UTC') AS created_at,
+                              0 AS is_recurring,
+                              '' AS product_id,
+                              '' AS customer_id,
+                              '' AS group_0_key,
+                              '' AS group_1_key,
+                              '' AS group_2_key,
+                              '' AS group_3_key,
+                              '' AS group_4_key,
+                              '' AS invoice_id,
+                              '' AS subscription_id,
+                              '' AS session_id,
+                              '' AS event_name,
+                              '' AS coupon,
+                              '' AS coupon_id,
+                              '' AS original_currency,
+                              0 AS original_amount,
+                              0 AS enable_currency_aware_divider,
+                              0 AS currency_aware_divider,
+                              0 AS currency_aware_amount,
+                              '' AS currency,
+                              0 AS amount
                        WHERE 0) AS `stripe.posthog_test.revenue_item_revenue_view`
                     UNION ALL SELECT NULL AS id,
                                      NULL AS invoice_item_id,
@@ -332,15 +332,15 @@
                                      NULL AS currency,
                                      accurateCastOrNull(0, 'Decimal64(10)') AS amount
                     FROM
-                      (SELECT NULL AS id,
-                              NULL AS source_label,
-                              NULL AS plan_id,
-                              NULL AS product_id,
-                              NULL AS customer_id,
-                              NULL AS status,
-                              NULL AS started_at,
-                              NULL AS ended_at,
-                              NULL AS metadata
+                      (SELECT '' AS id,
+                              '' AS source_label,
+                              '' AS plan_id,
+                              '' AS product_id,
+                              '' AS customer_id,
+                              '' AS status,
+                              toDateTime64('1970-01-01 00:00:00.000000', 6, 'UTC') AS started_at,
+                              toDateTime64('1970-01-01 00:00:00.000000', 6, 'UTC') AS ended_at,
+                              '' AS metadata
                        WHERE 0) AS subscription
                     WHERE and(ifNull(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
                  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.is_recurring, 1), 0))) AS subquery
@@ -546,7 +546,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE and(equals(events.team_id, 99999), 1)
+                          WHERE equals(events.team_id, 99999)
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -966,7 +966,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE and(equals(events.team_id, 99999), 1)
+                          WHERE equals(events.team_id, 99999)
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -1017,7 +1017,7 @@
                           WHERE equals(person.team_id, 99999)
                           GROUP BY person.id
                           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                       WHERE and(equals(events.team_id, 99999), 1)) AS events ON equals(persons.id, events.person_id)
+                       WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
                     ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(revenue_analytics_revenue_item.customer_id, revenue_analytics_customer.id)
                  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.is_recurring, 1), 0), equals(revenue_analytics_customer.country, 'US'))) AS subquery
               GROUP BY breakdown_by,
@@ -1457,7 +1457,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE and(equals(events.team_id, 99999), 1)
+                          WHERE equals(events.team_id, 99999)
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -1877,7 +1877,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE and(equals(events.team_id, 99999), 1)
+                          WHERE equals(events.team_id, 99999)
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -2297,7 +2297,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE and(equals(events.team_id, 99999), 1)
+                          WHERE equals(events.team_id, 99999)
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -2713,7 +2713,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE and(equals(events.team_id, 99999), 1)
+                          WHERE equals(events.team_id, 99999)
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -2764,7 +2764,7 @@
                           WHERE equals(person.team_id, 99999)
                           GROUP BY person.id
                           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                       WHERE and(equals(events.team_id, 99999), 1)) AS events ON equals(persons.id, events.person_id)
+                       WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
                     ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(revenue_analytics_revenue_item.customer_id, revenue_analytics_customer.id)
                  LEFT JOIN
                    (SELECT product_id AS id,
@@ -2773,7 +2773,7 @@
                     FROM
                       (SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id
                        FROM events
-                       WHERE and(equals(events.team_id, 99999), 1))
+                       WHERE equals(events.team_id, 99999))
                     ORDER BY id ASC) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id)
                  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.is_recurring, 1), 0))) AS subquery
               GROUP BY breakdown_by,
@@ -3218,7 +3218,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE and(equals(events.team_id, 99999), 1)
+                          WHERE equals(events.team_id, 99999)
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -3230,7 +3230,7 @@
                     FROM
                       (SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id
                        FROM events
-                       WHERE and(equals(events.team_id, 99999), 1))
+                       WHERE equals(events.team_id, 99999))
                     ORDER BY id ASC) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id)
                  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.is_recurring, 1), 0))) AS subquery
               GROUP BY breakdown_by,
@@ -3652,7 +3652,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE and(equals(events.team_id, 99999), 1)
+                          WHERE equals(events.team_id, 99999)
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -4072,7 +4072,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE and(equals(events.team_id, 99999), 1)
+                          WHERE equals(events.team_id, 99999)
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -4493,7 +4493,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE and(equals(events.team_id, 99999), 1)
+                          WHERE equals(events.team_id, 99999)
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -4913,7 +4913,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE and(equals(events.team_id, 99999), 1)
+                          WHERE equals(events.team_id, 99999)
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -4925,7 +4925,7 @@
                     FROM
                       (SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id
                        FROM events
-                       WHERE and(equals(events.team_id, 99999), 1))
+                       WHERE equals(events.team_id, 99999))
                     ORDER BY id ASC) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id)
                  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.is_recurring, 1), 0), ifNull(equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'), 0))) AS subquery
               GROUP BY breakdown_by,
@@ -5347,7 +5347,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE and(equals(events.team_id, 99999), 1)
+                          WHERE equals(events.team_id, 99999)
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -5359,7 +5359,7 @@
                     FROM
                       (SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id
                        FROM events
-                       WHERE and(equals(events.team_id, 99999), 1))
+                       WHERE equals(events.team_id, 99999))
                     ORDER BY id ASC) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id)
                  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.is_recurring, 1), 0), equals(revenue_analytics_product.name, 'Product C'))) AS subquery
               GROUP BY breakdown_by,
@@ -5781,7 +5781,7 @@
                              WHERE equals(person.team_id, 99999)
                              GROUP BY person.id
                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                          WHERE and(equals(events.team_id, 99999), 1)
+                          WHERE equals(events.team_id, 99999)
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
@@ -5793,7 +5793,7 @@
                     FROM
                       (SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id
                        FROM events
-                       WHERE and(equals(events.team_id, 99999), 1))
+                       WHERE equals(events.team_id, 99999))
                     ORDER BY id ASC) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id)
                  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.is_recurring, 1), 0), equals(revenue_analytics_product.name, 'Product C'))) AS subquery
               GROUP BY breakdown_by,

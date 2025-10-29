@@ -8,15 +8,19 @@ import { dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
+import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
+import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+import { SessionSummaryContent } from 'scenes/session-recordings/player/player-meta/types'
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
     DashboardFilter,
+    DataWarehouseManagedViewsetKind,
     DatabaseSerializedFieldType,
     EndpointLastExecutionTimesRequest,
     EndpointRequest,
@@ -71,11 +75,15 @@ import {
     DataColorThemeModel,
     DataModelingJob,
     DataWarehouseActivityRecord,
+    DataWarehouseJobStats,
+    DataWarehouseJobStatsRequestPayload,
+    DataWarehouseManagedViewsetSavedQuery,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
     DataWarehouseSourceRowCount,
     DataWarehouseTable,
     DataWarehouseViewLink,
+    DataWarehouseViewLinkValidation,
     Dataset,
     DatasetItem,
     EarlyAccessFeatureType,
@@ -165,11 +173,11 @@ import {
     ErrorTrackingRule,
     ErrorTrackingRuleType,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
-import { HogflowTestResult } from 'products/messaging/frontend/Campaigns/hogflows/steps/types'
-import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
-import { OptOutEntry } from 'products/messaging/frontend/OptOuts/optOutListLogic'
-import { MessageTemplate } from 'products/messaging/frontend/TemplateLibrary/messageTemplatesLogic'
 import { Task, TaskUpsertProps } from 'products/tasks/frontend/types'
+import { OptOutEntry } from 'products/workflows/frontend/OptOuts/optOutListLogic'
+import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
+import { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
+import { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
@@ -483,6 +491,10 @@ export class ApiRequest {
 
     public fileSystemDetail(id: NonNullable<FileSystemEntry['id']>, teamId?: TeamType['id']): ApiRequest {
         return this.fileSystem(teamId).addPathComponent(id)
+    }
+
+    public fileSystemLogView(teamId?: TeamType['id']): ApiRequest {
+        return this.fileSystem(teamId).addPathComponent('log_view')
     }
 
     public fileSystemMove(id: NonNullable<FileSystemEntry['id']>, teamId?: TeamType['id']): ApiRequest {
@@ -1050,6 +1062,12 @@ export class ApiRequest {
         return this.errorTrackingSymbolSets().addPathComponent(id)
     }
 
+    public gitProviderFileLinks(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId)
+            .addPathComponent('error_tracking')
+            .addPathComponent('git-provider-file-links')
+    }
+
     public errorTrackingStackFrames(): ApiRequest {
         return this.errorTracking().addPathComponent('stack_frames/batch_get')
     }
@@ -1275,7 +1293,7 @@ export class ApiRequest {
         return this.featureFlag(flagId).addPathComponent('role_access')
     }
 
-    // # Queries
+    // Queries
     public query(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('query')
     }
@@ -1296,7 +1314,7 @@ export class ApiRequest {
         return this.query(teamId).addPathComponent(queryId).addPathComponent('log')
     }
 
-    // # Endpoints
+    // Endpoints
     public endpoint(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('endpoints')
     }
@@ -1307,6 +1325,11 @@ export class ApiRequest {
 
     public lastExecutionTimes(): ApiRequest {
         return this.addPathComponent('last_execution_times')
+    }
+
+    // Managed Viewsets
+    public dataWarehouseManagedViewset(kind: DataWarehouseManagedViewsetKind, teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('managed_viewsets').addPathComponent(kind)
     }
 
     // Conversations
@@ -1536,6 +1559,10 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('dataset_items').addPathComponent(id)
     }
 
+    public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('evaluation_runs')
+    }
+
     // Session summary
     public sessionSummary(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('session_summaries')
@@ -1645,6 +1672,9 @@ const api = {
     endpoint: {
         async list(): Promise<CountedPaginatedResponse<EndpointType>> {
             return await new ApiRequest().endpoint().get()
+        },
+        async get(name: string): Promise<EndpointType> {
+            return await new ApiRequest().endpointDetail(name).get()
         },
         async create(data: EndpointRequest): Promise<EndpointType> {
             return await new ApiRequest().endpoint().create({ data })
@@ -1788,6 +1818,12 @@ const api = {
         },
     },
 
+    fileSystemLogView: {
+        async create(data: { ref?: string; type?: string }): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystemLogView().create({ data })
+        },
+    },
+
     fileSystemShortcuts: {
         async list(): Promise<CountedPaginatedResponse<FileSystemEntry>> {
             return await new ApiRequest().fileSystemShortcut().get()
@@ -1908,6 +1944,7 @@ const api = {
                     ActivityScope.HOG_FUNCTION,
                     ActivityScope.EXPERIMENT,
                     ActivityScope.TAG,
+                    ActivityScope.ENDPOINT,
                 ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {
@@ -2258,16 +2295,20 @@ const api = {
     },
 
     schemaPropertyGroups: {
-        async list(projectId?: ProjectType['id']): Promise<{ results: any[] }> {
+        async list(projectId?: ProjectType['id']): Promise<{ results: SchemaPropertyGroup[] }> {
             return new ApiRequest().schemaPropertyGroups(projectId).get()
         },
-        async get(id: string, projectId?: ProjectType['id']): Promise<any> {
+        async get(id: string, projectId?: ProjectType['id']): Promise<SchemaPropertyGroup> {
             return new ApiRequest().schemaPropertyGroupsDetail(id, projectId).get()
         },
-        async create(data: any, projectId?: ProjectType['id']): Promise<any> {
+        async create(data: Partial<SchemaPropertyGroup>, projectId?: ProjectType['id']): Promise<SchemaPropertyGroup> {
             return new ApiRequest().schemaPropertyGroups(projectId).create({ data })
         },
-        async update(id: string, data: any, projectId?: ProjectType['id']): Promise<any> {
+        async update(
+            id: string,
+            data: Partial<SchemaPropertyGroup>,
+            projectId?: ProjectType['id']
+        ): Promise<SchemaPropertyGroup> {
             return new ApiRequest().schemaPropertyGroupsDetail(id, projectId).update({ data })
         },
         async delete(id: string, projectId?: ProjectType['id']): Promise<void> {
@@ -2276,13 +2317,13 @@ const api = {
     },
 
     eventSchemas: {
-        async list(eventDefinitionId: string, projectId?: ProjectType['id']): Promise<{ results: any[] }> {
+        async list(eventDefinitionId: string, projectId?: ProjectType['id']): Promise<{ results: EventSchema[] }> {
             return new ApiRequest()
                 .eventSchemas(projectId)
                 .withQueryString(toParams({ event_definition: eventDefinitionId }))
                 .get()
         },
-        async create(data: any, projectId?: ProjectType['id']): Promise<any> {
+        async create(data: Partial<EventSchema>, projectId?: ProjectType['id']): Promise<EventSchema> {
             return new ApiRequest().eventSchemas(projectId).create({ data })
         },
         async delete(id: string, projectId?: ProjectType['id']): Promise<void> {
@@ -2350,7 +2391,11 @@ const api = {
 
         async streamTiles(
             id: number,
-            params: { layoutSize?: 'sm' | 'xs' } = {},
+            params: {
+                layoutSize?: 'sm' | 'xs'
+                filtersOverride?: DashboardFilter
+                variablesOverride?: Record<string, HogQLVariable>
+            } = {},
             onMessage: (data: any) => void,
             onComplete: () => void,
             onError: (error: any) => void
@@ -2358,7 +2403,13 @@ const api = {
             const url = new ApiRequest()
                 .dashboardsDetail(id)
                 .withAction('stream_tiles')
-                .withQueryString(toParams(params))
+                .withQueryString(
+                    toParams({
+                        layout_size: params.layoutSize,
+                        filters_override: params.filtersOverride,
+                        variables_override: params.variablesOverride,
+                    })
+                )
                 .assembleFullUrl(true)
 
             const abortController = new AbortController()
@@ -3020,6 +3071,21 @@ const api = {
         },
     },
 
+    gitProviderFileLinks: {
+        async resolveGithub(
+            owner: string,
+            repository: string,
+            codeSample: string,
+            fileName: string
+        ): Promise<{ found: boolean; url?: string }> {
+            return await new ApiRequest()
+                .gitProviderFileLinks()
+                .withAction('resolve_github')
+                .withQueryString({ owner, repository, code_sample: codeSample, file_name: fileName })
+                .get()
+        },
+    },
+
     recordings: {
         async list(params: RecordingsQuery): Promise<RecordingsQueryResponse> {
             return await new ApiRequest().recordings().withQueryString(toParams(params)).get()
@@ -3083,7 +3149,7 @@ const api = {
             recordingId: SessionRecordingType['id'],
             params: SessionRecordingSnapshotParams,
             headers: Record<string, string> = {}
-        ): Promise<string[]> {
+        ): Promise<string[] | Uint8Array> {
             const response = await new ApiRequest()
                 .recording(recordingId)
                 .withAction('snapshots')
@@ -3091,15 +3157,23 @@ const api = {
                 .getResponse({ headers })
 
             const contentBuffer = new Uint8Array(await response.arrayBuffer())
+
+            // If client requested uncompressed data (decompress=false), return binary data
+            if (params.decompress === false) {
+                return contentBuffer
+            }
+
+            // Otherwise try to decode as text
             try {
                 const textDecoder = new TextDecoder()
                 const textLines = textDecoder.decode(contentBuffer)
 
                 if (textLines) {
-                    return textLines.split('\n')
+                    const lines = textLines.split('\n')
+                    return lines
                 }
-            } catch {
-                // we assume it is gzipped, swallow the error, and carry on below
+            } catch (error) {
+                console.error('Failed to decode snapshot response as text:', error)
             }
             return []
         },
@@ -3431,6 +3505,9 @@ const api = {
         async bulkReorder(columns: Record<string, string[]>): Promise<{ updated: number; tasks: Task[] }> {
             return await new ApiRequest().tasks().withAction('bulk_reorder').create({ data: { columns } })
         },
+        async run(id: Task['id']): Promise<Task> {
+            return await new ApiRequest().task(id).withAction('run').create()
+        },
     },
 
     surveys: {
@@ -3518,6 +3595,18 @@ const api = {
                 queryParams['date_to'] = dateTo
             }
             return await apiRequest.get()
+        },
+        async duplicateToProjects(
+            surveyId: Survey['id'],
+            targetTeamIds: TeamType['id'][]
+        ): Promise<{
+            created_surveys: Array<{ team_id: number; survey_id: string; name: string }>
+            count: number
+        }> {
+            return await new ApiRequest()
+                .survey(surveyId)
+                .withAction('duplicate_to_projects')
+                .create({ data: { target_team_ids: targetTeamIds } })
         },
     },
 
@@ -3699,6 +3788,16 @@ const api = {
                 .withQueryString({ limit: options?.limit, offset: options?.offset })
                 .get(options)
         },
+
+        async jobStats(
+            options?: ApiMethodOptions & DataWarehouseJobStatsRequestPayload
+        ): Promise<DataWarehouseJobStats> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('job_stats')
+                .withQueryString({ days: options?.days })
+                .get(options)
+        },
     },
 
     externalDataSchemas: {
@@ -3756,6 +3855,14 @@ const api = {
             >
         ): Promise<DataWarehouseViewLink> {
             return await new ApiRequest().dataWarehouseViewLink(viewId).update({ data })
+        },
+        async validate(
+            data: Pick<
+                DataWarehouseViewLink,
+                'source_table_name' | 'source_table_key' | 'joining_table_name' | 'joining_table_key'
+            >
+        ): Promise<DataWarehouseViewLinkValidation> {
+            return await new ApiRequest().dataWarehouseViewLinks().withAction('validate').create({ data })
         },
     },
 
@@ -4218,6 +4325,17 @@ const api = {
         },
     },
 
+    evaluationRuns: {
+        async create(data: { evaluation_id: string; target_event_id: string }): Promise<{
+            workflow_id: string
+            status: string
+            evaluation: { id: string; name: string }
+            target_event_id: string
+        }> {
+            return await new ApiRequest().evaluationRuns().create({ data })
+        },
+    },
+
     datasetItems: {
         list(data: {
             dataset: string
@@ -4409,6 +4527,26 @@ const api = {
     sessionSummaries: {
         async create(data: { session_ids: string[]; focus_area?: string }): Promise<SessionSummaryResponse> {
             return await new ApiRequest().sessionSummary().withAction('create_session_summaries').create({ data })
+        },
+        async createIndividual(data: {
+            session_ids: string[]
+            focus_area?: string
+        }): Promise<Record<string, SessionSummaryContent>> {
+            return await new ApiRequest()
+                .sessionSummary()
+                .withAction('create_session_summaries_individually')
+                .create({ data })
+        },
+    },
+
+    dataWarehouseManagedViewsets: {
+        async toggle(kind: DataWarehouseManagedViewsetKind, enabled: boolean): Promise<void> {
+            return await new ApiRequest().dataWarehouseManagedViewset(kind).put({ data: { enabled } })
+        },
+        async getViews(
+            kind: DataWarehouseManagedViewsetKind
+        ): Promise<{ views: DataWarehouseManagedViewsetSavedQuery[]; count: number }> {
+            return await new ApiRequest().dataWarehouseManagedViewset(kind).get()
         },
     },
 }

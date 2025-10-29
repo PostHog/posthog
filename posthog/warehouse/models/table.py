@@ -2,13 +2,14 @@ import csv
 import time
 from datetime import datetime
 from io import StringIO
-from typing import TYPE_CHECKING, Any, Optional, TypeAlias
+from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
 from django.db import models
 from django.db.models import Q
 
 import chdb
+import structlog
 
 from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
 
@@ -70,7 +71,7 @@ ExtractErrors = {
     "Rows have different amount of values": "The provided file has rows with different amount of values",
 }
 
-DataWarehouseTableColumns: TypeAlias = dict[str, dict[str, str | bool]] | dict[str, str]
+type DataWarehouseTableColumns = dict[str, dict[str, str | bool]] | dict[str, str]
 
 
 class DataWarehouseTableManager(models.Manager):
@@ -105,6 +106,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
 
     url_pattern = models.CharField(max_length=500)
+    queryable_folder = models.CharField(max_length=500, null=True, blank=True)
     credential = models.ForeignKey(DataWarehouseCredential, on_delete=models.CASCADE, null=True, blank=True)
 
     external_data_source = models.ForeignKey("ExternalDataSource", on_delete=models.CASCADE, null=True, blank=True)
@@ -161,6 +163,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         except:
             return False
 
+    def _is_suppressed_chdb_error(self, err: Exception) -> bool:
+        return isinstance(err, RuntimeError) and "unsupported deltalake type: timestamp_ntz" in str(err).lower()
+
     def get_columns(
         self,
         safe_expose_ch_error: bool = True,
@@ -168,6 +173,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         placeholder_context = HogQLContext(team_id=self.team.pk)
         s3_table_func = build_function_call(
             url=self.url_pattern,
+            queryable_folder=self.queryable_folder,
             format="Delta"  # Use deltaLake() to get table schema for evolved tables
             if self.format == "DeltaS3Wrapper"
             else self.format,
@@ -176,6 +182,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             context=placeholder_context,
             table_size_mib=self.size_in_s3_mib,
         )
+        logger = structlog.get_logger(__name__)
         try:
             # chdb hangs in CI during tests
             if TEST:
@@ -191,7 +198,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             reader = csv.reader(StringIO(str(chdb_result)))
             result = [tuple(row) for row in reader]
         except Exception as chdb_error:
-            capture_exception(chdb_error)
+            if self._is_suppressed_chdb_error(chdb_error):
+                logger.debug(chdb_error)
+            else:
+                capture_exception(chdb_error)
 
             tag_queries(team_id=self.team.pk, table_id=self.id, warehouse_query=True)
 
@@ -239,6 +249,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             placeholder_context = HogQLContext(team_id=self.team.pk)
             s3_table_func = build_function_call(
                 url=self.url_pattern,
+                queryable_folder=self.queryable_folder,
                 format=self.format,
                 access_key=self.credential.access_key,
                 access_secret=self.credential.access_secret,
@@ -260,6 +271,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         placeholder_context = HogQLContext(team_id=self.team.pk)
         s3_table_func = build_function_call(
             url=self.url_pattern,
+            queryable_folder=self.queryable_folder,
             format=self.format,
             access_key=self.credential.access_key,
             access_secret=self.credential.access_secret,
@@ -302,6 +314,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             placeholder_context = HogQLContext(team_id=self.team.pk)
             s3_table_func = build_function_call(
                 url=self.url_pattern,
+                queryable_folder=self.queryable_folder,
                 format=self.format,
                 access_key=self.credential.access_key,
                 access_secret=self.credential.access_secret,
@@ -383,6 +396,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         return HogQLDataWarehouseTable(
             name=self.name,
             url=self.url_pattern,
+            queryable_folder=self.queryable_folder,
             format=self.format,
             access_key=access_key,
             access_secret=access_secret,

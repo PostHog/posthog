@@ -1,10 +1,13 @@
 import os
 import ast
 import json
+import asyncio
 import datetime as dt
 import operator
 import collections.abc
 
+import aioboto3
+import botocore.exceptions
 from psycopg import sql
 
 from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
@@ -14,7 +17,7 @@ from products.batch_exports.backend.temporal.destinations.redshift_batch_export 
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue
 from products.batch_exports.backend.temporal.temporary_file import remove_escaped_whitespace_recursive
-from products.batch_exports.backend.tests.temporal.utils import (
+from products.batch_exports.backend.tests.temporal.utils.records import (
     get_record_batch_from_queue,
     remove_duplicates_from_records,
 )
@@ -71,6 +74,7 @@ async def assert_clickhouse_records_in_redshift(
     expected_duplicates_threshold: float = 0.0,
     expected_fields: list[str] | None = None,
     primary_key: collections.abc.Sequence[str] | None = None,
+    copy: bool = False,
 ):
     """Assert expected records are written to a given Redshift table.
 
@@ -96,6 +100,8 @@ async def assert_clickhouse_records_in_redshift(
         expected_duplicates_threshold: Threshold of duplicates we should expect relative to
             number of unique events, fail if we exceed it.
         expected_fields: The expected fields to be exported.
+        copy: Whether using Redshift's COPY or not. This impacts handling of special
+            characters as Parquet+COPY can handle a lot more than JSON.
     """
     super_columns = ["properties", "set", "set_once", "person_properties"]
     array_super_columns = ["urls"]
@@ -125,8 +131,13 @@ async def assert_clickhouse_records_in_redshift(
                 # either a dict or a set (depending if it's empty or not). Either way
                 # we can cast them to list.
                 if column in event and event.get(column, None) is not None:
-                    value = ast.literal_eval(json.loads(event[column]))
-                    event[column] = list(value)
+                    load_result = json.loads(event[column])
+
+                    if not isinstance(load_result, list):
+                        value = ast.literal_eval(load_result)
+                        event[column] = list(value)
+                    else:
+                        event[column] = load_result
 
             inserted_records.append(event)
 
@@ -191,7 +202,10 @@ async def assert_clickhouse_records_in_redshift(
                         continue
 
                     elif k in super_columns and v is not None:
-                        expected_record[k] = remove_escaped_whitespace_recursive(json.loads(v))
+                        if copy is False:
+                            expected_record[k] = remove_escaped_whitespace_recursive(json.loads(v))
+                        else:
+                            expected_record[k] = json.loads(v)
                     elif isinstance(v, dt.datetime):
                         expected_record[k] = v.replace(tzinfo=dt.UTC)
                     else:
@@ -218,3 +232,31 @@ async def assert_clickhouse_records_in_redshift(
     assert inserted_records[0] == expected_records[0]
     assert inserted_records == expected_records
     assert len(inserted_records) == len(expected_records)
+
+
+async def check_valid_credentials() -> bool:
+    """Check if there are valid AWS credentials in the environment."""
+    session = aioboto3.Session()
+    async with session.client("sts") as sts:
+        try:
+            await sts.get_caller_identity()
+        except botocore.exceptions.ClientError:
+            return False
+        else:
+            return True
+
+
+def has_valid_credentials() -> bool:
+    """Synchronous wrapper around check_valid_credentials."""
+    loop = asyncio.get_event_loop()
+    return loop.run_until_complete(check_valid_credentials())
+
+
+async def delete_all_from_s3_prefix(s3_client, bucket_name: str, key_prefix: str):
+    """Delete all objects in bucket_name under key_prefix."""
+    response = await s3_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
+
+    if "Contents" in response:
+        for obj in response["Contents"]:
+            if "Key" in obj:
+                await s3_client.delete_object(Bucket=bucket_name, Key=obj["Key"])

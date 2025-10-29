@@ -36,7 +36,7 @@ export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'descrip
     /** Contextual data to be included for use by the LLM */
     context?: Record<string, any>
     /**
-     * Optional: If this tool is the main one of the page, you can override Max's default intro headline and description when it's mounted.
+     * Optional: If this tool is the main one of the page, you can override the default intro headline and description when it's mounted.
      *
      * Note that if more than one mounted tool has an intro override, only one will take effect.
      */
@@ -46,16 +46,21 @@ export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'descrip
         /** The default is "Ask me about your product and your users." */
         description: string
     }
-    /** Optional: When in context, the tool can add items to the pool of Max's suggested questions */
+    /** Optional: When in context, the tool can add items to the pool of suggested questions */
     suggestions?: string[]
     /** The callback function that will be executed with the LLM's tool call output */
-    callback?: (toolOutput: any) => void | Promise<void>
+    callback?: (toolOutput: any, conversationId: string) => void | Promise<void>
 }
 
 export const TOOL_DEFINITIONS: Omit<
     Record<AssistantContextualTool, ToolDefinition>,
-    'fix_hogql_query' | 'search_insights'
+    'fix_hogql_query' | 'search_insights' | 'read_data' | 'read_taxonomy' | 'todo_write'
 > = {
+    search: {
+        name: 'Search',
+        description: 'Search documentation and your data in PostHog',
+        product: null,
+    },
     session_summarization: {
         name: 'Summarize sessions',
         description: 'Summarize sessions to analyze real user behavior',
@@ -143,7 +148,12 @@ export const TOOL_DEFINITIONS: Omit<
     create_message_template: {
         name: 'Create email templates',
         description: 'Create email templates from scratch or using a URL for inspiration',
-        product: Scene.Messaging,
+        product: Scene.Workflows,
+    },
+    edit_current_dashboard: {
+        name: 'Add insight to the dashboard',
+        description: "Add insight to the dashboard you're viewing",
+        product: Scene.Dashboard,
     },
     filter_revenue_analytics: {
         name: 'Filter revenue analytics',

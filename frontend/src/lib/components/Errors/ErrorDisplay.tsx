@@ -41,6 +41,8 @@ export function ErrorDisplay({
 export function ErrorDisplayContent(): JSX.Element {
     const { exceptionAttributes, hasStacktrace } = useValues(errorPropertiesLogic)
     const { type, value, sentryUrl, level, ingestionErrors, handled } = exceptionAttributes || {}
+    const browserInfo = concatValues(exceptionAttributes, 'browser', 'browserVersion')
+    const appInfo = concatValues(exceptionAttributes, 'appNamespace', 'appVersion')
     return (
         <div className="flex flex-col deprecated-space-y-2 pb-2">
             <h1 className="mb-0">{type || level}</h1>
@@ -68,10 +70,8 @@ export function ErrorDisplayContent(): JSX.Element {
                     title="library"
                     value={concatValues(exceptionAttributes, 'lib', 'libVersion') ?? 'unknown'}
                 />
-                <TitledSnack
-                    title="browser"
-                    value={concatValues(exceptionAttributes, 'browser', 'browserVersion') ?? 'unknown'}
-                />
+                {browserInfo && <TitledSnack title="browser" value={browserInfo} />}
+                {appInfo && <TitledSnack title="app" value={appInfo} />}
                 <TitledSnack title="os" value={concatValues(exceptionAttributes, 'os', 'osVersion') ?? 'unknown'} />
             </div>
 

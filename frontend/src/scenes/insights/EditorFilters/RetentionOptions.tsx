@@ -9,6 +9,7 @@ import { MinimumOccurrencesInput } from '../filters/MinimumOccurrencesInput'
 import { RetentionCumulativeButton } from '../filters/RetentionCumulativeButton'
 import { RetentionMeanDropdown } from '../filters/RetentionMeanDropdown'
 import { RetentionReferencePicker } from '../filters/RetentionReferencePicker'
+import { RetentionTimeWindowModePicker } from '../filters/RetentionTimeWindowModePicker'
 
 export function RetentionOptions(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -34,6 +35,10 @@ export function RetentionOptions(): JSX.Element {
             <div className="flex items-center gap-2">
                 <div>Mean calculation logic</div>
                 <RetentionMeanDropdown />
+            </div>
+            <div className="flex items-center gap-2">
+                <div>Time window</div>
+                <RetentionTimeWindowModePicker />
             </div>
             <div>
                 <p className="text-secondary mt-4">

@@ -1,6 +1,5 @@
 import uuid
 from enum import StrEnum
-from typing import Optional
 
 from django.conf import settings
 
@@ -31,7 +30,7 @@ class MergeTreeEngine:
         self.force_unique_zk_path = force_unique_zk_path
         self.kwargs = kwargs
 
-        self.zookeeper_path_key: Optional[str] = None
+        self.zookeeper_path_key: str | None = None
 
     def set_zookeeper_path_key(self, zookeeper_path_key: str):
         "Used in situations where a unique zookeeper path is needed"
@@ -80,7 +79,7 @@ class AggregatingMergeTree(MergeTreeEngine):
 
 
 class Distributed:
-    def __init__(self, data_table: str, sharding_key: Optional[str] = None, cluster: Optional[str] = None):
+    def __init__(self, data_table: str, sharding_key: str | None = None, cluster: str | None = None):
         self.data_table = data_table
         self.sharding_key = sharding_key
         self.cluster = cluster

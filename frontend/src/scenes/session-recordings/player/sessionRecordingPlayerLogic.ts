@@ -43,13 +43,15 @@ import { AvailableFeature, ExporterFormat, RecordingSegment, SessionPlayerData, 
 
 import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
+import { getTestWorkerManager, terminateTestWorker } from './TestWorkerManager'
 import { playerCommentOverlayLogic } from './commenting/playerFrameCommentOverlayLogic'
 import { playerCommentOverlayLogicType } from './commenting/playerFrameCommentOverlayLogicType'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { BuiltLogging, COMMON_REPLAYER_CONFIG, CorsPlugin, HLSPlayerPlugin, makeLogger, makeNoOpLogger } from './rrweb'
+import { AudioMuteReplayerPlugin } from './rrweb/audio/audio-mute-plugin'
 import { CanvasReplayerPlugin } from './rrweb/canvas/canvas-plugin'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
-import { snapshotDataLogic } from './snapshotDataLogic'
+import { DEFAULT_LOADING_BUFFER, snapshotDataLogic } from './snapshotDataLogic'
 import { deleteRecording } from './utils/playerUtils'
 import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionRecordingPlayerExplorer'
 
@@ -335,7 +337,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [
             snapshotDataLogic(props),
-            ['snapshotsLoaded', 'snapshotsLoading'],
+            ['snapshotsLoaded', 'snapshotsLoading', 'snapshotSources'],
             sessionRecordingDataCoordinatorLogic(props),
             [
                 'urls',
@@ -355,10 +357,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ['preflight'],
             featureFlagLogic,
             ['featureFlags'],
+            exportsLogic,
+            ['hasReachedExportFullVideoLimit'],
         ],
         actions: [
             snapshotDataLogic(props),
-            ['loadSnapshots', 'loadSnapshotsForSourceFailure', 'loadSnapshotSourcesFailure'],
+            ['loadSnapshots', 'loadSnapshotsForSourceFailure', 'loadSnapshotSourcesFailure', 'loadUntilTimestamp'],
             sessionRecordingDataCoordinatorLogic(props),
             ['loadRecordingData', 'loadRecordingMetaSuccess', 'maybePersistRecording'],
             playerSettingsLogic,
@@ -438,6 +442,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setShowingClipParams: (showingClipParams: boolean) => ({ showingClipParams }),
         setIsHovering: (isHovering: boolean) => ({ isHovering }),
         allowPlayerChromeToHide: true,
+        setMuted: (muted: boolean) => ({ muted }),
     }),
     reducers(({ props }) => ({
         showingClipParams: [
@@ -690,6 +695,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 allowPlayerChromeToHide: () => {
                     return false
                 },
+            },
+        ],
+        isMuted: [
+            false,
+            {
+                setMuted: (_, { muted }) => muted,
             },
         ],
     })),
@@ -998,6 +1009,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return isHovering
             },
         ],
+
+        // Target timestamp to buffer ahead to (current position + 15 minutes)
+        targetBufferTimestamp: [
+            (s) => [s.currentTimestamp],
+            (currentTimestamp): number | null => {
+                if (!currentTimestamp) {
+                    return null
+                }
+
+                return currentTimestamp + DEFAULT_LOADING_BUFFER
+            },
+        ],
     }),
     listeners(({ props, values, actions, cache }) => ({
         caughtAssetErrorFromIframe: ({ errorDetails }) => {
@@ -1094,10 +1117,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             plugins.push(CanvasReplayerPlugin(values.sessionPlayerData.snapshotsByWindowId[windowId]))
+            plugins.push(AudioMuteReplayerPlugin(values.isMuted))
 
             // we override the console in the player, with one which stores its data instead of logging
             // there is a debounced logger hidden inside that.
-            // we have to cache those timers so that we can clear them in the beforeUnmount
             // rrweb can log so much that it becomes a performance issue
             // this overridden logging avoids some recordings freezing the browser
             // outside of standard mode, we swallow the logs completely
@@ -1105,7 +1128,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 props.mode === SessionRecordingPlayerMode.Standard
                     ? makeLogger(actions.incrementWarningCount)
                     : makeNoOpLogger()
-            cache.consoleDebounceTimers = logging.timers
+
+            cache.disposables.add(() => {
+                return () => {
+                    Object.values(logging.timers as BuiltLogging['timers']).forEach((timer) => {
+                        if (timer) {
+                            clearTimeout(timer)
+                        }
+                    })
+                    ;(window as any)[`__posthog_player_logs`] = undefined
+                    ;(window as any)[`__posthog_player_warnings`] = undefined
+                }
+            }, 'consoleTimers')
 
             const config: Partial<playerConfig> & { onError: (error: any) => void } = {
                 root: values.rootFrame,
@@ -1130,6 +1164,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 if (iframeFetch && !(iframeFetch as any).__isWrappedForErrorReporting && iframeContentWindow) {
                     // We have to monkey patch fetch as rrweb doesn't provide a way to listen for these errors
                     // We do this after every fullsnapshot-rebuilded as rrweb creates a new iframe each time
+                    const originalFetch = iframeFetch
+                    const windowRef = new WeakRef(iframeContentWindow)
+
                     iframeContentWindow.fetch = wrapFetchAndReport({
                         fetch: iframeFetch,
                         onError: (errorDetails: ResourceErrorDetails) => {
@@ -1137,17 +1174,25 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         },
                     })
                     ;(iframeContentWindow.fetch as any).__isWrappedForErrorReporting = true
+
+                    cache.disposables.add(() => {
+                        return () => {
+                            const window = windowRef.deref()
+                            if (window && window.fetch) {
+                                window.fetch = originalFetch
+                                delete (window.fetch as any).__isWrappedForErrorReporting
+                            }
+                        }
+                    }, 'iframeFetchWrapper')
                 }
 
                 if (iframeContentWindow) {
-                    // Clean up any previous listeners before adding new ones
-                    cache.iframeErrorListenerCleanup?.()
-                    cache.iframeErrorListenerCleanup = undefined
-
-                    cache.iframeErrorListenerCleanup = registerErrorListeners({
-                        iframeWindow: iframeContentWindow,
-                        onError: (error) => actions.caughtAssetErrorFromIframe(error),
-                    })
+                    cache.disposables.add(() => {
+                        return registerErrorListeners({
+                            iframeWindow: iframeContentWindow,
+                            onError: (error) => actions.caughtAssetErrorFromIframe(error),
+                        })
+                    }, 'iframeErrorListeners')
                 }
             })
 
@@ -1307,6 +1352,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (!values.snapshotsLoaded) {
                 actions.loadSnapshots()
             }
+
             actions.stopAnimation()
             actions.restartIframePlayback()
             actions.syncPlayerSpeed() // hotfix: speed changes on player state change
@@ -1381,6 +1427,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         seekToTimestamp: ({ timestamp, forcePlay }, breakpoint) => {
             actions.stopAnimation()
+            actions.pauseIframePlayback()
+
             cache.pausedMediaElements = []
             actions.setCurrentTimestamp(timestamp)
 
@@ -1510,15 +1558,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.setMaskWindow(false)
             }
 
+            // Tell the data logic what timestamp we want buffered to
+            // It will decide if it needs to load more data
+            actions.loadUntilTimestamp(values.targetBufferTimestamp)
+
             // The normal loop. Progress the player position and continue the loop
             actions.setCurrentTimestamp(newTimestamp)
-            cache.timer = requestAnimationFrame(actions.updateAnimation)
+
+            cache.disposables.add(() => {
+                const timerId = requestAnimationFrame(actions.updateAnimation)
+                return () => cancelAnimationFrame(timerId)
+            }, 'animationTimer')
         },
         stopAnimation: () => {
-            if (cache.timer) {
-                cancelAnimationFrame(cache.timer)
-                cache.timer = undefined
-            }
+            cache.disposables.dispose('animationTimer')
         },
         pauseIframePlayback: () => {
             const iframe = values.rootFrame?.querySelector('iframe')
@@ -1527,12 +1580,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
-            const audioElements = Array.from(iframeDocument.getElementsByTagName('audio'))
-            const videoElements = Array.from(iframeDocument.getElementsByTagName('video'))
+            const audioElements = Array.from(iframeDocument.getElementsByTagName('audio')) as HTMLAudioElement[]
+            const videoElements = Array.from(iframeDocument.getElementsByTagName('video')) as HTMLVideoElement[]
             const mediaElements: HTMLMediaElement[] = [...audioElements, ...videoElements]
             const playingElements = mediaElements.filter(isMediaElementPlaying)
 
-            playingElements.forEach((el) => el.pause())
+            mediaElements.forEach((el) => el.pause())
             cache.pausedMediaElements = values.endReached ? [] : playingElements
         },
         restartIframePlayback: () => {
@@ -1688,10 +1741,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const currentState = values.playingTimeTracking.state
             const interval = currentState === 'playing' ? 5000 : 30000
 
-            cache.playerTimeTrackingTimer = setTimeout(() => {
-                actions.updatePlayerTimeTracking()
-                actions.schedulePlayerTimeTracking()
-            }, interval)
+            cache.disposables.add(() => {
+                const timerId = setTimeout(() => {
+                    actions.updatePlayerTimeTracking()
+                    actions.schedulePlayerTimeTracking()
+                }, interval)
+                return () => clearTimeout(timerId)
+            }, 'playerTimeTracking')
+        },
+        setMuted: () => {
+            // If we have an active player, reinitialize it with the new mute state
+            // The AudioMuteReplayerPlugin will be recreated with the updated mute state
+            if (values.player) {
+                actions.tryInitReplayer()
+            }
         },
     })),
 
@@ -1743,19 +1806,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         actions.stopAnimation()
 
         cache.hasInitialized = false
-        document.removeEventListener('fullscreenchange', cache.fullScreenListener)
-        cache.fullScreenListener = undefined
         cache.pausedMediaElements = []
         values.player?.replayer?.destroy()
         actions.setPlayer(null)
 
-        if (cache.playerTimeTrackingTimer) {
-            clearTimeout(cache.playerTimeTrackingTimer)
-            cache.playerTimeTrackingTimer = undefined
+        try {
+            terminateTestWorker()
+        } catch (error) {
+            console.warn('[SessionRecordingPlayerLogic] Failed to terminate test worker:', error)
         }
-
-        cache.iframeErrorListenerCleanup?.()
-        cache.iframeErrorListenerCleanup = undefined
 
         const playTimeMs = values.playingTimeTracking.watchTime || 0
         const summaryAnalytics: RecordingViewedSummaryAnalytics = {
@@ -1777,17 +1836,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             playTimeMs === 0 ? 'recording viewed with no playtime summary' : 'recording viewed summary',
             summaryAnalytics
         )
-
-        if (cache.consoleDebounceTimers) {
-            Object.values(cache.consoleDebounceTimers as BuiltLogging['timers']).forEach((timer) => {
-                if (timer) {
-                    clearTimeout(timer)
-                }
-            })
-            cache.consoleDebounceTimers = undefined
-        }
-        ;(window as any)[`__posthog_player_logs`] = undefined
-        ;(window as any)[`__posthog_player_warnings`] = undefined
     }),
 
     afterMount(({ props, actions, cache }) => {
@@ -1796,11 +1844,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         }
 
         cache.pausedMediaElements = []
-        cache.fullScreenListener = () => {
-            actions.setIsFullScreen(document.fullscreenElement !== null)
-        }
+        cache.disposables.add(() => {
+            const fullScreenListener = (): void => {
+                actions.setIsFullScreen(document.fullscreenElement !== null)
+            }
+            document.addEventListener('fullscreenchange', fullScreenListener)
+            return () => document.removeEventListener('fullscreenchange', fullScreenListener)
+        }, 'fullscreenListener')
 
-        document.addEventListener('fullscreenchange', cache.fullScreenListener)
+        try {
+            const testWorker = getTestWorkerManager()
+            void testWorker.initialize()
+        } catch (error) {
+            console.warn('[SessionRecordingPlayerLogic] Failed to initialize test worker:', error)
+        }
 
         if (props.sessionRecordingId) {
             actions.loadRecordingData()

@@ -1,18 +1,18 @@
 [project]
 name = "posthog"
 version = "0.0.0"
-requires-python = "==3.11.*" # Same as in Dockerfile
+requires-python = "==3.12.11" # Leave patch version so that we don't accidentally upgrade minor versions
 dependencies = [
-    "aioboto3==12.0.0",
+    "aioboto3==15.4.0",
     "aiohttp==3.11.10",
     "aiokafka>=0.8",
-    "anthropic==0.52.0",
+    "anthropic==0.69.0",
     "antlr4-python3-runtime==4.13.1",
     "asyncstdlib==3.13.1",
     "beautifulsoup4==4.12.3",
-    "boto3==1.28.16",
+    "boto3==1.40.49",
     "brotli==1.1.0",
-    "celery==5.3.4",
+    "celery==5.3.6",
     "celery-redbeat==2.1.1",
     "certifi==2025.8.3",
     "clickhouse-connect==0.8.17",
@@ -32,7 +32,7 @@ dependencies = [
     "deltalake==0.25.2",
     "dj-database-url==0.5.0",
     "django~=4.2.17",
-    "django-axes==5.9.0",
+    "django-axes[ipware]==8.0.0",
     "django-cors-headers~=4.8.0",
     "django-deprecate-fields==0.1.1",
     "django-extensions~=4.1.0",
@@ -40,9 +40,9 @@ dependencies = [
     "django-loginas==0.3.11",
     "django-picklefield==3.0.1",
     "django-prometheus==2.2.0",
-    "django-redis==5.2.0",
+    "django-redis==6.0.0",
     "django-statsd==2.5.2",
-    "django-structlog==2.1.3",
+    "django-structlog[celery]~=9.1.0",
     "django-two-factor-auth~=1.18.0",
     "djangorestframework~=3.16.1",
     "djangorestframework-csv~=3.0.2",
@@ -62,11 +62,12 @@ dependencies = [
     "hogql-parser==1.2.0",
     "infi-clickhouse-orm",
     "jsonref==1.1.0",
-    "kafka-python==2.0.2",
-    "kombu==5.3.2",
+    "kafka-python==2.0.6",
+    "kombu==5.3.7",
     "langchain==0.3.26",
     "langchain-community==0.3.27",
     "langchain-openai==0.3.33",
+    "langchain-anthropic==0.3.22",
     "langgraph==0.4.10",
     "lxml==5.2.1",
     "lzstring==1.0.4",
@@ -77,22 +78,21 @@ dependencies = [
     "nanoid==2.0.0",
     "natsort==8.4.0",
     "nh3==0.2.14",
-    "numpy==1.26.4",
+    "numpy~=2.1.0",
     "openai==1.109.1",
     "openpyxl==3.1.2",
     "orjson==3.10.15",
-    "pandas==2.2.0",
+    "pandas~=2.2.2",
     "paramiko==3.4.0",
-    "pdpyras==5.2.0",
     "phonenumberslite==8.13.6",
     "pillow==10.2.0",
     "posthoganalytics>=6.7.4",
     "psutil==6.0.0",
-    "psycopg2-binary==2.9.7",
+    "psycopg2-binary==2.9.10",
     "psycopg[binary]==3.2.4",
     "pyarrow==18.1.0",
     "pydantic==2.10.3",
-    "pyjwt==2.4.0",
+    "pyjwt~=2.10.0",
     "pympler==1.1",
     "pymssql==2.3.5",
     "pymysql==1.1.1",
@@ -102,19 +102,19 @@ dependencies = [
     "python-snappy~=0.7.3",
     "python3-saml==1.16.0",
     "pytz==2023.3",
-    "redis==4.5.4",
+    "redis==5.3.1",
     "requests~=2.32.3",
     "retry==0.9.2",
-    "s3fs==2023.10.0",
-    "scikit-learn==1.5.0",
+    "s3fs==2025.9.0",
+    "scikit-learn~=1.5.0",
     "selenium==4.28.1",
     "semantic-version==2.8.5",
     "simple-salesforce>=1.12.6",
     "slack-sdk==3.17.1",
     "snowflake-connector-python==3.15.0",
     "snowflake-sqlalchemy==1.7.3",
-    "social-auth-app-django==5.0.0",
-    "social-auth-core==4.3.0",
+    "social-auth-app-django~=5.4.0",
+    "social-auth-core~=4.7.0",
     "sqlalchemy==2.0.38",
     "sqlalchemy-bigquery[bqstorage]==1.12.1",
     "sqlparse==0.4.4",
@@ -128,6 +128,7 @@ dependencies = [
     "token-bucket==0.3.0",
     "toronado==0.1.0",
     "tree-sitter==0.24.0",
+    "click~=8.0",
     "tree-sitter-bash==0.23.3",
     "tree-sitter-go==0.23.4",
     "tree-sitter-javascript==0.23.1",
@@ -139,7 +140,7 @@ dependencies = [
     "webdriver-manager==4.0.2",
     "whitenoise~=6.10.0",
     "xmlsec==1.3.14",
-    "zstd==1.5.5.1",
+    "zstd==1.5.7.2",
     "zxcvbn==4.4.28",
     "pyyaml==6.0.1",
     "chdb==3.3.0",
@@ -169,6 +170,8 @@ dependencies = [
     "databricks-sql-connector~=4.1.3",
     "databricks-sdk~=0.67.0",
     "litellm>=1.77.7",
+    "free-email-domains>=1.0.1",
+    "disposable-email-domains>=0.0.140",
 ]
 
 [dependency-groups]
@@ -195,6 +198,7 @@ dev = [
     "mypy~=1.18.2",
     "mypy-baseline~=0.7.3",
     "mypy-extensions~=1.1.0",
+    "ty==0.0.1a22",
     # openapi-spec-validator needed for prance as a validation backend
     "openapi-spec-validator==0.7.1",
     "orjson==3.10.15",
@@ -209,7 +213,7 @@ dev = [
     "pytest-django~=4.11.1",
     "pytest-env==0.8.2",
     "pytest-icdiff==0.6",
-    "pytest-mock==3.11.1",
+    "pytest-mock==3.15.0",
     "pytest-split==0.9.0",
     "pytest-watch==4.2.0",
     "pytest-xdist==3.6.1",
@@ -231,7 +235,7 @@ dev = [
     "types-python-dateutil>=2.8.3",
     "types-pytz==2023.3",
     "types-pyyaml==6.0.1",
-    "types-redis==4.3.20",
+    "types-redis==4.6.0.20241004",
     # >= 2.31.0.7 versions of types-requests require urllib>=2, which is incompatible with our dependencies
     "types-requests==2.31.0.6",
     "types-retry==0.9.9.4",
@@ -248,7 +252,7 @@ infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", 
 
 [tool.black]
 line-length = 120
-target-version = ['py311']
+target-version = ['py312']
 
 [tool.isort]
 profile = "black"
@@ -336,8 +340,29 @@ section-order = [
 "products" = ["products"]
 
 [tool.dagster]
-python_version = "3.11"
+python_version = "3.12"
 
 [tool.mypy-baseline]
 sort_baseline = true
 ignore_categories = ["note"]
+
+[tool.ty.environment]
+python-version = "3.12"
+
+[tool.ty.src]
+exclude = [
+    "bin/**",
+    "gunicorn.config.py",
+    "manage.py",
+    "posthog/hogql/grammar/**",
+]
+
+[tool.ty.rules]
+# Import resolution - ty can't always find all modules/stubs
+unresolved-import = "ignore"
+
+# Django-related rules - ty doesn't support Django's metaprogramming yet
+# See: https://github.com/astral-sh/ty/issues/291
+unresolved-attribute = "ignore"  # Django model fields, relationships, auto-generated attributes
+invalid-argument-type = "ignore"  # Django querysets, managers, form fields
+invalid-base = "ignore"  # Django model metaclasses (e.g., models.Model)

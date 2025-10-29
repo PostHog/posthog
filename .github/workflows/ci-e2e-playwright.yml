@@ -80,186 +80,19 @@ jobs:
                         - docker-compose.dev.yml
                         - Dockerfile
                         - playwright/**
-    container:
-        name: (Optional) Container - Build and cache image
-        # run these on 4, if they're RAM constrained the FE build will fail randomly in Docker build
-        runs-on: ubuntu-latest
-        timeout-minutes: 60
-        needs: [changes]
-        if: needs.changes.outputs.shouldRun == 'true'
-        permissions:
-            contents: read
-            id-token: write # allow issuing OIDC tokens for this workflow run
-        outputs:
-            tag: ${{ steps.build.outputs.tag }}
-            build-id: ${{ steps.build.outputs.build-id }}
-        steps:
-            - name: Checkout
-              uses: actions/checkout@v4
-            - name: Build the Docker image with Depot
-              # Build the container image in preparation for the E2E tests
-              uses: ./.github/actions/build-n-cache-image
-              id: build
-              with:
-                  save: true
-                  actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
-                  no-cache: ${{ contains(github.event.pull_request.labels.*.name, 'no-depot-docker-cache') }}
-
-    playwright-on-container:
-        name: (Optional) Container - E2E Playwright tests
-        runs-on: depot-ubuntu-latest-arm-4
-        timeout-minutes: 60
-        needs: [changes, container]
-        if: needs.changes.outputs.shouldRun == 'true'
-        permissions:
-            id-token: write # allow issuing OIDC tokens for this workflow run
-
-        steps:
-            - name: Checkout
-              uses: actions/checkout@v4
-
-            - name: Install pnpm
-              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
-
-            - name: Set up Node.js
-              uses: actions/setup-node@v4
-              with:
-                  node-version: 22.17.1
-                  cache: 'pnpm'
-
-            - name: Get pnpm cache directory path
-              id: pnpm-cache-dir
-              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
-
-            - uses: actions/cache@v4
-              id: pnpm-cache
-              with:
-                  path: |
-                      ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
-                  key: ${{ runner.os }}-pnpm-playwright-${{ hashFiles('**/pnpm-lock.yaml') }}
-                  restore-keys: |
-                      ${{ runner.os }}-pnpm-playwright-
-
-            - name: Install package.json dependencies with pnpm
-              run: pnpm --filter=@posthog/playwright... install --frozen-lockfile
-
-            - name: Stop/Start stack with Docker Compose
-              run: |
-                  docker compose -f docker-compose.dev.yml down
-                  docker compose -f docker-compose.dev.yml up -d &
-
-            # Install playwright and dependencies whilst we wait for the stack to start
-            - name: Install playwright and dependencies
-              run: pnpm --filter=@posthog/playwright exec playwright install --with-deps
-
-            - name: Wait for services to be available
-              run: |
-                  bin/check_kafka_clickhouse_up
-                  bin/check_postgres_up
-
-            - name: Install Depot CLI
-              uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1
-
-            - name: Get Docker image cached in Depot
-              uses: depot/pull-action@8a922bdade29cf5facf3a13020cccd3b7a8127c2 # v1
-              with:
-                  build-id: ${{ needs.container.outputs.build-id }}
-                  tags: ${{ needs.container.outputs.tag }}
-
-            - name: Write .env
-              run: |
-                  cat <<EOT >> .env
-                  SECRET_KEY=6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da
-                  REDIS_URL=redis://localhost
-                  DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
-                  KAFKA_HOSTS=kafka:9092
-                  DISABLE_SECURE_SSL_REDIRECT=1
-                  SECURE_COOKIES=0
-                  OPT_OUT_CAPTURE=0
-                  E2E_TESTING=1
-                  SKIP_SERVICE_VERSION_REQUIREMENTS=1
-                  EMAIL_HOST=email.test.posthog.net
-                  SITE_URL=http://localhost:8000
-                  NO_RESTART_LOOP=1
-                  CLICKHOUSE_SECURE=0
-                  OBJECT_STORAGE_ENABLED=1
-                  OBJECT_STORAGE_ENDPOINT=http://localhost:19000
-                  OBJECT_STORAGE_ACCESS_KEY_ID=object_storage_root_user
-                  OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
-                  GITHUB_ACTION_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                  CELERY_METRICS_PORT=8999
-                  CLOUD_DEPLOYMENT=1
-                  EOT
-
-            - name: Start PostHog
-              run: |
-                  mkdir -p /tmp/logs
-
-                  echo "Starting PostHog using the container image ${{ needs.container.outputs.tag }}"
-                  DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --add-host clickhouse:127.0.0.1 --env-file .env ${{ needs.container.outputs.tag }}"
-
-                  # Run Django migrations (./bin/migrate will skip Rust migrations since rust/bin doesn't exist in container)
-                  $DOCKER_RUN ./bin/migrate
-
-                  # Now run Rust migrations using dedicated container
-                  docker build -f rust/Dockerfile.persons-migrate -t posthog-migrations:latest ./rust
-                  docker run --rm --network host \
-                    -e PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
-                    -e CYCLOTRON_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron" \
-                    posthog-migrations:latest
-
-                  $DOCKER_RUN python manage.py setup_dev
-
-                  # only starts the plugin server so that the "wait for PostHog" step passes
-                  $DOCKER_RUN ./bin/docker-worker &> /tmp/logs/worker.txt &
-                  $DOCKER_RUN ./bin/docker-server &> /tmp/logs/server.txt &
-
-            - name: Wait for PostHog
-              # this action might be abandoned - but v1 doesn't point to latest of v1 (which it should)
-              # so pointing to v1.1.0 to remove warnings about node version with v1
-              # todo check https://github.com/iFaxity/wait-on-action/releases for new releases
-              uses: iFaxity/wait-on-action@a7d13170ec542bdca4ef8ac4b15e9c6aa00a6866 # v1.2.1
-              timeout-minutes: 5
-              with:
-                  verbose: true
-                  log: true
-                  resource: http://localhost:8000
-
-            - name: Playwright run
-              run: pnpm --filter=@posthog/playwright test
-              env:
-                  E2E_TESTING: 1
-                  OPT_OUT_CAPTURE: 0
-                  GITHUB_ACTION_RUN_URL: '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
-
-            - name: Archive report
-              uses: actions/upload-artifact@v4
-              with:
-                  name: playwright-container-report
-                  path: playwright/playwright-report/
-                  retention-days: 30
-              if: ${{ failure() }}
-
-            - name: Archive screenshots
-              if: always()
-              uses: actions/upload-artifact@v4
-              with:
-                  name: playwright-container-screenshots
-                  path: playwright/test-results
-                  retention-days: 30
 
     playwright:
         name: Playwright E2E tests
         needs: [changes]
         if: needs.changes.outputs.shouldRun == 'true'
-        runs-on: depot-ubuntu-latest-8
+        runs-on: depot-ubuntu-latest-16
         timeout-minutes: 30
         steps:
             - uses: actions/checkout@v4
               with:
                   ref: ${{ github.event.pull_request.head.ref }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
+                  token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
                   fetch-depth: 50 # Need enough history for flap detection to find last human commit
 
             - name: Stop/Start stack with Docker Compose
@@ -305,15 +138,15 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v5
               with:
-                  python-version: 3.11.13
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  python-version: 3.12.11
+                  token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
-                  version: 0.7.8
+                  version: 0.8.19
 
             - name: Determine if hogql-parser has changed compared to master
               shell: bash
@@ -476,7 +309,9 @@ jobs:
             - name: Run Playwright tests
               continue-on-error: true
               id: playwright-tests
-              run: pnpm --filter=@posthog/playwright exec playwright test
+              # we can run 10 workers because we have 16 CPU
+              # we don't want to run 16 since we need to leave some for everything else
+              run: pnpm --filter=@posthog/playwright exec playwright test --workers=10
 
             - name: Configure global git diff log
               run: git config --global --add safe.directory '*'
@@ -615,7 +450,7 @@ jobs:
                   message: 'Update E2E screenshots for Playwright'
                   pull: --rebase --autostash # Make sure we're up to date with other commits
                   default_author: github_actions
-                  github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
+                  github_token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
 
             # ── Artifacts on failure / always ─────────────────────────────────────
             - name: Show celery logs
@@ -629,7 +464,7 @@ jobs:
                   docker logs posthog-proxy-1
 
             - name: Archive Playwright report on failure
-              if: failure()
+              if: needs.changes.outputs.shouldRun == 'true' && steps.playwright-tests.outcome == 'failure'
               uses: actions/upload-artifact@v4
               with:
                   name: playwright-report

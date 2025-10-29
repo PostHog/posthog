@@ -450,8 +450,7 @@ class RedshiftQueryStreamTransformer:
         redshift_table: str,
         redshift_schema: str | None,
         table_columns: collections.abc.Sequence[str],
-        known_json_columns: collections.abc.Sequence[str],
-        use_super: bool,
+        known_json_columns: collections.abc.Iterable[str],
         redshift_client,
     ):
         self.schema = schema
@@ -459,15 +458,11 @@ class RedshiftQueryStreamTransformer:
         self.redshift_schema = redshift_schema
         self.table_columns = list(table_columns)
         self.known_json_columns = known_json_columns
-        self.use_super = use_super
         self.redshift_client = redshift_client
 
         placeholders: list[sql.Composable] = []
         for column in table_columns:
-            if column in known_json_columns and use_super is True:
-                placeholders.append(sql.SQL("JSON_PARSE({placeholder})").format(placeholder=sql.Placeholder(column)))
-            else:
-                placeholders.append(sql.Placeholder(column))
+            placeholders.append(sql.Placeholder(column))
 
         self.template = sql.SQL("({})").format(sql.SQL(", ").join(placeholders))
 

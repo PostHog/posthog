@@ -2,7 +2,7 @@ from rest_framework import mixins, serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.schema_property_group import SchemaPropertyGroupSerializer
-from posthog.models import EventSchema, SchemaPropertyGroup
+from posthog.models import EventDefinition, EventSchema, SchemaPropertyGroup
 
 
 class EventSchemaSerializer(serializers.ModelSerializer):
@@ -18,6 +18,7 @@ class EventSchemaSerializer(serializers.ModelSerializer):
             team_id = self.context.get("team_id")
             if team_id:
                 fields["property_group_id"].queryset = SchemaPropertyGroup.objects.filter(team_id=team_id)  # type: ignore
+                fields["event_definition"].queryset = EventDefinition.objects.filter(team_id=team_id)  # type: ignore
         return fields
 
     class Meta:
@@ -33,15 +34,10 @@ class EventSchemaSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "property_group", "created_at", "updated_at")
 
     def validate(self, attrs):
-        # Ensure property_group belongs to the same team as event_definition
         event_definition = attrs.get("event_definition")
         property_group = attrs.get("property_group")
 
         if event_definition and property_group:
-            if event_definition.team != property_group.team:
-                raise serializers.ValidationError("Property group must belong to the same team as the event definition")
-
-            # Check if this combination already exists
             if EventSchema.objects.filter(event_definition=event_definition, property_group=property_group).exists():
                 raise serializers.ValidationError(
                     f"Property group '{property_group.name}' is already added to this event schema"

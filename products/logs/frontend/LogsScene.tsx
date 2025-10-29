@@ -1,19 +1,29 @@
-import './sparkline-loading.scss'
-
 import colors from 'ansi-colors'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconFilter, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonSegmentedButton, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { IconClock, IconFilter, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonSegmentedButton,
+    LemonSelect,
+    LemonTable,
+    LemonTag,
+    LemonTagType,
+    SpinnerOverlay,
+} from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
-import { TZLabel } from 'lib/components/TZLabel'
+import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
 import { IconRefresh } from 'lib/lemon-ui/icons'
-import { humanFriendlyDetailedTime } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LogMessage } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
@@ -30,94 +40,91 @@ export const scene: SceneExport = {
 }
 
 export function LogsScene(): JSX.Element {
-    const { wrapBody, logs, sparkline, logsLoading, sparklineLoading } = useValues(logsLogic)
-    const { runQuery } = useActions(logsLogic)
+    const { wrapBody, logs, sparklineData, logsLoading, sparklineLoading, timestampFormat } = useValues(logsLogic)
+    const { runQuery, setDateRangeFromSparkline } = useActions(logsLogic)
 
     useEffect(() => {
         runQuery()
     }, [runQuery])
 
-    const labels: string[] = []
-    let lastTime = ''
-    let i = -1
-    const timeseries = Object.entries(
-        sparkline.reduce((accumulator, currentItem) => {
-            if (currentItem.time !== lastTime) {
-                labels.push(humanFriendlyDetailedTime(currentItem.time))
-                lastTime = currentItem.time
-                i++
-            }
-            const key = currentItem.level
-            if (!accumulator[key]) {
-                accumulator[key] = Array(sparkline.length)
-            }
-            accumulator[key][i] = currentItem.count
-            return accumulator
-        }, {})
-    )
-        .map(([level, data]) => ({
-            name: level,
-            values: data as number[],
-            color: {
-                fatal: 'danger-dark',
-                error: 'danger',
-                warn: 'warning',
-                info: 'brand-blue',
-                debug: 'muted',
-                trace: 'muted-alt',
-            }[level],
-        }))
-        .filter((series) => series.values.reduce((a, b) => a + b) > 0)
+    const onSelectionChange = (selection: { startIndex: number; endIndex: number }): void => {
+        setDateRangeFromSparkline(selection.startIndex, selection.endIndex)
+    }
+
+    const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'> =
+        timestampFormat === 'absolute'
+            ? {
+                  formatDate: 'YYYY-MM-DD',
+                  formatTime: 'HH:mm:ss',
+              }
+            : {}
 
     return (
-        <div className="flex flex-col gap-y-2 h-screen">
+        <SceneContent className="h-screen">
+            <SceneTitleSection
+                name={sceneConfigurations[Scene.Logs].name}
+                description={sceneConfigurations[Scene.Logs].description}
+                resourceType={{
+                    type: sceneConfigurations[Scene.Logs].iconType || 'default_icon_type',
+                }}
+            />
+            <SceneDivider />
             <Filters />
-            <>
-                <div className={sparklineLoading ? 'sparkline-loading' : ''}>
-                    <Sparkline labels={labels} data={timeseries} className="w-full" />
-                    {sparklineLoading && <div className="sparkline-loading-overlay" />}
-                </div>
-                <DisplayOptions />
-                <div className="flex-1">
-                    <LemonTable
-                        hideScrollbar
-                        dataSource={logs}
-                        loading={logsLoading}
-                        size="small"
-                        columns={[
-                            {
-                                title: 'Timestamp',
-                                key: 'timestamp',
-                                dataIndex: 'timestamp',
-                                width: 0,
-                                render: (timestamp) => <TZLabel time={(timestamp as string) + 'Z'} />,
-                            },
-                            {
-                                title: 'Level',
-                                key: 'severity_text',
-                                dataIndex: 'severity_text',
-                                width: 0,
-                                render: (_, record) => <LogTag level={record.severity_text} />,
-                            },
-                            {
-                                title: 'Message',
-                                key: 'body',
-                                dataIndex: 'body',
-                                render: (body) => (
-                                    <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>
-                                        {colors.unstyle(body)}
-                                    </div>
-                                ),
-                            },
-                        ]}
-                        expandable={{
-                            noIndent: true,
-                            expandedRowRender: (log) => <ExpandedLog log={log} />,
-                        }}
+            <div className="relative h-40 flex flex-col">
+                {sparklineData.data.length > 0 ? (
+                    <Sparkline
+                        labels={sparklineData.labels}
+                        data={sparklineData.data}
+                        className="w-full flex-1"
+                        onSelectionChange={onSelectionChange}
                     />
-                </div>
-            </>
-        </div>
+                ) : !sparklineLoading ? (
+                    <div className="flex-1 text-muted flex items-center justify-center">
+                        No results matching filters
+                    </div>
+                ) : null}
+                {sparklineLoading && <SpinnerOverlay />}
+            </div>
+            <SceneDivider />
+            <DisplayOptions />
+            <div className="flex-1 overflow-y-auto border rounded bg-bg-light">
+                <LemonTable
+                    hideScrollbar
+                    dataSource={logs}
+                    loading={logsLoading}
+                    size="small"
+                    embedded
+                    columns={[
+                        {
+                            title: 'Timestamp',
+                            key: 'timestamp',
+                            dataIndex: 'timestamp',
+                            width: 0,
+                            render: (_, { timestamp }) => <TZLabel time={timestamp} {...tzLabelFormat} />,
+                        },
+                        {
+                            title: 'Level',
+                            key: 'severity_text',
+                            dataIndex: 'severity_text',
+                            width: 0,
+                            render: (_, record) => <LogTag level={record.severity_text} />,
+                        },
+                        {
+                            title: 'Message',
+                            key: 'body',
+                            dataIndex: 'body',
+                            render: (_, { body }) => (
+                                <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>{colors.unstyle(body)}</div>
+                            ),
+                        },
+                    ]}
+                    expandable={{
+                        noIndent: true,
+                        expandedRowRender: (log) => <ExpandedLog log={log} />,
+                    }}
+                />
+            </div>
+        </SceneContent>
     )
 }
 
@@ -199,21 +206,23 @@ const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
 }
 
 const LogTag = ({ level }: { level: LogMessage['severity_text'] }): JSX.Element => {
-    const type = (
-        {
-            debug: 'completion',
-            info: 'caution',
-            warn: 'warning',
-            error: 'danger',
-        } as Record<LogMessage['severity_text'], LemonTagType>
-    )[level]
+    const type =
+        (
+            {
+                debug: 'muted',
+                info: 'default',
+                warn: 'warning',
+                error: 'danger',
+                fatal: 'danger',
+            } as Record<LogMessage['severity_text'], LemonTagType>
+        )[level] ?? 'muted'
 
     return <LemonTag type={type}>{level}</LemonTag>
 }
 
 const Filters = (): JSX.Element => {
     const { logsLoading } = useValues(logsLogic)
-    const { runQuery } = useActions(logsLogic)
+    const { runQuery, zoomDateRange } = useActions(logsLogic)
 
     return (
         <div className="flex flex-col gap-y-1.5">
@@ -224,6 +233,18 @@ const Filters = (): JSX.Element => {
                     <AttributesFilter />
                 </div>
                 <div className="flex gap-x-1">
+                    <LemonButton
+                        size="small"
+                        icon={<IconMinusSquare />}
+                        type="secondary"
+                        onClick={() => zoomDateRange(2)}
+                    />
+                    <LemonButton
+                        size="small"
+                        icon={<IconPlusSquare />}
+                        type="secondary"
+                        onClick={() => zoomDateRange(0.5)}
+                    />
                     <DateRangeFilter />
                     <LemonButton
                         size="small"
@@ -242,11 +263,11 @@ const Filters = (): JSX.Element => {
 }
 
 const DisplayOptions = (): JSX.Element => {
-    const { orderBy, wrapBody } = useValues(logsLogic)
-    const { setOrderBy, setWrapBody } = useActions(logsLogic)
+    const { orderBy, wrapBody, timestampFormat } = useValues(logsLogic)
+    const { setOrderBy, setWrapBody, setTimestampFormat } = useActions(logsLogic)
 
     return (
-        <div className="flex gap-x-2">
+        <div className="flex gap-2">
             <LemonSegmentedButton
                 value={orderBy}
                 onChange={setOrderBy}
@@ -263,6 +284,17 @@ const DisplayOptions = (): JSX.Element => {
                 size="small"
             />
             <LemonCheckbox checked={wrapBody} bordered onChange={setWrapBody} label="Wrap message" size="small" />
+            <LemonSelect
+                value={timestampFormat}
+                icon={<IconClock />}
+                onChange={(value) => setTimestampFormat(value)}
+                size="small"
+                type="secondary"
+                options={[
+                    { value: 'absolute', label: 'Absolute' },
+                    { value: 'relative', label: 'Relative' },
+                ]}
+            />
         </div>
     )
 }

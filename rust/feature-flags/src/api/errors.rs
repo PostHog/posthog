@@ -1,11 +1,23 @@
 use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
+use axum::response::{IntoResponse, Json, Response};
 use common_cookieless::CookielessManagerError;
 use common_database::{extract_timeout_type, is_timeout_error, CustomDatabaseError};
+use common_hypercache::HyperCacheError;
 use common_redis::CustomRedisError;
+use serde::Serialize;
 use thiserror::Error;
 
 use crate::utils::graph_utils::DependencyType;
+
+/// Structured error response matching Django REST Framework's format
+#[derive(Debug, Serialize)]
+pub struct AuthenticationErrorResponse {
+    #[serde(rename = "type")]
+    pub error_type: String,
+    pub code: String,
+    pub detail: String,
+    pub attr: Option<String>,
+}
 
 #[derive(Error, Debug)]
 pub enum ClientFacingError {
@@ -37,6 +49,12 @@ pub enum FlagError {
     NoTokenError,
     #[error("API key is not valid")]
     TokenValidationError,
+    #[error("Personal API key found in request {0} is invalid")]
+    PersonalApiKeyInvalid(String),
+    #[error("Secret API token is invalid")]
+    SecretApiTokenInvalid,
+    #[error("No authentication credentials provided")]
+    NoAuthenticationProvided,
     #[error("Row not found in postgres")]
     RowNotFound,
     #[error("failed to parse redis cache data")]
@@ -51,6 +69,20 @@ pub enum FlagError {
     DatabaseUnavailable,
     #[error("Database error: {0}")]
     DatabaseError(sqlx::Error, Option<String>),
+    /// Timeout error with optional type classification.
+    ///
+    /// Valid timeout types include:
+    /// - `"query_canceled"` - Statement timeout (PostgreSQL SQLSTATE 57014)
+    /// - `"lock_not_available"` - Lock timeout (PostgreSQL SQLSTATE 55P03)
+    /// - `"idle_in_transaction_timeout"` - Idle transaction timeout (PostgreSQL SQLSTATE 25P03)
+    /// - `"pool_timeout"` - Connection pool acquisition timeout
+    /// - `"io_timeout"` - Network/socket timeout
+    /// - `"protocol_timeout"` - PostgreSQL protocol timeout
+    /// - `"client_timeout"` - Client-side tokio::timeout wrapper
+    /// - `"redis_timeout"` - Redis operation timeout
+    /// - `"cache_timeout"` - Cache operation timeout
+    /// - `"database_timeout"` - Generic database timeout (fallback when SQLSTATE unavailable)
+    /// - `None` - Timeout occurred but specific type unknown
     #[error("Timed out while fetching data")]
     TimeoutError(Option<String>),
     #[error("No group type mappings")]
@@ -67,6 +99,10 @@ pub enum FlagError {
     PropertiesNotInCache,
     #[error("Static cohort matches not cached")]
     StaticCohortMatchesNotCached,
+    #[error("Cache miss - data not found in cache")]
+    CacheMiss,
+    #[error("Failed to parse data")]
+    DataParsingError,
     #[error(transparent)]
     CookielessError(#[from] CookielessManagerError),
 }
@@ -114,7 +150,15 @@ impl IntoResponse for FlagError {
                 ClientFacingError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
                 ClientFacingError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg),
                 ClientFacingError::BillingLimit => (StatusCode::PAYMENT_REQUIRED, "Billing limit reached. Please upgrade your plan.".to_string()),
-                ClientFacingError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded. Please reduce your request frequency and try again later.".to_string()),
+                ClientFacingError::RateLimited => {
+                    let response = AuthenticationErrorResponse {
+                        error_type: "validation_error".to_string(),
+                        code: "rate_limit_exceeded".to_string(),
+                        detail: "Rate limit exceeded".to_string(),
+                        attr: None,
+                    };
+                    return (StatusCode::TOO_MANY_REQUESTS, Json(response)).into_response();
+                },
                 ClientFacingError::ServiceUnavailable => (StatusCode::SERVICE_UNAVAILABLE, "Service is currently unavailable. Please try again later.".to_string()),
             },
             FlagError::Internal(msg) => {
@@ -138,6 +182,33 @@ impl IntoResponse for FlagError {
             }
             FlagError::TokenValidationError => {
                 (StatusCode::UNAUTHORIZED, "The provided API key is invalid or has expired. Please check your API key and try again.".to_string())
+            }
+            FlagError::PersonalApiKeyInvalid(source) => {
+                let response = AuthenticationErrorResponse {
+                    error_type: "authentication_error".to_string(),
+                    code: "authentication_failed".to_string(),
+                    detail: format!("Personal API key found in request {source} is invalid."),
+                    attr: None,
+                };
+                return (StatusCode::UNAUTHORIZED, Json(response)).into_response();
+            }
+            FlagError::SecretApiTokenInvalid => {
+                let response = AuthenticationErrorResponse {
+                    error_type: "authentication_error".to_string(),
+                    code: "authentication_failed".to_string(),
+                    detail: "Secret API token is invalid.".to_string(),
+                    attr: None,
+                };
+                return (StatusCode::UNAUTHORIZED, Json(response)).into_response();
+            }
+            FlagError::NoAuthenticationProvided => {
+                let response = AuthenticationErrorResponse {
+                    error_type: "authentication_error".to_string(),
+                    code: "not_authenticated".to_string(),
+                    detail: "Authentication credentials were not provided.".to_string(),
+                    attr: None,
+                };
+                return (StatusCode::UNAUTHORIZED, Json(response)).into_response();
             }
             FlagError::RedisDataParsingError => {
                 tracing::error!("Data parsing error: {:?}", self);
@@ -228,6 +299,14 @@ impl IntoResponse for FlagError {
             FlagError::StaticCohortMatchesNotCached => {
                 (StatusCode::BAD_REQUEST, "Static cohort matches not cached. Please check your distinct_id and try again.".to_string())
             }
+            FlagError::CacheMiss => {
+                tracing::error!("Cache miss - required data not found in cache");
+                (StatusCode::SERVICE_UNAVAILABLE, "Required data not found in cache. This is likely a temporary issue. Please try again later.".to_string())
+            }
+            FlagError::DataParsingError => {
+                tracing::error!("Failed to parse data");
+                (StatusCode::INTERNAL_SERVER_ERROR, "Failed to parse internal data. This is likely a temporary issue. Please try again later.".to_string())
+            }
             FlagError::CookielessError(err) => {
                 match err {
                     // 400 Bad Request errors - client-side issues
@@ -302,6 +381,21 @@ impl From<sqlx::Error> for FlagError {
                 } else {
                     FlagError::DatabaseError(e, None)
                 }
+            }
+        }
+    }
+}
+
+impl From<HyperCacheError> for FlagError {
+    fn from(e: HyperCacheError) -> Self {
+        match e {
+            HyperCacheError::CacheMiss => FlagError::CacheMiss,
+            HyperCacheError::Redis(redis_error) => FlagError::from(redis_error),
+            HyperCacheError::S3(_) => FlagError::CacheMiss,
+            HyperCacheError::Json(_) => FlagError::DataParsingError,
+            HyperCacheError::Compression(_) => FlagError::DataParsingError,
+            HyperCacheError::Timeout(_) => {
+                FlagError::TimeoutError(Some("cache_timeout".to_string()))
             }
         }
     }

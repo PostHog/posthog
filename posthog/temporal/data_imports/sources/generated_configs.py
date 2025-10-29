@@ -187,6 +187,12 @@ class SalesforceSourceConfig(config.Config):
 
 
 @config.config
+class ShopifySourceConfig(config.Config):
+    shopify_store_id: str
+    shopify_access_token: str
+
+
+@config.config
 class SnowflakeSourceConfig(config.Config):
     account_id: str
     database: str
@@ -255,6 +261,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.REDSHIFT: RedshiftSourceConfig,
         ExternalDataSourceType.REVENUECAT: RevenueCatSourceConfig,
         ExternalDataSourceType.SALESFORCE: SalesforceSourceConfig,
+        ExternalDataSourceType.SHOPIFY: ShopifySourceConfig,
         ExternalDataSourceType.SNOWFLAKE: SnowflakeSourceConfig,
         ExternalDataSourceType.STRIPE: StripeSourceConfig,
         ExternalDataSourceType.TEMPORALIO: TemporalIOSourceConfig,

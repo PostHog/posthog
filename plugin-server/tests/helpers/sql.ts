@@ -218,9 +218,20 @@ export async function resetTestDatabase(
 
 // Helper function to determine which database a table belongs to
 function getPostgresUseForTable(table: string): PostgresUse {
+    // Behavioral cohorts tables
+    if (table === 'cohort_membership') {
+        return PostgresUse.BEHAVIORAL_COHORTS_RW
+    }
+
+    // Persons-related tables
     const personsTablesRegex =
         /^posthog_(person|persondistinctid|personlessdistinctid|personoverridemapping|personoverride|pendingpersonoverride|flatpersonoverride|featureflaghashkeyoverride|cohortpeople|group|grouptypemapping)$/
-    return personsTablesRegex.test(table) ? PostgresUse.PERSONS_WRITE : PostgresUse.COMMON_WRITE
+    if (personsTablesRegex.test(table)) {
+        return PostgresUse.PERSONS_WRITE
+    }
+
+    // Default to common tables
+    return PostgresUse.COMMON_WRITE
 }
 
 export async function insertRow(db: PostgresRouter, table: string, objectProvided: Record<string, any>) {
@@ -637,11 +648,11 @@ export async function fetchPostgresDistinctIdsForPerson(db: DB, personId: string
     )
 }
 
-export async function resetCountersDatabase(db: PostgresRouter): Promise<void> {
+export async function resetBehavioralCohortsDatabase(db: PostgresRouter): Promise<void> {
     await db.query(
-        PostgresUse.COUNTERS_RW,
-        'TRUNCATE TABLE person_performed_events, behavioural_filter_matched_events',
+        PostgresUse.BEHAVIORAL_COHORTS_RW,
+        'TRUNCATE TABLE cohort_membership',
         undefined,
-        'reset-counters-db'
+        'reset-behavioral-cohorts-db'
     )
 }

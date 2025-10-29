@@ -454,7 +454,7 @@ class TestCSVExporter(APIBaseTest):
             self.assertEqual(len(lines), 12)
             self.assertEqual(
                 lines[0],
-                "event,*.uuid,*.event,*.properties.prop,*.timestamp,*.team_id,*.distinct_id,*.elements_chain,*.created_at",
+                "event,*.uuid,*.event,*.properties.prop,*.timestamp,*.team_id,*.distinct_id,*.elements_chain,*.created_at,*.person_mode",
             )
             self.assertEqual(lines[11], "")
             first_row = lines[1].split(",")
@@ -498,7 +498,7 @@ class TestCSVExporter(APIBaseTest):
             self.assertEqual(len(lines), 12)
             self.assertEqual(
                 lines[0],
-                "*.uuid,*.event,*.properties.prop,*.timestamp,*.team_id,*.distinct_id,*.elements_chain,*.created_at",
+                "*.uuid,*.event,*.properties.prop,*.timestamp,*.team_id,*.distinct_id,*.elements_chain,*.created_at,*.person_mode",
             )
             self.assertEqual(lines[11], "")
             first_row = lines[1].split(",")

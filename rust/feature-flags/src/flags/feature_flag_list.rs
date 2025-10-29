@@ -2,6 +2,7 @@ use std::sync::Arc;
 use tracing;
 
 use crate::api::errors::FlagError;
+use crate::database::get_connection_with_metrics;
 use crate::flags::flag_models::{
     FeatureFlag, FeatureFlagList, FeatureFlagRow, TEAM_FLAGS_CACHE_PREFIX,
 };
@@ -53,14 +54,16 @@ impl FeatureFlagList {
         client: PostgresReader,
         project_id: i64,
     ) -> Result<(FeatureFlagList, bool), FlagError> {
-        let mut conn = client.get_connection().await.map_err(|e| {
-            tracing::error!(
-                "Failed to get database connection for project {}: {}",
-                project_id,
-                e
-            );
-            FlagError::DatabaseUnavailable
-        })?;
+        let mut conn = get_connection_with_metrics(&client, "non_persons_reader", "fetch_flags")
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    "Failed to get database connection for project {}: {}",
+                    project_id,
+                    e
+                );
+                FlagError::DatabaseUnavailable
+            })?;
 
         let query = r#"
             SELECT f.id,

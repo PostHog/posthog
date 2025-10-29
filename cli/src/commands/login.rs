@@ -5,10 +5,9 @@ use std::thread;
 use std::time::Duration;
 use tracing::info;
 
-use crate::utils::{
-    auth::{host_validator, token_validator, CredentialProvider, HomeDirProvider, Token},
-    client::get_client,
-    posthog::capture_command_invoked,
+use crate::{
+    invocation_context::{context, init_context},
+    utils::auth::{host_validator, token_validator, CredentialProvider, HomeDirProvider, Token},
 };
 
 #[derive(Debug, Deserialize)]
@@ -55,9 +54,6 @@ pub fn login(host_override: Option<String>) -> Result<(), Error> {
     info!("🔐 Starting OAuth Device Flow authentication...");
     info!("Connecting to: {}", host);
 
-    // Given this is an interactive command, we're happy enough to not join the capture handle
-    let _ = capture_command_invoked("interactive_login", None::<String>);
-
     // Step 1: Request device code
     let device_data = request_device_code(&host)?;
 
@@ -103,20 +99,14 @@ pub fn login(host_override: Option<String>) -> Result<(), Error> {
     let provider = HomeDirProvider;
     provider.store_credentials(token)?;
 
-    println!();
-    println!("🎉 Authentication complete!");
-    println!("Credentials saved to: {}", provider.report_location());
-    println!();
-    println!("You can now use the CLI:");
-    println!("  posthog-cli schema pull");
-    println!();
+    info!("Token saved to: {}", provider.report_location());
 
-    Ok(())
+    complete_login(&provider, "interactive_login")
 }
 
 fn request_device_code(host: &str) -> Result<DeviceCodeResponse, Error> {
-    let client = get_client()?;
-    let url = format!("{}/api/cli-auth/device-code/", host);
+    let client = reqwest::blocking::Client::new();
+    let url = format!("{host}/api/cli-auth/device-code/");
 
     let response = client
         .post(&url)
@@ -173,8 +163,8 @@ fn poll_for_authorization(
     interval_seconds: u64,
     expires_in_seconds: u64,
 ) -> Result<PollResponse, Error> {
-    let client = get_client()?;
-    let url = format!("{}/api/cli-auth/poll/", host);
+    let client = reqwest::blocking::Client::new();
+    let url = format!("{host}/api/cli-auth/poll/");
     let max_attempts = (expires_in_seconds / interval_seconds) + 1;
     let poll_interval = Duration::from_secs(interval_seconds);
 
@@ -197,15 +187,17 @@ fn poll_for_authorization(
         if status_code.as_u16() == 202 {
             // Still pending
             if attempt % 3 == 0 {
-                info!("Still waiting for authorization... (attempt {}/{})", attempt, max_attempts);
+                info!(
+                    "Still waiting for authorization... (attempt {}/{})",
+                    attempt, max_attempts
+                );
             }
             continue;
         }
 
         // Parse response body for both success and error cases
-        let poll_response: PollResponse = response
-            .json()
-            .context("Failed to parse poll response")?;
+        let poll_response: PollResponse =
+            response.json().context("Failed to parse poll response")?;
 
         if status_code.is_success() && poll_response.status == "authorized" {
             return Ok(poll_response);
@@ -229,6 +221,22 @@ fn poll_for_authorization(
     ))
 }
 
+fn complete_login(provider: &HomeDirProvider, command_name: &str) -> Result<(), Error> {
+    // Login is the only command that doesn't have a context coming in - because it modifies the context
+    init_context(None, false)?;
+    context().capture_command_invoked(command_name);
+
+    println!();
+    println!("🎉 Authentication complete!");
+    println!("Credentials saved to: {}", provider.report_location());
+    println!();
+    println!("You can now use the CLI:");
+    println!("  posthog-cli schema pull");
+    println!();
+
+    Ok(())
+}
+
 fn manual_login() -> Result<(), Error> {
     info!("🔐 Manual login...");
 
@@ -237,16 +245,15 @@ fn manual_login() -> Result<(), Error> {
         .with_validator(host_validator)
         .prompt()?;
 
-    let env_id = Text::new("Enter your project ID (the number in your PostHog homepage URL)").prompt()?;
-
-    // Given this is an interactive command, we're happy enough to not join the capture handle
-    let _ = capture_command_invoked("manual_login", Some(env_id.clone()));
+    let env_id =
+        Text::new("Enter your project ID (the number in your PostHog homepage URL)").prompt()?;
 
     let token = Text::new(
-        "Enter your personal API token (see posthog.com/docs/api#private-endpoint-authentication)",
+        "Enter your personal API token",
     )
-    .with_validator(token_validator)
-    .prompt()?;
+        .with_validator(token_validator)
+        .with_help_message("See posthog.com/docs/api#private-endpoint-authentication. It will need to have the 'error tracking write' scope.")
+        .prompt()?;
 
     let token = Token {
         host: Some(host.clone()),
@@ -258,13 +265,5 @@ fn manual_login() -> Result<(), Error> {
 
     info!("Token saved to: {}", provider.report_location());
 
-    println!();
-    println!("🎉 Authentication complete!");
-    println!("Credentials saved to: {}", provider.report_location());
-    println!();
-    println!("You can now use the CLI:");
-    println!("  posthog-cli schema pull");
-    println!();
-
-    Ok(())
+    complete_login(&provider, "manual_login")
 }

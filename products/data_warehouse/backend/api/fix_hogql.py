@@ -50,7 +50,7 @@ class FixHogQLViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ),
         }
 
-        result = HogQLQueryFixerTool(team=self.team, user=user).invoke({}, config)
+        result = HogQLQueryFixerTool(team=self.team, user=user, config=config).invoke({})
 
         if result is None or (isinstance(result, str) and len(result) == 0):
             return Response({"trace_id": trace_id, "error": "Could not fix the query"}, status=400)

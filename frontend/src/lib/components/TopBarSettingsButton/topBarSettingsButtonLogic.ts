@@ -32,7 +32,10 @@ export const topBarSettingsButtonLogic = kea<topBarSettingsButtonLogicType>([
                 const settingSectionId = activeLoadedScene?.settingSectionId
 
                 // Only show CRM settings button when the feature flag is enabled
-                if (settingSectionId === 'environment-crm' && !featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]) {
+                if (
+                    settingSectionId === 'environment-customer-analytics' &&
+                    !featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]
+                ) {
                     return undefined
                 }
 

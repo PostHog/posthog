@@ -25,7 +25,7 @@ export interface BatchExportConfigurationLogicProps {
 }
 
 function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportConfiguration): Record<string, any> {
-    return {
+    const config = {
         name: batchExportConfig.name,
         destination: batchExportConfig.destination.type,
         paused: batchExportConfig.paused,
@@ -35,6 +35,39 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
         integration_id:
             batchExportConfig.destination.type === 'Databricks' ? batchExportConfig.destination.integration : undefined,
         ...batchExportConfig.destination.config,
+    }
+
+    let authorizationMode: 'IAMRole' | 'Credentials' = 'IAMRole'
+    let copyInputsFields: Record<string, any> = {}
+
+    if (batchExportConfig.destination.type === 'Redshift' && batchExportConfig.destination.config.copy_inputs) {
+        const copyInputs = batchExportConfig.destination.config.copy_inputs
+
+        copyInputsFields = {
+            redshift_s3_bucket: copyInputs.s3_bucket,
+            redshift_s3_key_prefix: copyInputs.s3_key_prefix,
+            redshift_s3_bucket_region_name: copyInputs.region_name,
+            redshift_s3_bucket_aws_access_key_id: copyInputs.bucket_credentials?.aws_access_key_id,
+            redshift_s3_bucket_aws_secret_access_key: copyInputs.bucket_credentials?.aws_secret_access_key,
+            redshift_iam_role: undefined,
+            redshift_aws_access_key_id: undefined,
+            redshift_aws_secret_access_key: undefined,
+        }
+
+        if (typeof copyInputs.authorization === 'string') {
+            authorizationMode = 'IAMRole'
+            copyInputsFields.redshift_iam_role = copyInputs.authorization
+        } else {
+            authorizationMode = 'Credentials'
+            copyInputsFields.redshift_aws_access_key_id = copyInputs.authorization?.aws_access_key_id
+            copyInputsFields.redshift_aws_secret_access_key = copyInputs.authorization?.aws_secret_access_key
+        }
+    }
+
+    return {
+        ...config,
+        ...copyInputsFields,
+        authorization_mode: authorizationMode,
     }
 }
 
@@ -50,6 +83,11 @@ export function getDefaultConfiguration(service: string): Record<string, any> {
         ...(service === 'S3' && {
             file_format: 'Parquet',
             compression: 'zstd',
+        }),
+        ...(service === 'Redshift' && {
+            mode: 'COPY',
+            authorization_mode: 'IAMRole',
+            properties_data_type: 'SUPER',
         }),
         ...(service === 'Databricks' && {
             use_variant_type: true,
@@ -566,8 +604,49 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         filters,
                         json_config_file,
                         integration_id,
+                        // Redshift COPY configuration
+                        mode,
+                        authorization_mode,
+                        redshift_s3_bucket,
+                        redshift_s3_key_prefix,
+                        redshift_s3_bucket_region_name,
+                        redshift_s3_bucket_aws_access_key_id,
+                        redshift_s3_bucket_aws_secret_access_key,
+                        redshift_iam_role,
+                        redshift_aws_access_key_id,
+                        redshift_aws_secret_access_key,
                         ...config
                     } = formdata
+
+                    if (destination === 'Redshift') {
+                        if (mode === 'COPY') {
+                            const copyInputs: Record<string, any> = {
+                                s3_bucket: redshift_s3_bucket,
+                                s3_key_prefix: redshift_s3_key_prefix,
+                                region_name: redshift_s3_bucket_region_name,
+                            }
+
+                            if (redshift_iam_role) {
+                                copyInputs.authorization = redshift_iam_role
+                            } else if (redshift_aws_access_key_id && redshift_aws_secret_access_key) {
+                                copyInputs.authorization = {
+                                    aws_access_key_id: redshift_aws_access_key_id,
+                                    aws_secret_access_key: redshift_aws_secret_access_key,
+                                }
+                            }
+
+                            if (redshift_s3_bucket_aws_access_key_id && redshift_s3_bucket_aws_secret_access_key) {
+                                copyInputs.bucket_credentials = {
+                                    aws_access_key_id: redshift_s3_bucket_aws_access_key_id,
+                                    aws_secret_access_key: redshift_s3_bucket_aws_secret_access_key,
+                                }
+                            }
+
+                            config.copy_inputs = copyInputs
+                        }
+                        config.mode = mode
+                    }
+
                     const destinationObj = {
                         type: destination,
                         integration: integration_id,
@@ -649,11 +728,54 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         model,
                         filters,
                         json_config_file,
+                        integration_id,
+                        // Redshift COPY configuration
+                        mode,
+                        authorization_mode,
+                        redshift_s3_bucket,
+                        redshift_s3_key_prefix,
+                        redshift_s3_bucket_region_name,
+                        redshift_s3_bucket_aws_access_key_id,
+                        redshift_s3_bucket_aws_secret_access_key,
+                        redshift_iam_role,
+                        redshift_aws_access_key_id,
+                        redshift_aws_secret_access_key,
                         ...config
                     } = values.configuration
+
+                    if (destination === 'Redshift') {
+                        if (mode === 'COPY') {
+                            const copyInputs: Record<string, any> = {
+                                s3_bucket: redshift_s3_bucket,
+                                s3_key_prefix: redshift_s3_key_prefix,
+                                region_name: redshift_s3_bucket_region_name,
+                            }
+
+                            if (redshift_iam_role) {
+                                copyInputs.authorization = redshift_iam_role
+                            } else if (redshift_aws_access_key_id && redshift_aws_secret_access_key) {
+                                copyInputs.authorization = {
+                                    aws_access_key_id: redshift_aws_access_key_id,
+                                    aws_secret_access_key: redshift_aws_secret_access_key,
+                                }
+                            }
+
+                            if (redshift_s3_bucket_aws_access_key_id && redshift_s3_bucket_aws_secret_access_key) {
+                                copyInputs.bucket_credentials = {
+                                    aws_access_key_id: redshift_s3_bucket_aws_access_key_id,
+                                    aws_secret_access_key: redshift_s3_bucket_aws_secret_access_key,
+                                }
+                            }
+
+                            config.copy_inputs = copyInputs
+                        }
+                        config.mode = mode
+                    }
+
                     const destinationObj = {
                         type: destination,
                         config: config,
+                        integration: integration_id,
                     }
                     const data = {
                         paused,

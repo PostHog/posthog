@@ -10,11 +10,6 @@ pub const AVRO_SCHEMA: &str = r#"
     "doc": "Unique identifier for the log record."
     },
     {
-    "name": "team_id",
-    "type": ["null", "int"],
-    "doc": "Identifier for the team associated with this record."
-    },
-    {
     "name": "trace_id",
     "type": ["null", "bytes"],
     "doc": "Identifier for the trace this log is a part of."

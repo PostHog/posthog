@@ -101,7 +101,7 @@ impl<C: ClientContext> TransactionalProducer<C> {
         })
     }
 
-    pub fn begin(&mut self) -> Result<KafkaTransaction<C>, KafkaError> {
+    pub fn begin(&mut self) -> Result<KafkaTransaction<'_, C>, KafkaError> {
         self.inner.begin_transaction()?;
         Ok(KafkaTransaction { producer: self })
     }

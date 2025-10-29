@@ -6,6 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import {
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -56,23 +57,25 @@ function IssueStatusDropdown({
 }): JSX.Element {
     return (
         <DropdownMenuContent>
-            {options.map((option) => (
-                <DropdownMenuItem
-                    key={option}
-                    className="text-base text-secondary hover:bg-fill-button-tertiary-hover hover:text-fill-button-tertiary px-1"
-                    asChild
-                >
-                    <LemonButton
-                        fullWidth
-                        onClick={() => option !== status && onChange(option)}
-                        role="menuitem"
-                        size="xsmall"
-                        active={option === status}
+            <DropdownMenuGroup>
+                {options.map((option) => (
+                    <DropdownMenuItem
+                        key={option}
+                        className="text-base text-secondary hover:bg-fill-button-tertiary-hover hover:text-fill-button-tertiary px-1"
+                        asChild
                     >
-                        <StatusIndicator status={option} />
-                    </LemonButton>
-                </DropdownMenuItem>
-            ))}
+                        <LemonButton
+                            fullWidth
+                            onClick={() => option !== status && onChange(option)}
+                            role="menuitem"
+                            size="xsmall"
+                            active={option === status}
+                        >
+                            <StatusIndicator status={option} />
+                        </LemonButton>
+                    </DropdownMenuItem>
+                ))}
+            </DropdownMenuGroup>
         </DropdownMenuContent>
     )
 }

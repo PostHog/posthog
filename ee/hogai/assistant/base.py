@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 from typing import Any, Literal, Optional, cast, get_args
 from uuid import UUID, uuid4
 
@@ -73,7 +74,7 @@ class BaseAssistant(ABC):
     _state: Optional[AssistantMaxGraphState]
     _callback_handler: Optional[BaseCallbackHandler]
     _trace_id: Optional[str | UUID]
-    _custom_update_ids: set[str]
+    _streamed_update_ids: set[str]
     _reasoning_headline_chunk: Optional[str]
     """Like a message chunk, but specifically for the reasoning headline (and just a plain string)."""
     _last_reasoning_headline: Optional[str]
@@ -131,7 +132,7 @@ class BaseAssistant(ABC):
             else None
         )
         self._trace_id = trace_id
-        self._custom_update_ids = set()
+        self._streamed_update_ids = set()
         self._reasoning_headline_chunk = None
         self._last_reasoning_headline = None
         self._billing_context = billing_context
@@ -221,16 +222,18 @@ class BaseAssistant(ABC):
                 async for update in generator:
                     if messages := await self._process_update(update):
                         for message in messages:
-                            if hasattr(message, "id"):
-                                if update[1] == "custom":
-                                    # Custom updates come from tool calls, we want to deduplicate the messages sent to the client.
-                                    self._custom_update_ids.add(message.id)
-                                elif message.id in self._custom_update_ids:
+                            # Messages with existing IDs must be deduplicated.
+                            # Messages WITHOUT IDs must be streamed because they're progressive.
+                            if hasattr(message, "id") and message.id is not None:
+                                if message.id in self._streamed_update_ids:
                                     continue
+                                self._streamed_update_ids.add(message.id)
+
                             if stream_only_assistant_messages and isinstance(
                                 message, get_args(ReasoningMessage | AssistantGenerationStatusEvent)
                             ):
                                 continue
+
                             yield AssistantEventType.MESSAGE, cast(AssistantMessageOrStatusUnion, message)
 
                 # Check if the assistant has requested help.
@@ -303,24 +306,44 @@ class BaseAssistant(ABC):
 
     async def _init_or_update_state(self):
         config = self._get_config()
+
         snapshot = await self._graph.aget_state(config)
+        saved_state = validate_state_update(snapshot.values, self._state_type)
+        last_recorded_dt = saved_state.start_dt
+
+        # Add existing ids to streamed messages, so we don't send the messages again.
+        for message in saved_state.messages:
+            if message.id is not None:
+                self._streamed_update_ids.add(message.id)
+
+        # Add the latest message id to streamed messages, so we don't send it multiple times.
+        if self._latest_message and self._latest_message.id is not None:
+            self._streamed_update_ids.add(self._latest_message.id)
 
         # If the graph previously hasn't reset the state, it is an interrupt. We resume from the point of interruption.
-        if snapshot.next and self._latest_message:
-            saved_state = validate_state_update(snapshot.values, self._state_type)
-            if saved_state.graph_status == "interrupted":
-                self._state = saved_state
-                await self._graph.aupdate_state(
-                    config,
-                    self.get_resumed_state(),
-                )
-                # Return None to indicate that we want to continue the execution from the interrupted point.
-                return None
+        if snapshot.next and self._latest_message and saved_state.graph_status == "interrupted":
+            self._state = saved_state
+            await self._graph.aupdate_state(
+                config,
+                self.get_resumed_state(),
+            )
+            # Return None to indicate that we want to continue the execution from the interrupted point.
+            return None
 
         initial_state = self.get_initial_state()
         if self._initial_state:
             for key, value in self._initial_state.model_dump(exclude_none=True).items():
                 setattr(initial_state, key, value)
+
+        # Reset the start_dt if the conversation has been running for more than 5 minutes.
+        # Helps to keep the cache.
+        if last_recorded_dt is not None:
+            if datetime.now() - last_recorded_dt > timedelta(minutes=5):
+                initial_state.start_dt = datetime.now()
+        # No recorded start_dt, so we set it to the current time.
+        else:
+            initial_state.start_dt = datetime.now()
+
         self._state = initial_state
         return initial_state
 
@@ -425,6 +448,7 @@ class BaseAssistant(ABC):
 
         # Extract and process content
         message_content = extract_content_from_ai_message(self._chunks)
+
         if not message_content:
             return None
 

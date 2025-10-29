@@ -1,6 +1,7 @@
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
-from posthog.models.error_tracking.sql import (
+
+from products.error_tracking.backend.sql import (
     ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_MV_SQL,
     ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL,
     ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_WRITABLE_TABLE_SQL,

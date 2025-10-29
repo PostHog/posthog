@@ -1,224 +1,18 @@
+import os
 import uuid
-from typing import Optional, cast
+from typing import Optional
 
+from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
-from django.db import models, transaction
+from django.db import models
 from django.utils import timezone
+
+from asgiref.sync import async_to_sync
 
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.models.utils import UUIDModel
-
-from products.tasks.backend.agents import get_agent_by_id
-from products.tasks.backend.lib.templates import DEFAULT_WORKFLOW_TEMPLATE, WorkflowTemplate
-
-
-class TaskWorkflow(models.Model):
-    """Defines a configurable workflow with stages and transition rules."""
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    name = models.CharField(max_length=255, help_text="Human-readable name for this workflow")
-    description = models.TextField(blank=True, help_text="Description of the workflow purpose")
-    color = models.CharField(max_length=7, default="#3b82f6", help_text="Hex color for UI display")
-    is_default = models.BooleanField(default=False, help_text="Whether this is the default workflow for new tasks")
-    is_active = models.BooleanField(default=True, help_text="Whether this workflow is currently active")
-    version = models.IntegerField(default=1, help_text="Version number for tracking workflow changes")
-
-    created_at = models.DateTimeField(default=timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "posthog_task_workflow"
-        unique_together = [("team", "name")]
-        ordering = ["name"]
-
-    def __str__(self):
-        return f"{self.name} ({self.team.name})"
-
-    @property
-    def active_stages(self):
-        return self.stages.filter(is_archived=False)
-
-    def migrate_tasks_to_workflow(self, target_workflow: "TaskWorkflow") -> int:
-        """Migrate all tasks from this workflow to another workflow. Returns number of tasks updated."""
-
-        if target_workflow.id == self.id:
-            return 0
-
-        if self.team_id != target_workflow.team_id:
-            raise ValueError("Source and target workflows must belong to the same team")
-
-        current_workflow_tasks_qs = self.tasks.select_related("current_stage")
-
-        if not current_workflow_tasks_qs.exists():
-            return 0
-
-        # Prefetch target stages once; preserve deterministic fallback using stage position ordering
-        active_stages = list(target_workflow.stages.filter(is_archived=False).order_by("position"))
-
-        stages_by_key = {stage.key: stage for stage in active_stages}
-
-        fallback_stage = active_stages[0] if active_stages else None
-
-        updated_tasks = []
-
-        for task in current_workflow_tasks_qs:
-            # Match by stage key when possible, otherwise fallback (which can be None)
-            next_stage = None
-
-            if task.current_stage and task.current_stage.key in stages_by_key:
-                next_stage = stages_by_key[task.current_stage.key]
-            else:
-                next_stage = fallback_stage
-
-            if task.workflow_id != target_workflow.id or task.current_stage != next_stage:
-                task.workflow = target_workflow
-                task.current_stage = next_stage
-                updated_tasks.append(task)
-
-        if len(updated_tasks) > 0:
-            Task.objects.bulk_update(updated_tasks, ["workflow", "current_stage"])
-
-        return len(updated_tasks)
-
-    def unassign_tasks(self):
-        tasks = self.tasks.all()
-
-        updated_tasks = []
-
-        for task in tasks:
-            task.workflow = None
-            task.current_stage = None
-            updated_tasks.append(task)
-
-        Task.objects.bulk_update(updated_tasks, ["workflow", "current_stage"])
-
-    def deactivate_safely(self):
-        """Deactivate workflow and move tasks to team default."""
-
-        if not self.is_active:
-            return
-
-        if self.is_default:
-            raise ValueError("Cannot deactivate the default workflow")
-
-        default_workflow = TaskWorkflow.objects.filter(team=self.team, is_default=True, is_active=True).first()
-
-        with transaction.atomic():
-            if default_workflow:
-                self.migrate_tasks_to_workflow(default_workflow)
-            else:
-                self.unassign_tasks()
-
-            self.is_active = False
-            self.save(update_fields=["is_active"])
-
-    @classmethod
-    def from_template(cls, template: WorkflowTemplate, team: Team, *, is_default=True):
-        with transaction.atomic():
-            workflow = cls.objects.create(
-                team=team,
-                name=template.name,
-                description=template.description,
-                is_default=is_default,
-                is_active=True,
-            )
-
-            stages = [
-                WorkflowStage(
-                    key=stage.key,
-                    name=stage.name,
-                    position=idx,
-                    color=stage.color,
-                    is_manual_only=stage.is_manual_only,
-                    workflow=workflow,
-                )
-                for idx, stage in enumerate(template.stages)
-            ]
-
-            WorkflowStage.objects.bulk_create(stages)
-
-        return workflow
-
-    @classmethod
-    def create_default_workflow(cls, team: Team):
-        return TaskWorkflow.from_template(DEFAULT_WORKFLOW_TEMPLATE, team, is_default=True)
-
-    def can_delete(self):
-        """Check if this workflow can be safely deleted"""
-        if self.is_default:
-            return False, "Cannot delete the default workflow"
-
-        return True, ""
-
-
-class WorkflowStage(models.Model):
-    """Individual stages within a workflow."""
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    workflow = models.ForeignKey(TaskWorkflow, on_delete=models.CASCADE, related_name="stages")
-    name = models.CharField(max_length=100, help_text="Stage name (e.g., 'Backlog', 'In Progress')")
-    key = models.CharField(max_length=50, help_text="Unique key for this stage within the workflow")
-    position = models.IntegerField(help_text="Order of this stage in the workflow")
-    color = models.CharField(max_length=7, default="#6b7280", help_text="Hex color for UI display")
-
-    agent_name = models.CharField(
-        max_length=50, null=True, blank=True, help_text="ID of the agent responsible for this stage"
-    )
-
-    is_manual_only = models.BooleanField(
-        default=True, help_text="Whether only manual transitions are allowed from this stage"
-    )
-
-    is_archived = models.BooleanField(
-        default=False, help_text="Whether this stage is archived (hidden from UI but keeps tasks)"
-    )
-
-    fallback_stage = models.ForeignKey(
-        "self",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        help_text="Stage to move tasks to if this stage is deleted",
-    )  # NOTE: We probably don't need this? We can just move it to the previous stage, we're rarely going to bother setting this
-
-    class Meta:
-        db_table = "posthog_workflow_stage"
-        unique_together = [("workflow", "key"), ("workflow", "position")]
-        ordering = ["position"]
-
-    def __str__(self):
-        return f"{self.workflow.name}: {self.name}"
-
-    def delete(self, *args, **kwargs):
-        """Override delete to handle tasks in this stage."""
-
-        with transaction.atomic():
-            # Move tasks to fallback stage or first available stage
-            target_stage = self.fallback_stage or self.workflow.stages.exclude(id=self.id).first()
-
-            if target_stage:
-                Task.objects.filter(current_stage=self).update(current_stage=target_stage)
-            else:
-                # No other stages available, remove workflow association
-                Task.objects.filter(current_stage=self).update(current_stage=None, workflow=None)
-
-            super().delete(*args, **kwargs)
-
-    @property
-    def next_stage(self):
-        return self.workflow.stages.filter(position__gt=self.position, is_archived=False).order_by("position").first()
-
-    def archive(self):
-        self.is_archived = True
-        self.save(update_fields=["is_archived"])
-
-    @property
-    def agent_definition(self):
-        if hasattr(self, "agent_name") and self.agent_name:
-            return get_agent_by_id(self.agent_name)
-        return None
 
 
 class Task(models.Model):
@@ -238,22 +32,15 @@ class Task(models.Model):
     origin_product = models.CharField(max_length=20, choices=OriginProduct.choices)
     position = models.IntegerField(default=0)
 
-    # Workflow configuration
+    # DEPRECATED: Workflow concept has been removed
     workflow = models.ForeignKey(
-        TaskWorkflow,
+        "TaskWorkflow",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
+        editable=False,
         related_name="tasks",
-        help_text="Custom workflow for this task (if not using default)",
-    )
-
-    current_stage = models.ForeignKey(
-        WorkflowStage,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        help_text="Current stage in the workflow (overrides status field when workflow is set)",
+        help_text="DEPRECATED: The workflow concept has been removed. This field is kept for backwards compatibility only.",
     )
 
     # Repository configuration
@@ -270,8 +57,30 @@ class Task(models.Model):
         default=dict, help_text="Repository configuration with organization and repository fields"
     )
 
-    github_branch = models.CharField(max_length=255, blank=True, null=True, help_text="Branch created for this task")
-    github_pr_url = models.URLField(blank=True, null=True, help_text="Pull request URL when created")
+    # DEPRECATED FIELDS - these have been moved to TaskRun
+    # These fields are kept for backwards compatibility but should not be used
+    # editable=False prevents them from appearing in forms/admin
+    current_stage = models.ForeignKey(
+        "WorkflowStage",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        editable=False,
+        help_text="DEPRECATED: Moved to TaskRun.stage. Use task.latest_run.stage instead.",
+    )
+    github_branch = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        editable=False,
+        help_text="DEPRECATED: Moved to TaskRun.branch. Use task.latest_run.branch instead.",
+    )
+    github_pr_url = models.URLField(
+        blank=True,
+        null=True,
+        editable=False,
+        help_text="DEPRECATED: Moved to TaskRun.output['pr_url']. Use task.latest_run.output.get('pr_url') instead.",
+    )
 
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
@@ -282,29 +91,11 @@ class Task(models.Model):
         ordering = ["position"]
 
     def __str__(self):
-        if self.current_stage:
-            return f"{self.title} ({self.current_stage.key})"
-        return f"{self.title} (no workflow)"
+        return self.title
 
     def save(self, *args, **kwargs):
         if self.task_number is None:
             self._assign_task_number()
-
-        # Auto-assign default workflow if no workflow is set
-        if not self.workflow:
-            default_workflow = TaskWorkflow.objects.filter(team=self.team, is_default=True, is_active=True).first()
-            if default_workflow:
-                self.workflow = default_workflow
-
-        # Auto-assign first stage if workflow is set but no stage
-        if self.workflow and not self.current_stage:
-            first_stage = self.workflow.active_stages.first()
-            if first_stage:
-                self.current_stage = first_stage
-
-        # Clear stage if it doesn't belong to the current workflow
-        if self.current_stage and self.workflow and self.current_stage.workflow != self.workflow:
-            self.current_stage = None
 
         super().save(*args, **kwargs)
 
@@ -370,39 +161,63 @@ class Task(models.Model):
             return None
 
     @property
-    def effective_workflow(self) -> Optional["TaskWorkflow"]:
-        """Get the workflow this task should use (custom or team default)"""
-        if self.workflow:
-            return self.workflow
-
-        # Fall back to team's default workflow
-        try:
-            return TaskWorkflow.objects.filter(team=self.team, is_default=True, is_active=True).first()
-        except TaskWorkflow.DoesNotExist:
-            return None
-
-    def get_next_stage(self):
-        """Get the next stage in the linear workflow"""
-        workflow = self.effective_workflow
-
-        if not workflow:
-            return None
-
-        current_stage = cast(Optional[WorkflowStage], self.current_stage)
-
-        if not current_stage:
-            return workflow.stages.filter(is_archived=False).order_by("position").first()
-
-        return current_stage.next_stage
+    def latest_run(self) -> Optional["TaskRun"]:
+        return self.runs.order_by("-created_at").first()
 
     def _assign_task_number(self) -> None:
         max_task_number = Task.objects.filter(team=self.team).aggregate(models.Max("task_number"))["task_number__max"]
         self.task_number = (max_task_number if max_task_number is not None else -1) + 1
 
+    @staticmethod
+    def create_and_run(
+        *,
+        team: Team,
+        title: str,
+        description: str,
+        origin_product: "Task.OriginProduct",
+        user_id: int,  # Will be used to validate the feature flag and create a personal api key for interacting with PostHog.
+        repository: str,  # Format: "organization/repository", e.g. "posthog/posthog-js"
+    ) -> "Task":
+        from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
-class TaskProgress(models.Model):
-    """Tracks real-time progress of execution for tasks."""
+        created_by = User.objects.get(id=user_id)
 
+        if not created_by:
+            raise ValueError(f"User {user_id} does not exist")
+
+        github_integration = Integration.objects.filter(team=team, kind="github").first()
+
+        if not github_integration:
+            raise ValueError(f"Team {team.id} does not have a GitHub integration")
+
+        repository_config = {}
+
+        if "/" in repository:
+            org, repo = repository.split("/", 1)
+            repository_config = {"organization": org, "repository": repo}
+        else:
+            raise ValueError(f"Repository must be in format 'organization/repository', got: {repository}")
+
+        task = Task.objects.create(
+            team=team,
+            title=title,
+            description=description,
+            origin_product=origin_product,
+            created_by=created_by,
+            github_integration=github_integration,
+            repository_config=repository_config,
+        )
+
+        execute_task_processing_workflow(
+            task_id=str(task.id),
+            team_id=task.team.id,
+            user_id=user_id,
+        )
+
+        return task
+
+
+class TaskRun(models.Model):
     class Status(models.TextChoices):
         STARTED = "started", "Started"
         IN_PROGRESS = "in_progress", "In Progress"
@@ -410,57 +225,66 @@ class TaskProgress(models.Model):
         FAILED = "failed", "Failed"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="progress_logs")
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="runs")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
-    # Progress tracking
+    branch = models.CharField(max_length=255, blank=True, null=True, help_text="Branch name for the run")
+
+    # Stage tracking
+    stage = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text="Current stage for this run (e.g., 'backlog', 'in_progress', 'done')",
+    )
+
+    # DEPRECATED: Use stage CharField instead
+    current_stage = models.ForeignKey(
+        "WorkflowStage",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        editable=False,
+        help_text="DEPRECATED: Use stage CharField instead. This field is kept for backwards compatibility only.",
+    )
+
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.STARTED)
-    current_step = models.CharField(max_length=255, blank=True, help_text="Current step being executed")
-    total_steps = models.IntegerField(default=0, help_text="Total number of steps if known")
-    completed_steps = models.IntegerField(default=0, help_text="Number of completed steps")
 
     # Claude Code output
-    output_log = models.TextField(blank=True, help_text="Live output from Claude Code execution")
-    error_message = models.TextField(blank=True, help_text="Error message if execution failed")
+    log = models.JSONField(blank=True, default=list, help_text="Live output from Claude Code execution")
+    error_message = models.TextField(blank=True, null=True, help_text="Error message if execution failed")
 
-    # Workflow metadata
-    workflow_id = models.CharField(max_length=255, blank=True, help_text="Temporal workflow ID")
-    workflow_run_id = models.CharField(max_length=255, blank=True, help_text="Temporal workflow run ID")
-    activity_id = models.CharField(max_length=255, blank=True, help_text="Temporal activity ID")
+    # This is a structured output of the run. This is used to store the PR URL, commit SHA, etc.
+    output = models.JSONField(
+        blank=True,
+        null=True,
+        help_text="Run output data (e.g., PR URL, commit SHA, etc.)",
+    )
 
-    # Timestamps
+    # Store intermediate run state in this field. This is used to resume the run if it fails, or to provide context throughout the run.
+    state = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Run state data for resuming or tracking execution state",
+    )
+
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        db_table = "posthog_task_progress"
+        db_table = "posthog_task_run"
         ordering = ["-created_at"]
 
     def __str__(self):
-        return f"Progress for {self.task.title} - {self.get_status_display()}"
+        return f"Run for {self.task.title} - {self.get_status_display()}"
 
-    def append_output(self, text: str):
-        """Append text to the output log and save."""
-        if self.output_log:
-            self.output_log += "\n" + text
-        else:
-            self.output_log = text
-        self.updated_at = timezone.now()
-        self.save(update_fields=["output_log", "updated_at"])
-
-    def update_progress(
-        self, step: str | None = None, completed_steps: int | None = None, total_steps: int | None = None
-    ):
-        """Update progress information."""
-        if step:
-            self.current_step = step
-        if completed_steps is not None:
-            self.completed_steps = completed_steps
-        if total_steps is not None:
-            self.total_steps = total_steps
-        self.updated_at = timezone.now()
-        self.save(update_fields=["current_step", "completed_steps", "total_steps", "updated_at"])
+    def append_log(self, entries: list[dict]):
+        """Append log entries to the log array and save."""
+        if not self.log:
+            self.log = []
+        self.log.extend(entries)
+        self.save(update_fields=["log"])
 
     def mark_completed(self):
         """Mark the progress as completed."""
@@ -475,12 +299,12 @@ class TaskProgress(models.Model):
         self.completed_at = timezone.now()
         self.save(update_fields=["status", "error_message", "completed_at"])
 
-    @property
-    def progress_percentage(self):
-        """Calculate progress percentage."""
-        if self.total_steps and self.total_steps > 0:
-            return min(100, (self.completed_steps / self.total_steps) * 100)
-        return 0
+    def get_next_stage(self):
+        """
+        DEPRECATED: This method relied on the workflow/stage concept which has been removed.
+        Stage transitions should now be managed by setting the 'stage' CharField directly.
+        """
+        return None
 
 
 class SandboxSnapshot(UUIDModel):
@@ -568,3 +392,180 @@ class SandboxSnapshot(UUIDModel):
             if snapshot.has_repos(required_repos):
                 return snapshot
         return None
+
+    def delete(self, *args, **kwargs):
+        if self.external_id:
+            from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
+
+            if os.environ.get("RUNLOOP_API_KEY") and not settings.TEST:
+                try:
+                    async_to_sync(SandboxEnvironment.delete_snapshot)(self.external_id)
+                except Exception as e:
+                    raise Exception(
+                        f"Failed to delete external snapshot {self.external_id}: {str(e)}. "
+                        f"The database record has not been deleted."
+                    ) from e
+
+        super().delete(*args, **kwargs)
+
+
+#
+# DEPRECATED MODELS - these have been replaced with new models
+#
+
+
+class TaskWorkflow(models.Model):
+    """
+    DEPRECATED: The workflow/stages concept has been replaced with a simple stage CharField on TaskRun.
+    This model is kept for backwards compatibility only and should not be used for new code.
+    The table still exists in the database but should not be used.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    name = models.CharField(max_length=255, help_text="Human-readable name for this workflow")
+    description = models.TextField(blank=True, help_text="Description of the workflow purpose")
+    color = models.CharField(max_length=7, default="#3b82f6", help_text="Hex color for UI display")
+    is_default = models.BooleanField(default=False, help_text="Whether this is the default workflow for new tasks")
+    is_active = models.BooleanField(default=True, help_text="Whether this workflow is currently active")
+    version = models.IntegerField(default=1, help_text="Version number for tracking workflow changes")
+
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task_workflow"
+        unique_together = [("team", "name")]
+        ordering = ["name"]
+
+    def __str__(self):
+        return "TaskWorkflow has been deprecated."
+
+    def save(self, *args, **kwargs):
+        raise DeprecationWarning("TaskWorkflow has been deprecated.")
+
+    def delete(self, *args, **kwargs):
+        raise DeprecationWarning("TaskWorkflow has been deprecated.")
+
+    @classmethod
+    def _raise_deprecation_error(cls):
+        raise DeprecationWarning("TaskWorkflow has been deprecated.")
+
+
+class WorkflowStage(models.Model):
+    """
+    DEPRECATED: The workflow/stages concept has been replaced with a simple stage CharField on TaskRun.
+    This model is kept for backwards compatibility only and should not be used for new code.
+    The table still exists in the database but should not be used.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workflow = models.ForeignKey(TaskWorkflow, on_delete=models.CASCADE, related_name="stages")
+    name = models.CharField(max_length=100, help_text="Stage name (e.g., 'Backlog', 'In Progress')")
+    key = models.CharField(max_length=50, help_text="Unique key for this stage within the workflow")
+    position = models.IntegerField(help_text="Order of this stage in the workflow")
+    color = models.CharField(max_length=7, default="#6b7280", help_text="Hex color for UI display")
+
+    agent_name = models.CharField(
+        max_length=50, null=True, blank=True, help_text="ID of the agent responsible for this stage"
+    )
+
+    is_manual_only = models.BooleanField(
+        default=True, help_text="Whether only manual transitions are allowed from this stage"
+    )
+
+    is_archived = models.BooleanField(
+        default=False, help_text="Whether this stage is archived (hidden from UI but keeps tasks)"
+    )
+
+    fallback_stage = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="Stage to move tasks to if this stage is deleted",
+    )  # NOTE: We probably don't need this? We can just move it to the previous stage, we're rarely going to bother setting this
+
+    class Meta:
+        db_table = "posthog_workflow_stage"
+        unique_together = [("workflow", "key"), ("workflow", "position")]
+        ordering = ["position"]
+
+    def __str__(self):
+        return "WorkflowStage has been deprecated."
+
+    def save(self, *args, **kwargs):
+        raise DeprecationWarning("WorkflowStage has been deprecated.")
+
+    def delete(self, *args, **kwargs):
+        raise DeprecationWarning("WorkflowStage has been deprecated.")
+
+    @classmethod
+    def _raise_deprecation_error(cls):
+        raise DeprecationWarning("WorkflowStage has been deprecated.")
+
+
+class TaskProgress(models.Model):
+    """
+    DEPRECATED: This model has been renamed to TaskRun.
+    Use TaskRun instead. This class is kept for backwards compatibility only.
+
+    The table still exists in the database but should not be used.
+    Any attempt to use this model will raise an error.
+    """
+
+    class Status(models.TextChoices):
+        STARTED = "started", "Started"
+        IN_PROGRESS = "in_progress", "In Progress"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="progress_logs")
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+
+    # Progress tracking
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.STARTED)
+    current_step = models.CharField(max_length=255, blank=True, help_text="Current step being executed")
+    total_steps = models.IntegerField(default=0, help_text="Total number of steps if known")
+    completed_steps = models.IntegerField(default=0, help_text="Number of completed steps")
+
+    # Claude Code output
+    output_log = models.TextField(blank=True, help_text="Live output from Claude Code execution")
+    error_message = models.TextField(blank=True, help_text="Error message if execution failed")
+
+    # Workflow metadata
+    workflow_id = models.CharField(max_length=255, blank=True, help_text="Temporal workflow ID")
+    workflow_run_id = models.CharField(max_length=255, blank=True, help_text="Temporal workflow run ID")
+    activity_id = models.CharField(max_length=255, blank=True, help_text="Temporal activity ID")
+
+    # Timestamps
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_task_progress"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"TaskProgress has been deprecated. Use TaskRun instead."
+
+    def save(self, *args, **kwargs):
+        raise DeprecationWarning(
+            "TaskProgress has been renamed to TaskRun. Use TaskRun.objects.create() instead. "
+            "This model is deprecated and should not be used."
+        )
+
+    def delete(self, *args, **kwargs):
+        raise DeprecationWarning(
+            "TaskProgress has been renamed to TaskRun. Use TaskRun instead. "
+            "This model is deprecated and should not be used."
+        )
+
+    @classmethod
+    def _raise_deprecation_error(cls):
+        raise DeprecationWarning(
+            "TaskProgress has been renamed to TaskRun. Use TaskRun instead. "
+            "This model is deprecated and should not be used."
+        )

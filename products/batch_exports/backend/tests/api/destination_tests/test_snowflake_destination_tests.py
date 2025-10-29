@@ -5,7 +5,7 @@ import pytest
 
 import snowflake.connector
 
-from products.batch_exports.backend.api.destination_tests import (
+from products.batch_exports.backend.api.destination_tests.snowflake import (
     SnowflakeDatabaseTestStep,
     SnowflakeEstablishConnectionTestStep,
     SnowflakeSchemaTestStep,

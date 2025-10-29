@@ -15,6 +15,8 @@ export const manifest: ProductManifest = {
             name: 'LLM analytics',
             layout: 'app-container',
             defaultDocsPath: '/docs/llm-analytics/installation',
+            description: 'Analyze and understand your LLM usage and performance.',
+            iconType: 'llm_analytics',
         },
         LLMAnalyticsTrace: {
             import: () => import('./frontend/LLMAnalyticsTraceScene'),
@@ -131,6 +133,7 @@ export const manifest: ProductManifest = {
             iconType: 'llm_analytics' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
             href: urls.llmAnalyticsDashboard(),
+            sceneKey: 'LLMAnalytics',
         },
     ],
 }

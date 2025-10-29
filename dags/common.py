@@ -8,6 +8,7 @@ from posthog.clickhouse import query_tagging
 from posthog.clickhouse.cluster import ClickhouseCluster, ExponentialBackoff, RetryPolicy, get_cluster
 from posthog.clickhouse.custom_metrics import MetricsClient
 from posthog.clickhouse.query_tagging import DagsterTags
+from posthog.redis import get_client, redis
 
 
 class JobOwners(str, Enum):
@@ -18,6 +19,7 @@ class JobOwners(str, Enum):
     TEAM_GROWTH = "team-growth"
     TEAM_EXPERIMENTS = "team-experiments"
     TEAM_MAX_AI = "team-max-ai"
+    TEAM_DATA_WAREHOUSE = "team-data-warehouse"
 
 
 class ClickhouseClusterResource(dagster.ConfigurableResource):
@@ -60,6 +62,16 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
                 ),
             ),
         )
+
+
+class RedisResource(dagster.ConfigurableResource):
+    """
+    A Redis resource that can be used to store and retrieve data.
+    """
+
+    def create_resource(self, context: dagster.InitResourceContext) -> redis.Redis:
+        client = get_client()
+        return client
 
 
 def report_job_status_metric(

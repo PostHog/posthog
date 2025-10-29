@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconCheckCircle, IconCode } from '@posthog/icons'
+import { IconCode } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
@@ -21,23 +21,22 @@ export function CLIAuthorize(): JSX.Element {
     const { authorize, isSuccess, projects, projectsLoading, isAuthorizeSubmitting } = useValues(cliAuthorizeLogic)
     const { setAuthorizeValue } = useActions(cliAuthorizeLogic)
 
-    const message = isSuccess ? (
-        <div className="text-center">
-            <IconCheckCircle className="text-success text-6xl mb-4" />
-            <div className="text-2xl font-bold">Success!</div>
-        </div>
-    ) : (
-        <>
-            Authorize
-            <br />
-            PostHog CLI
-        </>
-    )
-
-    const bridgePageProps = !isSuccess ? ({ hedgehog: true, message } as const) : ({ message } as const)
-
     return (
-        <BridgePage view="login" {...(bridgePageProps as any)}>
+        <BridgePage
+            view="login"
+            {...(!isSuccess
+                ? {
+                      hedgehog: true as const,
+                      message: (
+                          <>
+                              Authorize
+                              <br />
+                              PostHog CLI
+                          </>
+                      ),
+                  }
+                : { hedgehog: false as const })}
+        >
             {isSuccess ? (
                 <div className="text-center space-y-4">
                     <h2>CLI Authorization Complete</h2>

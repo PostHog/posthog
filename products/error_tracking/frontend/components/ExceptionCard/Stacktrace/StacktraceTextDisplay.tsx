@@ -7,6 +7,7 @@ import { ExceptionHeaderProps } from 'lib/components/Errors/StackTraces'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
 import { ErrorTrackingException, ErrorTrackingStackFrame } from 'lib/components/Errors/types'
+import { formatResolvedName, formatType } from 'lib/components/Errors/utils'
 import { cn } from 'lib/utils/css-classes'
 
 import { exceptionCardLogic } from '../exceptionCardLogic'
@@ -71,7 +72,7 @@ function ExceptionTextDisplay({ exception }: { exception: ErrorTrackingException
     return (
         <div>
             <p className="font-mono mb-0 font-bold line-clamp-1">
-                {exception.type}: {exception.value}
+                {formatType(exception)}: {exception.value}
             </p>
             {(exception.stacktrace?.frames || [])
                 .filter((frame: ErrorTrackingStackFrame) => (showAllFrames ? true : frame.in_app))
@@ -88,10 +89,12 @@ function StackframeTextDisplay({ frame }: { frame: ErrorTrackingStackFrame }): J
     useEffect(() => {
         loadFromRawIds([frame.raw_id])
     }, [loadFromRawIds, frame.raw_id])
+    const resolvedName = formatResolvedName(frame)
     return (
         <>
             <p className="font-mono indent-[1rem] whitespace-no-wrap mb-0 line-clamp-1">
-                File "{frame.source}", line: {frame.line}, in: {frame.resolved_name}
+                File "{frame.source || 'Unknown Source'}"{frame.line ? `, line: ${frame.line}` : ''}
+                {resolvedName ? `, in: ${resolvedName}` : ''}
             </p>
             {stackFrameRecords[frame.raw_id] && stackFrameRecords[frame.raw_id].context?.line.line && (
                 <p className="font-mono indent-[2rem] whitespace-no-wrap mb-0 text-tertiary line-clamp-1">

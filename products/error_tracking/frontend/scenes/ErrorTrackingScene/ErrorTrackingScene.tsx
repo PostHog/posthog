@@ -12,7 +12,8 @@ import {
     TabsPrimitiveTrigger,
 } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -104,9 +105,10 @@ const Header = (): JSX.Element => {
     return (
         <>
             <SceneTitleSection
-                name="Error tracking"
+                name={sceneConfigurations[Scene.ErrorTracking].name}
+                description={null}
                 resourceType={{
-                    type: 'error_tracking',
+                    type: sceneConfigurations[Scene.ErrorTracking].iconType || 'default_icon_type',
                 }}
                 actions={
                     <>

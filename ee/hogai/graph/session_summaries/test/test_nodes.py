@@ -1,4 +1,3 @@
-import json
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -208,19 +207,64 @@ class TestSessionSummarizationNode(BaseTest):
         self.assertIsNone(result.session_summarization_query)
         self.assertIsNone(result.root_tool_call_id)
 
+    @staticmethod
+    def _session_template(session_id: str) -> dict[str, Any]:
+        return {
+            "segments": [
+                {
+                    "index": 0,
+                    "name": f"{session_id}, Segment 1",
+                    "meta": {"duration": 1, "events_count": 2, "events_percentage": 0.5},
+                }
+            ],
+            "key_actions": [
+                {
+                    "segment_index": 0,
+                    "events": [
+                        {
+                            "description": "User did something",
+                            "abandonment": False,
+                            "confusion": False,
+                            "exception": None,
+                            "milliseconds_since_start": 0,
+                            "event": "$autocapture",
+                            "event_type": "click",
+                            "session_id": session_id,
+                            "event_uuid": "10000000-0000-0000-0000-000000000001",
+                        }
+                    ],
+                }
+            ],
+            "segment_outcomes": [
+                {
+                    "segment_index": 0,
+                    "summary": "User succeeded",
+                    "success": True,
+                }
+            ],
+            "session_outcome": {
+                "description": "Everything is ok",
+                "success": True,
+            },
+        }
+
     @patch("ee.hogai.graph.session_summaries.nodes.execute_summarize_session")
     def test_summarize_sessions_individually(self, mock_execute_summarize: MagicMock) -> None:
         """Test that individual session summarization aggregates results correctly."""
-        session_ids = ["session-1", "session-2", "session-3"]
+        session_ids = [
+            "00000000-0000-0000-0000-000000000001",
+            "00000000-0000-0000-0000-000000000002",
+            "00000000-0000-0000-0000-000000000003",
+        ]
 
         async def mock_summarize_side_effect(*args: Any, **kwargs: Any) -> dict[str, Any]:
             session_id = kwargs.get("session_id")
-            if session_id == "session-1":
-                return {"session_id": "session-1", "summary": "Summary 1"}
-            elif session_id == "session-2":
-                return {"session_id": "session-2", "summary": "Summary 2"}
-            elif session_id == "session-3":
-                return {"session_id": "session-3", "summary": "Summary 3"}
+            if session_id == session_ids[0]:
+                return self._session_template(session_ids[0])
+            elif session_id == session_ids[1]:
+                return self._session_template(session_ids[1])
+            elif session_id == session_ids[2]:
+                return self._session_template(session_ids[2])
             return {}
 
         mock_execute_summarize.side_effect = mock_summarize_side_effect
@@ -229,14 +273,8 @@ class TestSessionSummarizationNode(BaseTest):
         summarizer = self.node._session_summarizer
         result = async_to_sync(summarizer._summarize_sessions_individually)(session_ids)
 
-        # Verify summaries are returned as stringified JSON
-        expected_result = json.dumps(
-            [
-                {"session_id": "session-1", "summary": "Summary 1"},
-                {"session_id": "session-2", "summary": "Summary 2"},
-                {"session_id": "session-3", "summary": "Summary 3"},
-            ]
-        )
+        # Verify summaries are returned as stringified session summaries
+        expected_result = """# Session `00000000-0000-0000-0000-000000000001`\nSuccess. Everything is ok.\n\n## Segment #0\n00000000-0000-0000-0000-000000000001, Segment 1. User spent 1s, performing 2 events.\n\n### What the user did \n- User did something at 00:00:00, as "$autocapture" (click) event (event_uuid: `10000000-0000-0000-0000-000000000001`).\n\n### Segment outcome\nSuccess. User succeeded.\n\n# Session `00000000-0000-0000-0000-000000000002`\nSuccess. Everything is ok.\n\n## Segment #0\n00000000-0000-0000-0000-000000000002, Segment 1. User spent 1s, performing 2 events.\n\n### What the user did \n- User did something at 00:00:00, as "$autocapture" (click) event (event_uuid: `10000000-0000-0000-0000-000000000001`).\n\n### Segment outcome\nSuccess. User succeeded.\n\n# Session `00000000-0000-0000-0000-000000000003`\nSuccess. Everything is ok.\n\n## Segment #0\n00000000-0000-0000-0000-000000000003, Segment 1. User spent 1s, performing 2 events.\n\n### What the user did \n- User did something at 00:00:00, as "$autocapture" (click) event (event_uuid: `10000000-0000-0000-0000-000000000001`).\n\n### Segment outcome\nSuccess. User succeeded."""
         self.assertEqual(result, expected_result)
         self.assertEqual(mock_execute_summarize.call_count, 3)
 
@@ -361,6 +399,10 @@ class TestSessionSummarizationNode(BaseTest):
     ) -> None:
         """Test arun chooses individual summarization when session count is below threshold."""
         conversation = Conversation.objects.create(team=self.team, user=self.user)
+        session_ids = [
+            "00000000-0000-0000-0000-000000000001",
+            "00000000-0000-0000-0000-000000000002",
+        ]
 
         # Mock _generate_filter_query to avoid LLM call
         mock_generate_filter_query.return_value = "filtered query for test"
@@ -374,19 +416,18 @@ class TestSessionSummarizationNode(BaseTest):
         # Return 2 sessions (below threshold of 5)
         mock_query_runner_class.return_value = self._create_mock_query_runner(
             [
-                {"session_id": "session-1"},
-                {"session_id": "session-2"},
+                {"session_id": session_ids[0]},
+                {"session_id": session_ids[1]},
             ]
         )
-
         mock_db_sync.side_effect = self._create_mock_db_sync_to_async()
 
         async def mock_summarize_side_effect(*args: Any, **kwargs: Any) -> dict[str, Any]:
             session_id = kwargs.get("session_id")
-            if session_id == "session-1":
-                return {"session_id": "session-1", "summary": "Summary 1"}
-            elif session_id == "session-2":
-                return {"session_id": "session-2", "summary": "Summary 2"}
+            if session_id == session_ids[0]:
+                return self._session_template(session_ids[0])
+            elif session_id == session_ids[1]:
+                return self._session_template(session_ids[1])
             return {}
 
         mock_execute_summarize.side_effect = mock_summarize_side_effect
@@ -402,10 +443,8 @@ class TestSessionSummarizationNode(BaseTest):
         message = result.messages[0]
         self.assertIsInstance(message, AssistantToolCallMessage)
         assert isinstance(message, AssistantToolCallMessage)
-        # Now expects JSON format for individual summaries
-        expected_content = json.dumps(
-            [{"session_id": "session-1", "summary": "Summary 1"}, {"session_id": "session-2", "summary": "Summary 2"}]
-        )
+        # Now expects stringified session summaries
+        expected_content = """# Session `00000000-0000-0000-0000-000000000001`\nSuccess. Everything is ok.\n\n## Segment #0\n00000000-0000-0000-0000-000000000001, Segment 1. User spent 1s, performing 2 events.\n\n### What the user did \n- User did something at 00:00:00, as "$autocapture" (click) event (event_uuid: `10000000-0000-0000-0000-000000000001`).\n\n### Segment outcome\nSuccess. User succeeded.\n\n# Session `00000000-0000-0000-0000-000000000002`\nSuccess. Everything is ok.\n\n## Segment #0\n00000000-0000-0000-0000-000000000002, Segment 1. User spent 1s, performing 2 events.\n\n### What the user did \n- User did something at 00:00:00, as "$autocapture" (click) event (event_uuid: `10000000-0000-0000-0000-000000000001`).\n\n### Segment outcome\nSuccess. User succeeded."""
         self.assertEqual(message.content, expected_content)
         # Verify execute_summarize was called for individual summaries
         self.assertEqual(mock_execute_summarize.call_count, 2)
@@ -456,6 +495,8 @@ class TestSessionSummarizationNode(BaseTest):
             },
         )
 
+        # Set config before calling arun so context_manager can access it
+        self.node._config = config
         result = async_to_sync(self.node.arun)(state, config)
 
         # Should return "No sessions were found" message since we mocked empty results

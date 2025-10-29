@@ -23,7 +23,7 @@ from posthog.schema import (
     VisualizationItem,
 )
 
-from posthog.models.notebook import Notebook
+from products.notebooks.backend.models import Notebook
 
 from ee.hogai.graph.deep_research.base.nodes import DeepResearchNode
 from ee.hogai.graph.deep_research.planner.prompts import (

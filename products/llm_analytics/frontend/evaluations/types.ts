@@ -5,12 +5,18 @@ export interface EvaluationConfig {
     name: string
     description?: string
     enabled: boolean
-    prompt: string
+    evaluation_type: 'llm_judge'
+    evaluation_config: {
+        prompt: string
+    }
+    output_type: 'boolean'
+    output_config: Record<string, never>
     conditions: EvaluationConditionSet[]
     total_runs: number
     last_run_at?: string
     created_at: string
     updated_at: string
+    deleted?: boolean
 }
 
 export interface EvaluationConditionSet {
@@ -22,11 +28,11 @@ export interface EvaluationConditionSet {
 export interface EvaluationRun {
     id: string
     evaluation_id: string
+    evaluation_name: string
     generation_id: string
+    trace_id: string
     timestamp: string
-    input_preview: string
-    output_preview: string
     result: boolean
+    reasoning: string
     status: 'completed' | 'failed' | 'running'
-    error_message?: string
 }

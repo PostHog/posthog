@@ -18,6 +18,7 @@ from posthog.temporal.quota_limiting import WORKFLOWS as QUOTA_LIMITING_WORKFLOW
 from posthog.temporal.salesforce_enrichment import WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import WORKFLOWS as TEST_WORKFLOWS
 from posthog.temporal.usage_reports import WORKFLOWS as USAGE_REPORTS_WORKFLOWS
+from posthog.temporal.weekly_digest import WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS
 
 from products.batch_exports.backend.temporal import WORKFLOWS as BATCH_EXPORT_WORKFLOWS
 
@@ -126,6 +127,7 @@ class Command(BaseCommand):
             + TEST_WORKFLOWS
             + DELETE_RECORDING_WORKFLOWS
             + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
+            + WEEKLY_DIGEST_WORKFLOWS
         )
         try:
             workflow = next(workflow for workflow in WORKFLOWS if workflow.is_named(workflow_name))

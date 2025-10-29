@@ -189,7 +189,7 @@ function ToolsExplanation({ toolsInReverse }: { toolsInReverse: ToolRegistration
                 .reduce(
                     (acc, [_, tool]) => {
                         if (!tool.product) {
-                            console.warn(`Unexpected: Global Max tool ${tool.name} appears not to be registered`)
+                            console.warn(`Unexpected: Global PostHog AI tool ${tool.name} appears not to be registered`)
                             return acc
                         }
                         if (!acc[tool.product]) {

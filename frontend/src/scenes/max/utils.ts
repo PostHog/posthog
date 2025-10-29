@@ -1,5 +1,3 @@
-import { decodeParams, encodeParams } from 'kea-router'
-
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
 
@@ -28,7 +26,7 @@ import {
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isHogQLQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
-import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel, SidePanelTab } from '~/types'
+import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
 
 import { SuggestionGroup } from './maxLogic'
 import { MaxActionContext, MaxContextType, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
@@ -96,28 +94,6 @@ export function castAssistantQuery(
         return query
     }
     throw new Error(`Unsupported query type: ${query?.kind}`)
-}
-
-/**
- * Generate a URL for a conversation.
- */
-export function getConversationUrl({
-    pathname,
-    search,
-    conversationId,
-    includeHash = true,
-}: {
-    pathname: string
-    search: string
-    conversationId: string
-    includeHash?: boolean
-}): string {
-    const params = decodeParams(search, '?')
-    const strParams = encodeParams({
-        ...params,
-        chat: conversationId,
-    })
-    return `${pathname}${strParams ? `?${strParams}` : ''}${includeHash ? `#panel=${SidePanelTab.Max}` : ''}`
 }
 
 export function formatConversationDate(updatedAt: string | null): string {

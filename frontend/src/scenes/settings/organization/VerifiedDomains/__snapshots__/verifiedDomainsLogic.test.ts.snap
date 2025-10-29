@@ -75,6 +75,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "data_attributes": [
           "data-attr",
         ],
+        "default_evaluation_environments_enabled": false,
         "effective_membership_level": 8,
         "feature_flag_confirmation_enabled": false,
         "feature_flag_confirmation_message": "",
@@ -110,6 +111,9 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "is_demo": false,
         "live_events_columns": null,
         "live_events_token": "123",
+        "managed_viewsets": {
+          "revenue_analytics": true,
+        },
         "marketing_analytics_config": {
           "sources_map": {},
         },

@@ -33,6 +33,7 @@ export const manifest: ProductManifest = {
             category: 'Features',
             type: 'feature_flag',
             href: urls.featureFlags(),
+            sceneKey: 'FeatureFlags',
         },
     ],
 }

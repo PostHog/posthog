@@ -127,6 +127,18 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         """Extract column names from AST expressions for order by"""
         return [col.alias if isinstance(col, ast.Alias) else str(col) for col in select_columns]
 
+    def _build_flexible_source_join_condition(self) -> ast.Expr:
+        """
+        Build source join condition.
+        Source normalization happens in conversion_goal_processor._normalize_source_field,
+        so we can use simple equality here.
+        """
+        return ast.CompareOperation(
+            left=ast.Field(chain=self.config.get_campaign_cost_field_chain(self.config.source_field)),
+            op=ast.CompareOperationOp.Eq,
+            right=ast.Field(chain=self.config.get_unified_conversion_field_chain(self.config.source_field)),
+        )
+
     def _build_compare_join(
         self, current_period_query: ast.SelectQuery, previous_period_query: ast.SelectQuery
     ) -> ast.JoinExpr:
@@ -279,15 +291,7 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
                                     chain=self.config.get_unified_conversion_field_chain(self.config.campaign_field)
                                 ),
                             ),
-                            ast.CompareOperation(
-                                left=ast.Field(
-                                    chain=self.config.get_campaign_cost_field_chain(self.config.source_field)
-                                ),
-                                op=ast.CompareOperationOp.Eq,
-                                right=ast.Field(
-                                    chain=self.config.get_unified_conversion_field_chain(self.config.source_field)
-                                ),
-                            ),
+                            self._build_flexible_source_join_condition(),
                         ]
                     ),
                     constraint_type="ON",

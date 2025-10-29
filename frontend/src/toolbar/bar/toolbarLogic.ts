@@ -1,4 +1,4 @@
-import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { windowValues } from 'kea-window-values'
 
 import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
@@ -10,7 +10,7 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID, inBounds } from '~/toolbar/utils'
+import { TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID, inBounds, makeNavigateWrapper } from '~/toolbar/utils'
 
 import type { toolbarLogicType } from './toolbarLogicType'
 
@@ -41,6 +41,7 @@ export const TOOLBAR_FIXED_POSITION_HITBOX = 100
 
 export const toolbarLogic = kea<toolbarLogicType>([
     path(['toolbar', 'bar', 'toolbarLogic']),
+
     connect(() => ({
         values: [toolbarConfigLogic, ['posthog']],
         actions: [
@@ -429,78 +430,77 @@ export const toolbarLogic = kea<toolbarLogicType>([
         },
     })),
     afterMount(({ actions, values, cache }) => {
-        cache.clickListener = (e: MouseEvent): void => {
-            const target = e.target as HTMLElement
-            const clickIsInToolbar = target?.id === TOOLBAR_ID || !!target.closest?.('.' + TOOLBAR_CONTAINER_CLASS)
-            if (!clickIsInToolbar && !values.isBlurred) {
-                actions.setIsBlurred(true)
+        // Add window event listeners using disposables
+        cache.disposables.add(() => {
+            const clickListener = (e: MouseEvent): void => {
+                const target = e.target as HTMLElement
+                const clickIsInToolbar = target?.id === TOOLBAR_ID || !!target.closest?.('.' + TOOLBAR_CONTAINER_CLASS)
+                if (!clickIsInToolbar && !values.isBlurred) {
+                    actions.setIsBlurred(true)
+                }
             }
-        }
-        window.addEventListener('mousedown', cache.clickListener)
-        window.addEventListener('popstate', () => {
-            actions.maybeSendNavigationMessage()
-        })
+            window.addEventListener('mousedown', clickListener)
+            return () => window.removeEventListener('mousedown', clickListener)
+        }, 'clickListener')
 
-        // Use a setInterval to periodically check for URL changes
-        // We do this because we don't want to write over the history.pushState function in case other scripts rely on it
-        // And mutation observers don't seem to work :shrug:
-        cache.navigationInterval = setInterval(() => {
-            actions.maybeSendNavigationMessage()
-        }, 500)
+        cache.disposables.add(() => {
+            const popstateHandler = (): void => actions.maybeSendNavigationMessage()
+            window.addEventListener('popstate', popstateHandler)
+            return () => window.removeEventListener('popstate', popstateHandler)
+        }, 'popstateListener')
+
+        cache.disposables.add(
+            makeNavigateWrapper(actions.maybeSendNavigationMessage, '__ph_toolbar_logic_wrapped__'),
+            'historyProxy'
+        )
 
         // the toolbar can be run within the posthog parent app
         // if it is then it listens to parent messages
         const isInIframe = window !== window.parent
 
-        cache.iframeEventListener = (e: MessageEvent): void => {
-            // TODO: Probably need to have strict checks here
-            const type: PostHogAppToolbarEvent = e?.data?.type
-
-            if (!type || !type.startsWith('ph-')) {
-                return
-            }
-
-            switch (type) {
-                case PostHogAppToolbarEvent.PH_APP_INIT:
-                    actions.setIsEmbeddedInApp(true)
-                    actions.patchHeatmapFilters(e.data.payload.filters)
-                    actions.setHeatmapColorPalette(e.data.payload.colorPalette)
-                    actions.setHeatmapFixedPositionMode(e.data.payload.fixedPositionMode)
-                    actions.setCommonFilters(e.data.payload.commonFilters)
-                    actions.toggleClickmapsEnabled(false)
-                    window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_READY }, '*')
-                    return
-                case PostHogAppToolbarEvent.PH_ELEMENT_SELECTOR:
-                    if (e.data.payload.enabled) {
-                        actions.enableInspect()
-                    } else {
-                        actions.disableInspect()
-                        actions.hideButtonActions()
-                    }
-                    return
-                case PostHogAppToolbarEvent.PH_NEW_ACTION_NAME:
-                    actions.setAutomaticActionCreationEnabled(true, e.data.payload.name)
-                    return
-                default:
-                    console.warn(`[PostHog Toolbar] Received unknown parent window message: ${type}`)
-            }
-        }
-
         if (isInIframe) {
-            window.addEventListener('message', cache.iframeEventListener, false)
+            cache.disposables.add(() => {
+                const iframeEventListener = (e: MessageEvent): void => {
+                    // TODO: Probably need to have strict checks here
+                    const type: PostHogAppToolbarEvent = e?.data?.type
+
+                    if (!type || !type.startsWith('ph-')) {
+                        return
+                    }
+
+                    switch (type) {
+                        case PostHogAppToolbarEvent.PH_APP_INIT:
+                            actions.setIsEmbeddedInApp(true)
+                            actions.patchHeatmapFilters(e.data.payload.filters)
+                            actions.setHeatmapColorPalette(e.data.payload.colorPalette)
+                            actions.setHeatmapFixedPositionMode(e.data.payload.fixedPositionMode)
+                            actions.setCommonFilters(e.data.payload.commonFilters)
+                            actions.toggleClickmapsEnabled(false)
+                            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_READY }, '*')
+                            return
+                        case PostHogAppToolbarEvent.PH_ELEMENT_SELECTOR:
+                            if (e.data.payload.enabled) {
+                                actions.enableInspect()
+                            } else {
+                                actions.disableInspect()
+                                actions.hideButtonActions()
+                            }
+                            return
+                        case PostHogAppToolbarEvent.PH_NEW_ACTION_NAME:
+                            actions.setAutomaticActionCreationEnabled(true, e.data.payload.name)
+                            return
+                        default:
+                            console.warn(`[PostHog Toolbar] Received unknown parent window message: ${type}`)
+                    }
+                }
+                window.addEventListener('message', iframeEventListener, false)
+                return () => window.removeEventListener('message', iframeEventListener, false)
+            }, 'iframeEventListener')
+
             // Post message up to parent in case we are embedded in an app
             // Tell the parent window that we are ready
             // we check if we're in an iframe before this setup to avoid logging warnings to the console
             window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_INIT }, '*')
-        }
-    }),
-    beforeUnmount(({ cache }) => {
-        window.removeEventListener('mousedown', cache.clickListener)
-        window.removeEventListener('message', cache.iframeEventListener, false)
-
-        // Clean up navigation interval to prevent memory leaks
-        if (cache.navigationInterval) {
-            clearInterval(cache.navigationInterval)
         }
     }),
 ])

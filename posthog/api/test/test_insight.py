@@ -171,15 +171,15 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 headers={"Referer": "https://posthog.com/my-referer", "X-Posthog-Session-Id": "my-session-id"},
             )
             self.assertEqual(response_1.status_code, status.HTTP_201_CREATED)
-            self.assertDictContainsSubset(
+            self.assertLessEqual(
                 {
                     "created_at": "2021-08-23T12:00:00Z",
                     "created_by": self_user_basic_serialized,
                     "updated_at": "2021-08-23T12:00:00Z",
                     "last_modified_at": "2021-08-23T12:00:00Z",
                     "last_modified_by": self_user_basic_serialized,
-                },
-                response_1.json(),
+                }.items(),
+                response_1.json().items(),
             )
             mock_capture.assert_any_call(
                 "insight created",
@@ -204,15 +204,15 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 headers={"Referer": "https://posthog.com/my-referer", "X-Posthog-Session-Id": "my-session-id"},
             )
             self.assertEqual(response_2.status_code, status.HTTP_200_OK)
-            self.assertDictContainsSubset(
+            self.assertLessEqual(
                 {
                     "created_at": "2021-08-23T12:00:00Z",
                     "created_by": self_user_basic_serialized,
                     "updated_at": "2021-09-20T12:00:00Z",
                     "last_modified_at": "2021-08-23T12:00:00Z",
                     "last_modified_by": self_user_basic_serialized,
-                },
-                response_2.json(),
+                }.items(),
+                response_2.json().items(),
             )
             insight_short_id = response_2.json()["short_id"]
             # Check that "insight updated" event was called among all capture calls
@@ -236,28 +236,28 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"filters": {"events": []}},
             )
             self.assertEqual(response_3.status_code, status.HTTP_200_OK)
-            self.assertDictContainsSubset(
+            self.assertLessEqual(
                 {
                     "created_at": "2021-08-23T12:00:00Z",
                     "created_by": self_user_basic_serialized,
                     "updated_at": "2021-10-21T12:00:00Z",
                     "last_modified_at": "2021-10-21T12:00:00Z",
                     "last_modified_by": self_user_basic_serialized,
-                },
-                response_3.json(),
+                }.items(),
+                response_3.json().items(),
             )
         with freeze_time("2021-12-23T12:00:00Z"):
             response_4 = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"name": "XYZ"})
             self.assertEqual(response_4.status_code, status.HTTP_200_OK)
-            self.assertDictContainsSubset(
+            self.assertLessEqual(
                 {
                     "created_at": "2021-08-23T12:00:00Z",
                     "created_by": self_user_basic_serialized,
                     "updated_at": "2021-12-23T12:00:00Z",
                     "last_modified_at": "2021-12-23T12:00:00Z",
                     "last_modified_by": self_user_basic_serialized,
-                },
-                response_4.json(),
+                }.items(),
+                response_4.json().items(),
             )
 
         # Field last_modified_by is updated when another user makes a material change
@@ -268,15 +268,15 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"description": "Lorem ipsum."},
             )
             self.assertEqual(response_5.status_code, status.HTTP_200_OK)
-            self.assertDictContainsSubset(
+            self.assertLessEqual(
                 {
                     "created_at": "2021-08-23T12:00:00Z",
                     "created_by": self_user_basic_serialized,
                     "updated_at": "2022-01-01T12:00:00Z",
                     "last_modified_at": "2022-01-01T12:00:00Z",
                     "last_modified_by": alt_user_basic_serialized,
-                },
-                response_5.json(),
+                }.items(),
+                response_5.json().items(),
             )
 
     def test_get_saved_insight_items(self) -> None:
@@ -2117,11 +2117,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             200,
             response_correct_token_retrieve.json(),
         )
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "name": "Foobar",
-            },
-            response_correct_token_retrieve.json(),
+            }.items(),
+            response_correct_token_retrieve.json().items(),
         )
         self.assertEqual(
             response_correct_token_list.status_code,
@@ -2130,13 +2130,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         # abcdfghi not returned as it's not related to this sharing configuration
         self.assertEqual(response_correct_token_list.json()["count"], 1)
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "id": insight.id,
                 "name": "Foobar",
                 "short_id": "12345678",
-            },
-            response_correct_token_list.json()["results"][0],
+            }.items(),
+            response_correct_token_list.json()["results"][0].items(),
         )
 
     def test_logged_out_user_cannot_retrieve_deleted_insight_with_correct_insight_sharing_access_token(self) -> None:
@@ -2287,7 +2287,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             200,
             response_correct_token_retrieve.json(),
         )
-        self.assertDictContainsSubset({"name": "Foobar"}, response_correct_token_retrieve.json())
+        self.assertLessEqual({"name": "Foobar"}.items(), response_correct_token_retrieve.json().items())
         # Below checks that the deleted insight and non-deleted insight whose tile is deleted are not be retrievable
         # Also, the text tile should not affect things
         self.assertEqual(

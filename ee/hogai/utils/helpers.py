@@ -1,6 +1,6 @@
 import xml.etree.ElementTree as ET
-from collections.abc import Sequence
-from typing import Any, Optional, TypeVar, Union
+from collections.abc import Mapping, Sequence
+from typing import Any, Optional, TypeVar, Union, cast
 
 from jsonref import replace_refs
 from langchain_core.messages import (
@@ -17,11 +17,11 @@ from posthog.schema import (
     AssistantToolCallMessage,
     AssistantTrendsQuery,
     CachedTeamTaxonomyQueryResponse,
+    ContextMessage,
     FunnelsQuery,
     HogQLQuery,
     HumanMessage,
     MaxEventContext,
-    MaxUIContext,
     RetentionQuery,
     TeamTaxonomyQuery,
     TrendsQuery,
@@ -99,11 +99,19 @@ def dereference_schema(schema: dict) -> dict:
     return new_schema
 
 
-def find_start_message(messages: Sequence[AssistantMessageUnion], start_id: str | None = None) -> HumanMessage | None:
-    for msg in messages:
+def find_start_message_idx(messages: Sequence[AssistantMessageUnion], start_id: str | None = None) -> int:
+    for idx in range(len(messages) - 1, -1, -1):
+        msg = messages[idx]
         if isinstance(msg, HumanMessage) and msg.id == start_id:
-            return msg
-    return None
+            return idx
+    return 0
+
+
+def find_start_message(messages: Sequence[AssistantMessageUnion], start_id: str | None = None) -> HumanMessage | None:
+    if not messages:
+        return None
+    index = find_start_message_idx(messages, start_id)
+    return cast(HumanMessage, messages[index])
 
 
 def should_output_assistant_message(candidate_message: AssistantMessageUnion) -> bool:
@@ -117,15 +125,16 @@ def should_output_assistant_message(candidate_message: AssistantMessageUnion) ->
     if isinstance(candidate_message, AssistantMessage) and not candidate_message.content:
         return False
 
+    # Filter out context messages
+    if isinstance(candidate_message, ContextMessage):
+        return False
+
     return True
 
 
-def find_last_ui_context(messages: Sequence[AssistantMessageUnion]) -> MaxUIContext | None:
-    """Returns the last recorded UI context from all messages."""
-    for message in reversed(messages):
-        if isinstance(message, HumanMessage) and message.ui_context is not None:
-            return message.ui_context
-    return None
+def convert_tool_messages_to_dict(messages: Sequence[AssistantMessageUnion]) -> Mapping[str, AssistantToolCallMessage]:
+    """Converts `AssistantToolCallMessage` messages to a dictionary mapping tool call id to message."""
+    return {message.tool_call_id: message for message in messages if isinstance(message, AssistantToolCallMessage)}
 
 
 def _process_events_data(events_in_context: list[MaxEventContext], team: Team) -> tuple[list[dict], dict[str, str]]:
@@ -215,13 +224,10 @@ def extract_content_from_ai_message(response: BaseMessage) -> str:
     Extracts the content from a BaseMessage, supporting both reasoning and non-reasoning responses.
     """
     if isinstance(response.content, list):
-        text_parts = []
+        text_parts: list[str] = []
         for content_item in response.content:
-            if isinstance(content_item, dict):
-                if "text" in content_item:
-                    text_parts.append(content_item["text"])
-                else:
-                    raise ValueError(f"LangChain AIMessage with unknown content type: {content_item}")
+            if isinstance(content_item, dict) and "type" in content_item and content_item["type"] == "text":
+                text_parts.append(content_item["text"])
             elif isinstance(content_item, str):
                 text_parts.append(content_item)
         return "".join(text_parts)
@@ -264,3 +270,13 @@ def extract_stream_update(update: Any) -> Any:
 
     update = update[1:]  # we remove the first element, which is the node/subgraph node name
     return update
+
+
+def insert_messages_before_start(
+    messages: Sequence[AssistantMessageUnion],
+    new_messages: Sequence[AssistantMessageUnion],
+    start_id: str | None = None,
+) -> list[AssistantMessageUnion]:
+    # Insert context messages right before the start message
+    start_idx = find_start_message_idx(messages, start_id)
+    return [*messages[:start_idx], *new_messages, *messages[start_idx:]]

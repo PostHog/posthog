@@ -26,6 +26,8 @@ export const getMinimumAccessLevel = (resource: APIScopeObject): AccessControlLe
 export const pluralizeResource = (resource: APIScopeObject): string => {
     if (resource === AccessControlResourceType.RevenueAnalytics) {
         return 'revenue analytics'
+    } else if (resource === AccessControlResourceType.WebAnalytics) {
+        return 'web analytics'
     }
 
     return resource.replace(/_/g, ' ') + 's'
@@ -55,6 +57,8 @@ export const orderedAccessLevels = (resourceType: AccessControlResourceType): Ac
 export const resourceTypeToString = (resourceType: AccessControlResourceType): string => {
     if (resourceType === AccessControlResourceType.RevenueAnalytics) {
         return 'revenue analytics resource'
+    } else if (resourceType === AccessControlResourceType.WebAnalytics) {
+        return 'web analytics resource'
     }
 
     return resourceType.replace(/_/g, ' ')

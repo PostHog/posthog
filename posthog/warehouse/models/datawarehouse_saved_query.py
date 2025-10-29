@@ -84,6 +84,15 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     # The name of the view at the time of soft deletion
     deleted_name = models.CharField(max_length=128, default=None, null=True, blank=True)
 
+    # If this view is managed by a DataWarehouseManagedViewSet, this will be set
+    managed_viewset = models.ForeignKey(
+        "posthog.DataWarehouseManagedViewSet",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="saved_queries",
+    )
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -161,7 +170,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     @property
     def s3_tables(self):
         from posthog.hogql.context import HogQLContext
-        from posthog.hogql.database.database import create_hogql_database
+        from posthog.hogql.database.database import Database
         from posthog.hogql.parser import parse_select
         from posthog.hogql.query import create_default_modifiers_for_team
         from posthog.hogql.resolver import resolve_types
@@ -174,7 +183,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
             modifiers=create_default_modifiers_for_team(self.team),
         )
         node = parse_select(self.query["query"])
-        context.database = create_hogql_database(context.team_id)
+        context.database = Database.create_for(context.team_id)
 
         node = resolve_types(node, context, dialect="clickhouse")
         table_collector = S3TableVisitor()

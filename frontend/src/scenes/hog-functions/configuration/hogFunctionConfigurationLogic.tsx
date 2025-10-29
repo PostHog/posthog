@@ -49,6 +49,7 @@ import {
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
+    TeamType,
 } from '~/types'
 
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
@@ -296,6 +297,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             ['groupTypes'],
             userLogic,
             ['hasAvailableFeature'],
+            teamLogic,
+            ['currentTeam'],
         ],
     })),
     actions({
@@ -685,6 +688,19 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => {
                 return hasAvailableFeature(AvailableFeature.GROUP_ANALYTICS)
+            },
+        ],
+        teamHasCohortFilters: [
+            (s) => [s.currentTeam, s.configuration],
+            (currentTeam: TeamType | null, configuration: HogFunctionConfigurationType | null) => {
+                // Only show warning if filter_test_accounts is enabled AND team has cohort filters
+                const hasFilterTestAccountsEnabled = configuration?.filters?.filter_test_accounts === true
+                const teamHasCohorts =
+                    currentTeam?.test_account_filters?.some(
+                        (filter: AnyPropertyFilter) => filter.type === PropertyFilterType.Cohort
+                    ) || false
+
+                return hasFilterTestAccountsEnabled && teamHasCohorts
             },
         ],
         useMapping: [
@@ -1143,14 +1159,16 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (type, template, hogFunction) => {
                 const codeLanguage = template?.code_language || hogFunction?.template?.code_language
 
+                if (type === 'site_app' || type === 'site_destination') {
+                    return true
+                }
+
                 // Only allow editing if code language is 'hog'
                 if (codeLanguage && codeLanguage !== 'hog') {
                     return false
                 }
 
-                return ['site_destination', 'site_app', 'source_webhook', 'transformation', 'destination'].includes(
-                    type
-                )
+                return ['source_webhook', 'transformation', 'destination'].includes(type)
             },
         ],
 

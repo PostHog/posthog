@@ -6,6 +6,8 @@ import {
     buildInParallel,
     copyIndexHtml,
     copyPublicFolder,
+    copyRRWebWorkerFiles,
+    copySnappyWASMFile,
     createHashlessEntrypoints,
     isDev,
     startDevServer,
@@ -15,8 +17,12 @@ export const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 startDevServer(__dirname)
 copyPublicFolder(path.resolve(__dirname, 'public'), path.resolve(__dirname, 'dist'))
+copySnappyWASMFile(__dirname)
+copyRRWebWorkerFiles(__dirname)
+
 writeIndexHtml()
 writeExporterHtml()
+writeRenderQueryHtml()
 await import('./build-products.mjs')
 
 const common = {
@@ -36,11 +42,26 @@ await buildInParallel(
             ...common,
         },
         {
+            name: 'Test Worker',
+            entryPoints: ['src/scenes/session-recordings/player/testWorker.ts'],
+            format: 'esm',
+            outfile: path.resolve(__dirname, 'dist', 'testWorker.js'),
+            ...common,
+        },
+        {
             name: 'Exporter',
             globalName: 'posthogExporter',
             entryPoints: ['src/exporter/index.tsx'],
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'exporter.js'),
+            ...common,
+        },
+        {
+            name: 'Render Query',
+            globalName: 'posthogRenderQuery',
+            entryPoints: ['src/render-query/index.tsx'],
+            format: 'iife',
+            outfile: path.resolve(__dirname, 'dist', 'render-query.js'),
             ...common,
         },
         {
@@ -81,6 +102,7 @@ await buildInParallel(
                             'lib/hog',
                             'scenes/activity/explore/EventDetails',
                             'scenes/web-analytics/WebAnalyticsDashboard',
+                            'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager.ts',
                         ]
 
                         // Patterns to match for denying imports
@@ -122,8 +144,8 @@ await buildInParallel(
                                                 args.path
                                             )});
                                         }
-                                        return function() { 
-                                            return {} 
+                                        return function() {
+                                            return {}
                                         }
                                     }
                                 });
@@ -161,6 +183,10 @@ await buildInParallel(
                 writeExporterHtml(chunks, entrypoints)
             }
 
+            if (config.name === 'Render Query') {
+                writeRenderQueryHtml(chunks, entrypoints)
+            }
+
             createHashlessEntrypoints(__dirname, entrypoints)
         },
     }
@@ -173,4 +199,15 @@ export function writeIndexHtml(chunks = {}, entrypoints = []) {
 
 export function writeExporterHtml(chunks = {}, entrypoints = []) {
     copyIndexHtml(__dirname, 'src/exporter/index.html', 'dist/exporter.html', 'exporter', chunks, entrypoints)
+}
+
+export function writeRenderQueryHtml(chunks = {}, entrypoints = []) {
+    copyIndexHtml(
+        __dirname,
+        'src/render-query/index.html',
+        'dist/render_query.html',
+        'render-query',
+        chunks,
+        entrypoints
+    )
 }

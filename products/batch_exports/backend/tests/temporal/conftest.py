@@ -10,22 +10,42 @@ from django.conf import settings
 import psycopg
 import temporalio.worker
 from asgiref.sync import sync_to_async
+from infi.clickhouse_orm import Database
 from psycopg import sql
 from temporalio.testing import ActivityEnvironment
 
 from posthog import constants
+from posthog.conftest import create_clickhouse_tables
 from posthog.models import Organization, Team
 from posthog.models.utils import uuid7
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import configure_logger
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
-from posthog.temporal.tests.utils.persons import (
+
+from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
+from products.batch_exports.backend.tests.temporal.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
     generate_test_persons_in_clickhouse,
 )
 
-from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
+
+@pytest.fixture(scope="package", autouse=True)
+def clickhouse_create_db_and_tables():
+    database = Database(
+        settings.CLICKHOUSE_DATABASE,
+        db_url=settings.CLICKHOUSE_HTTP_URL,
+        username=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        cluster=settings.CLICKHOUSE_CLUSTER,
+        verify_ssl_cert=settings.CLICKHOUSE_VERIFY,
+        randomize_replica_paths=True,
+    )
+
+    database.create_database()  # Create database if it doesn't exist
+    create_clickhouse_tables()  # Create all expected tables
+
+    yield
 
 
 @pytest.fixture

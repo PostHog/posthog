@@ -312,7 +312,7 @@
     // Product specific colors
     --color-product-data-pipeline-light: rgb(46 162 211);
     --color-product-product-analytics-light: rgb(47 128 250);
-    --color-product-messaging-light: rgb(47 128 250);
+    --color-product-workflows-light: rgb(47 128 250);
     --color-product-web-analytics-light: rgb(52 175 102);
     --color-product-web-analytics-dark: rgb(54 196 111); // original color
     --color-product-embedded-analytics-light: rgb(243 153 109);
@@ -967,7 +967,7 @@
     --color-bg-fill-button-panel-hover: var(--color-bg-fill-highlight-150);
     --color-bg-fill-button-panel-active: var(--color-bg-fill-highlight-100);
     --color-bg-fill-input: var(--color-neutral-cool-850);
-    --color-bg-fill-switch: var(--color-neutral-cool-900);
+    --color-bg-fill-switch: var(--color-neutral-cool-600);
     --color-bg-fill-slider-rail: color-mix(in oklab, var(--color-white) 15%, transparent);
     --color-bg-fill-scroll-thumb: color-mix(in oklab, var(--color-white) 20%, transparent);
     --color-bg-border-primary: var(--color-neutral-cool-800);
@@ -1083,6 +1083,13 @@
         &::-webkit-search-results-decoration {
             display: none;
         }
+    }
+
+    a:focus-visible,
+    button:focus-visible,
+    a[data-focused='true'],
+    button[data-focused='true'] {
+        outline: 2px solid var(--color-accent);
     }
 
     body {
@@ -1621,7 +1628,7 @@
         color: var(--color-text-primary);
         background-color: var(--color-bg-surface-primary);
         border: 1px solid var(--color-border-primary);
-        border-radius: var(--radius-md);
+        border-radius: var(--radius-lg);
         box-shadow: var(--shadow-elevation-3000);
     }
 
@@ -1629,7 +1636,6 @@
         display: flex;
         flex-direction: column;
         gap: 1px;
-        padding: var(--spacing);
     }
 
     .animate-mark {
@@ -1672,6 +1678,19 @@
 
         100% {
             transform: rotateZ(360deg);
+        }
+    }
+
+    // Note: Scaling in from 0 is not typically recommended, the smoother alternative is to
+    // scale in from a value between 0.5-0.8 and 0 opacity. But SOME situations call for scaling from 0, like icons
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes scale-in {
+        0% {
+            transform: scale(0);
+        }
+
+        100% {
+            transform: scale(1);
         }
     }
 
@@ -1755,5 +1774,42 @@
     .hogqlx-redacted:focus-visible {
         outline: 2px dashed currentColor;
         outline-offset: 2px;
+    }
+
+    .animate-logomark-jump {
+        --logomark-airtime: 0.4s;
+
+        svg {
+            overflow: visible;
+
+            // Animate each child with a staggered delay
+            > * {
+                // Times 25 because the actual animation is 4% of the keyframes (so 1/25)
+                animation: Logomark__jump calc(var(--logomark-airtime) * 25) cubic-bezier(0.6, 0, 0.2, 0.8) infinite;
+            }
+
+            @for $i from 1 through 4 {
+                > *:nth-child(#{$i}) {
+                    // Dividing by 15 just because it feels good
+                    animation-delay: calc(var(--logomark-airtime) / 15 * ($i - 1));
+                }
+            }
+        }
+
+        @keyframes Logomark__jump {
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+
+            2% {
+                transform: translateY(-10px);
+            }
+
+            4% {
+                // Only 4% so that this repeats every now and then nicely
+                transform: translateY(0);
+            }
+        }
     }
 }

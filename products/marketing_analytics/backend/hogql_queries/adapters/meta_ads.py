@@ -13,7 +13,25 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
     - stats_table: DataWarehouse table with campaign stats
     """
 
+    @classmethod
+    def get_source_identifier_mapping(cls) -> dict[str, list[str]]:
+        """Meta Ads campaigns typically use 'meta' as the UTM source"""
+        return {
+            "meta": [
+                "meta",
+                "facebook",
+                "instagram",
+                "messenger",
+                "fb",
+                "whatsapp",
+                "audience_network",
+                "facebook_marketplace",
+                "threads",
+            ]
+        }
+
     def get_source_type(self) -> str:
+        """Return unique identifier for this source type"""
         return "MetaAds"
 
     def validate(self) -> ValidationResult:
@@ -41,9 +59,6 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
         campaign_table_name = self.config.campaign_table.name
         return ast.Call(name="toString", args=[ast.Field(chain=[campaign_table_name, "name"])])
 
-    def _get_source_name_field(self) -> ast.Expr:
-        return ast.Call(name="toString", args=[ast.Constant(value="meta")])
-
     def _get_impressions_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
         sum = ast.Call(
@@ -60,8 +75,28 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
 
     def _get_cost_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        sum = ast.Call(name="SUM", args=[ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "spend"])])])
-        return ast.Call(name="toFloat", args=[sum])
+        base_currency = self.context.base_currency
+
+        # Get cost
+        spend_field = ast.Field(chain=[stats_table_name, "spend"])
+        spend_float = ast.Call(name="toFloat", args=[spend_field])
+
+        # Check if currency column exists in stats table
+        try:
+            columns = getattr(self.config.stats_table, "columns", None)
+            if columns and hasattr(columns, "__contains__") and "account_currency" in columns:
+                # Convert each row's spend, then sum
+                currency_field = ast.Field(chain=[stats_table_name, "account_currency"])
+                convert_currency = ast.Call(
+                    name="convertCurrency", args=[currency_field, ast.Constant(value=base_currency), spend_float]
+                )
+                convert_to_float = ast.Call(name="toFloat", args=[convert_currency])
+                return ast.Call(name="SUM", args=[convert_to_float])
+        except (TypeError, AttributeError, KeyError):
+            pass
+
+        # Currency column doesn't exist, return cost without conversion
+        return ast.Call(name="SUM", args=[spend_float])
 
     def _get_reported_conversion_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name

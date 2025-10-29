@@ -121,15 +121,15 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v5
               with:
-                  python-version: 3.11.13
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  python-version: 3.12.11
+                  token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
-                  version: 0.7.8
+                  version: 0.8.19
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
@@ -154,7 +154,7 @@ jobs:
 
             - name: Install python dependencies for master
               run: |
-                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+                  UV_PROJECT_ENVIRONMENT=.venv-master uv sync --frozen --dev
 
             - name: Wait for services to be available
               run: |
@@ -164,7 +164,7 @@ jobs:
             - name: Run migrations up to master
               run: |
                   # Run Django migrations first (excluding managed=False models)
-                  python manage.py migrate
+                  .venv-master/bin/python manage.py migrate
                   # Then run persons migrations using sqlx; comment out until we've merged
                   # DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                   #   sqlx database create
@@ -260,21 +260,21 @@ jobs:
                   EXIT_CODE=$?
                   set -e  # Re-enable exit on error
 
-                  if [ -n "$RISK_ANALYSIS" ] && echo "$RISK_ANALYSIS" | grep -q "Summary:"; then
-                    # Get existing comments
-                    COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+                  # Get existing comments
+                  COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+                    -H "Accept: application/vnd.github.v3+json" \
+                    "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments")
+
+                  # Delete previous risk analysis comments
+                  echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## 🔍 Migration Risk Analysis")) | .id' | while read -r comment_id; do
+                    echo "Deleting risk analysis comment $comment_id"
+                    curl -X DELETE \
+                      -H "Authorization: token $GITHUB_TOKEN" \
                       -H "Accept: application/vnd.github.v3+json" \
-                      "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments")
+                      "https://api.github.com/repos/${{ github.repository }}/issues/comments/$comment_id"
+                  done
 
-                    # Delete previous risk analysis comments
-                    echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## 🔍 Migration Risk Analysis")) | .id' | while read -r comment_id; do
-                      echo "Deleting risk analysis comment $comment_id"
-                      curl -X DELETE \
-                        -H "Authorization: token $GITHUB_TOKEN" \
-                        -H "Accept: application/vnd.github.v3+json" \
-                        "https://api.github.com/repos/${{ github.repository }}/issues/comments/$comment_id"
-                    done
-
+                  if [ -n "$RISK_ANALYSIS" ] && echo "$RISK_ANALYSIS" | grep -q "Summary:"; then
                     # Post risk analysis comment (output already contains markdown formatting with legend)
                     RISK_COMMENT="## 🔍 Migration Risk Analysis\n\nWe've analyzed your migrations for potential risks.\n\n$RISK_ANALYSIS"
                     RISK_COMMENT=$(printf '%b' "$RISK_COMMENT")
@@ -286,6 +286,8 @@ jobs:
                       -H "Accept: application/vnd.github.v3+json" \
                       "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
                       -d "$RISK_COMMENT_JSON"
+                  else
+                    echo "No migrations to analyze or risk analysis output empty - previous comments cleaned up"
                   fi
 
                   # Fail the job if there were blocked migrations
@@ -327,7 +329,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                python-version: ['3.11.13']
+                python-version: ['3.12.11']
                 clickhouse-server-image: ['clickhouse/clickhouse-server:25.6.9.98']
                 segment: ['Core']
                 person-on-events: [false]
@@ -380,121 +382,121 @@ jobs:
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 1
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 2
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 3
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 4
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 5
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 6
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 7
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 8
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 9
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 10
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 1
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 2
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 3
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 4
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 5
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 6
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 7
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 8
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 9
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
-                      python-version: '3.11.13'
+                      python-version: '3.12.11'
                       concurrency: 10
                       group: 10
 
@@ -505,7 +507,7 @@ jobs:
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   ref: ${{ github.event.pull_request.head.ref }}
                   # Use PostHog Bot token when not on forks to enable proper snapshot updating
-                  token: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
+                  token: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.POSTHOG_BOT_PAT || github.token }}
 
             - name: 'Safeguard: ensure no stray Python modules at product root'
               run: |
@@ -567,14 +569,14 @@ jobs:
               uses: actions/setup-python@v5
               with:
                   python-version: ${{ matrix.python-version }}
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Install uv
               id: setup-uv-tests
-              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
-                  version: 0.7.8
+                  version: 0.8.19
 
             - name: Install SAML (python3-saml) dependencies
               if: ${{ needs.changes.outputs.backend == 'true' && steps.setup-uv-tests.outputs.cache-hit != 'true' }}
@@ -769,7 +771,7 @@ jobs:
                   message: 'Update query snapshots'
                   pull: --rebase --autostash # Make sure we're up-to-date with other segments' updates
                   default_author: github_actions
-                  github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  github_token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Check if any snapshot changes were left uncomitted
               id: changed-files
@@ -799,7 +801,7 @@ jobs:
 
     # Job just to collate the status of the matrix jobs for requiring passing status
     django_tests:
-        needs: [django]
+        needs: [django, check-migrations, async-migrations]
         name: Django Tests Pass
         runs-on: ubuntu-latest
         if: always()
@@ -812,7 +814,20 @@ jobs:
                     echo "One or more jobs in the Django test matrix failed."
                     exit 1
                   fi
-                  echo "All jobs in the Django test matrix passed."
+
+                  # Check migration validation - must pass for Django Tests to be green
+                  if [[ "${{ needs.check-migrations.result }}" != "success" && "${{ needs.check-migrations.result }}" != "skipped" ]]; then
+                    echo "Migration checks failed."
+                    exit 1
+                  fi
+
+                  # Check async migrations - must pass for Django Tests to be green
+                  if [[ "${{ needs.async-migrations.result }}" != "success" && "${{ needs.async-migrations.result }}" != "skipped" ]]; then
+                    echo "Async migrations tests failed."
+                    exit 1
+                  fi
+
+                  echo "All checks passed."
 
     async-migrations:
         name: Async migrations tests -  ${{ matrix.clickhouse-server-image }}
@@ -839,14 +854,13 @@ jobs:
               uses: actions/setup-python@v5
               with:
                   python-version-file: 'pyproject.toml'
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Install uv
               id: setup-uv-async
-              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
-                  version: 0.7.8
+                  version: 0.8.19
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv-async.outputs.cache-hit != 'true'

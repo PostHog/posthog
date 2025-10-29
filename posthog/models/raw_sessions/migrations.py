@@ -3,7 +3,7 @@ from django.conf import settings
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.models.raw_sessions.sql import (
+from posthog.models.raw_sessions.sessions_v2 import (
     RAW_SESSION_TABLE_UPDATE_SQL,
     RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL,
     SHARDED_RAW_SESSIONS_DATA_TABLE,

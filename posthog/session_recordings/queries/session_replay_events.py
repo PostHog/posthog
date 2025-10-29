@@ -42,9 +42,7 @@ class SessionReplayEvents:
             return cached_response
 
         # Once we know that session exists we don't need to check again (until the end of the day since TTL might apply)
-        existence = self._check_exists_within_days(ttl_days(team), session_id, team) or self._check_exists_within_days(
-            370, session_id, team
-        )
+        existence = self._check_exists(session_id, team)
 
         if existence:
             # let's be cautious and not cache non-existence
@@ -54,25 +52,33 @@ class SessionReplayEvents:
         return existence
 
     @staticmethod
-    def _check_exists_within_days(days: int, session_id: str, team: Team) -> bool:
+    def _check_exists(session_id: str, team: Team) -> bool:
         result = sync_execute(
             """
-            SELECT count()
-            FROM session_replay_events
-            PREWHERE team_id = %(team_id)s
-            AND session_id = %(session_id)s
-            AND min_first_timestamp >= %(python_now)s - INTERVAL %(days)s DAY
-            AND min_first_timestamp <= %(python_now)s
-            AND addDays(dateTrunc('DAY', min_first_timestamp), 1) >= %(python_now)s - interval coalesce(retention_period_days, 365) days
+            SELECT
+                count(),
+                min(min_first_timestamp) as start_time,
+                max(retention_period_days) as retention_period_days,
+                dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time
+            FROM
+                session_replay_events
+            PREWHERE
+                team_id = %(team_id)s
+                AND session_id = %(session_id)s
+                AND min_first_timestamp <= %(python_now)s
+            GROUP BY
+                session_id
+            HAVING
+                expiry_time >= %(python_now)s
             """,
             {
                 "team_id": team.pk,
                 "session_id": session_id,
-                "days": days,
+                "ttl_days": ttl_days(team),
                 "python_now": datetime.now(pytz.timezone("UTC")),
             },
         )
-        return result[0][0] > 0
+        return result and result[0][0] > 0
 
     def sessions_found_with_timestamps(
         self, session_ids: list[str], team: Team
@@ -85,7 +91,7 @@ class SessionReplayEvents:
         if not session_ids:
             return set(), None, None
         # Check sessions within TTL
-        found_sessions = self._find_within_days_with_timestamps(ttl_days(team), session_ids, team)
+        found_sessions = self._find_with_timestamps(session_ids, team)
         if not found_sessions:
             return set(), None, None
         # Calculate min/max timestamps for the entire list of sessions and return
@@ -96,9 +102,7 @@ class SessionReplayEvents:
         return sessions_found, min_timestamp, max_timestamp
 
     @staticmethod
-    def _find_within_days_with_timestamps(
-        days: int, session_ids: list[str], team: Team
-    ) -> list[tuple[str, datetime, datetime]]:
+    def _find_with_timestamps(session_ids: list[str], team: Team) -> list[tuple[str, datetime, datetime]]:
         """
         Check which session IDs exist within the specified number of days.
         Returns a list of tuples of (session_id, min_timestamp, max_timestamp).
@@ -109,25 +113,30 @@ class SessionReplayEvents:
             SELECT
                 session_id,
                 min(min_first_timestamp) as min_timestamp,
-                max(max_last_timestamp) as max_timestamp
-            FROM session_replay_events
-            PREWHERE team_id = %(team_id)s
-            AND session_id IN %(session_ids)s
-            AND min_first_timestamp >= %(python_now)s - INTERVAL %(days)s DAY
-            AND min_first_timestamp <= %(python_now)s
-            AND addDays(dateTrunc('DAY', min_first_timestamp), 1) >= %(python_now)s - interval coalesce(retention_period_days, 365) days
-            GROUP BY session_id
+                max(max_last_timestamp) as max_timestamp,
+                max(retention_period_days) as retention_period_days,
+                dateTrunc('DAY', min_timestamp) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time
+            FROM
+                session_replay_events
+            PREWHERE
+                team_id = %(team_id)s
+                AND session_id IN %(session_ids)s
+                AND min_first_timestamp <= %(python_now)s
+            GROUP BY
+                session_id
+            HAVING
+                expiry_time >= %(python_now)s
             """,
             {
                 "team_id": team.pk,
                 "session_ids": session_ids,
-                "days": days,
+                "ttl_days": ttl_days(team),
                 "python_now": datetime.now(pytz.timezone("UTC")),
             },
         )
         if not result:
             return []
-        sessions_found: list[tuple[str, datetime, datetime]] = [tuple(row) for row in result]
+        sessions_found: list[tuple[str, datetime, datetime]] = [(row[0], row[1], row[2]) for row in result]
         return sessions_found
 
     @staticmethod
@@ -156,17 +165,20 @@ class SessionReplayEvents:
                 groupArrayArray(block_first_timestamps) as block_first_timestamps,
                 groupArrayArray(block_last_timestamps) as block_last_timestamps,
                 groupArrayArray(block_urls) as block_urls,
-                max(retention_period_days)
+                max(retention_period_days) as retention_period_days,
+                dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time,
+                dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl
             FROM
                 session_replay_events
             PREWHERE
                 team_id = %(team_id)s
                 AND session_id = %(session_id)s
                 AND min_first_timestamp <= %(python_now)s
-                AND addDays(dateTrunc('DAY', min_first_timestamp), 1) >= %(python_now)s - interval coalesce(retention_period_days, %(ttl_days)s) days
                 {optional_timestamp_clause}
             GROUP BY
                 session_id
+            HAVING
+                expiry_time >= %(python_now)s
         """
         query = query.format(
             optional_timestamp_clause=(
@@ -189,18 +201,20 @@ class SessionReplayEvents:
                     min(min_first_timestamp) as start_time,
                     groupArrayArray(block_first_timestamps) as block_first_timestamps,
                     groupArrayArray(block_last_timestamps) as block_last_timestamps,
-                    groupArrayArray(block_urls) as block_urls
+                    groupArrayArray(block_urls) as block_urls,
+                    max(retention_period_days) as retention_period_days,
+                    dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time
                 FROM
                     session_replay_events
-                    PREWHERE
+                PREWHERE
                     team_id = %(team_id)s
                     AND session_id = %(session_id)s
                     AND min_first_timestamp <= %(python_now)s
-                    AND min_first_timestamp >= %(python_now)s - interval %(ttl_days)s days
-                    AND addDays(dateTrunc('DAY', min_first_timestamp), 1) >= %(python_now)s - interval coalesce(retention_period_days, 365) days
                     {optional_timestamp_clause}
                 GROUP BY
                     session_id
+                HAVING
+                    expiry_time >= %(python_now)s
                 {optional_format_clause}
                 """
         query = query.format(
@@ -236,6 +250,8 @@ class SessionReplayEvents:
             block_last_timestamps=replay[14],
             block_urls=replay[15],
             retention_period_days=replay[16],
+            expiry_time=replay[17],
+            recording_ttl=replay[18],
         )
 
     def get_metadata(
@@ -299,17 +315,20 @@ class SessionReplayEvents:
                 groupArrayArray(block_first_timestamps) as block_first_timestamps,
                 groupArrayArray(block_last_timestamps) as block_last_timestamps,
                 groupArrayArray(block_urls) as block_urls,
-                max(retention_period_days)
+                max(retention_period_days) as retention_period_days,
+                dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time,
+                dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl
             FROM
                 session_replay_events
             PREWHERE
                 team_id = %(team_id)s
                 AND session_id IN %(session_ids)s
-                AND addDays(dateTrunc('DAY', min_first_timestamp), 1) >= %(python_now)s - interval coalesce(retention_period_days, %(ttl_days)s) days
                 {optional_max_timestamp_clause if recordings_max_timestamp else "AND min_first_timestamp <= %(python_now)s"}
                 {optional_min_timestamp_clause}
             GROUP BY
                 session_id
+            HAVING
+                expiry_time >= %(python_now)s
         """
         replay_response: list[tuple] = sync_execute(
             query,
@@ -449,17 +468,53 @@ class SessionReplayEvents:
         """
         query = """
                 SELECT
-                    session_id
+                    session_id,
+                    min(min_first_timestamp) as start_time,
+                    max(retention_period_days) as retention_period_days,
+                    dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time
                 FROM
                     session_replay_events
                 PREWHERE
                     team_id = %(team_id)s
                     AND distinct_id IN (%(distinct_ids)s)
                     AND min_first_timestamp <= %(python_now)s
-                    AND min_first_timestamp >= %(python_now)s - interval %(ttl_days)s days
-                    AND addDays(dateTrunc('DAY', min_first_timestamp), 1) >= %(python_now)s - interval coalesce(retention_period_days, 365) days
                 GROUP BY
                     session_id
+                HAVING
+                    expiry_time >= %(python_now)s
+                {optional_format_clause}
+                """
+        query = query.format(
+            optional_format_clause=(f"FORMAT {format}" if format else ""),
+        )
+        return query
+
+    @staticmethod
+    def get_soon_to_expire_sessions_query(
+        format: Optional[str] = None,
+    ):
+        """
+        Helper function to build a query for listing all sessions that are about to expire
+        """
+        query = """
+                SELECT
+                    session_id,
+                    min(min_first_timestamp) as start_time,
+                    max(retention_period_days) as retention_period_days,
+                    dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time,
+                    dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl
+                FROM
+                    session_replay_events
+                PREWHERE
+                    team_id = %(team_id)s
+                    AND min_first_timestamp <= %(python_now)s
+                GROUP BY
+                    session_id
+                HAVING
+                    expiry_time >= %(python_now)s
+                    AND recording_ttl <= %(ttl_threshold)s
+                ORDER BY recording_ttl ASC
+                LIMIT %(limit)s
                 {optional_format_clause}
                 """
         query = query.format(

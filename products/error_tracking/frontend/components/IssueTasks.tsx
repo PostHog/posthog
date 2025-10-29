@@ -5,6 +5,7 @@ import { LemonDialog, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { ErrorEventType, ErrorTrackingException } from 'lib/components/Errors/types'
+import { formatResolvedName, formatType } from 'lib/components/Errors/utils'
 import { GitHubRepositorySelectField } from 'lib/integrations/GitHubIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -54,7 +55,7 @@ const createTaskForm = (
         if (props.$exception_list && Array.isArray(props.$exception_list) && props.$exception_list.length > 0) {
             const exception = props.$exception_list[0] as ErrorTrackingException
 
-            description += `## ${exception.type}: ${exception.value}\n\n`
+            description += `## ${formatType(exception)}: ${exception.value}\n\n`
 
             if (exception.mechanism) {
                 description += `**Handled:** ${exception.mechanism.handled ? 'Yes' : 'No'}\n\n`
@@ -67,8 +68,9 @@ const createTaskForm = (
                 const frames = exception.stacktrace.frames.slice().reverse() // Reverse to show call order
                 frames.forEach((frame, index) => {
                     description += `**${index + 1}.** `
-                    if (frame.resolved_name && frame.resolved_name !== '?') {
-                        description += `\`${frame.resolved_name}\``
+                    const resolvedName = formatResolvedName(frame)
+                    if (resolvedName) {
+                        description += `\`${resolvedName}\``
                     } else {
                         description += 'Anonymous function'
                     }

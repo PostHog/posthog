@@ -25,10 +25,6 @@ from posthog.batch_exports.service import (
 from posthog.models.integration import Integration
 from posthog.models.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.tests.utils.persons import (
-    generate_test_person_distinct_id2_in_clickhouse,
-    generate_test_persons_in_clickhouse,
-)
 
 from products.batch_exports.backend.temporal.destinations.databricks_batch_export import (
     DatabricksBatchExportWorkflow,
@@ -40,6 +36,10 @@ from products.batch_exports.backend.tests.temporal.destinations.base_destination
     CommonWorkflowTests,
     RetryableTestException,
     assert_clickhouse_records_in_destination,
+)
+from products.batch_exports.backend.tests.temporal.utils.persons import (
+    generate_test_person_distinct_id2_in_clickhouse,
+    generate_test_persons_in_clickhouse,
 )
 
 # Note: we add _BE to the env vars to avoid conflicts with env vars the Databricks SDK is automatically looking for,

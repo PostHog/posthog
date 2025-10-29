@@ -1,12 +1,8 @@
 import clsx from 'clsx'
-import { useValues } from 'kea'
 import React from 'react'
 
 import { IconSparkles, IconWrench } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
-
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { userLogic } from 'scenes/userLogic'
 
 import { ToolRegistration } from './max-constants'
 import { useMaxTool } from './useMaxTool'
@@ -37,8 +33,6 @@ export function MaxTool({
     className,
     position = 'top-right',
 }: MaxToolProps): JSX.Element {
-    const { user } = useValues(userLogic)
-
     const { definition, isMaxOpen, openMax } = useMaxTool({
         identifier,
         icon,
@@ -62,11 +56,11 @@ export function MaxTool({
                         !isMaxOpen ? (
                             <>
                                 <IconSparkles className="mr-1.5" />
-                                {definition.name} with Max
+                                {definition.name} with PostHog AI
                             </>
                         ) : (
                             <>
-                                Max can use this tool
+                                PostHog AI can use this tool
                                 <br />
                                 {icon || <IconWrench />}
                                 <i className="ml-1.5">{definition.name}</i>
@@ -88,14 +82,10 @@ export function MaxTool({
                         onClick={openMax || undefined}
                     >
                         {/* Burst border - the inset and size vals are very specific just bc these look nice */}
-                        <svg className={clsx('absolute -inset-1 size-8')} viewBox="0 0 100 100">
+                        <svg className="absolute -inset-1 size-8" viewBox="0 0 100 100">
                             <polygon points={generateBurstPoints(16, 3 / 16)} fill="var(--primary-3000)" />
                         </svg>
-                        <ProfilePicture
-                            user={{ hedgehog_config: { ...user?.hedgehog_config, use_as_profile: true } }}
-                            size="md"
-                            className="bg-bg-light"
-                        />
+                        <IconSparkles className="relative size-6 pl-0.5 pb-0.5 text-bg-light" />
                     </button>
                 </Tooltip>
                 {typeof Children === 'function' ? <Children toolAvailable={true} /> : Children}
@@ -107,7 +97,9 @@ export function MaxTool({
             className={clsx(
                 'relative flex flex-col',
                 // Rounding is +1px to account for the border
-                isMaxOpen && 'border border-primary-3000 border-dashed -m-px rounded-[calc(var(--radius)+1px)]',
+                isMaxOpen &&
+                    active &&
+                    'border border-primary-3000 border-dashed -m-px rounded-[calc(var(--radius)+1px)]',
                 className
             )}
         >

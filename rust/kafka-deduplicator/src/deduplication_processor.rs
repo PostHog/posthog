@@ -752,6 +752,15 @@ impl MessageProcessor for DeduplicationProcessor {
 }
 
 impl DeduplicationProcessor {
+    /// Determine if an event should be published to the duplicate events topic
+    fn should_publish_event(&self, result: &DeduplicationResult) -> bool {
+        matches!(
+            result,
+            DeduplicationResult::ConfirmedDuplicate(_, _, _, _)
+                | DeduplicationResult::PotentialDuplicate(_, _, _)
+        )
+    }
+
     /// Publish duplicate event to the duplicate events topic
     async fn publish_duplicate_event(
         &self,
@@ -762,7 +771,7 @@ impl DeduplicationProcessor {
         metrics: &MetricsHelper,
     ) -> Result<()> {
         // Only publish for actual duplicates (not New or Skipped)
-        if !deduplication_result.is_duplicate() {
+        if !self.should_publish_event(deduplication_result) {
             return Ok(());
         }
 

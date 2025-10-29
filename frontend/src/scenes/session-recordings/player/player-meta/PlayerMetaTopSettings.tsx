@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { useEffect } from 'react'
 
 import { IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
 import { LemonButton, LemonDialog, Link } from '@posthog/lemon-ui'
 
+import { SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS } from 'lib/constants'
 import { IconHeatmap } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
@@ -13,10 +15,6 @@ import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-
-import { playerMetaLogic } from './playerMetaLogic'
-
-const TTL_WARNING_THRESHOLD_DAYS = 10 // days
 
 function SetPlaybackSpeed(): JSX.Element {
     const { speed, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
@@ -66,14 +64,20 @@ function InspectDOM(): JSX.Element {
 }
 
 function TTLWarning(): JSX.Element | null {
-    const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
-    const { sessionTTLDays } = useValues(playerMetaLogic(logicProps))
+    const lowTtl =
+        sessionPlayerMetaData?.recording_ttl &&
+        sessionPlayerMetaData.recording_ttl <= SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS
 
-    if (sessionTTLDays === null || sessionTTLDays > TTL_WARNING_THRESHOLD_DAYS) {
+    useEffect(() => {
+        if (lowTtl) {
+            posthog.capture('recording viewed with very low TTL', sessionPlayerMetaData)
+        }
+    }, [sessionPlayerMetaData, lowTtl])
+
+    if (!lowTtl) {
         return null
     }
-    posthog.capture('recording viewed with very low TTL', sessionPlayerMetaData)
 
     return (
         <div className="font-medium">
@@ -87,8 +91,9 @@ function TTLWarning(): JSX.Element | null {
                         title: 'Recording about to expire',
                         description: (
                             <span>
-                                This recording will expire in <strong>{sessionTTLDays} days</strong>. If you wish to
-                                keep it around, you should add it to a collection.
+                                This recording will expire in{' '}
+                                <strong>{sessionPlayerMetaData.recording_ttl} days</strong>. If you wish to keep it
+                                around, you should add it to a collection.
                                 <br />
                                 Refer to{' '}
                                 <Link
@@ -106,7 +111,7 @@ function TTLWarning(): JSX.Element | null {
                 }}
                 noPadding
             >
-                This recording will expire in {sessionTTLDays} days
+                This recording will expire in {sessionPlayerMetaData.recording_ttl} days
             </LemonButton>
         </div>
     )

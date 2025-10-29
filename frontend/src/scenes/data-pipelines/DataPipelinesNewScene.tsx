@@ -40,13 +40,13 @@ export const dataPipelinesNewSceneLogic = kea<dataPipelinesNewSceneLogicType>([
                     },
                     {
                         key: [Scene.DataPipelines, kind],
-                        name: capitalizeFirstLetter(kind) + 's',
+                        name: capitalizeFirstLetter(humanizeHogFunctionType(kind, true)),
                         path: urls.dataPipelines((kind + 's') as DataPipelinesSceneTab),
                         iconType: 'data_pipeline',
                     },
                     {
                         key: Scene.DataPipelinesNew,
-                        name: 'New',
+                        name: 'New ' + humanizeHogFunctionType(kind),
                         iconType: 'data_pipeline',
                     },
                 ]

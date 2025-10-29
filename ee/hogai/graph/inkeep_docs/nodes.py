@@ -1,4 +1,5 @@
-from typing import Literal
+from collections.abc import Mapping, Sequence
+from typing import Any, Literal
 from uuid import uuid4
 
 from django.conf import settings
@@ -9,15 +10,15 @@ from langchain_core.messages import (
     HumanMessage as LangchainHumanMessage,
     SystemMessage as LangchainSystemMessage,
 )
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import AssistantMessage, AssistantToolCallMessage
+from posthog.schema import AssistantMessage, AssistantToolCallMessage, FailureMessage
 
 from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.utils.openai import convert_to_openai_messages
 from ee.hogai.utils.state import PartialAssistantState
 from ee.hogai.utils.types import AssistantState
-from ee.hogai.utils.types.base import AssistantNodeName
+from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantNodeName
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from ..root.nodes import RootNode
@@ -31,11 +32,12 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
     def node_name(self) -> MaxNodeName:
         return AssistantNodeName.INKEEP_DOCS
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         """Process the state and return documentation search results."""
-        prompt = ChatPromptTemplate(self._construct_messages(state))
-        chain = prompt | self._get_model()
-        message: LangchainAIMessage = chain.invoke({}, config)
+        messages = self._construct_messages(
+            state.messages, state.root_conversation_start_id, state.root_tool_calls_count
+        )
+        message: LangchainAIMessage = await self._get_model().ainvoke(messages, config)
         return PartialAssistantState(
             messages=[
                 AssistantToolCallMessage(
@@ -46,23 +48,41 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
             root_tool_call_id=None,
         )
 
-    def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
-        system_prompt = LangchainSystemMessage(content=INKEEP_DOCS_SYSTEM_PROMPT)
-        messages: list[BaseMessage] = []
-        for message in super()._construct_messages(state):
-            if message.content:
-                messages.append(message)
+    def _construct_messages(
+        self,
+        messages: Sequence[AssistantMessageUnion],
+        window_start_id: str | None = None,
+        tool_calls_count: int | None = None,
+    ) -> list[BaseMessage]:
+        conversation_window = self._window_manager.get_messages_in_window(messages, window_start_id)
+        # Inkeep supports maximum 30 messages. Two are reserved for system prompts.
+        conversation_window = conversation_window[-28:]
+        langchain_messages = self._convert_to_langchain_messages(
+            conversation_window, self._get_tool_map(conversation_window)
+        )
+
+        # Inkeep doesn't support AIMessages without content.
+        # Add some content that won't reflect in the final response.
+        for msg in langchain_messages:
+            if isinstance(msg, LangchainAIMessage) and not msg.content:
+                msg.content = "..."  # Patch until Inkeep supports empty AI messages
 
         # Only keep the messages up to the last human or system message,
         # as Inkeep doesn't like the last message being an AI one
         last_human_message_index = next(
-            (i for i in range(len(messages) - 1, -1, -1) if isinstance(messages[i], LangchainHumanMessage)), None
+            (
+                i
+                for i in range(len(langchain_messages) - 1, -1, -1)
+                if isinstance(langchain_messages[i], LangchainHumanMessage)
+            ),
+            None,
         )
         if last_human_message_index is not None:
-            messages = messages[: last_human_message_index + 1]
-        return [system_prompt] + messages[-29:]
+            langchain_messages = langchain_messages[: last_human_message_index + 1]
 
-    def _get_model(self):  # type: ignore
+        return [LangchainSystemMessage(content=INKEEP_DOCS_SYSTEM_PROMPT), *langchain_messages]
+
+    def _get_model(self, *args, **kwargs):
         return MaxChatOpenAI(
             model="inkeep-qa-expert",
             base_url="https://api.inkeep.com/v1/",
@@ -72,6 +92,26 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
             user=self._user,
             team=self._team,
         )
+
+    async def _has_reached_token_limit(self, model: Any, window: list[BaseMessage]) -> bool:
+        # The root node on this step will always have the correct window.
+        return False
+
+    def _filter_assistant_messages(self, messages: Sequence[AssistantMessageUnion]):
+        """Filter out messages that are not part of the assistant conversation."""
+        return [
+            message
+            for message in super()._filter_assistant_messages(messages)
+            if not isinstance(message, FailureMessage)
+        ]
+
+    def _convert_to_langchain_messages(
+        self,
+        conversation_window: Sequence[AssistantMessageUnion],
+        tool_result_messages: Mapping[str, AssistantToolCallMessage],
+    ) -> list[BaseMessage]:
+        # Original node has Anthropic messages, but Inkeep expects OpenAI messages
+        return convert_to_openai_messages(conversation_window, tool_result_messages)
 
     def router(self, state: AssistantState) -> Literal["end", "root"]:
         last_message = state.messages[-1]

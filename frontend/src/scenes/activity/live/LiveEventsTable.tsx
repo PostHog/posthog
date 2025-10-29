@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { IconLive, IconPauseFilled, IconPlayFilled } from '@posthog/icons'
+import { IconPauseFilled, IconPlayFilled } from '@posthog/icons'
 import { LemonButton, LemonTabs, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -12,7 +12,8 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -98,11 +99,10 @@ export function LiveEventsTable(): JSX.Element {
                 sceneInset
             />
             <SceneTitleSection
-                name="Live events"
-                description="Real-time events from your app or website."
+                name={sceneConfigurations[Scene.LiveEvents].name}
+                description={sceneConfigurations[Scene.LiveEvents].description}
                 resourceType={{
-                    type: 'live events',
-                    forceIcon: <IconLive />,
+                    type: sceneConfigurations[Scene.LiveEvents].iconType || 'default_icon_type',
                 }}
             />
             <SceneDivider />

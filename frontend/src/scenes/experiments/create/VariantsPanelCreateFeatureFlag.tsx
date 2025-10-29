@@ -18,7 +18,7 @@ import type { Experiment, MultivariateFlagVariant } from '~/types'
 import { percentageDistribution } from '../utils'
 import { variantsPanelLogic } from './variantsPanelLogic'
 
-const generateFeatureFlagKey = (name: string, unavailableFeatureFlagKeys?: Set<string>): string => {
+export const generateFeatureFlagKey = (name: string, unavailableFeatureFlagKeys?: Set<string>): string => {
     const baseKey = name
         .toLowerCase()
         .replace(/[^A-Za-z0-9-_]+/g, '-')
@@ -52,12 +52,7 @@ export const VariantsPanelCreateFeatureFlag = ({
     experiment,
     onChange,
 }: VariantsPanelCreateFeatureFlagProps): JSX.Element => {
-    const {
-        featureFlagKeyDirty,
-        unavailableFeatureFlagKeys,
-        featureFlagKeyValidation,
-        featureFlagKeyValidationLoading,
-    } = useValues(variantsPanelLogic)
+    const { featureFlagKeyValidation, featureFlagKeyValidationLoading } = useValues(variantsPanelLogic)
     const { setFeatureFlagKeyDirty, validateFeatureFlagKey } = useActions(variantsPanelLogic)
 
     const variants = experiment.parameters?.feature_flag_variants || [
@@ -66,12 +61,24 @@ export const VariantsPanelCreateFeatureFlag = ({
     ]
 
     const ensureExperienceContinuity =
-        (experiment.parameters as { ensure_experience_continuity?: boolean })?.ensure_experience_continuity ?? true
+        (experiment.parameters as { ensure_experience_continuity?: boolean })?.ensure_experience_continuity ?? false
 
     const variantRolloutSum = variants.reduce((sum, { rollout_percentage }) => sum + rollout_percentage, 0)
     const areVariantRolloutsValid =
         variants.every(({ rollout_percentage }) => rollout_percentage >= 0 && rollout_percentage <= 100) &&
         variantRolloutSum === 100
+
+    const areVariantKeysValid = variants.every(({ key }) => key && key.trim().length > 0)
+    const variantKeys = variants.map(({ key }) => key)
+    const hasDuplicateKeys = variantKeys.length !== new Set(variantKeys).size
+
+    // Check if specific variant has an error
+    const hasVariantError = (index: number): boolean => {
+        const variant = variants[index]
+        const isEmpty = !variant.key || variant.key.trim().length === 0
+        const isDuplicate = variantKeys.filter((k) => k === variant.key).length > 1
+        return isEmpty || isDuplicate
+    }
 
     const updateVariant = (index: number, updates: Partial<MultivariateFlagVariant>): void => {
         const newVariants = [...variants]
@@ -128,7 +135,7 @@ export const VariantsPanelCreateFeatureFlag = ({
         if (key) {
             validateFeatureFlagKey(key)
         }
-    }, 300)
+    }, 100)
 
     return (
         <div className="flex flex-col gap-4">
@@ -150,16 +157,6 @@ export const VariantsPanelCreateFeatureFlag = ({
                                 feature_flag_key: normalizedValue,
                             })
                             debouncedValidateFeatureFlagKey(normalizedValue)
-                        }}
-                        onFocus={() => {
-                            if (experiment.name && !featureFlagKeyDirty) {
-                                onChange({
-                                    feature_flag_key: generateFeatureFlagKey(
-                                        experiment.name,
-                                        unavailableFeatureFlagKeys
-                                    ),
-                                })
-                            }
                         }}
                         suffix={
                             featureFlagKeyValidationLoading ? (
@@ -200,14 +197,24 @@ export const VariantsPanelCreateFeatureFlag = ({
                         </div>
                     </div>
                     {variants.map((variant, index) => (
-                        <div key={variant.key} className="grid grid-cols-24 gap-2 mb-2">
+                        <div
+                            key={index}
+                            className={`grid grid-cols-24 gap-2 mb-2 p-2 rounded ${
+                                hasVariantError(index)
+                                    ? 'bg-danger-highlight border border-danger'
+                                    : 'bg-transparent border border-transparent'
+                            }`}
+                        >
                             <div className="flex items-center justify-center">
                                 <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
                             </div>
                             <div className="col-span-4">
                                 <LemonInput
                                     value={variant.key}
-                                    onChange={(value) => updateVariant(index, { key: value })}
+                                    disabledReason={
+                                        variant.key === 'control' ? 'Control variant cannot be changed' : null
+                                    }
+                                    onChange={(value) => updateVariant(index, { key: value.replace(/\s+/g, '-') })}
                                     data-attr="experiment-variant-key"
                                     data-key-index={index.toString()}
                                     className="ph-ignore-input"
@@ -261,6 +268,12 @@ export const VariantsPanelCreateFeatureFlag = ({
                         <p className="text-danger">
                             Percentage rollouts for variants must sum to 100 (currently {variantRolloutSum}).
                         </p>
+                    )}
+                    {variants.length > 0 && !areVariantKeysValid && (
+                        <p className="text-danger">All variants must have a key.</p>
+                    )}
+                    {variants.length > 0 && hasDuplicateKeys && (
+                        <p className="text-danger">Variant keys must be unique.</p>
                     )}
                     {variants.length < MAX_EXPERIMENT_VARIANTS && (
                         <LemonButton type="secondary" onClick={addVariant} icon={<IconPlus />} center>

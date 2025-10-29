@@ -18,14 +18,12 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
                         "property_type": "String",
                         "is_required": True,
                         "description": "User ID",
-                        "order": 0,
                     },
                     {
                         "name": "email",
                         "property_type": "String",
                         "is_required": False,
                         "description": "Email",
-                        "order": 1,
                     },
                 ],
             },
@@ -36,8 +34,10 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
         assert data["name"] == "User Info"
         assert data["description"] == "Basic user information"
         assert len(data["properties"]) == 2
-        assert data["properties"][0]["name"] == "user_id"
-        assert data["properties"][0]["is_required"] is True
+        assert data["properties"][0]["name"] == "email"
+        assert data["properties"][0]["is_required"] is False
+        assert data["properties"][1]["name"] == "user_id"
+        assert data["properties"][1]["is_required"] is True
 
     def test_update_property_group_preserves_existing_properties(self):
         # Create initial property group
@@ -45,10 +45,10 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
             team=self.team, project=self.project, name="Test Group", description="Test"
         )
         prop1 = SchemaPropertyGroupProperty.objects.create(
-            property_group=property_group, name="prop1", property_type="String", order=0
+            property_group=property_group, name="prop1", property_type="String"
         )
         prop2 = SchemaPropertyGroupProperty.objects.create(
-            property_group=property_group, name="prop2", property_type="Numeric", order=1
+            property_group=property_group, name="prop2", property_type="Numeric"
         )
 
         # Update: keep prop1, modify prop2, add prop3, delete nothing
@@ -56,9 +56,9 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
             f"/api/projects/{self.project.id}/schema_property_groups/{property_group.id}/",
             {
                 "properties": [
-                    {"id": str(prop1.id), "name": "prop1", "property_type": "String", "order": 0},
-                    {"id": str(prop2.id), "name": "prop2_updated", "property_type": "Numeric", "order": 1},
-                    {"name": "prop3", "property_type": "Boolean", "order": 2},
+                    {"id": str(prop1.id), "name": "prop1", "property_type": "String"},
+                    {"id": str(prop2.id), "name": "prop2_updated", "property_type": "Numeric"},
+                    {"name": "prop3", "property_type": "Boolean"},
                 ]
             },
         )
@@ -83,18 +83,16 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
         # Create property group with 2 properties
         property_group = SchemaPropertyGroup.objects.create(team=self.team, project=self.project, name="Test Group")
         prop1 = SchemaPropertyGroupProperty.objects.create(
-            property_group=property_group, name="prop1", property_type="String", order=0
+            property_group=property_group, name="prop1", property_type="String"
         )
-        SchemaPropertyGroupProperty.objects.create(
-            property_group=property_group, name="prop2", property_type="Numeric", order=1
-        )
+        SchemaPropertyGroupProperty.objects.create(property_group=property_group, name="prop2", property_type="Numeric")
 
         # Update to only keep prop1
         response = self.client.patch(
             f"/api/projects/{self.project.id}/schema_property_groups/{property_group.id}/",
             {
                 "properties": [
-                    {"id": str(prop1.id), "name": "prop1", "property_type": "String", "order": 0},
+                    {"id": str(prop1.id), "name": "prop1", "property_type": "String"},
                 ]
             },
         )
@@ -121,7 +119,7 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
             {
                 "name": "Test Group",
                 "properties": [
-                    {"name": "123invalid", "property_type": "String", "order": 0},
+                    {"name": "123invalid", "property_type": "String"},
                 ],
             },
         )
@@ -131,9 +129,7 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
 
     def test_delete_property_group(self):
         property_group = SchemaPropertyGroup.objects.create(team=self.team, project=self.project, name="To Delete")
-        SchemaPropertyGroupProperty.objects.create(
-            property_group=property_group, name="prop1", property_type="String", order=0
-        )
+        SchemaPropertyGroupProperty.objects.create(property_group=property_group, name="prop1", property_type="String")
 
         response = self.client.delete(f"/api/projects/{self.project.id}/schema_property_groups/{property_group.id}/")
 
@@ -225,12 +221,28 @@ class TestEventSchemaAPI(APIBaseTest):
 
         response = self.client.post(
             f"/api/projects/{self.project.id}/event_schemas/",
-            {
-                "event_definition": event_def.id,
-                "property_group_id": str(other_property_group.id),
-            },
+            {"event_definition": event_def.id, "property_group_id": str(other_property_group.id)},
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        # The queryset filter prevents cross-team access, so the object "does not exist" from this team's perspective
+        assert "does not exist" in str(response.json())
+
+    def test_cross_team_event_definition_rejection(self):
+        other_project, other_team = Project.objects.create_with_team(
+            organization=self.organization,
+            name="Other Project",
+            initiating_user=self.user,
+            team_fields={"name": "Other Team"},
+        )
+        other_event_def = EventDefinition.objects.create(
+            team=other_team, project=other_project, name="other_team_event"
+        )
+        property_group = SchemaPropertyGroup.objects.create(team=self.team, project=self.project, name="Test Group")
+
+        response = self.client.post(
+            f"/api/projects/{self.project.id}/event_schemas/",
+            {"event_definition": other_event_def.id, "property_group_id": str(property_group.id)},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "does not exist" in str(response.json())

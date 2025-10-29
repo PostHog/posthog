@@ -54,12 +54,28 @@ class RiskAnalyzer:
     }
 
     def analyze_migration(self, migration, path: str) -> MigrationRisk:
+        """Analyze migration without migration loader context (for backwards compatibility)."""
+        return self.analyze_migration_with_context(migration, path, loader=None)
+
+    def analyze_migration_with_context(self, migration, path: str, loader=None) -> MigrationRisk:
+        """
+        Analyze migration with optional migration loader for enhanced validation.
+
+        Args:
+            migration: Django migration object
+            path: Path to migration file (for reporting)
+            loader: Optional Django MigrationLoader for checking migration history
+        """
         # Collect newly created models for this migration (normalized to lowercase for case-insensitive matching)
         self.newly_created_models = {
             op.name.lower()
             for op in migration.operations
             if op.__class__.__name__ == "CreateModel" and hasattr(op, "name")
         }
+
+        # Store loader for operations that need it
+        self.loader = loader
+        self.migration = migration
 
         operation_risks = []
 
@@ -123,6 +139,12 @@ class RiskAnalyzer:
         analyzer = self.ANALYZERS.get(op_type)
 
         if analyzer:
+            # Pass migration context to RunSQLAnalyzer for DROP TABLE validation
+            if op_type == "RunSQL" and hasattr(self, "migration") and hasattr(self, "loader"):
+                return analyzer.analyze(op, migration=self.migration, loader=self.loader)  # type: ignore[call-arg]
+            # Pass migration context to RenameModelAnalyzer for db_table check
+            if op_type == "RenameModel" and hasattr(self, "migration"):
+                return analyzer.analyze(op, migration=self.migration)  # type: ignore[call-arg]
             return analyzer.analyze(op)
 
         # Fallback for unscored operation types

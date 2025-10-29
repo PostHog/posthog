@@ -26,6 +26,8 @@ jobs:
               with:
                   filters: |
                       python:
+                        - 'pyproject.toml'
+                        - 'uv.lock'
                         - 'dags/**'
                         - 'ee/**/*.py'
                         - 'posthog/**/*'
@@ -34,6 +36,13 @@ jobs:
                         - .github/workflows/ci-python.yml
                         - .github/workflows/ci-dagster.yml
                         - .github/workflows/ci-backend.yml
+                        - .flox/env/manifest.toml
+                        - bin/check_uv_python_compatibility.py
+                        # Schema changes need to trigger Python CI to validate schema.py is regenerated
+                        - 'frontend/src/queries/schema.json'
+                        # hogli CLI changes need validation
+                        - 'common/hogli/**'
+                        - 'bin/**'
 
     code-quality:
         needs: changes
@@ -58,15 +67,19 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v5
               with:
-                  python-version: 3.11.13
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  python-version: 3.12.11
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
-                  version: 0.7.8
+                  version: 0.8.19
+
+            - name: Check uv and Python version compatibility
+              shell: bash
+              run: |
+                  python3 bin/check_uv_python_compatibility.py
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
@@ -90,7 +103,21 @@ jobs:
               run: |
                   ruff format --check --diff .
 
-            - name: Add Problem Matcher
+            - name: Add ty Problem Matcher
+              shell: bash
+              run: |
+                  echo "::add-matcher::.github/ty-problem-matcher.json"
+
+            - name: Check ty type checking (informational)
+              shell: bash
+              continue-on-error: true
+              run: |
+                  echo "👀 Running ty type checker (informational - does not block CI)"
+                  echo "📊 Trial run to evaluate ty vs mypy. Feedback welcome in #team-devex"
+                  echo ""
+                  ./bin/ty.py check posthog ee common dags || echo "⚠️ ty found type issues (annotations below)"
+
+            - name: Add mypy Problem Matcher
               shell: bash
               run: |
                   echo "::add-matcher::.github/mypy-problem-matcher.json"
@@ -99,9 +126,9 @@ jobs:
               uses: actions/cache@v4
               with:
                   path: .mypy_cache
-                  key: mypy-cache-${{ runner.os }}-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
+                  key: mypy-cache-${{ runner.os }}-3.12-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
                   restore-keys: |
-                      mypy-cache-${{ runner.os }}-
+                      mypy-cache-${{ runner.os }}-3.12-
 
             - name: Check static typing
               shell: bash -e {0}
@@ -112,6 +139,16 @@ jobs:
               shell: bash
               run: |
                   npm run schema:build:python && git diff --exit-code
+
+            - name: Check hogli manifest completeness
+              shell: bash
+              run: |
+                  ./bin/hogli meta:check
+
+            - name: Run hogli tests
+              shell: bash
+              run: |
+                  pytest common/hogli/tests/ -v --cov=common/hogli --cov-report=term
 
             # - name: Check if "taxonomy.json/taxonomy.tsx" is up to date
             #   if: needs.changes.outputs.python == 'true'

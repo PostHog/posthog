@@ -17,11 +17,11 @@ from rest_framework.response import Response
 from temporalio.client import ScheduleActionExecutionStartWorkflow
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import SerializedField, create_hogql_database, serialize_fields
+from posthog.hogql.database.database import Database, SerializedField, serialize_fields
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import FindPlaceholders
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -118,7 +118,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         team_id = self.context["team_id"]
         database = self.context.get("database", None)
         if not database:
-            database = create_hogql_database(team_id=team_id)
+            database = Database.create_for(team_id=team_id)
 
         context = HogQLContext(team_id=team_id, database=database)
 
@@ -350,7 +350,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             raise exceptions.ValidationError(detail="Filters and placeholder expressions are not allowed in views")
 
         try:
-            print_ast(
+            prepare_and_print_ast(
                 node=select_ast,
                 context=context,
                 dialect="clickhouse",
@@ -399,7 +399,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["database"] = create_hogql_database(team_id=self.team_id)
+        context["database"] = Database.create_for(team_id=self.team_id)
         return context
 
     def safely_get_queryset(self, queryset):
@@ -410,6 +410,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                     "datamodelingjob_set", queryset=DataModelingJob.objects.order_by("-last_run_at")[:1], to_attr="jobs"
                 ),
             )
+            .filter(managed_viewset__isnull=True)  # Ignore managed views for now
             .exclude(deleted=True)
             .order_by(self.ordering)
         )

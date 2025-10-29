@@ -68,7 +68,10 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             adapters = factory.create_adapters()
             valid_adapters = factory.get_valid_adapters(adapters)
 
-            logger.info(f"Found {len(valid_adapters)} valid marketing source adapters")
+            # Apply integration filter if present
+            if self.query.integrationFilter and self.query.integrationFilter.integrationSourceIds:
+                selected_ids = self.query.integrationFilter.integrationSourceIds
+                valid_adapters = [adapter for adapter in valid_adapters if adapter.get_source_id() in selected_ids]
 
             return valid_adapters
 

@@ -7,6 +7,7 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
+import { formatResolvedName, formatType } from 'lib/components/Errors/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 interface FixModalProps {
@@ -93,13 +94,14 @@ The final output of your efforts should be:
 }
 
 function generateExceptionText(exception: ErrorTrackingException, stackFrameRecords: Record<string, any>): string {
-    let result = `${exception.type}: ${exception.value}`
+    let result = `${formatType(exception)}: ${exception.value}`
 
     const frames = exception.stacktrace?.frames || []
 
     for (const frame of frames) {
         const inAppMarker = frame.in_app ? ' [IN-APP]' : ''
-        result += `\n${inAppMarker}  File "${frame.source}", line: ${frame.line}, in: ${frame.resolved_name}`
+        const resolvedName = formatResolvedName(frame)
+        result += `\n${inAppMarker}  File "${frame.source || 'Unknown Source'}"${frame.line ? `, line: ${frame.line}` : ''}${resolvedName ? `, in: ${resolvedName}` : ''}`
 
         const frameRecord = stackFrameRecords[frame.raw_id]
         if (frameRecord?.context?.line?.line) {

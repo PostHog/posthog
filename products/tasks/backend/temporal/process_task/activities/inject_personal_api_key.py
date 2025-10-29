@@ -1,6 +1,7 @@
 import shlex
 from dataclasses import dataclass
 
+from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 
 from temporalio import activity
@@ -8,7 +9,6 @@ from temporalio import activity
 from posthog.models import PersonalAPIKey
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal, mask_key_value
-from posthog.scopes import API_SCOPE_OBJECTS
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.models import Task
@@ -93,9 +93,14 @@ async def inject_personal_api_key(input: InjectPersonalAPIKeyInput) -> InjectPer
         sandbox = await SandboxEnvironment.get_by_id(input.sandbox_id)
 
         escaped_value = shlex.quote(value)
+        escaped_api_url = shlex.quote(settings.SITE_URL)
 
         result = await sandbox.execute(
-            f"echo 'export POSTHOG_PERSONAL_API_KEY={escaped_value}' >> ~/.bash_profile && echo 'export POSTHOG_PERSONAL_API_KEY={escaped_value}' >> ~/.bashrc"
+            f"echo 'export POSTHOG_PERSONAL_API_KEY={escaped_value}' >> ~/.bash_profile && "
+            f"echo 'export POSTHOG_API_URL={escaped_api_url}' >> ~/.bash_profile && "
+            f"echo 'export POSTHOG_PERSONAL_API_KEY={escaped_value}' >> ~/.bashrc && "
+            f"echo 'export POSTHOG_API_URL={escaped_api_url}' >> ~/.bashrc",
+            timeout_seconds=30,
         )
 
         if result.exit_code != 0:
@@ -108,12 +113,14 @@ async def inject_personal_api_key(input: InjectPersonalAPIKeyInput) -> InjectPer
 
 
 def _get_default_scopes() -> list[str]:
-    """
-    Get default scopes for task agent API keys.
+    # TODO: Make scopes configurable per task in the future.
 
-    TODO: Make scopes configurable per task in the future.
-    For now, we provide read access to most resources.
-    """
-    read_scopes = [f"{obj}:read" for obj in API_SCOPE_OBJECTS if obj not in ["INTERNAL"]]
+    scopes = [
+        "error_tracking:read",
+        "user:read",
+        "organization:read",
+        "project:read",
+        "task:write",
+    ]
 
-    return read_scopes
+    return scopes

@@ -137,10 +137,8 @@ export function DistributionModal({ experimentId }: { experimentId: Experiment['
 
 export function DistributionTable(): JSX.Element {
     const { openDistributionModal } = useActions(modalsLogic)
-    const { experimentId, experiment, legacyPrimaryMetricsResults } = useValues(experimentLogic)
+    const { experimentId, experiment } = useValues(experimentLogic)
     const { reportExperimentReleaseConditionsViewed } = useActions(experimentLogic)
-
-    const result = legacyPrimaryMetricsResults?.[0]
 
     const onSelectElement = (variant: string): void => {
         LemonDialog.open({
@@ -168,9 +166,6 @@ export function DistributionTable(): JSX.Element {
             key: 'key',
             title: 'Variant',
             render: function Key(_, item): JSX.Element {
-                if (!result || !result.insight) {
-                    return <span className="font-semibold">{item.key}</span>
-                }
                 return <VariantTag experimentId={experimentId} variantKey={item.key} />
             },
         },

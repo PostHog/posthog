@@ -16,9 +16,11 @@ import { ExperimentImplementationDetails } from '../ExperimentImplementationDeta
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
 import { LegacyMetricModal } from '../Metrics/LegacyMetricModal'
 import { LegacyMetricSourceModal } from '../Metrics/LegacyMetricSourceModal'
+import { LegacySharedMetricModal } from '../Metrics/LegacySharedMetricModal'
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
 import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { experimentMetricModalLogic } from '../Metrics/experimentMetricModalLogic'
+import { sharedMetricModalLogic } from '../Metrics/sharedMetricModalLogic'
 import { MetricsViewLegacy } from '../MetricsView/legacy/MetricsViewLegacy'
 import { VariantDeltaTimeseries } from '../MetricsView/legacy/VariantDeltaTimeseries'
 import { Metrics } from '../MetricsView/new/Metrics'
@@ -202,11 +204,13 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentId, experiment, usesNewQueryRunner, isExperimentDraft } =
+    const { experimentLoading, experimentId, experiment, usesNewQueryRunner, isExperimentDraft, exposureCriteria } =
         useValues(experimentLogic)
-    const { setExperiment, updateExperimentMetrics } = useActions(experimentLogic)
+    const { setExperiment, updateExperimentMetrics, addSharedMetricsToExperiment, removeSharedMetricFromExperiment } =
+        useActions(experimentLogic)
 
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
+    const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
 
     const [activeTabKey, setActiveTabKey] = useState<string>('metrics')
 
@@ -214,10 +218,19 @@ export function ExperimentView(): JSX.Element {
      * this is temporary, for testing purposes only.
      * this has to be migrated into a scene with a proper path, and paramsToProps
      * so it works seamlesly with the toolbar and tab bar navigation.
+     *
+     * We show the create form if the experiment is draft + has no metrics. Otherwise,
+     * we show the experiment view.
      */
     const isUnifiedCreateFormEnabled = useFeatureFlag('EXPERIMENTS_UNIFIED_CREATE_FORM', 'test')
+    const allPrimaryMetrics = [...(experiment.metrics || []), ...(experiment.saved_metrics || [])]
 
-    if (!experimentLoading && getExperimentStatus(experiment) === ProgressStatus.Draft && isUnifiedCreateFormEnabled) {
+    if (
+        !experimentLoading &&
+        isUnifiedCreateFormEnabled &&
+        getExperimentStatus(experiment) === ProgressStatus.Draft &&
+        allPrimaryMetrics.length === 0
+    ) {
         return <CreateExperiment draftExperiment={experiment} />
     }
 
@@ -264,20 +277,10 @@ export function ExperimentView(): JSX.Element {
 
                     {usesNewQueryRunner ? (
                         <>
-                            <MetricSourceModal isSecondary={true} />
-                            <MetricSourceModal isSecondary={false} />
-                        </>
-                    ) : (
-                        <>
-                            <LegacyMetricSourceModal experimentId={experimentId} isSecondary={true} />
-                            <LegacyMetricSourceModal experimentId={experimentId} isSecondary={false} />
-                        </>
-                    )}
-
-                    {usesNewQueryRunner ? (
-                        <>
+                            <MetricSourceModal />
                             <ExperimentMetricModal
-                                experimentId={experimentId}
+                                experiment={experiment}
+                                exposureCriteria={exposureCriteria}
                                 onSave={(metric, context) => {
                                     const metrics = experiment[context.field]
                                     const isNew = !metrics.some(({ uuid }) => uuid === metric.uuid)
@@ -318,18 +321,53 @@ export function ExperimentView(): JSX.Element {
                                     closeExperimentMetricModal()
                                 }}
                             />
+                            <SharedMetricModal
+                                experiment={experiment}
+                                onSave={(metrics, context) => {
+                                    const existingOrderingArray = experiment[context.orderingField] ?? []
+                                    const newMetricUuids = metrics
+                                        .map((metric) => metric.query.uuid)
+                                        .filter((uuid) => !existingOrderingArray.includes(uuid))
+                                    const newOrderingArray = [...existingOrderingArray, ...newMetricUuids]
+
+                                    setExperiment({
+                                        [context.orderingField]: newOrderingArray,
+                                    })
+
+                                    addSharedMetricsToExperiment(
+                                        metrics.map(({ id }) => id),
+                                        { type: context.type }
+                                    )
+                                    closeSharedMetricModal()
+                                }}
+                                onDelete={(metric, context) => {
+                                    const newOrderingArray = removeMetricFromOrderingArray(
+                                        experiment,
+                                        metric.query.uuid,
+                                        context.type === 'secondary'
+                                    )
+
+                                    setExperiment({
+                                        [context.orderingField]: newOrderingArray,
+                                    })
+
+                                    removeSharedMetricFromExperiment(metric.id)
+                                    closeSharedMetricModal()
+                                }}
+                            />
                             <ExposureCriteriaModal />
                             <RunningTimeCalculatorModal />
                         </>
                     ) : (
                         <>
+                            <LegacyMetricSourceModal experimentId={experimentId} isSecondary={true} />
+                            <LegacyMetricSourceModal experimentId={experimentId} isSecondary={false} />
+                            <LegacySharedMetricModal experimentId={experimentId} isSecondary={true} />
+                            <LegacySharedMetricModal experimentId={experimentId} isSecondary={false} />
                             <LegacyMetricModal experimentId={experimentId} isSecondary={true} />
                             <LegacyMetricModal experimentId={experimentId} isSecondary={false} />
                         </>
                     )}
-
-                    <SharedMetricModal experimentId={experimentId} isSecondary={true} />
-                    <SharedMetricModal experimentId={experimentId} isSecondary={false} />
 
                     <DistributionModal experimentId={experimentId} />
                     <ReleaseConditionsModal experimentId={experimentId} />

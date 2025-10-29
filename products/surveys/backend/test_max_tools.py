@@ -45,11 +45,7 @@ class TestSurveyCreatorTool(BaseTest):
 
     def _setup_tool(self):
         """Helper to create a SurveyCreatorTool instance with mocked dependencies"""
-        tool = CreateSurveyTool(team=self.team, user=self.user)
-
-        # Mock the internal state required by MaxTool
-        tool._init_run(self._config)
-
+        tool = CreateSurveyTool(team=self.team, user=self.user, config=self._config)
         return tool
 
     def test_get_team_survey_config(self):
@@ -469,14 +465,17 @@ class TestSurveyAnalysisTool(BaseTest):
 
     def _setup_tool_with_context(self, context=None):
         """Helper to create a SurveyAnalysisTool instance with context"""
-        tool = SurveyAnalysisTool(team=self.team, user=self.user)
-        tool._init_run(self._config)
-
-        if context is not None:
-            tool._context = context
-        else:
-            tool._context = {}
-
+        tool = SurveyAnalysisTool(
+            team=self.team,
+            user=self.user,
+            config={
+                **self._config,
+                "configurable": {
+                    **self._config.get("configurable", {}),
+                    "contextual_tools": {"analyze_survey_responses": context},
+                },
+            },
+        )
         return tool
 
     @pytest.mark.django_db

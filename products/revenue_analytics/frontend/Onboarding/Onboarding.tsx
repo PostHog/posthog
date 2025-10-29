@@ -1,6 +1,8 @@
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 
-import { PRODUCT_DESCRIPTION, PRODUCT_KEY, PRODUCT_NAME, PRODUCT_THING_NAME } from '../RevenueAnalyticsScene'
+import { PRODUCT_KEY, PRODUCT_THING_NAME } from '../RevenueAnalyticsScene'
 import { InlineSetup, InlineSetupView } from './InlineSetup'
 
 interface OnboardingProps {
@@ -13,10 +15,10 @@ export const Onboarding = ({ initialSetupView, closeOnboarding }: OnboardingProp
         <div className="space-y-6">
             <ProductIntroduction
                 isEmpty
-                productName={PRODUCT_NAME}
+                productName={sceneConfigurations[Scene.RevenueAnalytics].name || ''}
                 productKey={PRODUCT_KEY}
                 thingName={PRODUCT_THING_NAME}
-                description={PRODUCT_DESCRIPTION}
+                description={sceneConfigurations[Scene.RevenueAnalytics].description || ''}
                 titleOverride="Get started with Revenue Analytics"
             />
 

@@ -113,6 +113,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     def an_hour_ago(self):
         return (now() - relativedelta(hours=1)).replace(microsecond=0, second=0)
 
+    @property
+    def midnight_thirty_days_from_now(self):
+        return (now() + relativedelta(days=30)).replace(microsecond=0, second=0, minute=0, hour=0)
+
     def _two_sessions_two_persons(
         self, label: str, session_one_person_properties: dict, session_two_person_properties: dict
     ) -> tuple[str, str]:
@@ -210,11 +214,14 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 "inactive_seconds": 1188.0,
                 "start_time": self.an_hour_ago + relativedelta(seconds=20),
                 "end_time": self.an_hour_ago + relativedelta(seconds=2000),
+                "expiry_time": self.midnight_thirty_days_from_now,
                 "first_url": "https://another-url.com",
                 "console_log_count": 0,
                 "console_warn_count": 0,
                 "console_error_count": 0,
                 "ongoing": 1,
+                "recording_ttl": 30,
+                "retention_period_days": 30,
             },
             {
                 "session_id": session_id_one,
@@ -229,11 +236,14 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 "inactive_seconds": 25.0,
                 "start_time": self.an_hour_ago,
                 "end_time": self.an_hour_ago + relativedelta(seconds=50),
+                "expiry_time": self.midnight_thirty_days_from_now,
                 "first_url": "https://example.io/home",
                 "console_log_count": 0,
                 "console_warn_count": 0,
                 "console_error_count": 0,
                 "ongoing": 1,
+                "recording_ttl": 30,
+                "retention_period_days": 30,
             },
         ]
 
@@ -439,11 +449,14 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 "inactive_seconds": 1188.0,
                 "start_time": self.an_hour_ago + relativedelta(seconds=20),
                 "end_time": self.an_hour_ago + relativedelta(seconds=2000),
+                "expiry_time": self.midnight_thirty_days_from_now,
                 "first_url": "https://another-url.com",
                 "console_log_count": 0,
                 "console_warn_count": 0,
                 "console_error_count": 0,
                 "ongoing": 1,
+                "retention_period_days": 30,
+                "recording_ttl": 30,
             }
         ]
 
@@ -465,11 +478,14 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 "inactive_seconds": 25.0,
                 "start_time": self.an_hour_ago,
                 "end_time": self.an_hour_ago + relativedelta(seconds=50),
+                "expiry_time": self.midnight_thirty_days_from_now,
                 "first_url": "https://example.io/home",
                 "console_log_count": 0,
                 "console_warn_count": 0,
                 "console_error_count": 0,
                 "ongoing": 1,
+                "retention_period_days": 30,
+                "recording_ttl": 30,
             },
         ]
 
@@ -1463,6 +1479,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 "duration": 60,
                 "start_time": self.an_hour_ago,
                 "end_time": self.an_hour_ago + relativedelta(seconds=60),
+                "expiry_time": self.midnight_thirty_days_from_now,
                 "active_seconds": 0.0,
                 "click_count": 0,
                 "first_url": "https://recieved-out-of-order.com/first",
@@ -1474,6 +1491,8 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 "console_warn_count": 0,
                 "console_error_count": 0,
                 "ongoing": 1,
+                "retention_period_days": 30,
+                "recording_ttl": 30,
             }
         ]
 
@@ -1872,16 +1891,16 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             (
-                "that searching from 20 days ago excludes sessions past TTL",
-                20,
+                "that searching from 28 days ago excludes sessions past TTL",
+                28,
             ),
             (
-                "that searching from 21 days ago still excludes sessions past TTL",
-                21,
+                "that searching from 29 days ago still excludes sessions past TTL",
+                29,
             ),
             (
-                "that even searching from 22 days ago (exactly at TTL boundary) excludes sessions past TTL",
-                22,
+                "that even searching from 30 days ago (exactly at TTL boundary) excludes sessions past TTL",
+                30,
             ),
         ]
     )
@@ -1891,21 +1910,21 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             user = "test_date_from_filter_cannot_search_before_ttl-user"
             Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
-            # Create a session past TTL (22 days old)
+            # Create a session past TTL (32 days old)
             produce_replay_summary(
                 distinct_id=user,
                 session_id="storage is past ttl",
-                first_timestamp=(self.an_hour_ago - relativedelta(days=22)),
+                first_timestamp=(self.an_hour_ago - relativedelta(days=30)),
                 # an illegally long session but it started 22 days ago
                 last_timestamp=(self.an_hour_ago - relativedelta(days=3)),
                 team_id=self.team.id,
             )
 
-            # Create a session within TTL (19 days old)
+            # Create a session within TTL (29 days old)
             produce_replay_summary(
                 distinct_id=user,
                 session_id="storage is not past ttl",
-                first_timestamp=(self.an_hour_ago - relativedelta(days=19)),
+                first_timestamp=(self.an_hour_ago - relativedelta(days=27)),
                 last_timestamp=(self.an_hour_ago - relativedelta(days=2)),
                 team_id=self.team.id,
             )
@@ -3824,6 +3843,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 "distinct_id": "user2",
                 "duration": 3600,
                 "end_time": ANY,
+                "expiry_time": ANY,
                 "first_url": "https://not-provided-by-test.com",
                 "inactive_seconds": 3600.0,
                 "keypress_count": 0,
@@ -3832,6 +3852,8 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 "start_time": ANY,
                 "team_id": self.team.id,
                 "ongoing": 1,
+                "retention_period_days": 30,
+                "recording_ttl": 30,
             }
         ]
 
