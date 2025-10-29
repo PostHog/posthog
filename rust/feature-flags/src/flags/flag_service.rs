@@ -172,14 +172,20 @@ impl CacheOrFallback<str, (Team, String)> for TokenVerificationCache {
     ) -> Result<(Team, String), FlagError> {
         match Team::from_pg(pg_client, token).await {
             Ok(team) => Ok((team, token.to_string())),
+            Err(FlagError::RowNotFound) => {
+                // Token doesn't exist in database - this is a legitimate validation error
+                tracing::debug!("Token '{}' not found in database", token);
+                Err(FlagError::TokenValidationError)
+            }
             Err(e) => {
-                // For token verification, any database error means invalid token
-                tracing::debug!(
-                    "Token verification database error for token '{}': {:?}",
+                // Database availability issues (timeouts, unavailable, etc.) should propagate
+                // as-is rather than being masked as authentication failures
+                tracing::warn!(
+                    "Database error during token verification for token '{}': {:?}",
                     token,
                     e
                 );
-                Err(FlagError::TokenValidationError)
+                Err(e)
             }
         }
     }
@@ -729,5 +735,30 @@ mod tests {
             !writer_calls.iter().any(|call| call.op == "set"),
             "Expected SET to NOT be called for RedisUnavailable error, but it was"
         );
+    }
+
+    #[tokio::test]
+    async fn test_verify_token_database_errors_not_masked_as_auth_failures() {
+        // This test documents that database availability errors should NOT be converted
+        // to TokenValidationError. Only RowNotFound should be converted.
+
+        let redis_client = setup_redis_client(None).await;
+        let pg_client = setup_pg_reader_client(None).await;
+
+        let flag_service = FlagService::new(
+            redis_client.clone(),
+            redis_client.clone(),
+            pg_client.clone(),
+        );
+
+        // Test 1: Non-existent token should return TokenValidationError (RowNotFound case)
+        let result = flag_service.verify_token("definitely_does_not_exist").await;
+        assert!(matches!(result, Err(FlagError::TokenValidationError)));
+
+        // Note: Testing actual database timeout/unavailability scenarios would require
+        // either mocking the database or creating unreliable timeout conditions.
+        // The behavior is now documented: only FlagError::RowNotFound gets converted
+        // to TokenValidationError, while DatabaseError, DatabaseUnavailable, and
+        // TimeoutError propagate as-is for proper 503 responses.
     }
 }
