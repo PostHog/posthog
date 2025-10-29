@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 from enum import Enum
 from typing import Literal, Optional
+from urllib.parse import quote
 
 from django.conf import settings
 from django.db.models import OuterRef, Subquery
@@ -247,7 +248,7 @@ def send_email_mfa_link(user_id: int, token: str) -> None:
     """Send email MFA verification link"""
     user: User = User.objects.get(pk=user_id)
 
-    verification_link = f"{settings.SITE_URL}/login/verify?email={user.email}&token={token}"
+    verification_link = f"{settings.SITE_URL}/login/verify?email={quote(user.email)}&token={token}"
 
     message = EmailMessage(
         use_http=True,

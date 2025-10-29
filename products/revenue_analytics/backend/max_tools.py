@@ -153,10 +153,11 @@ class RevenueAnalyticsFilterOptionsGraph(
 ):
     """Graph for generating filtering options for revenue analytics."""
 
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User, tool_call_id: str):
         super().__init__(
             team,
             user,
+            tool_call_id,
             loop_node_class=RevenueAnalyticsFilterNode,
             tools_node_class=RevenueAnalyticsFilterOptionsToolsNode,
             toolkit_class=RevenueAnalyticsFilterOptionsToolkit,
@@ -183,17 +184,15 @@ class FilterRevenueAnalyticsTool(MaxTool):
       * When the user asks to search for revenue analytics or revenue
         - "search for" synonyms: "find", "look up", and similar
     """
-    thinking_message: str = "Coming up with filters"
     context_prompt_template: str = "Current revenue analytics filters are: {current_filters}"
     args_schema: type[BaseModel] = FilterRevenueAnalyticsArgs
-    show_tool_call_message: bool = False
 
     async def _invoke_graph(self, change: str) -> dict[str, Any] | Any:
         """
         Reusable method to call graph to avoid code/prompt duplication and enable
         different processing of the results, based on the place the tool is used.
         """
-        graph = RevenueAnalyticsFilterOptionsGraph(team=self._team, user=self._user)
+        graph = RevenueAnalyticsFilterOptionsGraph(team=self._team, user=self._user, tool_call_id=self._tool_call_id)
         pretty_filters = json.dumps(self.context.get("current_filters", {}), indent=2)
         user_prompt = USER_FILTER_OPTIONS_PROMPT.format(change=change, current_filters=pretty_filters)
         graph_context = {

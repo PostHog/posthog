@@ -112,7 +112,11 @@ ee/session_recordings/**/*.py @PostHog/team-replay
 ee/frontend/mobile-replay @PostHog/team-replay
 
 # DevEx
-
-posthog/management/migration_analysis/ @PostHog/DevEx
-common/hogli/ @PostHog/DevEx
-bin/ @PostHog/DevEx
+Dockerfile @PostHog/team-devex
+docker-compose*.yml @PostHog/team-devex
+pyproject.toml @PostHog/team-devex
+.prettierrc @PostHog/team-devex
+mypy.ini @PostHog/team-devex
+posthog/management/migration_analysis/ @PostHog/team-devex
+common/hogli/ @PostHog/team-devex
+bin/ @PostHog/team-devex
