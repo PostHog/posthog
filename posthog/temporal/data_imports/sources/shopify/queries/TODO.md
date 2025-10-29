@@ -11,9 +11,9 @@ Each query should:
 - Use the pagination structure: `query Paginated{Resource}($n: Int!, $cursor: String)`
 - Include `nodes` with resource fields and `pageInfo` with `hasNextPage` and `endCursor`
 - Reuse existing fragments from `posthog/temporal/data_imports/sources/shopify/graphql/fragments.py`:
-    - `KV_FRAGMENT` - for key/value pairs
-    - `MAILING_ADDRESS_FRAGMENT` - for address objects
-    - `MONEY_V2_FRAGMENT` - for money objects
+  - `KV_FRAGMENT` - for key/value pairs
+  - `MAILING_ADDRESS_FRAGMENT` - for address objects
+  - `MONEY_V2_FRAGMENT` - for money objects
 
 ## Tasks
 
