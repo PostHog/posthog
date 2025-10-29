@@ -926,6 +926,7 @@ export function determineDifferenceType(
 export const DATE_FORMAT = 'MMMM D, YYYY'
 export const DATE_TIME_FORMAT = 'MMMM D, YYYY HH:mm:ss'
 export const DATE_FORMAT_WITHOUT_YEAR = 'MMMM D'
+export const DATE_FORMAT_WITHOUT_DAY = 'HH:mm:ss'
 
 export const formatDate = (date: dayjs.Dayjs, format?: string): string => {
     return date.format(format ?? DATE_FORMAT)
@@ -942,6 +943,32 @@ export const formatDateRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs, form
         formatFrom = DATE_FORMAT_WITHOUT_YEAR
     }
     return `${dateFrom.format(formatFrom)} - ${dateTo.format(formatTo)}`
+}
+
+export const formatDateTimeRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs): string => {
+    let fromComponents = ['MMMM', ' D, ', 'YYYY', 'HH:mm', ':ss']
+    let toComponents = ['MMMM', ' D, ', 'YYYY', 'HH:mm', ':ss']
+    if (dateFrom.year() === dateTo.year()) {
+        toComponents = toComponents.filter((x) => x !== 'YYYY')
+        if (dateTo.year() === dayjs().year()) {
+            fromComponents = fromComponents.filter((x) => x !== 'YYYY')
+        }
+
+        if (dateFrom.day() === dateTo.day()) {
+            toComponents = toComponents.filter((x) => x !== 'MMMM')
+            toComponents = toComponents.filter((x) => x !== ' D, ')
+            if (dateTo.day() === dayjs().day()) {
+                fromComponents = fromComponents.filter((x) => x !== 'MMMM')
+                fromComponents = fromComponents.filter((x) => x !== ' D, ')
+            }
+        }
+
+        if (dateFrom.second() === 0 && dateTo.second() === 0) {
+            fromComponents = fromComponents.filter((x) => x !== ':ss')
+            toComponents = toComponents.filter((x) => x !== ':ss')
+        }
+    }
+    return `${dateFrom.format(fromComponents.join(''))} - ${dateTo.format(toComponents.join(''))}`
 }
 
 export const dateMapping: DateMappingOption[] = [
