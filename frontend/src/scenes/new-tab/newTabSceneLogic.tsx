@@ -1166,28 +1166,34 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 // Check if "all" is selected
                 const showAll = newTabSceneDataInclude.includes('all')
 
+                const filteredPersonItems = filterBySearch(personSearchItems)
+                const filteredGroupItems = filterBySearch(groupSearchItems)
+                const filteredEventDefinitionItems = filterBySearch(eventDefinitionSearchItems)
+                const filteredPropertyDefinitionItems = filterBySearch(propertyDefinitionSearchItems)
+                const filteredAiSearchItems = filterBySearch(aiSearchItems)
+
                 // Group items by category and filter based on what's selected
                 const grouped: Record<string, NewTabTreeDataItem[]> = {}
 
                 // Add persons section if filter is enabled
                 if (showAll || newTabSceneDataInclude.includes('persons')) {
                     const limit = getSectionItemLimit('persons')
-                    grouped['persons'] = personSearchItems.slice(0, limit)
+                    grouped['persons'] = filteredPersonItems.slice(0, limit)
                 }
                 if (showAll || newTabSceneDataInclude.includes('groups')) {
                     const limit = getSectionItemLimit('groups')
-                    grouped['groups'] = groupSearchItems.slice(0, limit)
+                    grouped['groups'] = filteredGroupItems.slice(0, limit)
                 }
                 // Add event definitions section if filter is enabled
                 if (showAll || newTabSceneDataInclude.includes('eventDefinitions')) {
                     const limit = getSectionItemLimit('eventDefinitions')
-                    grouped['eventDefinitions'] = eventDefinitionSearchItems.slice(0, limit)
+                    grouped['eventDefinitions'] = filteredEventDefinitionItems.slice(0, limit)
                 }
 
                 // Add property definitions section if filter is enabled
                 if (showAll || newTabSceneDataInclude.includes('propertyDefinitions')) {
                     const limit = getSectionItemLimit('propertyDefinitions')
-                    grouped['propertyDefinitions'] = propertyDefinitionSearchItems.slice(0, limit)
+                    grouped['propertyDefinitions'] = filteredPropertyDefinitionItems.slice(0, limit)
                 }
 
                 // Add each category only if it's selected or if "all" is selected
@@ -1201,8 +1207,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 if (showAll || newTabSceneDataInclude.includes('apps')) {
                     const limit = getSectionItemLimit('apps')
                     grouped['apps'] = sortByLastViewedAt(
-                        filterBySearch(itemsGrid.filter((item) => item.category === 'apps')).slice(0, limit)
-                    )
+                        filterBySearch(itemsGrid.filter((item) => item.category === 'apps'))
+                    ).slice(0, limit)
                 }
 
                 if (showAll || newTabSceneDataInclude.includes('data-management')) {
@@ -1223,7 +1229,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 // Add AI section if filter is enabled
                 if (showAll || newTabSceneDataInclude.includes('askAI')) {
                     const limit = getSectionItemLimit('askAI')
-                    grouped['askAI'] = aiSearchItems.slice(0, limit)
+                    grouped['askAI'] = filteredAiSearchItems.slice(0, limit)
                 }
 
                 return grouped
@@ -1275,24 +1281,30 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 // Check if "all" is selected
                 const showAll = newTabSceneDataInclude.includes('all')
 
+                const filteredPersonItems = filterBySearch(personSearchItems)
+                const filteredGroupItems = filterBySearch(groupSearchItems)
+                const filteredEventDefinitionItems = filterBySearch(eventDefinitionSearchItems)
+                const filteredPropertyDefinitionItems = filterBySearch(propertyDefinitionSearchItems)
+                const filteredAiSearchItems = filterBySearch(aiSearchItems)
+
                 // Track full counts for each section
                 const fullCounts: Record<string, number> = {}
 
                 // Add persons section if filter is enabled
                 if (showAll || newTabSceneDataInclude.includes('persons')) {
-                    fullCounts['persons'] = personSearchItems.length
+                    fullCounts['persons'] = filteredPersonItems.length
                 }
                 if (showAll || newTabSceneDataInclude.includes('groups')) {
-                    fullCounts['groups'] = groupSearchItems.length
+                    fullCounts['groups'] = filteredGroupItems.length
                 }
                 // Add event definitions section if filter is enabled
                 if (showAll || newTabSceneDataInclude.includes('eventDefinitions')) {
-                    fullCounts['eventDefinitions'] = eventDefinitionSearchItems.length
+                    fullCounts['eventDefinitions'] = filteredEventDefinitionItems.length
                 }
 
                 // Add property definitions section if filter is enabled
                 if (showAll || newTabSceneDataInclude.includes('propertyDefinitions')) {
-                    fullCounts['propertyDefinitions'] = propertyDefinitionSearchItems.length
+                    fullCounts['propertyDefinitions'] = filteredPropertyDefinitionItems.length
                 }
 
                 // Add each category only if it's selected or if "all" is selected
@@ -1320,7 +1332,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                 // Add AI section if filter is enabled
                 if (showAll || newTabSceneDataInclude.includes('askAI')) {
-                    fullCounts['askAI'] = aiSearchItems.length
+                    fullCounts['askAI'] = filteredAiSearchItems.length
                 }
 
                 return fullCounts
