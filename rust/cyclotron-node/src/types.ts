@@ -40,8 +40,8 @@ export type CyclotronJob = {
     blob: Uint8Array | null
 }
 
-export type CyclotronJobInit = Pick<CyclotronJob, 'teamId' | 'functionId' | 'queueName' | 'priority'> &
-    Pick<Partial<CyclotronJob>, 'scheduled' | 'vmState' | 'parameters' | 'metadata' | 'blob'>
+export type CyclotronJobInit = Pick<CyclotronJob, 'id'| 'teamId' | 'functionId' | 'queueName' | 'priority'> &
+        Pick<Partial<CyclotronJob>, 'scheduled' | 'vmState' | 'parameters' | 'metadata' | 'blob'>
 
 export type CyclotronJobUpdate = Pick<
     Partial<CyclotronJob>,
