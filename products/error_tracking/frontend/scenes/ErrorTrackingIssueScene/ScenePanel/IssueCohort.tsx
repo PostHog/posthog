@@ -12,12 +12,6 @@ import { ErrorTrackingIssueCohort, ErrorTrackingRelationalIssue } from '~/querie
 
 import { issueActionsLogic } from 'products/error_tracking/frontend/components/IssueActions/issueActionsLogic'
 
-export type IssueCohortProps = {
-    issueId: string
-    cohortId: string
-    onCreate: (cohortId: string) => void
-}
-
 export function IssueCohort({ issue }: { issue: ErrorTrackingRelationalIssue }): JSX.Element {
     const cohort = issue.cohort
     return (
