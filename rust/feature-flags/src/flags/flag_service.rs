@@ -8,10 +8,190 @@ use crate::{
     },
     team::team_models::Team,
 };
+use axum::async_trait;
 use common_database::PostgresReader;
 use common_metrics::inc;
 use common_redis::Client as RedisClient;
 use std::sync::Arc;
+
+/// Trait that abstracts cache and database operations for the cache-or-fallback pattern
+#[async_trait]
+pub trait CacheOrFallback<K: ?Sized, R> {
+    /// Fetch from Redis cache
+    async fn from_cache(
+        redis_reader: Arc<dyn RedisClient + Send + Sync>,
+        key: &K,
+    ) -> Result<R, FlagError>;
+
+    /// Fetch from PostgreSQL database
+    async fn from_database(pg_client: PostgresReader, key: &K) -> Result<R, FlagError>;
+
+    /// Update Redis cache with the result
+    async fn update_cache(
+        redis_writer: Arc<dyn RedisClient + Send + Sync>,
+        key: &K,
+        result: &R,
+    ) -> Result<(), FlagError>;
+}
+
+/// Metrics configuration for cache operations
+#[derive(Clone)]
+pub struct CacheMetrics {
+    pub db_reads_counter: &'static str,
+    pub cache_errors_counter: &'static str,
+    pub validation_errors_counter: Option<&'static str>,
+}
+
+/// Generic cache-or-fallback implementation that handles Redis cache misses and errors
+async fn cache_or_fallback<T, K, R>(
+    redis_reader: Arc<dyn RedisClient + Send + Sync>,
+    redis_writer: Arc<dyn RedisClient + Send + Sync>,
+    pg_client: PostgresReader,
+    key: &K,
+    metrics: CacheMetrics,
+) -> Result<(R, bool), FlagError>
+where
+    T: CacheOrFallback<K, R>,
+    K: Send + Sync + ?Sized,
+    R: Send + Sync,
+{
+    match T::from_cache(redis_reader, key).await {
+        Ok(result) => Ok((result, true)),
+        Err(FlagError::TokenValidationError) => {
+            // True cache miss - key doesn't exist
+            let result = T::from_database(pg_client, key).await?;
+            inc(metrics.db_reads_counter, &[], 1);
+
+            // Write to cache for future hits
+            if T::update_cache(redis_writer, key, &result).await.is_err() {
+                inc(
+                    metrics.cache_errors_counter,
+                    &[("reason".to_string(), "redis_update_failed".to_string())],
+                    1,
+                );
+            }
+
+            Ok((result, false))
+        }
+        Err(e) => {
+            // Redis timeout, unavailable, or other errors - skip cache write
+            tracing::warn!("Redis error: {}, skipping cache write on fallback", e);
+
+            match T::from_database(pg_client, key).await {
+                Ok(result) => {
+                    inc(metrics.db_reads_counter, &[], 1);
+                    // Skip cache write to avoid overloading Redis
+                    Ok((result, false))
+                }
+                Err(db_error) => {
+                    if let Some(validation_counter) = metrics.validation_errors_counter {
+                        tracing::warn!("Database validation failed: {:?}", db_error);
+                        inc(
+                            validation_counter,
+                            &[("reason".to_string(), "token_not_found".to_string())],
+                            1,
+                        );
+                    }
+                    Err(db_error)
+                }
+            }
+        }
+    }
+}
+
+/// Team cache operations
+pub struct TeamCache;
+
+#[async_trait]
+impl CacheOrFallback<str, Team> for TeamCache {
+    async fn from_cache(
+        redis_reader: Arc<dyn RedisClient + Send + Sync>,
+        token: &str,
+    ) -> Result<Team, FlagError> {
+        Team::from_redis(redis_reader, token).await
+    }
+
+    async fn from_database(pg_client: PostgresReader, token: &str) -> Result<Team, FlagError> {
+        Team::from_pg(pg_client, token).await
+    }
+
+    async fn update_cache(
+        redis_writer: Arc<dyn RedisClient + Send + Sync>,
+        _token: &str,
+        team: &Team,
+    ) -> Result<(), FlagError> {
+        Team::update_redis_cache(redis_writer, team).await
+    }
+}
+
+/// Flags cache operations
+pub struct FlagsCache;
+
+#[async_trait]
+impl CacheOrFallback<i64, (FeatureFlagList, bool)> for FlagsCache {
+    async fn from_cache(
+        redis_reader: Arc<dyn RedisClient + Send + Sync>,
+        project_id: &i64,
+    ) -> Result<(FeatureFlagList, bool), FlagError> {
+        let flags = FeatureFlagList::from_redis(redis_reader, *project_id).await?;
+        Ok((flags, false)) // No deserialization errors from cache
+    }
+
+    async fn from_database(
+        pg_client: PostgresReader,
+        project_id: &i64,
+    ) -> Result<(FeatureFlagList, bool), FlagError> {
+        FeatureFlagList::from_pg(pg_client, *project_id).await
+    }
+
+    async fn update_cache(
+        redis_writer: Arc<dyn RedisClient + Send + Sync>,
+        project_id: &i64,
+        result: &(FeatureFlagList, bool),
+    ) -> Result<(), FlagError> {
+        FeatureFlagList::update_flags_in_redis(redis_writer, *project_id, &result.0).await
+    }
+}
+
+/// Token verification cache operations
+pub struct TokenVerificationCache;
+
+#[async_trait]
+impl CacheOrFallback<str, (Team, String)> for TokenVerificationCache {
+    async fn from_cache(
+        redis_reader: Arc<dyn RedisClient + Send + Sync>,
+        token: &str,
+    ) -> Result<(Team, String), FlagError> {
+        let team = Team::from_redis(redis_reader, token).await?;
+        Ok((team, token.to_string()))
+    }
+
+    async fn from_database(
+        pg_client: PostgresReader,
+        token: &str,
+    ) -> Result<(Team, String), FlagError> {
+        match Team::from_pg(pg_client, token).await {
+            Ok(team) => Ok((team, token.to_string())),
+            Err(e) => {
+                // For token verification, any database error means invalid token
+                tracing::debug!(
+                    "Token verification database error for token '{}': {:?}",
+                    token,
+                    e
+                );
+                Err(FlagError::TokenValidationError)
+            }
+        }
+    }
+
+    async fn update_cache(
+        redis_writer: Arc<dyn RedisClient + Send + Sync>,
+        _token: &str,
+        result: &(Team, String),
+    ) -> Result<(), FlagError> {
+        Team::update_redis_cache(redis_writer, &result.0).await
+    }
+}
 
 /// Team-specific cache-or-fallback helper
 async fn team_cache_or_fallback(
@@ -20,36 +200,18 @@ async fn team_cache_or_fallback(
     pg_client: PostgresReader,
     token: &str,
 ) -> Result<(Team, bool), FlagError> {
-    match Team::from_redis(redis_reader, token).await {
-        Ok(team) => Ok((team, true)),
-        Err(FlagError::TokenValidationError) => {
-            // True cache miss - key doesn't exist
-            let team = Team::from_pg(pg_client, token).await?;
-            inc(DB_TEAM_READS_COUNTER, &[], 1);
-
-            // Write to cache for future hits
-            if Team::update_redis_cache(redis_writer, &team).await.is_err() {
-                inc(
-                    TEAM_CACHE_ERRORS_COUNTER,
-                    &[("reason".to_string(), "redis_update_failed".to_string())],
-                    1,
-                );
-            }
-
-            Ok((team, false))
-        }
-        Err(e) => {
-            // Redis timeout, unavailable, or other errors - skip cache write
-            tracing::warn!(
-                "Redis error reading team: {}, skipping cache write on fallback",
-                e
-            );
-            let team = Team::from_pg(pg_client, token).await?;
-            inc(DB_TEAM_READS_COUNTER, &[], 1);
-            // Skip cache write to avoid overloading Redis
-            Ok((team, false))
-        }
-    }
+    cache_or_fallback::<TeamCache, str, Team>(
+        redis_reader,
+        redis_writer,
+        pg_client,
+        token,
+        CacheMetrics {
+            db_reads_counter: DB_TEAM_READS_COUNTER,
+            cache_errors_counter: TEAM_CACHE_ERRORS_COUNTER,
+            validation_errors_counter: None,
+        },
+    )
+    .await
 }
 
 /// Flags-specific cache-or-fallback helper
@@ -59,41 +221,20 @@ async fn flags_cache_or_fallback(
     pg_client: PostgresReader,
     project_id: i64,
 ) -> Result<(FeatureFlagList, bool, bool), FlagError> {
-    match FeatureFlagList::from_redis(redis_reader, project_id).await {
-        Ok(flags) => Ok((flags, true, false)),
-        Err(FlagError::TokenValidationError) => {
-            // True cache miss - key doesn't exist
-            let (flags, had_deserialization_errors) =
-                FeatureFlagList::from_pg(pg_client, project_id).await?;
-            inc(DB_FLAG_READS_COUNTER, &[], 1);
-
-            // Write to cache for future hits
-            if FeatureFlagList::update_flags_in_redis(redis_writer, project_id, &flags)
-                .await
-                .is_err()
-            {
-                inc(
-                    FLAG_CACHE_ERRORS_COUNTER,
-                    &[("reason".to_string(), "redis_update_failed".to_string())],
-                    1,
-                );
-            }
-
-            Ok((flags, false, had_deserialization_errors))
-        }
-        Err(e) => {
-            // Redis timeout, unavailable, or other errors - skip cache write
-            tracing::warn!(
-                "Redis error reading flags: {}, skipping cache write on fallback",
-                e
-            );
-            let (flags, had_deserialization_errors) =
-                FeatureFlagList::from_pg(pg_client, project_id).await?;
-            inc(DB_FLAG_READS_COUNTER, &[], 1);
-            // Skip cache write to avoid overloading Redis
-            Ok((flags, false, had_deserialization_errors))
-        }
-    }
+    let ((flags, had_deserialization_errors), was_cache_hit) =
+        cache_or_fallback::<FlagsCache, i64, (FeatureFlagList, bool)>(
+            redis_reader,
+            redis_writer,
+            pg_client,
+            &project_id,
+            CacheMetrics {
+                db_reads_counter: DB_FLAG_READS_COUNTER,
+                cache_errors_counter: FLAG_CACHE_ERRORS_COUNTER,
+                validation_errors_counter: None,
+            },
+        )
+        .await?;
+    Ok((flags, was_cache_hit, had_deserialization_errors))
 }
 
 /// Token verification cache-or-fallback helper
@@ -103,59 +244,20 @@ async fn token_verification_cache_or_fallback(
     pg_client: PostgresReader,
     token: &str,
 ) -> Result<(String, bool), FlagError> {
-    match Team::from_redis(redis_reader, token).await {
-        Ok(_) => Ok((token.to_string(), true)),
-        Err(FlagError::TokenValidationError) => {
-            // True cache miss - key doesn't exist
-            match Team::from_pg(pg_client, token).await {
-                Ok(team) => {
-                    inc(DB_TEAM_READS_COUNTER, &[], 1);
-                    // Token found in PostgreSQL, update Redis cache so that we can verify it from Redis next time
-                    if let Err(e) = Team::update_redis_cache(redis_writer, &team).await {
-                        tracing::warn!("Failed to update Redis cache: {}", e);
-                        inc(
-                            TEAM_CACHE_ERRORS_COUNTER,
-                            &[("reason".to_string(), "redis_update_failed".to_string())],
-                            1,
-                        );
-                    }
-                    Ok((token.to_string(), false))
-                }
-                Err(e) => {
-                    tracing::warn!("Token validation failed for token '{}': {:?}", token, e);
-                    inc(
-                        TOKEN_VALIDATION_ERRORS_COUNTER,
-                        &[("reason".to_string(), "token_not_found".to_string())],
-                        1,
-                    );
-                    Err(FlagError::TokenValidationError)
-                }
-            }
-        }
-        Err(e) => {
-            // Redis timeout, unavailable, or other errors - skip cache write
-            tracing::warn!(
-                "Redis error reading team: {}, skipping cache write on fallback",
-                e
-            );
-            match Team::from_pg(pg_client, token).await {
-                Ok(_team) => {
-                    inc(DB_TEAM_READS_COUNTER, &[], 1);
-                    // Skip cache write to avoid overloading Redis
-                    Ok((token.to_string(), false))
-                }
-                Err(e) => {
-                    tracing::warn!("Token validation failed for token '{}': {:?}", token, e);
-                    inc(
-                        TOKEN_VALIDATION_ERRORS_COUNTER,
-                        &[("reason".to_string(), "token_not_found".to_string())],
-                        1,
-                    );
-                    Err(FlagError::TokenValidationError)
-                }
-            }
-        }
-    }
+    let ((_team, token_string), was_cache_hit) =
+        cache_or_fallback::<TokenVerificationCache, str, (Team, String)>(
+            redis_reader,
+            redis_writer,
+            pg_client,
+            token,
+            CacheMetrics {
+                db_reads_counter: DB_TEAM_READS_COUNTER,
+                cache_errors_counter: TEAM_CACHE_ERRORS_COUNTER,
+                validation_errors_counter: Some(TOKEN_VALIDATION_ERRORS_COUNTER),
+            },
+        )
+        .await?;
+    Ok((token_string, was_cache_hit))
 }
 
 /// Result of fetching feature flags, including cache hit status and deserialization errors status
