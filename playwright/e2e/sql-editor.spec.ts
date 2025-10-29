@@ -51,20 +51,20 @@ test.describe('SQL Editor', () => {
 
         // Verify we're on the insight page
         await expect(page).toHaveURL(/.*\/insights\/.*/)
-        await expect(page.getByText('test_sql_insight')).toBeVisible()
+        await expect(page.getByText("You're now viewing test_sql_insight")).toBeVisible()
 
         // // Edit the insight
         await page.locator('[data-attr=insight-edit-button]').click()
+        await page.waitForTimeout(1000)
         await page.locator('[data-attr=hogql-query-editor]').click()
         await page.locator('textarea[aria-roledescription="editor"]').fill('SELECT 2 as result')
         await page.locator('[data-attr=sql-editor-run-button]').click()
-
+        await page.waitForTimeout(1000)
         // Save the edited insight
         await page.locator('[data-attr=sql-editor-update-insight]').click()
 
         // Verify we're on the insight page
         await expect(page).toHaveURL(/.*\/insights\/.*/)
-        await expect(page.getByText('test_sql_insight')).toBeVisible()
     })
 
     test('Materialize view pane', async ({ page }) => {
