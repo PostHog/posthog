@@ -43,6 +43,11 @@ export function SharedMetricModal({
         }
     }
 
+    const closeModal = (): void => {
+        setSelectedMetricIds([])
+        closeSharedMetricModal()
+    }
+
     const availableSharedMetrics = compatibleSharedMetrics.filter(
         (metric: SharedMetric) =>
             !experiment.saved_metrics.some((savedMetric) => savedMetric.saved_metric === metric.id)
@@ -60,7 +65,7 @@ export function SharedMetricModal({
     return (
         <LemonModal
             isOpen={isModalOpen}
-            onClose={closeSharedMetricModal}
+            onClose={closeModal}
             maxWidth={800}
             title={isCreateMode ? 'Select one or more shared metrics' : 'Shared metric'}
             footer={
@@ -84,7 +89,7 @@ export function SharedMetricModal({
                         )}
                     </div>
                     <div className="flex gap-2">
-                        <LemonButton onClick={closeSharedMetricModal} type="secondary">
+                        <LemonButton onClick={closeModal} type="secondary">
                             Cancel
                         </LemonButton>
                         {/* Changing the existing metric is a pain because saved metrics are stored separately */}
@@ -97,6 +102,7 @@ export function SharedMetricModal({
                                         .filter((metric): metric is SharedMetric => metric !== undefined)
 
                                     onSave(metrics, context)
+                                    setSelectedMetricIds([])
                                 }}
                                 type="primary"
                                 disabledReason={addSharedMetricDisabledReason()}

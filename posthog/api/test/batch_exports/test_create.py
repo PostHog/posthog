@@ -345,17 +345,22 @@ def test_create_batch_export_with_custom_schema(client: HttpClient, temporal, or
 
 
 @pytest.mark.parametrize(
-    "invalid_query",
+    "invalid_query,expected_error_message",
     [
-        "SELECT",
-        "SELECT event,, FROM events",
-        "SELECT unknown_field FROM events",
-        "SELECT event, persons.id FROM events LEFT JOIN persons ON events.person_id = persons.id",
-        "SELECT event FROM events UNION ALL SELECT event FROM events",
+        ("SELECT", "Failed to parse query"),
+        ("SELECT event,, FROM events", "Failed to parse query"),
+        ("SELECT unknown_field FROM events", "Invalid HogQL query: Unable to resolve field: unknown_field"),
+        (
+            "SELECT event, persons.id FROM events LEFT JOIN persons ON events.person_id = persons.id",
+            "JOINs are not supported",
+        ),
+        ("SELECT event FROM events UNION ALL SELECT event FROM events", "UNIONs are not supported"),
+        ("WITH cte AS (SELECT event FROM events) SELECT event FROM cte", "Subqueries or CTEs are not supported"),
+        ("SELECT event FROM (SELECT event FROM events)", "Subqueries or CTEs are not supported"),
     ],
 )
 def test_create_batch_export_fails_with_invalid_query(
-    client: HttpClient, invalid_query, temporal, organization, team, user
+    client: HttpClient, invalid_query, expected_error_message, temporal, organization, team, user
 ):
     """Test creating a BatchExport should fail with an invalid query."""
 
@@ -386,6 +391,7 @@ def test_create_batch_export_fails_with_invalid_query(
     )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["detail"] == expected_error_message
 
 
 @pytest.mark.parametrize(
@@ -1066,3 +1072,46 @@ def test_creating_databricks_batch_export_fails_if_integration_is_not_the_correc
     )
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
     assert response.json()["detail"] == "Integration is not a Databricks integration."
+
+
+@pytest.mark.parametrize(
+    "model,expected_status,expected_error",
+    [
+        ("events", status.HTTP_201_CREATED, None),
+        (None, status.HTTP_201_CREATED, None),
+        ("persons", status.HTTP_400_BAD_REQUEST, "HTTP batch exports only support the events model"),
+    ],
+)
+def test_creating_http_batch_export_only_allows_events_model(
+    client: HttpClient, temporal, organization, team, user, model, expected_status, expected_error
+):
+    """HTTP batch exports are used for migrations, and therefore only support the events model."""
+
+    destination_data = {
+        "type": "HTTP",
+        "config": {
+            "url": "https://test.i.posthog.com/batch/",
+            "token": "secret-token",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-http-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    if model is not None:
+        batch_export_data["model"] = model
+
+    client.force_login(user)
+    response = create_batch_export(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+
+    assert response.status_code == expected_status, response.json()
+
+    if expected_error:
+        assert response.json()["detail"] == expected_error

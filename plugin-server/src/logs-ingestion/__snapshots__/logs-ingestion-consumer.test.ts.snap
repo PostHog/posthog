@@ -1,0 +1,67 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`LogsIngestionConsumer general should process a valid log message 1`] = `
+[
+  {
+    "headers": {
+      "team_id": "2",
+      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+    },
+    "key": null,
+    "topic": "clickhouse_logs_test",
+    "value": {
+      "level": "info",
+      "message": "Test log message",
+      "service": "test-service",
+      "timestamp": "2025-01-01T00:00:00.000Z",
+    },
+  },
+]
+`;
+
+exports[`LogsIngestionConsumer general should process multiple log messages 1`] = `
+[
+  {
+    "headers": {
+      "team_id": "2",
+      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+    },
+    "key": null,
+    "topic": "clickhouse_logs_test",
+    "value": {
+      "level": "info",
+      "message": "First log",
+      "service": "test-service",
+      "timestamp": "2025-01-01T00:00:00.000Z",
+    },
+  },
+  {
+    "headers": {
+      "team_id": "2",
+      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+    },
+    "key": null,
+    "topic": "clickhouse_logs_test",
+    "value": {
+      "level": "error",
+      "message": "Second log",
+      "service": "test-service",
+      "timestamp": "2025-01-01T00:00:00.000Z",
+    },
+  },
+  {
+    "headers": {
+      "team_id": "2",
+      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+    },
+    "key": null,
+    "topic": "clickhouse_logs_test",
+    "value": {
+      "level": "debug",
+      "message": "Third log",
+      "service": "test-service",
+      "timestamp": "2025-01-01T00:00:00.000Z",
+    },
+  },
+]
+`;

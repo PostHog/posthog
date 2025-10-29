@@ -11,8 +11,10 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -27,6 +29,7 @@ import {
     EventDefinitionType,
     HogQLMathType,
     InsightShortId,
+    ProductKey,
     PropertyFilterType,
     PropertyMathType,
     PropertyOperator,
@@ -39,6 +42,20 @@ export const LLM_ANALYTICS_DATA_COLLECTION_NODE_ID = 'llm-analytics-data'
 const INITIAL_DASHBOARD_DATE_FROM = '-7d' as string | null
 const INITIAL_EVENTS_DATE_FROM = '-1d' as string | null
 const INITIAL_DATE_TO = null as string | null
+
+export function getDefaultGenerationsColumns(showInputOutput: boolean): string[] {
+    return [
+        'uuid',
+        'properties.$ai_trace_id',
+        ...(showInputOutput ? ['properties.$ai_input[-1]', 'properties.$ai_output_choices'] : []),
+        'person',
+        "f'{properties.$ai_model}' -- Model",
+        "f'{round(toFloat(properties.$ai_latency), 2)} s' -- Latency",
+        "f'{properties.$ai_input_tokens} → {properties.$ai_output_tokens} (∑ {toInt(properties.$ai_input_tokens) + toInt(properties.$ai_output_tokens)})' -- Token usage",
+        "f'${round(toFloat(properties.$ai_total_cost_usd), 6)}' -- Total cost",
+        'timestamp',
+    ]
+}
 
 export interface QueryTile {
     title: string
@@ -72,7 +89,10 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'llmAnalyticsLogic']),
     props({} as LLMAnalyticsLogicProps),
     key((props: LLMAnalyticsLogicProps) => props?.personId || 'llmAnalyticsScene'),
-    connect(() => ({ values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']] })),
+    connect(() => ({
+        values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']],
+        actions: [teamLogic, ['addProductIntent']],
+    })),
 
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
@@ -742,19 +762,9 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 kind: NodeKind.DataTableNode,
                 source: {
                     kind: NodeKind.EventsQuery,
-                    select: generationsColumns || [
-                        'uuid',
-                        'properties.$ai_trace_id',
-                        ...(featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]
-                            ? ['properties.$ai_input[-1]', 'properties.$ai_output_choices']
-                            : []),
-                        'person',
-                        "f'{properties.$ai_model}' -- Model",
-                        "f'{round(toFloat(properties.$ai_latency), 2)} s' -- Latency",
-                        "f'{properties.$ai_input_tokens} → {properties.$ai_output_tokens} (∑ {toInt(properties.$ai_input_tokens) + toInt(properties.$ai_output_tokens)})' -- Token usage",
-                        "f'${round(toFloat(properties.$ai_total_cost_usd), 6)}' -- Total cost",
-                        'timestamp',
-                    ],
+                    select:
+                        generationsColumns ||
+                        getDefaultGenerationsColumns(!!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]),
                     orderBy: ['timestamp DESC'],
                     after: dateFilter.dateFrom || undefined,
                     before: dateFilter.dateTo || undefined,
@@ -860,7 +870,6 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
 
     tabAwareUrlToAction(({ actions, values }) => {
         function applySearchParams({ filters, date_from, date_to, filter_test_accounts }: Record<string, any>): void {
-            // Normal parameter handling
             const parsedFilters = isAnyPropertyFilters(filters) ? filters : []
             if (!objectsEqual(parsedFilters, values.propertyFilters)) {
                 actions.setPropertyFilters(parsedFilters)
@@ -880,7 +889,13 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         }
 
         return {
-            [urls.llmAnalyticsDashboard()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmAnalyticsDashboard()]: (_, searchParams) => {
+                applySearchParams(searchParams)
+                actions.addProductIntent({
+                    product_type: ProductKey.LLM_ANALYTICS,
+                    intent_context: ProductIntentContext.LLM_ANALYTICS_VIEWED,
+                })
+            },
             [urls.llmAnalyticsGenerations()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsTraces()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsUsers()]: (_, searchParams) => applySearchParams(searchParams),

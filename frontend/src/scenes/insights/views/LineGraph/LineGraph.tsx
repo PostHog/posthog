@@ -232,6 +232,7 @@ export interface LineGraphProps {
     goalLines?: GoalLine[]
     isStacked?: boolean
     showTrendLines?: boolean
+    ignoreActionsInSeriesLabels?: boolean
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -275,6 +276,7 @@ export function LineGraph_({
     goalLines: _goalLines,
     isStacked = true,
     showTrendLines = false,
+    ignoreActionsInSeriesLabels = false,
 }: LineGraphProps): JSX.Element {
     const originalDatasets = _datasets
     let datasets = _datasets
@@ -384,7 +386,8 @@ export function LineGraph_({
         if (isBackgroundBasedGraphType) {
             backgroundColor = mainColor
         } else if (isArea) {
-            backgroundColor = hexToRGBA(mainColor, 0.5)
+            const alpha = isPercentStackView ? 1 : 0.5
+            backgroundColor = hexToRGBA(mainColor, alpha)
         }
 
         let adjustedData = dataset.data
@@ -984,11 +987,19 @@ export function LineGraph_({
                                     d.compareLabels?.[i],
                                 ]
                             } else if (d.breakdownLabels?.[i]) {
-                                labelDescriptors = [d.actions?.[i]?.name, d.breakdownLabels[i], d.compareLabels?.[i]]
+                                labelDescriptors = [
+                                    ignoreActionsInSeriesLabels ? null : d.actions?.[i]?.name,
+                                    d.breakdownLabels[i],
+                                    d.compareLabels?.[i],
+                                ]
                             } else if (d.labels?.[i]) {
                                 labelDescriptors = [d.labels[i], d.compareLabels?.[i]]
                             } else {
-                                labelDescriptors = [d.actions?.[i]?.name, d.breakdownLabels?.[i], d.compareLabels?.[i]]
+                                labelDescriptors = [
+                                    ignoreActionsInSeriesLabels ? null : d.actions?.[i]?.name,
+                                    d.breakdownLabels?.[i],
+                                    d.compareLabels?.[i],
+                                ]
                             }
                             return labelDescriptors.filter((l) => !!l).join(' - ')
                         },

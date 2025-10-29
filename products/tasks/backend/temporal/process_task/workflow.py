@@ -298,7 +298,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             task_id=self.task_details.task_id,
             repository=self.task_details.repository,
             distinct_id=self.task_details.distinct_id,
-            workflow_id=self.task_details.workflow_id,
         )
         return await workflow.execute_activity(
             execute_task_in_sandbox,

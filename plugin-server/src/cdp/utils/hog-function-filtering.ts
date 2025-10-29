@@ -1,6 +1,5 @@
 import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
-import RE2 from 're2'
 
 import { ExecResult } from '@posthog/hogvm'
 
@@ -8,6 +7,7 @@ import { HogFlow } from '../../schema/hogflow'
 import { RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
+import { createTrackedRE2 } from '../../utils/tracked-re2'
 import { UUIDT, clickHouseTimestampToISO } from '../../utils/utils'
 import {
     HogFunctionFilterGlobals,
@@ -17,6 +17,17 @@ import {
     MinimalAppMetric,
 } from '../types'
 import { execHog } from './hog-exec'
+
+// Module-level constants for fixed regex patterns to avoid recompilation
+// These patterns are compiled once at module load and reused for all events
+const HREF_REGEX = createTrackedRE2(/(?::|")href="(.*?)"/, undefined, 'hog-filtering:href')
+const TEXT_REGEX = createTrackedRE2(/(?::|")text="(.*?)"/g, undefined, 'hog-filtering:text')
+const ID_REGEX = createTrackedRE2(/(?::|")attr_id="(.*?)"/g, undefined, 'hog-filtering:id')
+const ELEMENT_REGEX = createTrackedRE2(
+    /(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)/g,
+    undefined,
+    'hog-filtering:element'
+)
 
 const hogFunctionFilterDuration = new Histogram({
     name: 'cdp_hog_function_filter_duration_ms',
@@ -47,17 +58,17 @@ interface HogFilterResult {
 
 function getElementsChainHref(elementsChain: string): string {
     // Adapted from SQL: extract(elements_chain, '(?::|\")href="(.*?)"'),
-    const hrefRegex = new RE2(/(?::|")href="(.*?)"/)
-    const hrefMatch = hrefRegex.exec(elementsChain)
+    const hrefMatch = HREF_REGEX.exec(elementsChain)
     return hrefMatch ? hrefMatch[1] : ''
 }
 
 function getElementsChainTexts(elementsChain: string): string[] {
     // Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"')),
-    const textRegex = new RE2(/(?::|")text="(.*?)"/g)
     const textMatches = new Set<string>()
+    // Reset lastIndex for global regex reuse
+    TEXT_REGEX.lastIndex = 0
     let textMatch
-    while ((textMatch = textRegex.exec(elementsChain)) !== null) {
+    while ((textMatch = TEXT_REGEX.exec(elementsChain)) !== null) {
         textMatches.add(textMatch[1])
     }
     return Array.from(textMatches)
@@ -65,10 +76,11 @@ function getElementsChainTexts(elementsChain: string): string[] {
 
 function getElementsChainIds(elementsChain: string): string[] {
     // Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?::|\")attr_id="(.*?)"')),
-    const idRegex = new RE2(/(?::|")attr_id="(.*?)"/g)
     const idMatches = new Set<string>()
+    // Reset lastIndex for global regex reuse
+    ID_REGEX.lastIndex = 0
     let idMatch
-    while ((idMatch = idRegex.exec(elementsChain)) !== null) {
+    while ((idMatch = ID_REGEX.exec(elementsChain)) !== null) {
         idMatches.add(idMatch[1])
     }
     return Array.from(idMatches)
@@ -76,10 +88,11 @@ function getElementsChainIds(elementsChain: string): string[] {
 
 function getElementsChainElements(elementsChain: string): string[] {
     // Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\.|$|:)'))
-    const elementRegex = new RE2(/(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)/g)
     const elementMatches = new Set<string>()
+    // Reset lastIndex for global regex reuse
+    ELEMENT_REGEX.lastIndex = 0
     let elementMatch
-    while ((elementMatch = elementRegex.exec(elementsChain)) !== null) {
+    while ((elementMatch = ELEMENT_REGEX.exec(elementsChain)) !== null) {
         elementMatches.add(elementMatch[1])
     }
     return Array.from(elementMatches)

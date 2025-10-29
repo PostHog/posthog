@@ -32,7 +32,7 @@ export const manifest: ProductManifest = {
         links: (): string => '/links',
         link:
             /** @param id A UUID or 'new'. ':id' for routing. */
-            (id: string): string => `/links/${id}`,
+            (id: string): string => `/link/${id}`,
     },
     fileSystemTypes: {
         link: {

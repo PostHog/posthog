@@ -65,9 +65,9 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database, create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_user
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
 
@@ -584,6 +584,19 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == "ErrorTrackingSimilarIssuesQuery":
+        from products.error_tracking.backend.hogql_queries.error_tracking_similar_issues_query_runner import (
+            ErrorTrackingSimilarIssuesQueryRunner,
+        )
+
+        return ErrorTrackingSimilarIssuesQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "ExperimentFunnelsQuery":
         from .experiments.experiment_funnels_query_runner import ExperimentFunnelsQueryRunner
 
@@ -983,6 +996,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         query_id: Optional[str] = None,
         insight_id: Optional[int] = None,
         dashboard_id: Optional[int] = None,
+        cache_age_seconds: Optional[int] = None,
     ) -> CR | CacheMissResponse | QueryStatusResponse:
         start_time = perf_counter()
         cache_key = self.get_cache_key()
@@ -1030,6 +1044,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             trigger: str | None = get_query_tag_value("trigger")
 
             self.query_id = query_id or self.query_id
+            self._cache_age_override = cache_age_seconds
             CachedResponse: type[CR] = self.cached_response_type
             cache_manager = get_query_cache_manager(
                 team=self.team,
@@ -1217,7 +1232,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def to_hogql(self, **kwargs) -> str:
         with self.timings.measure("to_hogql"):
-            return print_ast(
+            return prepare_and_print_ast(
                 self.to_query(),
                 HogQLContext(
                     team_id=self.team.pk,
@@ -1227,7 +1242,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 ),
                 "hogql",
                 **kwargs,
-            )
+            )[0]
 
     def get_cache_payload(self) -> dict:
         # remove the tags key, these are used in the query log comment but shouldn't break caching
@@ -1252,9 +1267,32 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def get_cache_key(self) -> str:
         return generate_cache_key(f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
 
+    def _get_cache_age_override(self, last_refresh: Optional[datetime]) -> Optional[datetime]:
+        """
+        Helper method for subclasses that override cache_target_age().
+        Returns the custom cache target age if _cache_age_override is set, otherwise None.
+
+        Subclasses can call this first in their cache_target_age() implementation:
+        ```
+        override = self._get_cache_age_override(last_refresh)
+        if override is not None:
+            return override
+        # ... custom logic
+        ```
+        """
+        if hasattr(self, "_cache_age_override") and self._cache_age_override is not None and last_refresh is not None:
+            return last_refresh + timedelta(seconds=self._cache_age_override)
+        return None
+
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
         if last_refresh is None:
             return None
+
+        # Check for custom cache age override (e.g., from Endpoint)
+        override_target_age = self._get_cache_age_override(last_refresh)
+        if override_target_age is not None:
+            return override_target_age
+
         query_date_range = getattr(self, "query_date_range", None)
         interval = query_date_range.interval_name if query_date_range else "minute"
         mode = ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT
@@ -1298,11 +1336,20 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return True
 
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+        # If a custom cache age was provided (e.g., from Endpoint), use our override logic
+        target_age = None
+        if hasattr(self, "_cache_age_override") and self._cache_age_override is not None:
+            target_age = self.cache_target_age(last_refresh, lazy=lazy)
+            if not target_age:
+                return False
+
         query_date_range = getattr(self, "query_date_range", None)
         date_to = query_date_range.date_to() if query_date_range else None
         interval = query_date_range.interval_name if query_date_range else "minute"
         mode = ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT
-        return is_stale(self.team, date_to=date_to, interval=interval, last_refresh=last_refresh, mode=mode)
+        return is_stale(
+            self.team, date_to=date_to, interval=interval, last_refresh=last_refresh, mode=mode, target_age=target_age
+        )
 
     def _refresh_frequency(self) -> timedelta:
         return timedelta(minutes=1)
@@ -1405,7 +1452,7 @@ class QueryRunnerWithHogQLContext(AnalyticsQueryRunner[AR]):
         # We create a new context here because we need to access the database
         # below in the to_query method and creating a database is pretty heavy
         # so we'll reuse this database for the query once it eventually runs
-        self.database = create_hogql_database(team=self.team)
+        self.database = Database.create_for(team=self.team)
         self.hogql_context = HogQLContext(team_id=self.team.pk, database=self.database)
 
 

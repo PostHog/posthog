@@ -46,6 +46,12 @@ procs:
     temporal-worker-session-replay:
         shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue session-replay-task-queue --metrics-port 8010'
 
+    temporal-worker-analytics-platform:
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue analytics-platform-task-queue --metrics-port 8011'
+
+    temporal-worker-weekly-digest:
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue weekly-digest-task-queue --metrics-port 8012'
+
     dagster:
         shell: |-
             bin/check_postgres_up && \
@@ -102,11 +108,13 @@ procs:
             bin/check_kafka_clickhouse_up && \
             bin/start-rust-service batch-import-worker
 
+    # This takes ~10 s
     migrate-postgres:
-        shell: 'bin/check_postgres_up && python manage.py migrate' # This takes ~10 s
+        shell: 'bin/check_postgres_up && python manage.py migrate'
 
+    # This takes ~10 s too
     migrate-clickhouse:
-        shell: 'bin/check_kafka_clickhouse_up && python manage.py migrate_clickhouse' # This takes ~10 s too
+        shell: 'bin/check_kafka_clickhouse_up && python manage.py migrate_clickhouse'
 
     migrate-persons-db:
         shell: 'bin/check_postgres_up posthog_persons && cd rust && DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog_persons sqlx migrate run --source persons_migrations'
@@ -114,13 +122,13 @@ procs:
     migrate-behavioral-cohorts:
         shell: 'bin/check_postgres_up behavioral_cohorts && rust/bin/migrate-behavioral-cohorts'
 
+    # This will automatically skip if we've already seeded the DB with demo data
     generate-demo-data:
         shell: |-
             bin/check_postgres_up && \
             bin/check_kafka_clickhouse_up && \
             bin/check_dagster_graphql_up && \
             ./manage.py generate_demo_data
-        autostart: false
 
     storybook:
         shell: 'pnpm --filter=@posthog/storybook install && pnpm run storybook'

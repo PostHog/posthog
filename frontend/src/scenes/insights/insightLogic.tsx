@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
+import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -82,7 +83,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             sceneLogic,
             ['activeSceneId'],
         ],
-        actions: [tagsModel, ['loadTags']],
+        actions: [tagsModel, ['loadTags'], teamLogic, ['addProductIntent']],
         logic: [eventUsageLogic, dashboardsModel],
     })),
 
@@ -473,6 +474,17 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                           _create_in_folder: folder ?? getLastNewFolder(),
                       })
                 actions.reloadSavedInsights() // Load insights afresh
+
+                const alertsLogic = insightAlertsLogic.findMounted({
+                    insightLogicProps: props,
+                    insightId: insightNumericId,
+                })
+
+                if (alertsLogic != null) {
+                    if (alertsLogic.values.alerts.length > 0) {
+                        alertsLogic.actions.loadAlerts()
+                    }
+                }
                 // remove draft query from local storage
                 localStorage.removeItem(`draft-query-${values.currentTeamId}`)
                 actions.saveInsightSuccess()

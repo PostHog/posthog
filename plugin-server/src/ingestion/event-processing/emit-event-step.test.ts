@@ -5,7 +5,7 @@ import { castTimestampOrNow } from '../../utils/utils'
 import { eventProcessedAndIngestedCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
 import { isOkResult } from '../pipelines/results'
-import { EmitEventStepConfig, createEmitEventStep } from './emit-event-step'
+import { EmitEventStepConfig, createEmitEventStep, productTrackHeader } from './emit-event-step'
 
 // Mock the utils module
 jest.mock('../../worker/ingestion/utils', () => ({
@@ -76,6 +76,7 @@ describe('emit-event-step', () => {
                 topic: 'clickhouse_events_json',
                 key: 'test-uuid',
                 value: Buffer.from(JSON.stringify(mockRawEvent)),
+                headers: { productTrack: 'general' },
             })
 
             // Execute the side effect to test metric increment
@@ -168,6 +169,7 @@ describe('emit-event-step', () => {
                 topic: 'clickhouse_events_json',
                 key: 'test-uuid',
                 value: Buffer.from(JSON.stringify(mockRawEvent)),
+                headers: { productTrack: 'general' },
             })
         })
 
@@ -185,6 +187,7 @@ describe('emit-event-step', () => {
                 topic: 'custom_topic',
                 key: 'test-uuid',
                 value: Buffer.from(JSON.stringify(mockRawEvent)),
+                headers: { productTrack: 'general' },
             })
         })
 
@@ -202,6 +205,7 @@ describe('emit-event-step', () => {
                 topic: 'clickhouse_events_json',
                 key: 'different-uuid',
                 value: Buffer.from(JSON.stringify(eventWithDifferentUuid)),
+                headers: { productTrack: 'general' },
             })
         })
 
@@ -226,6 +230,7 @@ describe('emit-event-step', () => {
                 topic: 'clickhouse_events_json',
                 key: 'test-uuid',
                 value: Buffer.from(JSON.stringify(mockRawEvent)),
+                headers: { productTrack: 'general' },
             })
         })
 
@@ -249,6 +254,7 @@ describe('emit-event-step', () => {
                 topic: 'clickhouse_events_json',
                 key: 'test-uuid',
                 value: Buffer.from(JSON.stringify(mockRawEvent)),
+                headers: { productTrack: 'general' },
             })
         })
 
@@ -340,6 +346,43 @@ describe('emit-event-step', () => {
                 expect(mockEventProcessedAndIngestedCounter.inc).toHaveBeenCalledTimes(2)
                 expect(mockKafkaProducer.produce).toHaveBeenCalledTimes(2)
             })
+        })
+
+        it('should emit AI events with llma product track header', async () => {
+            const aiEvent = { ...mockRawEvent, event: '$ai_generation' }
+            const step = createEmitEventStep(config)
+            const input = { eventToEmit: aiEvent }
+
+            await step(input)
+
+            expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
+                topic: 'clickhouse_events_json',
+                key: aiEvent.uuid,
+                value: Buffer.from(JSON.stringify(aiEvent)),
+                headers: { productTrack: 'llma' },
+            })
+        })
+    })
+
+    describe('productTrackHeader', () => {
+        it('should return "llma" for AI generation events', () => {
+            const aiEvent = { ...mockRawEvent, event: '$ai_generation' }
+            expect(productTrackHeader(aiEvent)).toBe('llma')
+        })
+
+        it('should return "llma" for AI completion events', () => {
+            const aiEvent = { ...mockRawEvent, event: '$ai_completion' }
+            expect(productTrackHeader(aiEvent)).toBe('llma')
+        })
+
+        it('should return "general" for non-AI events', () => {
+            const regularEvent = { ...mockRawEvent, event: '$pageview' }
+            expect(productTrackHeader(regularEvent)).toBe('general')
+        })
+
+        it('should return "general" for custom events', () => {
+            const customEvent = { ...mockRawEvent, event: 'user_signed_up' }
+            expect(productTrackHeader(customEvent)).toBe('general')
         })
     })
 })

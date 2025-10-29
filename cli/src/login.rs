@@ -252,9 +252,10 @@ fn manual_login() -> Result<(), Error> {
     let _ = capture_command_invoked("manual_login", Some(env_id.clone()));
 
     let token = Text::new(
-        "Enter your personal API token (see posthog.com/docs/api#private-endpoint-authentication)",
+        "Enter your personal API token",
     )
     .with_validator(token_validator)
+    .with_help_message("See posthog.com/docs/api#private-endpoint-authentication. It will need to have the 'error tracking write' scope.")
     .prompt()?;
 
     let token = Token {

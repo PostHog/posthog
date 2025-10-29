@@ -27,6 +27,10 @@ export enum ProductIntentContext {
     ERROR_TRACKING_ISSUE_SORTING = 'error_tracking_issue_sorting',
     ERROR_TRACKING_DOCS_VIEWED = 'error_tracking_docs_viewed',
 
+    // LLM Analytics
+    LLM_ANALYTICS_VIEWED = 'llm_analytics_viewed',
+    LLM_ANALYTICS_DOCS_VIEWED = 'llm_analytics_docs_viewed',
+
     /*
     Cross Sells
     */
@@ -66,6 +70,7 @@ export enum ProductIntentContext {
     SURVEY_UNARCHIVED = 'survey_unarchived',
     SURVEY_DELETED = 'survey_deleted',
     SURVEY_DUPLICATED = 'survey_duplicated',
+    SURVEY_BULK_DUPLICATED = 'survey_bulk_duplicated',
     SURVEY_EDITED = 'survey_edited',
     SURVEY_ANALYZED = 'survey_analyzed',
 

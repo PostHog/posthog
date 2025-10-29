@@ -11,6 +11,8 @@ import { SessionManager } from '@/lib/utils/SessionManager'
 import { StateManager } from '@/lib/utils/StateManager'
 import { DurableObjectCache } from '@/lib/utils/cache/DurableObjectCache'
 import { hash } from '@/lib/utils/helper-functions'
+import { registerPrompts } from '@/prompts'
+import { registerResources } from '@/resources'
 import { getToolsFromContext } from '@/tools'
 import type { CloudRegion, Context, State, Tool } from '@/tools/types'
 
@@ -246,7 +248,11 @@ export class MyMCP extends McpAgent<Env> {
     async init() {
         const context = await this.getContext()
 
-        // Get features from request properties if available
+        // Register prompts and resources
+        await registerPrompts(this.server, context)
+        registerResources(this.server, context)
+
+        // Register tools
         const features = this.requestProperties.features
         const allTools = await getToolsFromContext(context, features)
 
@@ -284,7 +290,7 @@ export default {
             )
         }
 
-        if (!token.startsWith('phx_')) {
+        if (!token.startsWith('phx_') && !token.startsWith('pha_')) {
             return new Response(
                 `Invalid token, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,
                 {
