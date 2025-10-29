@@ -338,7 +338,7 @@ impl MockRedisClient {
     }
 
     // Helper method to safely lock the calls mutex
-    fn lock_calls(&self) -> std::sync::MutexGuard<Vec<MockRedisCall>> {
+    fn lock_calls(&self) -> std::sync::MutexGuard<'_, Vec<MockRedisCall>> {
         match self.calls.lock() {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),

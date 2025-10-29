@@ -231,7 +231,8 @@ fn evaluate_cohort_values(
             for filter in &values.values {
                 if filter.is_cohort() {
                     // Handle cohort membership check
-                    if apply_cohort_membership_logic(&[filter.clone()], cohort_matches)? {
+                    if apply_cohort_membership_logic(std::slice::from_ref(filter), cohort_matches)?
+                    {
                         return Ok(true);
                     }
                 } else {
@@ -247,8 +248,10 @@ fn evaluate_cohort_values(
             for filter in &values.values {
                 if filter.is_cohort() {
                     // Handle cohort membership check with negation
-                    let cohort_result =
-                        apply_cohort_membership_logic(&[filter.clone()], cohort_matches)?;
+                    let cohort_result = apply_cohort_membership_logic(
+                        std::slice::from_ref(filter),
+                        cohort_matches,
+                    )?;
                     // Apply negation if specified
                     if cohort_result == filter.negation.unwrap_or(false) {
                         return Ok(false);
