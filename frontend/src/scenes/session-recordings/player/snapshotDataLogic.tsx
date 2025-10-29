@@ -1,4 +1,4 @@
-import { actions, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -23,7 +23,9 @@ import {
 
 import type { snapshotDataLogicType } from './snapshotDataLogicType'
 
-const DEFAULT_V2_POLLING_INTERVAL_MS = 10000
+const DEFAULT_V2_POLLING_INTERVAL_MS: number = 10000
+const MAX_V2_POLLING_INTERVAL_MS = 60000
+const POLLING_INACTIVITY_TIMEOUT_MS = 5 * MAX_V2_POLLING_INTERVAL_MS
 
 export interface SnapshotLogicProps {
     sessionRecordingId: SessionRecordingId
@@ -50,6 +52,11 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             sources,
         }),
         loadUntilTimestamp: (targetBufferTimestampMillis: number | null) => ({ targetBufferTimestampMillis }),
+        maybeStartPolling: true,
+        startPolling: true,
+        stopPolling: true,
+        setPollingInterval: (intervalMs: number) => ({ intervalMs }),
+        resetPollingInterval: true,
     }),
     reducers(() => ({
         snapshotsBySourceSuccessCount: [
@@ -70,6 +77,20 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 loadSnapshotsForSource: (_, { sources }) => sources,
                 loadSnapshotsForSourceSuccess: () => [],
                 loadSnapshotsForSourceFailure: () => [],
+            },
+        ],
+        pollingInterval: [
+            DEFAULT_V2_POLLING_INTERVAL_MS,
+            {
+                setPollingInterval: (_, { intervalMs }) => intervalMs,
+                resetPollingInterval: () => DEFAULT_V2_POLLING_INTERVAL_MS,
+            },
+        ],
+        isPolling: [
+            false,
+            {
+                startPolling: () => true,
+                stopPolling: () => false,
             },
         ],
     })),
@@ -202,8 +223,29 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             }
         },
 
-        loadSnapshotSourcesSuccess: () => {
-            // When we receive the list of sources, we can kick off the loading chain
+        loadSnapshotSourcesSuccess: ({ snapshotSources }) => {
+            const currentSourceKeys = snapshotSources
+                .map((s) => s.blob_key)
+                .filter(Boolean)
+                .sort()
+            const previousSourceKeys = cache.previousSourceKeys || []
+
+            const sourcesChanged =
+                currentSourceKeys.length !== previousSourceKeys.length ||
+                currentSourceKeys.some((key, i) => key !== previousSourceKeys[i])
+
+            cache.previousSourceKeys = currentSourceKeys
+
+            if (sourcesChanged) {
+                actions.resetPollingInterval()
+                cache.lastSourcesChangeTime = Date.now()
+                actions.stopPolling()
+            } else {
+                const currentInterval = values.pollingInterval
+                const newInterval = Math.min(currentInterval * 2, MAX_V2_POLLING_INTERVAL_MS)
+                actions.setPollingInterval(newInterval)
+            }
+
             actions.loadNextSnapshotSource()
         },
 
@@ -222,6 +264,35 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             }
 
             actions.loadNextSnapshotSource()
+        },
+
+        loadUntilTimestamp: ({ targetBufferTimestampMillis }) => {
+            // load until timestmap changes frequently we want to be careful not to load if we already are
+            if (
+                targetBufferTimestampMillis === cache.lastTargetTimestamp ||
+                values.snapshotSourcesLoading ||
+                values.snapshotsForSourceLoading
+            ) {
+                return
+            }
+            cache.lastTargetTimestamp = targetBufferTimestampMillis
+            actions.loadNextSnapshotSource()
+        },
+
+        maybeStartPolling: () => {
+            if (props.blobV2PollingDisabled || !values.allSourcesLoaded || values.isPolling || document.hidden) {
+                return
+            }
+
+            const lastChangeTime = cache.lastSourcesChangeTime || Date.now()
+            const timeSinceLastChange = Date.now() - lastChangeTime
+
+            if (timeSinceLastChange >= POLLING_INACTIVITY_TIMEOUT_MS) {
+                return
+            }
+
+            actions.startPolling()
+            actions.loadSnapshotSources(values.pollingInterval)
         },
 
         loadNextSnapshotSource: () => {
@@ -249,9 +320,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 10))
                 }
 
-                if (!props.blobV2PollingDisabled) {
-                    actions.loadSnapshotSources(DEFAULT_V2_POLLING_INTERVAL_MS)
-                }
+                actions.maybeStartPolling()
             } else {
                 // V1 behavior unchanged
                 const nextSourceToLoad = values.snapshotSources?.find((s) => {
@@ -299,8 +368,41 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 return loadingSources.length > 0
             },
         ],
+
+        allSourcesLoaded: [
+            (s) => [s.snapshotSources, s.snapshotsBySourceSuccessCount],
+            (snapshotSources): boolean => {
+                if (!snapshotSources || snapshotSources.length === 0) {
+                    return false
+                }
+                return snapshotSources.every((source) => {
+                    const sourceKey = keyForSource(source)
+                    return cache.snapshotsBySource?.[sourceKey]?.sourceLoaded
+                })
+            },
+        ],
     })),
+    afterMount(({ actions, cache }) => {
+        cache.disposables.add(() => {
+            const handleVisibilityChange = (): void => {
+                if (document.hidden) {
+                    actions.stopPolling()
+                } else {
+                    actions.maybeStartPolling()
+                }
+            }
+
+            document.addEventListener('visibilitychange', handleVisibilityChange)
+
+            return () => {
+                document.removeEventListener('visibilitychange', handleVisibilityChange)
+            }
+        }, 'visibilityChangeHandler')
+    }),
     beforeUnmount(({ cache }) => {
         cache.snapshotsBySource = undefined
+        cache.previousSourceKeys = undefined
+        cache.lastSourcesChangeTime = undefined
+        cache.lastTargetTimestamp = undefined
     }),
 ])
