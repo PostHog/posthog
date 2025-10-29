@@ -24852,9 +24852,12 @@
                 },
                 "session_id": {
                     "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
                 }
             },
-            "required": ["person_id", "session_id", "event_uuid"],
+            "required": ["person_id", "session_id", "event_uuid", "timestamp"],
             "type": "object"
         },
         "SessionEventsItem": {
