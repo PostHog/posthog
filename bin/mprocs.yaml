@@ -52,6 +52,9 @@ procs:
     temporal-worker-weekly-digest:
         shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue weekly-digest-task-queue --metrics-port 8012'
 
+    temporal-worker-llm-analytics:
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue llm-analytics-task-queue --metrics-port 8013'
+
     dagster:
         shell: |-
             bin/check_postgres_up && \

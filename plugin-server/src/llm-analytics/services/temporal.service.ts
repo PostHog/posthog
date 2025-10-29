@@ -4,7 +4,7 @@ import { Counter } from 'prom-client'
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
 
-const EVALUATION_TASK_QUEUE = 'general-purpose-task-queue'
+const EVALUATION_TASK_QUEUE = 'llm-analytics-task-queue'
 
 const temporalWorkflowsStarted = new Counter({
     name: 'evaluation_run_workflows_started',
