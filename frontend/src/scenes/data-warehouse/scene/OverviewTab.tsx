@@ -16,7 +16,7 @@ import { StatusIcon, StatusTag } from './components/StatusComponents'
 const LIST_SIZE = 8
 
 export function OverviewTab(): JSX.Element {
-    const { activityPaginationState, totalRowsStats, tablesLoading, jobStats, jobStatsLoading } =
+    const { activityPaginationState, totalRowsStats, totalRowsStatsLoading, tablesLoading, jobStats, jobStatsLoading } =
         useValues(dataWarehouseSceneLogic)
     const { setActivityCurrentPage, loadJobStats } = useActions(dataWarehouseSceneLogic)
 
@@ -81,19 +81,33 @@ export function OverviewTab(): JSX.Element {
                                     <IconInfo className="text-muted mt-0.5" />
                                 </Tooltip>
                             </div>
-                            <div className="text-2xl font-semibold mt-1">
-                                {(totalRowsStats?.total_rows ?? 0).toLocaleString()}
+                            <div className="text-2xl font-semibold mt-1 flex items-center gap-2">
+                                {totalRowsStatsLoading && !totalRowsStats?.total_rows ? (
+                                    <Spinner className="text-muted" />
+                                ) : (
+                                    (totalRowsStats?.total_rows ?? 0).toLocaleString()
+                                )}
                             </div>
                         </div>
                         <div>
                             <div className="text-sm text-muted">Currently running source syncs</div>
-                            <div className="text-2xl font-semibold mt-1">
-                                {jobStats?.external_data_jobs.running ?? 0}
+                            <div className="text-2xl font-semibold mt-1 flex items-center gap-2">
+                                {jobStatsLoading && !jobStats ? (
+                                    <Spinner className="text-muted" />
+                                ) : (
+                                    (jobStats?.external_data_jobs.running ?? 0)
+                                )}
                             </div>
                         </div>
                         <div>
                             <div className="text-sm text-muted">Currently running materialized views</div>
-                            <div className="text-2xl font-semibold mt-1">{jobStats?.modeling_jobs.running ?? 0}</div>
+                            <div className="text-2xl font-semibold mt-1 flex items-center gap-2">
+                                {jobStatsLoading && !jobStats ? (
+                                    <Spinner className="text-muted" />
+                                ) : (
+                                    (jobStats?.modeling_jobs.running ?? 0)
+                                )}
+                            </div>
                         </div>
                     </div>
                 </LemonCard>
@@ -125,18 +139,18 @@ export function OverviewTab(): JSX.Element {
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                 <div>
                                     <div className="text-xs text-muted">Total Jobs</div>
-                                    <div className="text-xl font-semibold">{jobStats.total_jobs}</div>
+                                    <div className="text-xl font-semibold">{jobStats.total_jobs.toLocaleString()}</div>
                                 </div>
                                 <div>
                                     <div className="text-xs text-muted">Successful</div>
                                     <div className="text-xl font-semibold text-success flex items-center gap-1">
-                                        {jobStats.successful_jobs}
+                                        {jobStats.successful_jobs.toLocaleString()}
                                     </div>
                                 </div>
                                 <div>
                                     <div className="text-xs text-muted">Failed</div>
                                     <div className="text-xl font-semibold text-danger flex items-center gap-1">
-                                        {jobStats.failed_jobs}
+                                        {jobStats.failed_jobs.toLocaleString()}
                                     </div>
                                 </div>
                             </div>
