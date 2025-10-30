@@ -326,6 +326,69 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_fetch_team_without_project_id_field_from_redis() {
+        let client = setup_redis_client(None).await;
+        let target_token = "phc_legacy_token".to_string();
+
+        // Manually construct JSON without the project_id field to simulate legacy data
+        // This represents the actual scenario where old Redis entries don't have project_id at all
+        let legacy_json = format!(
+            r#"{{
+            "id": 456,
+            "name": "legacy team",
+            "api_token": "{target_token}",
+            "uuid": "00000000-0000-0000-0000-000000000000",
+            "organization_id": null,
+            "autocapture_opt_out": null,
+            "autocapture_exceptions_opt_in": null,
+            "autocapture_web_vitals_opt_in": null,
+            "capture_performance_opt_in": null,
+            "capture_console_log_opt_in": null,
+            "session_recording_opt_in": false,
+            "inject_web_apps": null,
+            "surveys_opt_in": null,
+            "heatmaps_opt_in": null,
+            "capture_dead_clicks": null,
+            "flags_persistence_default": null,
+            "session_recording_sample_rate": null,
+            "session_recording_minimum_duration_milliseconds": null,
+            "autocapture_web_vitals_allowed_metrics": null,
+            "autocapture_exceptions_errors_to_ignore": null,
+            "session_recording_linked_flag": null,
+            "session_recording_network_payload_capture_config": null,
+            "session_recording_masking_config": null,
+            "session_replay_config": null,
+            "survey_config": null,
+            "session_recording_url_trigger_config": null,
+            "session_recording_url_blocklist_config": null,
+            "session_recording_event_trigger_config": null,
+            "session_recording_trigger_match_type_config": null,
+            "recording_domains": null,
+            "cookieless_server_hash_mode": 0,
+            "timezone": "UTC"
+        }}"#
+        );
+
+        tracing::info!("Inserting legacy team payload without project_id: {legacy_json}");
+        client
+            .set(
+                format!("{TEAM_TOKEN_CACHE_PREFIX}{target_token}"),
+                legacy_json,
+            )
+            .await
+            .expect("Failed to write data to redis");
+
+        let team_from_redis = Team::from_redis(client.clone(), target_token.as_str())
+            .await
+            .expect("Failed to fetch team from redis");
+
+        assert_eq!(team_from_redis.api_token, target_token);
+        assert_eq!(team_from_redis.id, 456);
+        assert_eq!(team_from_redis.project_id, 456); // Should be set to team.id in from_redis
+        assert_eq!(team_from_redis.cookieless_server_hash_mode, Some(0));
+    }
+
+    #[tokio::test]
     async fn test_fetch_team_from_pg() {
         let context = TestContext::new(None).await;
         let team = context
