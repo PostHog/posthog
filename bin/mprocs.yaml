@@ -129,6 +129,7 @@ procs:
             bin/check_kafka_clickhouse_up && \
             bin/check_dagster_graphql_up && \
             ./manage.py generate_demo_data
+        autostart: false
 
     storybook:
         shell: 'pnpm --filter=@posthog/storybook install && pnpm run storybook'
