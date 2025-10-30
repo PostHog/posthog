@@ -39,6 +39,9 @@ impl Resolver {
         pool: &PgPool,
         catalog: &Catalog,
     ) -> Result<Vec<Frame>, UnhandledError> {
+        if frame.is_suspicious() {
+            metrics::counter!(SUSPICIOUS_FRAMES_DETECTED, "frame_type" => "raw").increment(1);
+        }
         let raw_id = frame.raw_id(team_id);
 
         if let Some(result) = self.cache.get(&raw_id) {
@@ -58,47 +61,45 @@ impl Resolver {
         metrics::counter!(FRAME_DB_MISSES).increment(1);
 
         let resolved = frame.resolve(team_id, catalog).await?;
-        let resolved = add_release_info(pool, resolved[0], frame).await?;
 
-        let set = if let Some(set_ref) = frame.symbol_set_ref() {
-            SymbolSetRecord::load(pool, team_id, &set_ref).await?
+        assert!(!resolved.is_empty()); // If this ever happens, we've got a data-dropping bug, and want to crash
+
+        let (set, release) = if let Some(set_ref) = frame.symbol_set_ref() {
+            // TODO - should be a join
+            (
+                SymbolSetRecord::load(pool, team_id, &set_ref).await?,
+                ReleaseRecord::for_symbol_set_ref(pool, &set_ref, team_id).await?,
+            )
         } else {
-            None
+            (None, None)
         };
 
-        let record = ErrorTrackingStackFrame::new(
-            frame.frame_id(team_id),
-            set.map(|s| s.id),
-            resolved.clone(),
-            resolved.resolved,
-            resolved.context.clone(),
-        );
+        let mut records = Vec::new();
+        let mut resolved = resolved.clone();
+        for r_frame in resolved.iter_mut() {
+            r_frame.release = release.clone(); // Enrich with release information
 
-        record.save(pool).await?;
+            // And save back to the DB
+            let record = ErrorTrackingStackFrame::new(
+                r_frame.frame_id.clone(),
+                set.as_ref().map(|s| s.id),
+                r_frame.clone(),
+                r_frame.resolved,
+                r_frame.context.clone(),
+            );
+            record.save(pool).await?;
+            if r_frame.suspicious {
+                metrics::counter!(SUSPICIOUS_FRAMES_DETECTED, "frame_type" => "resolved")
+                    .increment(1);
+            }
 
-        if frame.is_suspicious() {
-            metrics::counter!(SUSPICIOUS_FRAMES_DETECTED, "frame_type" => "raw").increment(1);
+            // And gather up for the cache
+            records.push(record);
         }
 
-        if resolved.suspicious {
-            metrics::counter!(SUSPICIOUS_FRAMES_DETECTED, "frame_type" => "resolved").increment(1);
-        }
-
-        self.cache.insert(frame.frame_id(team_id), record);
+        self.cache.insert(frame.raw_id(team_id), records);
         Ok(resolved)
     }
-}
-
-async fn add_release_info(
-    pool: &PgPool,
-    mut resolved: Frame,
-    raw: &RawFrame,
-) -> Result<Frame, UnhandledError> {
-    let ream_id = resolved.raw_id.team_id
-    if let Some(set_ref) = raw.symbol_set_ref() {
-        resolved.release = ReleaseRecord::for_symbol_set(pool, set_ref, team_id).await?;
-    }
-    Ok(resolved)
 }
 
 #[cfg(test)]
@@ -298,11 +299,13 @@ mod test {
             .unwrap();
 
         // get the frame
-        let frame_id = frame.frame_id(0);
-        let frame = ErrorTrackingStackFrame::load(&pool, &frame_id, chrono::Duration::minutes(30))
-            .await
-            .unwrap()
-            .unwrap();
+        let frame_id = frame.raw_id(0);
+        let frame =
+            ErrorTrackingStackFrame::load_all(&pool, &frame_id, chrono::Duration::minutes(30))
+                .await
+                .unwrap()
+                .pop()
+                .unwrap();
 
         assert_eq!(frame.symbol_set_id.unwrap(), set.id);
 

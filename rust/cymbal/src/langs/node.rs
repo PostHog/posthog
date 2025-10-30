@@ -150,7 +150,7 @@ impl RawNodeFrame {
 impl From<&RawNodeFrame> for Frame {
     fn from(raw: &RawNodeFrame) -> Self {
         Frame {
-            raw_id: FrameId::placeholder(),
+            frame_id: FrameId::placeholder(),
             mangled_name: raw.function.clone(),
             line: raw.lineno,
             column: None,
@@ -190,7 +190,7 @@ impl From<(&RawNodeFrame, SourceLocation<'_>)> for Frame {
             .unwrap_or(raw_frame.meta.in_app);
 
         let mut res = Self {
-            raw_id: FrameId::placeholder(),
+            frame_id: FrameId::placeholder(),
             mangled_name: raw_frame.function.clone(),
             line: Some(location.line()),
             column: Some(location.column()),
@@ -234,7 +234,7 @@ impl From<(&RawNodeFrame, JsResolveErr)> for Frame {
         };
 
         let mut res = Self {
-            raw_id: FrameId::placeholder(),
+            frame_id: FrameId::placeholder(),
             mangled_name: raw_frame.function.clone(),
             line: raw_frame.lineno,
             column: raw_frame.colno,

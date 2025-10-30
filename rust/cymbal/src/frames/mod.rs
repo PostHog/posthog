@@ -83,7 +83,7 @@ impl RawFrame {
         let res = res.map(|mut fs| {
             fs.iter_mut()
                 .enumerate()
-                .for_each(|(index, f)| f.raw_id = self.frame_id(team_id, index));
+                .for_each(|(index, f)| f.frame_id = self.frame_id(team_id, index));
             fs
         });
 
@@ -130,7 +130,7 @@ impl RawFrame {
     }
 
     pub fn frame_id(&self, team_id: i32, index: usize) -> FrameId {
-        self.raw_id(team_id).to_full(index)
+        self.raw_id(team_id).to_full(index as i32)
     }
 
     pub fn is_suspicious(&self) -> bool {
@@ -144,8 +144,9 @@ impl RawFrame {
 // We emit a single, unified representation of a frame, which is what we pass on to users.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Frame {
-    // Properties used in processing
-    pub raw_id: FrameId, // The raw frame id this was resolved from. This has a custom serde impl to be string represented, and drops team_id on ser/de
+    // Renamed for legacy reasons - resolved frames have a full FrameId, not a RawFrameId
+    #[serde(rename = "raw_id")]
+    pub frame_id: FrameId, // The raw frame id this was resolved from. This has a custom serde impl to be string represented, and drops team_id on ser/de
     pub mangled_name: String, // Mangled name of the function
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<u32>, // Line the function is define on, if known
@@ -220,7 +221,7 @@ impl FingerprintComponent for Frame {
             fp.update(resolved.as_bytes());
             included_pieces.push("Resolved function name");
 
-            fp.add_part(get_part(&self.raw_id, included_pieces));
+            fp.add_part(get_part(&self.frame_id, included_pieces));
             return;
         }
 
@@ -240,7 +241,7 @@ impl FingerprintComponent for Frame {
 
         fp.update(self.lang.as_bytes());
         included_pieces.push("Language");
-        fp.add_part(get_part(&self.raw_id, included_pieces));
+        fp.add_part(get_part(&self.frame_id, included_pieces));
     }
 }
 
@@ -277,7 +278,7 @@ impl ContextLine {
 
 impl std::fmt::Display for Frame {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "Frame {}:", self.raw_id)?;
+        writeln!(f, "Frame {}:", self.frame_id)?;
 
         // Function name and location
         write!(
@@ -344,7 +345,7 @@ impl std::fmt::Display for Frame {
 impl From<Frame> for FrameData {
     fn from(frame: Frame) -> Self {
         FrameData {
-            raw_id: frame.raw_id.to_string(),
+            frame_id: frame.frame_id.clone(),
             synthetic: frame.synthetic,
             resolved_name: frame.resolved_name,
             mangled_name: frame.mangled_name,

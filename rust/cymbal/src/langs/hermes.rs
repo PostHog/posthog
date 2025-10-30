@@ -113,7 +113,7 @@ impl Display for HermesRef {
 impl From<(&RawHermesFrame, HermesError)> for Frame {
     fn from((frame, err): (&RawHermesFrame, HermesError)) -> Self {
         let mut res = Self {
-            raw_id: FrameId::placeholder(),
+            frame_id: FrameId::placeholder(),
             mangled_name: frame.fn_name.clone(),
             line: Some(1), // Hermes frames are 1-indexed and always 1
             column: Some(frame.column),
@@ -146,7 +146,7 @@ impl From<(&RawHermesFrame, Token<'_>, Option<String>)> for Frame {
             .unwrap_or(frame.meta.in_app);
 
         let mut res = Self {
-            raw_id: FrameId::placeholder(),
+            frame_id: FrameId::placeholder(),
             mangled_name: frame.fn_name.clone(),
             line: Some(token.get_src_line()),
             column: Some(token.get_src_col()),

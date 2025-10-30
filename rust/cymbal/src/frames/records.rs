@@ -61,7 +61,7 @@ impl ErrorTrackingStackFrame {
                 context = $8
             "#,
             self.id.hash_id,
-            self.id.index,
+            self.id.part,
             self.id.team_id,
             self.created_at,
             self.symbol_set_id,
@@ -80,7 +80,7 @@ impl ErrorTrackingStackFrame {
         result_ttl: Duration,
     ) -> Result<Vec<Self>, UnhandledError>
     where
-        E: Executor<'c, Database = sqlx::Postgres>,
+        E: Executor<'c, Database = sqlx::Postgres> + Clone,
     {
         struct Returned {
             raw_id: String,
@@ -102,11 +102,11 @@ impl ErrorTrackingStackFrame {
             id.hash_id,
             id.team_id
         )
-        .fetch_all(e)
+        .fetch_all(e.clone())
         .await?;
 
         if res.is_empty() {
-            return Ok(res);
+            return Ok(Vec::new());
         }
 
         let mut results = Vec::new();
@@ -117,17 +117,17 @@ impl ErrorTrackingStackFrame {
 
         let mut release = None;
         if let Some(ss_id) = &res[0].symbol_set_id {
-            release = ReleaseRecord::for_symbol_set_id(e, ss_id, id.team_id).await?;
+            release = ReleaseRecord::for_symbol_set_id(e, *ss_id, id.team_id).await?;
         }
 
         for found in res {
-            // Frame ID's lose team_id when they're serialized, so we fix that up here
-            let frame_id = FrameId::new(found.raw_id, found.team_id, found.index);
+            // Frame ID's lose team_id when they're serialized, so we fix that up here when loading them
+            let frame_id = FrameId::new(found.raw_id, found.team_id, found.part);
             // We don't serialise frame contexts on the Frame itself, but save it on the frame record,
             // and so when we load a frame record we need to patch back up the context onto the frame,
             // since we dropped it when we serialised the frame during saving.
             let mut frame: Frame = serde_json::from_value(found.contents)?;
-            frame.raw_id = frame_id;
+            frame.frame_id = frame_id;
 
             let context = if let Some(context) = found.context {
                 // We serialise the frame context as a json string, but it's a structure we have to manually
@@ -141,7 +141,7 @@ impl ErrorTrackingStackFrame {
             frame.context = context.clone();
 
             results.push(Self {
-                id: frame.raw_id.clone(),
+                id: frame.frame_id.clone(),
                 created_at: found.created_at,
                 symbol_set_id: found.symbol_set_id,
                 contents: frame,

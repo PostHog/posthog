@@ -30,7 +30,7 @@ pub struct ReleaseInfo {
 impl ReleaseRecord {
     pub async fn for_symbol_set_ref<'c, E>(
         e: E,
-        symbol_set_ref: String,
+        symbol_set_ref: &str,
         team_id: i32,
     ) -> Result<Option<Self>, sqlx::Error>
     where

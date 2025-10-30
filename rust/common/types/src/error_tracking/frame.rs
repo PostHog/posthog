@@ -11,11 +11,11 @@ impl RawFrameId {
         RawFrameId { hash_id, team_id }
     }
 
-    pub fn to_full(&self, index: usize) -> FrameId {
+    pub fn to_full(&self, part: i32) -> FrameId {
         FrameId {
             hash_id: self.hash_id.clone(),
             team_id: self.team_id,
-            index,
+            part,
         }
     }
 }
@@ -24,7 +24,7 @@ impl RawFrameId {
 pub struct FrameId {
     pub hash_id: String,
     pub team_id: i32,
-    pub index: usize,
+    pub part: i32,
 }
 
 impl Serialize for FrameId {
@@ -32,7 +32,7 @@ impl Serialize for FrameId {
     where
         S: serde::Serializer,
     {
-        let s = format!("{}/{}", self.hash_id, self.index);
+        let s = format!("{}/{}", self.hash_id, self.part);
         serializer.serialize_str(&s)
     }
 }
@@ -46,10 +46,8 @@ impl<'de> Deserialize<'de> for FrameId {
         let parts: Vec<&str> = s.split('/').collect();
 
         let hash_id = parts[0].to_string();
-        let index = if parts.len() > 1 {
-            parts[1]
-                .parse::<usize>()
-                .map_err(serde::de::Error::custom)?
+        let part = if parts.len() > 1 {
+            parts[1].parse::<i32>().map_err(serde::de::Error::custom)?
         } else {
             0
         };
@@ -57,23 +55,23 @@ impl<'de> Deserialize<'de> for FrameId {
         Ok(FrameId {
             hash_id,
             team_id: 0, // Note: team_id is not serialized, defaults to 0
-            index,
+            part,
         })
     }
 }
 
 impl std::fmt::Display for FrameId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}/{}", self.hash_id, self.index)
+        write!(f, "{}/{}", self.hash_id, self.part)
     }
 }
 
 impl FrameId {
-    pub fn new(hash_id: String, team_id: i32, index: usize) -> Self {
+    pub fn new(hash_id: String, team_id: i32, part: i32) -> Self {
         FrameId {
             hash_id,
             team_id,
-            index,
+            part,
         }
     }
 
@@ -81,7 +79,7 @@ impl FrameId {
         FrameId {
             hash_id: "placeholder".to_string(),
             team_id: 0,
-            index: 0,
+            part: 0,
         }
     }
 
@@ -93,7 +91,8 @@ impl FrameId {
 // We emit a single, unified representation of a frame, which is what we pass on to users.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct FrameData {
-    pub raw_id: String,       // The raw frame id this was resolved from
+    #[serde(rename = "raw_id")]
+    pub frame_id: FrameId,
     pub mangled_name: String, // Mangled name of the function
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<u32>, // Line the function is define on, if known
@@ -131,20 +130,20 @@ mod tests {
     }
 
     #[test]
-    fn test_frame_id_deserialize_with_index() {
+    fn test_frame_id_deserialize_with_part() {
         let json = "\"abc123/5\"";
         let frame_id: FrameId = serde_json::from_str(json).unwrap();
         assert_eq!(frame_id.hash_id, "abc123");
-        assert_eq!(frame_id.index, 5);
+        assert_eq!(frame_id.part, 5);
         assert_eq!(frame_id.team_id, 0); // defaults to 0
     }
 
     #[test]
-    fn test_frame_id_deserialize_without_index() {
+    fn test_frame_id_deserialize_without_part() {
         let json = "\"abc123\"";
         let frame_id: FrameId = serde_json::from_str(json).unwrap();
         assert_eq!(frame_id.hash_id, "abc123");
-        assert_eq!(frame_id.index, 0); // defaults to 0
+        assert_eq!(frame_id.part, 0); // defaults to 0
         assert_eq!(frame_id.team_id, 0);
     }
 
@@ -155,7 +154,7 @@ mod tests {
         let deserialized: FrameId = serde_json::from_str(&serialized).unwrap();
 
         assert_eq!(original.hash_id, deserialized.hash_id);
-        assert_eq!(original.index, deserialized.index);
+        assert_eq!(original.part, deserialized.part);
         // Note: team_id is not preserved through serialization
     }
 }

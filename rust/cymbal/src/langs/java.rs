@@ -129,7 +129,7 @@ impl RawJavaFrame {
 impl<'a> From<(&'a RawJavaFrame, StackFrame<'a>)> for Frame {
     fn from((raw, remapped): (&'a RawJavaFrame, StackFrame<'a>)) -> Self {
         let mut f = Frame {
-            raw_id: FrameId::placeholder(),
+            frame_id: FrameId::placeholder(),
             mangled_name: raw.function.clone(),
             line: Some(remapped.line() as u32),
             column: None,
@@ -156,7 +156,7 @@ impl<'a> From<(&'a RawJavaFrame, StackFrame<'a>)> for Frame {
 impl From<(&RawJavaFrame, ProguardError)> for Frame {
     fn from((raw, error): (&RawJavaFrame, ProguardError)) -> Self {
         let mut f = Frame {
-            raw_id: FrameId::placeholder(),
+            frame_id: FrameId::placeholder(),
             mangled_name: raw.function.clone(),
             line: raw.lineno.map(|ln| ln as u32),
             column: None,
