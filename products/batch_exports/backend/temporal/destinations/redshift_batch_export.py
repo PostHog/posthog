@@ -349,6 +349,7 @@ class RedshiftClient(PostgreSQLClient):
                         schema,
                         final_table_name,
                     )
+                    raise
 
                 await cursor.execute(merge_query)
 
