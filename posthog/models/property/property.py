@@ -313,7 +313,7 @@ class Property:
         return f"Property({params_repr})"
 
     def to_dict(self) -> dict[str, Any]:
-        return {key: value for key, value in vars(self).items() if value is not None}
+        return {key: value for key, value in vars(self).items() if value is not None and key != "bytecode_generation"}
 
     @staticmethod
     def _parse_value(value: Any, convert_to_number: bool = False) -> Any:
