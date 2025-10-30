@@ -5,7 +5,6 @@ import { router } from 'kea-router'
 import { IconApps, IconArrowRight, IconDatabase, IconHogQL, IconPeople, IconPerson, IconSparkles } from '@posthog/icons'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
@@ -79,12 +78,6 @@ export interface NewTabTreeDataItem extends TreeDataItem {
     href?: string
     flag?: string
     lastViewedAt?: string | null
-}
-
-export interface NewTabCategoryItem {
-    key: NEW_TAB_CATEGORY_ITEMS
-    label: string
-    description?: string
 }
 
 export interface CategoryWithItems {
@@ -616,59 +609,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 )
             },
         ],
-        newTabSceneDataIncludePersons: [
-            (s) => [s.newTabSceneDataInclude],
-            (include): boolean => include.includes('persons'),
-        ],
-        newTabSceneDataIncludeEventDefinitions: [
-            (s) => [s.newTabSceneDataInclude],
-            (include): boolean => include.includes('eventDefinitions'),
-        ],
-        newTabSceneDataIncludePropertyDefinitions: [
-            (s) => [s.newTabSceneDataInclude],
-            (include): boolean => include.includes('propertyDefinitions'),
-        ],
-        categories: [
-            (s) => [s.featureFlags],
-            (featureFlags): NewTabCategoryItem[] => {
-                const categories: NewTabCategoryItem[] = [
-                    { key: 'all', label: 'All' },
-                    { key: 'recents', label: 'Recents' },
-                    {
-                        key: 'create-new',
-                        label: 'Create new',
-                    },
-                    { key: 'apps', label: 'Apps' },
-                    {
-                        key: 'data-management',
-                        label: 'Data management',
-                    },
-                ]
-                if (featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]) {
-                    categories.push({
-                        key: 'persons',
-                        label: 'Persons',
-                    })
-                    categories.push({
-                        key: 'groups',
-                        label: 'Groups',
-                    })
-                    categories.push({
-                        key: 'eventDefinitions',
-                        label: 'Events',
-                    })
-                    categories.push({
-                        key: 'propertyDefinitions',
-                        label: 'Properties',
-                    })
-                    categories.push({
-                        key: 'askAI',
-                        label: 'Ask Posthog AI',
-                    })
-                }
-                return categories
-            },
-        ],
         isSearching: [
             (s) => [
                 s.recentsLoading,
@@ -764,10 +704,10 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         personSearchItems: [
             (s) => [s.personSearchResults],
             (personSearchResults): NewTabTreeDataItem[] => {
-                const items = personSearchResults.map((person) => {
+                return personSearchResults.map((person) => {
                     const personId = person.distinct_ids?.[0] || person.uuid || 'unknown'
                     const displayName = person.properties?.email || personId
-                    const item = {
+                    return {
                         id: `person-${person.uuid}`,
                         name: `${displayName}`,
                         category: 'persons' as NEW_TAB_CATEGORY_ITEMS,
@@ -779,18 +719,14 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                             href: urls.personByUUID(person.uuid || ''),
                         },
                     }
-
-                    return item
                 })
-
-                return items
             },
         ],
         eventDefinitionSearchItems: [
             (s) => [s.eventDefinitionSearchResults],
             (eventDefinitionSearchResults): NewTabTreeDataItem[] => {
-                const items = eventDefinitionSearchResults.map((eventDef) => {
-                    const item = {
+                return eventDefinitionSearchResults.map((eventDef) => {
+                    return {
                         id: `event-definition-${eventDef.id}`,
                         name: eventDef.name,
                         category: 'eventDefinitions' as NEW_TAB_CATEGORY_ITEMS,
@@ -802,16 +738,14 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                             href: urls.eventDefinition(eventDef.id),
                         },
                     }
-                    return item
                 })
-                return items
             },
         ],
         propertyDefinitionSearchItems: [
             (s) => [s.propertyDefinitionSearchResults],
             (propertyDefinitionSearchResults): NewTabTreeDataItem[] => {
-                const items = propertyDefinitionSearchResults.map((propDef) => {
-                    const item = {
+                return propertyDefinitionSearchResults.map((propDef) => {
+                    return {
                         id: `property-definition-${propDef.id}`,
                         name: propDef.name,
                         category: 'propertyDefinitions' as NEW_TAB_CATEGORY_ITEMS,
@@ -823,9 +757,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                             href: urls.propertyDefinition(propDef.id),
                         },
                     }
-                    return item
                 })
-                return items
             },
         ],
         groupSearchItems: [
@@ -903,15 +835,10 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
         getSectionItemLimit: [
-            (s) => [s.sectionItemLimits, s.newTabSceneDataInclude, s.featureFlags],
-            (
-                sectionItemLimits: Record<string, number>,
-                newTabSceneDataInclude: NEW_TAB_COMMANDS[],
-                featureFlags: any
-            ) => {
-                const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
+            (s) => [s.sectionItemLimits, s.newTabSceneDataInclude],
+            (sectionItemLimits: Record<string, number>, newTabSceneDataInclude: NEW_TAB_COMMANDS[]) => {
                 const singleSelectedCategory: NEW_TAB_COMMANDS | null =
-                    newTabSceneData && newTabSceneDataInclude.length === 1 && newTabSceneDataInclude[0] !== 'all'
+                    newTabSceneDataInclude.length === 1 && newTabSceneDataInclude[0] !== 'all'
                         ? newTabSceneDataInclude[0]
                         : null
 
@@ -1090,10 +1017,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 const sortedNewDataItems = sortByLastViewedAt(newDataItems)
                 const sortedNewOtherItems = sortByLastViewedAt(newOtherItems)
 
-                const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
-
-                const allItems: NewTabTreeDataItem[] = sortByLastViewedAt([
-                    ...(newTabSceneData ? aiSearchItems : []),
+                return sortByLastViewedAt([
+                    ...aiSearchItems,
                     ...projectTreeSearchItems,
                     {
                         id: 'new-sql-query',
@@ -1119,7 +1044,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         lastViewedAt: getLastViewedAtForHref('/debug/hog'),
                     },
                 ])
-                return allItems
             },
         ],
         filteredItemsGrid: [
@@ -1178,7 +1102,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 s.eventDefinitionSearchItems,
                 s.propertyDefinitionSearchItems,
                 s.aiSearchItems,
-                s.featureFlags,
                 s.getSectionItemLimit,
             ],
             (
@@ -1190,14 +1113,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 eventDefinitionSearchItems: NewTabTreeDataItem[],
                 propertyDefinitionSearchItems: NewTabTreeDataItem[],
                 aiSearchItems: NewTabTreeDataItem[],
-                featureFlags: any,
                 getSectionItemLimit: (section: string) => number
             ): Record<string, NewTabTreeDataItem[]> => {
-                const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
-                if (!newTabSceneData) {
-                    return {}
-                }
-
                 // Filter all items by search term
                 const searchLower = search.toLowerCase().trim()
                 const filterBySearch = (items: NewTabTreeDataItem[]): NewTabTreeDataItem[] => {
@@ -1295,7 +1212,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 s.eventDefinitionSearchItems,
                 s.propertyDefinitionSearchItems,
                 s.aiSearchItems,
-                s.featureFlags,
             ],
             (
                 itemsGrid: NewTabTreeDataItem[],
@@ -1305,14 +1221,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 groupSearchItems: NewTabTreeDataItem[],
                 eventDefinitionSearchItems: NewTabTreeDataItem[],
                 propertyDefinitionSearchItems: NewTabTreeDataItem[],
-                aiSearchItems: NewTabTreeDataItem[],
-                featureFlags: any
+                aiSearchItems: NewTabTreeDataItem[]
             ): Record<string, number> => {
-                const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
-                if (!newTabSceneData) {
-                    return {}
-                }
-
                 // Filter all items by search term
                 const searchLower = search.toLowerCase().trim()
                 const filterBySearch = (items: NewTabTreeDataItem[]): NewTabTreeDataItem[] => {
@@ -1390,8 +1300,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         ],
         allCategories: [
             (s) => [
-                s.featureFlags,
-                s.groupedFilteredItems,
                 s.newTabSceneDataGroupedItems,
                 s.newTabSceneDataInclude,
                 s.categoryLoadingStates,
@@ -1399,24 +1307,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 s.firstNoResultsSearchPrefixes,
             ],
             (
-                featureFlags: any,
-                groupedFilteredItems: Record<string, NewTabTreeDataItem[]>,
                 newTabSceneDataGroupedItems: Record<string, NewTabTreeDataItem[]>,
                 newTabSceneDataInclude: NEW_TAB_COMMANDS[],
                 categoryLoadingStates: Record<NEW_TAB_CATEGORY_ITEMS, boolean>,
                 search: string,
                 firstNoResultsSearchPrefixes: Record<NewTabSearchDataset, string | null>
             ): CategoryWithItems[] => {
-                const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
-
-                if (!newTabSceneData) {
-                    return Object.entries(groupedFilteredItems).map(([key, items]) => ({
-                        key: key as NEW_TAB_CATEGORY_ITEMS,
-                        items,
-                        isLoading: categoryLoadingStates[key as NEW_TAB_CATEGORY_ITEMS] || false,
-                    }))
-                }
-
                 const orderedSections: string[] = []
                 const showAll = newTabSceneDataInclude.includes('all')
 
@@ -1560,41 +1456,37 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             actions.loadNewLogViews()
         },
         triggerSearchForIncludedItems: () => {
-            const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
+            const searchTerm = values.search.trim()
 
-            if (newTabSceneData) {
-                const searchTerm = values.search.trim()
+            // Expand 'all' to include all data types
+            const itemsToProcess = values.newTabSceneDataInclude.includes('all')
+                ? ['persons', 'groups', 'eventDefinitions', 'propertyDefinitions', 'askAI']
+                : values.newTabSceneDataInclude
 
-                // Expand 'all' to include all data types
-                const itemsToProcess = values.newTabSceneDataInclude.includes('all')
-                    ? ['persons', 'groups', 'eventDefinitions', 'propertyDefinitions', 'askAI']
-                    : values.newTabSceneDataInclude
-
-                itemsToProcess.forEach((item) => {
-                    if (searchTerm !== '') {
-                        if (item === 'persons') {
-                            actions.debouncedPersonSearch(searchTerm)
-                        } else if (item === 'groups') {
-                            actions.debouncedGroupSearch(searchTerm)
-                        } else if (item === 'eventDefinitions') {
-                            actions.debouncedEventDefinitionSearch(searchTerm)
-                        } else if (item === 'propertyDefinitions') {
-                            actions.debouncedPropertyDefinitionSearch(searchTerm)
-                        }
-                    } else {
-                        // Load initial data when no search term
-                        if (item === 'persons') {
-                            actions.loadInitialPersons({})
-                        } else if (item === 'groups') {
-                            actions.loadInitialGroups()
-                        } else if (item === 'eventDefinitions') {
-                            actions.loadInitialEventDefinitions({})
-                        } else if (item === 'propertyDefinitions') {
-                            actions.loadInitialPropertyDefinitions({})
-                        }
+            itemsToProcess.forEach((item) => {
+                if (searchTerm !== '') {
+                    if (item === 'persons') {
+                        actions.debouncedPersonSearch(searchTerm)
+                    } else if (item === 'groups') {
+                        actions.debouncedGroupSearch(searchTerm)
+                    } else if (item === 'eventDefinitions') {
+                        actions.debouncedEventDefinitionSearch(searchTerm)
+                    } else if (item === 'propertyDefinitions') {
+                        actions.debouncedPropertyDefinitionSearch(searchTerm)
                     }
-                })
-            }
+                } else {
+                    // Load initial data when no search term
+                    if (item === 'persons') {
+                        actions.loadInitialPersons({})
+                    } else if (item === 'groups') {
+                        actions.loadInitialGroups()
+                    } else if (item === 'eventDefinitions') {
+                        actions.loadInitialEventDefinitions({})
+                    } else if (item === 'propertyDefinitions') {
+                        actions.loadInitialPropertyDefinitions({})
+                    }
+                }
+            })
         },
         onSubmit: () => {
             const selected = values.selectedItem
@@ -1614,27 +1506,23 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             actions.triggerSearchForIncludedItems()
         },
         toggleNewTabSceneDataInclude: ({ item }) => {
-            const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
+            const willBeIncluded = !values.newTabSceneDataInclude.includes(item)
 
-            if (newTabSceneData) {
-                const willBeIncluded = !values.newTabSceneDataInclude.includes(item)
+            if (willBeIncluded) {
+                // When enabling an item, switch to its category
+                actions.setSelectedCategory(item as NEW_TAB_CATEGORY_ITEMS)
+            } else {
+                // When disabling an item, clear its search results and go to 'all'
+                actions.setSelectedCategory('all')
 
-                if (willBeIncluded) {
-                    // When enabling an item, switch to its category
-                    actions.setSelectedCategory(item as NEW_TAB_CATEGORY_ITEMS)
-                } else {
-                    // When disabling an item, clear its search results and go to 'all'
-                    actions.setSelectedCategory('all')
-
-                    if (item === 'persons') {
-                        actions.loadPersonSearchResultsSuccess([])
-                    } else if (item === 'eventDefinitions') {
-                        actions.loadEventDefinitionSearchResultsSuccess([])
-                    } else if (item === 'propertyDefinitions') {
-                        actions.loadPropertyDefinitionSearchResultsSuccess([])
-                    } else if (item === 'groups') {
-                        actions.loadGroupSearchResultsSuccess({})
-                    }
+                if (item === 'persons') {
+                    actions.loadPersonSearchResultsSuccess([])
+                } else if (item === 'eventDefinitions') {
+                    actions.loadEventDefinitionSearchResultsSuccess([])
+                } else if (item === 'propertyDefinitions') {
+                    actions.loadPropertyDefinitionSearchResultsSuccess([])
+                } else if (item === 'groups') {
+                    actions.loadGroupSearchResultsSuccess({})
                 }
             }
         },
@@ -1767,17 +1655,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
     tabAwareActionToUrl(({ values }) => {
         const buildParams = (): Record<string, any> => {
             const includeItems = values.newTabSceneDataInclude.filter((item) => item !== 'all')
-            const includeParam =
-                values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE] && includeItems.length > 0
-                    ? includeItems.join(',')
-                    : undefined
+            const includeParam = includeItems.length > 0 ? includeItems.join(',') : undefined
 
             return {
                 search: values.search || undefined,
-                category:
-                    !values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE] && values.selectedCategory !== 'all'
-                        ? values.selectedCategory
-                        : undefined,
+                category: undefined,
                 include: includeParam,
             }
         }
@@ -1791,14 +1673,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
     }),
     tabAwareUrlToAction(({ actions, values }) => ({
         [urls.newTab()]: (_, searchParams) => {
-            const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
-
             // Update search if URL search param differs from current state
             if (searchParams.search && searchParams.search !== values.search) {
                 actions.setSearch(String(searchParams.search))
 
                 // Trigger searches for already included items when search term changes
-                if (newTabSceneData && values.newTabSceneDataInclude.length > 0) {
+                if (values.newTabSceneDataInclude.length > 0) {
                     const searchTerm = String(searchParams.search).trim()
                     if (searchTerm !== '') {
                         // Expand 'all' to include all data types
@@ -1819,11 +1699,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         })
                     }
                 }
-            }
-
-            // Update category if URL category param differs from current state
-            if (!newTabSceneData && searchParams.category && searchParams.category !== values.selectedCategory) {
-                actions.setSelectedCategory(searchParams.category)
             }
 
             // Update include array if URL param differs from current state
@@ -1850,7 +1725,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 const currentIncludeString = values.newTabSceneDataInclude.slice().sort().join(',')
                 const urlIncludeString = includeFromUrlRaw.slice().sort().join(',')
 
-                if (newTabSceneData && currentIncludeString !== urlIncludeString) {
+                if (currentIncludeString !== urlIncludeString) {
                     actions.setNewTabSceneDataInclude(includeFromUrlRaw)
 
                     // Load data for included items
@@ -1894,9 +1769,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             if (!searchParams.search && values.search) {
                 actions.setSearch('')
             }
-            if (!newTabSceneData && !searchParams.category && values.selectedCategory !== 'all') {
-                actions.setSelectedCategory('all')
-            }
             if (
                 (!searchParams.include && values.newTabSceneDataInclude.length !== 1) ||
                 (!searchParams.include && !values.newTabSceneDataInclude.includes('all'))
@@ -1911,8 +1783,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         actions.loadRecents()
 
         // Load initial data for data sections when "all" is selected by default
-        const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
-        if (newTabSceneData && values.newTabSceneDataInclude.includes('all')) {
+        if (values.newTabSceneDataInclude.includes('all')) {
             actions.loadInitialPersons({})
             actions.loadInitialGroups()
             actions.loadInitialEventDefinitions({})
