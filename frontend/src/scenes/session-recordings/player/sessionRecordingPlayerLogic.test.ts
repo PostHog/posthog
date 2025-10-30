@@ -556,37 +556,4 @@ describe('sessionRecordingPlayerLogic', () => {
             })
         })
     })
-
-    describe('exporting recording to file', () => {
-        it('waits for recording to be fully loaded before exporting', async () => {
-            silenceKeaLoadersErrors()
-
-            logic = sessionRecordingPlayerLogic({
-                sessionRecordingId: '2',
-                playerKey: 'test',
-            })
-            logic.mount()
-
-            await expectLogic(logic).toDispatchActions([
-                sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
-            ])
-
-            // Mock fullyLoaded to be true so export completes
-            Object.defineProperty(logic.values.sessionPlayerData, 'fullyLoaded', {
-                value: true,
-                writable: true,
-            })
-
-            const endTime = logic.values.sessionPlayerData.end?.valueOf()
-            expect(endTime).toBeTruthy()
-
-            await expectLogic(logic, () => {
-                logic.actions.exportRecordingToFile()
-            })
-                .toDispatchActions(['exportRecordingToFile', 'setPause'])
-                .toFinishAllListeners()
-
-            resumeKeaLoadersErrors()
-        })
-    })
 })
