@@ -97,6 +97,47 @@ class ExperimentQueryBuilder:
                     f"Only funnel, mean, and ratio metrics are supported. Got {type(self.metric)}"
                 )
 
+    def get_exposure_timeseries_query(self) -> ast.SelectQuery:
+        """
+        Returns a query for exposure timeseries data.
+
+        Generates daily exposure counts per variant, counting each entity
+        only once on their first exposure day.
+
+        Returns:
+            SelectQuery with columns: day, variant, exposed_count
+        """
+        query = parse_select(
+            """
+            WITH first_exposures AS (
+                SELECT
+                    {entity_key} AS entity_id,
+                    {variant_expr} AS variant,
+                    toDate(toString(min(timestamp))) AS day
+                FROM events
+                WHERE {exposure_predicate}
+                GROUP BY entity_id
+            )
+
+            SELECT
+                first_exposures.day AS day,
+                first_exposures.variant AS variant,
+                count(first_exposures.entity_id) AS exposed_count
+            FROM first_exposures
+            WHERE notEmpty(variant)
+            GROUP BY first_exposures.day, first_exposures.variant
+            ORDER BY first_exposures.day ASC
+            """,
+            placeholders={
+                "entity_key": parse_expr(self.entity_key),
+                "variant_expr": self._build_variant_expr_for_mean(),
+                "exposure_predicate": self._build_exposure_predicate(),
+            },
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
     def _get_conversion_window_seconds(self) -> int:
         """
         Returns the conversion window in seconds for the current metric.

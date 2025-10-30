@@ -22,6 +22,10 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
+from posthog.hogql_queries.experiments.experiment_query_builder import (
+    ExperimentQueryBuilder,
+    get_exposure_config_params_for_builder,
+)
 from posthog.hogql_queries.experiments.exposure_query_logic import (
     build_common_exposure_conditions,
     get_entity_key,
@@ -31,6 +35,7 @@ from posthog.hogql_queries.experiments.exposure_query_logic import (
 )
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.experiment import Experiment
 
 QUERY_ROW_LIMIT = 5000  # Should be sufficient for all experiments (days * variants)
 
@@ -44,6 +49,12 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
+
+        # Load experiment to check for new query builder flag
+        try:
+            self.experiment = Experiment.objects.get(id=self.query.experiment_id)
+        except Experiment.DoesNotExist:
+            raise ValidationError(f"Experiment with id {self.query.experiment_id} not found")
 
         self.feature_flag_key = self.query.feature_flag.get("key")
         if not self.feature_flag_key:
@@ -67,6 +78,12 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             interval=IntervalType.DAY,
             now=datetime.now(),
         )
+
+        # Check if experiment uses new query builder
+        if self.experiment.stats_config is None:
+            self.use_new_query_builder = False
+        else:
+            self.use_new_query_builder = self.experiment.stats_config.get("use_new_query_builder", False)
 
     def _get_date_range(self) -> DateRange:
         """
@@ -93,7 +110,45 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             explicitDate=True,
         )
 
+    def _should_use_new_query_builder(self) -> bool:
+        """
+        Determines whether to use the new CTE-based query builder.
+        """
+        return self.use_new_query_builder is True
+
     def _get_exposure_query(self) -> ast.SelectQuery:
+        if self._should_use_new_query_builder():
+            # Use new CTE-based query builder
+            exposure_config, multiple_variant_handling, filter_test_accounts = get_exposure_config_params_for_builder(
+                self.experiment
+            )
+
+            # Get a metric from the experiment if available, otherwise create a dummy metric
+            # The metric is not actually used for exposure queries, but the builder requires it
+            if self.experiment.metrics and len(self.experiment.metrics) > 0:
+                from posthog.schema import ExperimentMeanMetric
+
+                metric = ExperimentMeanMetric.model_validate(self.experiment.metrics[0])
+            else:
+                # Create a minimal dummy metric as a placeholder
+                from posthog.schema import EventsNode, ExperimentMeanMetric
+
+                metric = ExperimentMeanMetric(source=EventsNode(event="$pageview"))
+
+            builder = ExperimentQueryBuilder(
+                team=self.team,
+                feature_flag_key=self.feature_flag_key,
+                metric=metric,
+                exposure_config=exposure_config,
+                filter_test_accounts=filter_test_accounts,
+                multiple_variant_handling=multiple_variant_handling,
+                variants=self.variants,
+                date_range_query=self.date_range_query,
+                entity_key=get_entity_key(self.group_type_index),
+            )
+            return builder.get_exposure_timeseries_query()
+
+        # Old implementation
         # Get the exposure event and feature flag variant property
         if not self.feature_flag_key:
             raise ValidationError("feature_flag key is required")
