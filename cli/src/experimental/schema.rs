@@ -65,8 +65,10 @@ pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()
     println!("\nNext steps:");
     println!("  1. Import PostHog from your generated module:");
     println!("     import posthog from './{}'", output_path);
-    println!("  2. Use typed events with autocomplete:");
-    println!("     posthog.typed.uploaded_file({{ file_size_b: 1024 }})");
+    println!("  2. Use typed events with autocomplete and type safety:");
+    println!("     posthog.captureTyped('event_name', {{ property: 'value' }})");
+    println!("  3. Or use regular capture() for flexibility:");
+    println!("     posthog.capture('dynamic_event', {{ any: 'data' }})");
     println!();
 
     Ok(())
@@ -100,7 +102,7 @@ fn determine_output_path(language: &str, output_override: Option<String>) -> Res
 
     // Prompt user for output path
     let default_filename = default_output_path(language);
-    let help_message = format!("Current: {}", current_dir);
+    let help_message = format!("Your app will import PostHog from this file, so it should be accessible throughout your codebase (e.g., src/lib/, app/lib/, or your project root). Current directory: {}", current_dir);
 
     let path = Text::new(&format!("Where should we save the {} typed PostHog module?", language_display_name(language)))
         .with_default(&default_filename)
