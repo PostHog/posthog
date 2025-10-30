@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { ReactNode, useEffect, useRef } from 'react'
 
 import { IconArrowRight, IconEllipsis, IconExternal, IconInfo, IconSparkles } from '@posthog/icons'
@@ -111,27 +112,63 @@ function Category({
     category,
     columnIndex,
     isFirstCategoryWithResults,
+    isLoading,
 }: {
     tabId: string
     items: NewTabTreeDataItem[]
     category: string
     columnIndex: number
     isFirstCategoryWithResults: boolean
+    isLoading: boolean
 }): JSX.Element {
     const groupRef = useRef<ListBoxGroupHandle>(null)
+    const pendingFocusIndexRef = useRef<number | null>(null)
     const typedItems = items as NewTabTreeDataItem[]
     const isFirstCategory = columnIndex === 0
     const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
     const {
         filteredItemsGrid,
         search,
-        isSearching,
         newTabSceneDataGroupedItemsFullData,
         getSectionItemLimit,
         newTabSceneDataInclude,
+        recents,
+        recentsLoading,
     } = useValues(newTabSceneLogic({ tabId }))
-    const { showMoreInSection } = useActions(newTabSceneLogic({ tabId }))
+    const { showMoreInSection, logCreateNewItem, loadMoreRecents } = useActions(newTabSceneLogic({ tabId }))
     const { groupTypes } = useValues(groupsModel)
+    const previousRecentsLoadingRef = useRef(recentsLoading)
+
+    // Make sure the same index remains focused after clicking "load more"
+    useEffect(() => {
+        const wasLoading = previousRecentsLoadingRef.current
+        previousRecentsLoadingRef.current = recentsLoading
+
+        if (category !== 'recents') {
+            pendingFocusIndexRef.current = null
+            return
+        }
+
+        if (wasLoading && !recentsLoading && pendingFocusIndexRef.current !== null) {
+            const indexToFocus = pendingFocusIndexRef.current
+            pendingFocusIndexRef.current = null
+
+            const restoreFocus = (): void => {
+                const focused = groupRef.current?.resumeFocus(indexToFocus)
+                if (!focused) {
+                    setTimeout(() => {
+                        groupRef.current?.resumeFocus(indexToFocus)
+                    }, 50)
+                }
+            }
+
+            if (typeof requestAnimationFrame === 'function') {
+                requestAnimationFrame(restoreFocus)
+            } else {
+                setTimeout(restoreFocus, 0)
+            }
+        }
+    }, [category, recentsLoading])
 
     return (
         <>
@@ -152,7 +189,7 @@ function Category({
                                 {getCategoryDisplayName(category)}
                             </h3>
                         )}
-                        {category === 'recents' && isSearching && <Spinner size="small" />}
+                        {isLoading && <Spinner size="small" />}
                         {/* Show "No results found" tag for other categories when empty and include is NOT 'all' */}
                         {newTabSceneData &&
                             !['persons', 'groups', 'eventDefinitions', 'propertyDefinitions'].includes(category) &&
@@ -171,7 +208,7 @@ function Category({
                 >
                     {typedItems.length === 0 ? (
                         // Show loading for recents when searching, otherwise show nothing (tag shows in header)
-                        category === 'recents' && isSearching ? (
+                        category === 'recents' && isLoading ? (
                             <div className="flex flex-col gap-2 text-tertiary text-balance">
                                 <WrappingLoadingSkeleton>
                                     <ButtonPrimitive size="sm">Loading items...</ButtonPrimitive>
@@ -181,6 +218,7 @@ function Category({
                     ) : (
                         <ListBox.Group ref={groupRef} groupId={`category-${category}`}>
                             {typedItems.map((item, index) => {
+                                const isCreateNew = item.category === 'create-new'
                                 const focusFirst =
                                     (newTabSceneData && isFirstCategoryWithResults && index === 0) ||
                                     (filteredItemsGrid.length > 0 && isFirstCategory && index === 0)
@@ -228,6 +266,15 @@ function Category({
                                                         buttonProps={{
                                                             size: 'sm',
                                                             hasSideActionRight: true,
+                                                        }}
+                                                        onClick={(e) => {
+                                                            e.preventDefault()
+                                                            if (item.href) {
+                                                                if (isCreateNew) {
+                                                                    logCreateNewItem(item.href)
+                                                                }
+                                                                router.actions.push(item.href)
+                                                            }
                                                         }}
                                                     >
                                                         <span className="text-sm">{item.icon ?? item.name[0]}</span>
@@ -320,7 +367,10 @@ function Category({
                                 (() => {
                                     const currentLimit = getSectionItemLimit(category)
                                     const fullCount = newTabSceneDataGroupedItemsFullData[category] || 0
-                                    const hasMore = fullCount > currentLimit
+                                    const isRecentsSection = category === 'recents'
+                                    const hasMore = isRecentsSection
+                                        ? recents.hasMore || fullCount > currentLimit
+                                        : fullCount > currentLimit
 
                                     return (
                                         hasMore && (
@@ -331,21 +381,26 @@ function Category({
                                             >
                                                 <ButtonPrimitive
                                                     size="sm"
+                                                    disabled={isRecentsSection && recentsLoading}
                                                     onClick={() => {
                                                         const showAllIndex = typedItems.length // The "Show all" button index
 
-                                                        showMoreInSection(category)
-
-                                                        // Restore focus to the item that replaces the "Show all" button
-                                                        setTimeout(() => {
-                                                            // Focus the item at the same index where the "Show all" button was
-                                                            groupRef.current?.resumeFocus(showAllIndex)
-                                                        }, 0)
+                                                        if (isRecentsSection) {
+                                                            pendingFocusIndexRef.current = showAllIndex
+                                                            loadMoreRecents()
+                                                        } else {
+                                                            showMoreInSection(category)
+                                                            setTimeout(() => {
+                                                                groupRef.current?.resumeFocus(showAllIndex)
+                                                            }, 0)
+                                                        }
                                                     }}
                                                     className="w-full text-tertiary data-[focused=true]:text-primary"
                                                 >
-                                                    <IconArrowRight className="rotate-90" /> Show all (
-                                                    {fullCount - currentLimit} more)
+                                                    <IconArrowRight className="rotate-90" />
+                                                    {isRecentsSection
+                                                        ? ' Load more...'
+                                                        : ` Show all (${fullCount - currentLimit} more)`}
                                                 </ButtonPrimitive>
                                             </ListBox.Item>
                                         )
@@ -437,14 +492,16 @@ export function Results({
         allCategories,
         firstCategoryWithResults,
     } = useValues(newTabSceneLogic({ tabId }))
-    const { setSearch } = useActions(newTabSceneLogic({ tabId }))
+    const { setSearch, logCreateNewItem } = useActions(newTabSceneLogic({ tabId }))
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
+    const selectedCategoryData = allCategories.find((category) => category.key === selectedCategory)
     const items = groupedFilteredItems[selectedCategory] || []
     const typedItems = items as NewTabTreeDataItem[]
+    const selectedCategoryIsLoading = selectedCategoryData?.isLoading ?? false
 
     // Track whether we have any results
-    const hasResults = allCategories.some(([, items]) => items.length > 0)
+    const hasResults = allCategories.some((category) => category.items.length > 0)
 
     // Check if we should show NoResultsFound component
     // (include='all' + search term + no results + flag on)
@@ -466,17 +523,18 @@ export function Results({
                         <h3 className="mb-0 text-lg font-medium text-secondary">
                             {getCategoryDisplayName(selectedCategory)}
                         </h3>
-                        {selectedCategory === 'recents' && isSearching && <Spinner size="small" />}
+                        {selectedCategoryIsLoading && <Spinner size="small" />}
                     </div>
                 </div>
                 <div className="flex flex-col gap-2">
                     {selectedCategory === 'recents' && typedItems.length === 0 ? (
                         // Special handling for empty project items and persons
                         <div className="flex flex-col gap-2 text-tertiary text-balance">
-                            {isSearching ? 'Searching...' : 'No results found'}
+                            {selectedCategoryIsLoading ? 'Searching...' : 'No results found'}
                         </div>
                     ) : (
                         typedItems.map((item, index) => {
+                            const isCreateNew = item.category === 'create-new'
                             return (
                                 // If we have filtered results set virtual focus to first item
                                 <ButtonGroupPrimitive key={item.id} className="group w-full border-0">
@@ -496,6 +554,15 @@ export function Results({
                                                         size: 'sm',
                                                         hasSideActionRight: true,
                                                         truncate: true,
+                                                    }}
+                                                    onClick={(e) => {
+                                                        e.preventDefault()
+                                                        if (item.href) {
+                                                            if (isCreateNew) {
+                                                                logCreateNewItem(item.href)
+                                                            }
+                                                            router.actions.push(item.href)
+                                                        }
                                                     }}
                                                 >
                                                     <span className="text-sm">{item.icon ?? item.name[0]}</span>
@@ -558,13 +625,14 @@ export function Results({
 
     return (
         <>
-            {allCategories.map(([category, items]: [string, NewTabTreeDataItem[]], columnIndex: number) => (
+            {allCategories.map(({ key: category, items, isLoading }, columnIndex: number) => (
                 <Category
                     tabId={tabId}
                     items={items}
                     category={category}
                     columnIndex={columnIndex}
                     isFirstCategoryWithResults={category === firstCategoryWithResults}
+                    isLoading={isLoading}
                     key={category}
                 />
             ))}

@@ -20,7 +20,7 @@ import temporalio.common
 import temporalio.worker
 from asgiref.sync import sync_to_async
 
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
 from posthog import constants
@@ -59,7 +59,7 @@ TEST_TIME = dt.datetime.now(dt.UTC)
 @pytest_asyncio.fixture
 async def posthog_table_names(ateam):
     team = await database_sync_to_async(Team.objects.get)(id=ateam.pk)
-    hogql_db = await database_sync_to_async(create_hogql_database)(team=team)
+    hogql_db = await database_sync_to_async(Database.create_for)(team=team)
     posthog_table_names = hogql_db.get_posthog_table_names()
 
     return posthog_table_names

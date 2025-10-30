@@ -27,7 +27,7 @@ from structlog.types import FilteringBoundLogger
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
@@ -675,7 +675,7 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
         limit_top_select=False,
     )
     context.output_format = "TabSeparated"
-    context.database = await database_sync_to_async(create_hogql_database)(team=team, modifiers=context.modifiers)
+    context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
 
     prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
         query_node, context=context, dialect="clickhouse", settings=settings, stack=[]
@@ -718,7 +718,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
         enable_select_queries=True,
         limit_top_select=False,
     )
-    context.database = await database_sync_to_async(create_hogql_database)(team=team, modifiers=context.modifiers)
+    context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
 
     prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
         query_node, context=context, dialect="clickhouse", settings=settings, stack=[]
@@ -1137,7 +1137,7 @@ async def build_dag_from_selectors(selector_paths: SelectorPaths, team_id: int) 
 
 async def get_posthog_table_names(team_id: int) -> list[str]:
     team = await database_sync_to_async(Team.objects.get)(id=team_id)
-    hogql_db = await database_sync_to_async(create_hogql_database)(team=team)
+    hogql_db = await database_sync_to_async(Database.create_for)(team=team)
     posthog_table_names = hogql_db.get_posthog_table_names()
     return posthog_table_names
 

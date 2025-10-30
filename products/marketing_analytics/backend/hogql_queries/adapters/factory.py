@@ -6,7 +6,7 @@ import structlog
 
 from posthog.schema import SourceMap
 
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 
 from posthog.warehouse.models import DataWarehouseTable, ExternalDataSource
 
@@ -86,7 +86,7 @@ class MarketingSourceFactory:
         self.logger = logger.bind(team_id=self.context.team.pk if self.context.team else None)
 
         # Cache warehouse data to avoid repeated queries
-        database = create_hogql_database(team=self.context.team)
+        database = Database.create_for(team=self.context.team)
         self._warehouse_tables = DataWarehouseTable.objects.filter(
             team_id=self.context.team.pk, deleted=False, name__in=database.get_warehouse_table_names()
         ).prefetch_related("externaldataschema_set")

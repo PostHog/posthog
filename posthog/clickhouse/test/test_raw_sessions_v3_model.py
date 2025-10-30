@@ -11,6 +11,7 @@ from posthog.test.base import (
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.models.raw_sessions.sessions_v3 import RAW_SESSION_TABLE_BACKFILL_SQL_V3
 from posthog.models.utils import uuid7
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 distinct_id_counter = 0
 session_id_counter = 0
@@ -574,3 +575,33 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
         result = self.select_by_session_id(session_id)
 
         assert set(result[0]["distinct_ids"]) == {distinct_id_1, distinct_id_2}
+
+    def test_has_replay_events(self):
+        distinct_id = create_distinct_id()
+        session_id = create_session_id()
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={"$current_url": "/", "$session_id": session_id},
+            timestamp="2024-03-08",
+        )
+
+        result_1 = self.select_by_session_id(session_id)
+        assert result_1[0]["has_replay_events"] is False
+
+        produce_replay_summary(
+            team_id=self.team.pk,
+            distinct_id=distinct_id,
+            session_id=session_id,
+            first_timestamp="2024-03-08",
+            last_timestamp="2024-03-08",
+        )
+
+        result_2 = self.select_by_session_id(session_id)
+        assert result_2[0]["has_replay_events"] is True
+
+        # everything else except for inserted_at should be the same
+        assert {k: v for k, v in result_1[0].items() if k not in {"has_replay_events", "max_inserted_at"}} == {
+            k: v for k, v in result_2[0].items() if k not in {"has_replay_events", "max_inserted_at"}
+        }

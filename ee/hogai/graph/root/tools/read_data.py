@@ -53,10 +53,8 @@ class ReadDataAdminAccessToolArgs(BaseModel):
 class ReadDataTool(HogQLDatabaseMixin, MaxTool):
     name: Literal["read_data"] = "read_data"
     description: str = READ_DATA_PROMPT
-    thinking_message: str = "Reading your PostHog data"
     context_prompt_template: str = "Reads user data created in PostHog (data warehouse schema, billing information)"
     args_schema: type[BaseModel] = ReadDataToolArgs
-    show_tool_call_message: bool = False
 
     @classmethod
     async def create_tool_class(
@@ -64,8 +62,10 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         *,
         team: Team,
         user: User,
+        tool_call_id: str,
         state: AssistantState | None = None,
         config: RunnableConfig | None = None,
+        context_manager: AssistantContextManager | None = None,
     ) -> Self:
         """
         Factory that creates a ReadDataTool with a dynamic args schema.
@@ -73,13 +73,23 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         Override this factory to add additional args schemas or descriptions.
         """
         args: type[BaseModel] = ReadDataToolArgs
-        context_manager = AssistantContextManager(team, user, config)
+        if not context_manager:
+            context_manager = AssistantContextManager(team, user, config)
         billing_prompt = ""
         if await context_manager.check_user_has_billing_access():
             args = ReadDataAdminAccessToolArgs
             billing_prompt = READ_DATA_BILLING_PROMPT
         description = format_prompt_string(READ_DATA_PROMPT, billing_prompt=billing_prompt)
-        return cls(team=team, user=user, state=state, config=config, args_schema=args, description=description)
+        return cls(
+            team=team,
+            user=user,
+            tool_call_id=tool_call_id,
+            state=state,
+            config=config,
+            args_schema=args,
+            description=description,
+            context_manager=context_manager,
+        )
 
     async def _arun_impl(self, kind: ReadDataAdminAccessKind | ReadDataKind) -> tuple[str, dict[str, Any] | None]:
         match kind:

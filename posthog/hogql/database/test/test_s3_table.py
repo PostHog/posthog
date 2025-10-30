@@ -5,7 +5,7 @@ from unittest import mock
 
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import TableNode
 from posthog.hogql.database.s3_table import build_function_call
 from posthog.hogql.database.test.tables import create_aapl_stock_s3_table
@@ -19,7 +19,7 @@ from posthog.warehouse.models.table import DataWarehouseTable
 
 class TestS3Table(BaseTest):
     def _init_database(self):
-        self.database = create_hogql_database(team=self.team)
+        self.database = Database.create_for(team=self.team)
         self.database._add_warehouse_tables(
             TableNode(
                 children={
