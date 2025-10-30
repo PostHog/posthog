@@ -23,6 +23,7 @@ from ee.hogai.session_summaries.constants import (
     VALIDATION_VIDEO_DURATION,
 )
 from ee.hogai.session_summaries.llm.call import call_llm
+from ee.hogai.session_summaries.llm.consume import get_raw_content
 from ee.hogai.session_summaries.session.output_data import (
     EnrichedKeyActionSerializer,
     IntermediateSessionSummarySerializer,
@@ -109,6 +110,13 @@ class SessionSummaryVideoValidator:
         updated_run_metadata = self._generate_updates_run_metadata(
             description_results=description_results, events_to_validate=events_to_validate
         )
+        # TODO: Remove after testing
+        with open("initial_summary.json", "w") as f:
+            json.dump(self.summary.data, f, indent=4)
+        with open("updated_summary.json", "w") as f:
+            json.dump(updated_summary.data, f, indent=4)
+        with open("updates_result.json", "w") as f:
+            json.dump(updates_result, f, indent=4)
         # Return the updated summary and the run metadata
         return updated_summary, updated_run_metadata
 
@@ -267,8 +275,8 @@ class SessionSummaryVideoValidator:
             system_prompt=system_prompt,
             trace_id=self.trace_id or str(uuid.uuid4()),
         )
-        updates_content = updates_raw.choices[0].message.content
-        if updates_content is None:
+        updates_content = get_raw_content(updates_raw)
+        if not updates_content:
             logger.exception(
                 f"No updates content found for session {self.session_id} when validating session summary with videos"
             )
