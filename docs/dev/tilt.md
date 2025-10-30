@@ -1,26 +1,40 @@
 # Tilt development workflow
 
-Tilt provides a single entry point for orchestrating the PostHog development stack. It replaces the manual `docker compose` + `mprocs` workflow from `bin/start`, while still relying on the same commands and scripts under the hood.
+Tilt provides a single entry point for orchestrating the PostHog development stack. It replaces the manual `docker compose` + `mprocs` workflow, while still relying on the same commands and scripts under the hood.
 
 ## Prerequisites
 
 - [Docker](https://www.docker.com/products/docker-desktop/) or [OrbStack](https://orbstack.dev/) running locally
-- [Tilt](https://tilt.dev) ≥ v0.33: `brew install tilt-dev/tap/tilt`, `choco install tilt`, or download the binary from the [Tilt releases page](https://github.com/tilt-dev/tilt/releases)
-- Existing language toolchains (Python via `uv`, Node via `pnpm`, Rust) as already required by `bin/start`
+- [Flox](https://flox.dev) environment activated (provides Tilt, Python, Node, Rust toolchains)
+
+Activate the flox environment in the repository root:
+
+```bash
+flox activate
+```
+
+This installs Tilt (v0.33.21) and all language toolchains. If you're not using flox, install Tilt manually: `brew install tilt-dev/tap/tilt` or download from the [Tilt releases page](https://github.com/tilt-dev/tilt/releases).
 
 > [!TIP]
 > Tilt automatically installs the MaxMind database via the `download-mmdb` resource before any application processes start.
 
 ## Getting started
 
-Run Tilt from the repository root:
+Start the stack using hogli (recommended):
 
 ```bash
-# Default profile (minimal - recommended)
-tilt up
+hogli start              # Uses Tilt with minimal profile
+hogli start:mprocs       # Fallback to mprocs if needed
 ```
 
-Tilt streams the same commands that `bin/mprocs.yaml` defines. When code changes, Tilt restarts the affected process so you get the same live reload experience as before.
+Or run Tilt directly:
+
+```bash
+tilt up                  # Default minimal profile
+TILT_PROFILE=core tilt up
+```
+
+Tilt runs the same commands that `bin/mprocs.yaml` defines. When code changes, Tilt restarts the affected process for live reload.
 
 Access the **Tilt UI at http://localhost:10350/** to view service status, logs, and enable/disable services.
 
