@@ -16,10 +16,10 @@ class Migration(migrations.Migration):
                 # We add CONCURRENTLY to the create command
                 migrations.RunSQL(
                     """
-                    CREATE INDEX CONCURRENTLY "idx_team_raw_id_part" ON "posthog_errortrackingstackframe" ("team_id", "raw_id", "part");
+                    CREATE INDEX CONCURRENTLY "idx_team_id_raw_id_part" ON "posthog_errortrackingstackframe" ("team_id", "raw_id", "part");
                     """,
                     reverse_sql="""
-                        DROP INDEX IF EXISTS "idx_team_raw_id_part";
+                        DROP INDEX IF EXISTS "idx_team_id_raw_id_part";
                     """,
                 ),
             ],
