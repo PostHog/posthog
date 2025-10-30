@@ -221,6 +221,8 @@ class PostgreSQLClient:
         self.has_self_signed_cert = has_self_signed_cert
         self.connection_timeout = connection_timeout
 
+        self.logger = LOGGER.bind(host=host, port=port, database=database, user=user)
+        self.external_logger = EXTERNAL_LOGGER.bind(host=host, port=port, database=database, user=user)
         self._connection: None | psycopg.AsyncConnection = None
 
     @classmethod
