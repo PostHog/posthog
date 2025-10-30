@@ -151,8 +151,22 @@ health_checks:
         description: Verify all core infrastructure services are ready
 start:
     start:
+        cmd: tilt up
+        description: Start PostHog dev stack via Tilt
+        services:
+            - docker
+            - django
+            - frontend
+            - celery
+            - plugin-server
+            - postgresql
+            - redis
+            - kafka
+            - clickhouse
+            - temporal
+    start:mprocs:
         bin_script: start
-        description: Main entry point that launches all dev services via mprocs orchestrator
+        description: Start dev services via mprocs orchestrator (legacy, fallback option)
         services:
             - mprocs
             - docker
