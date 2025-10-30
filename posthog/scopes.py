@@ -17,6 +17,7 @@ APIScopeObject = Literal[
     "dashboard",
     "dashboard_template",
     "dataset",
+    "desktop_recording",
     "early_access_feature",
     "error_tracking",
     "evaluation",

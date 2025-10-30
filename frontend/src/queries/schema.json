@@ -13615,6 +13615,13 @@
                     "description": "Match this with the a base scene key or a specific one",
                     "type": "string"
                 },
+                "sceneKeys": {
+                    "description": "List of all scenes exported by the app",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "shortcut": {
                     "description": "Whether this is a shortcut or the actual item",
                     "type": "boolean"
@@ -13637,6 +13644,22 @@
                 }
             },
             "required": ["path"],
+            "type": "object"
+        },
+        "FileSystemViewLogEntry": {
+            "additionalProperties": false,
+            "properties": {
+                "ref": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "viewed_at": {
+                    "type": "string"
+                }
+            },
+            "required": ["type", "ref", "viewed_at"],
             "type": "object"
         },
         "FilterLogicalOperator": {
@@ -16180,7 +16203,7 @@
             "type": "string"
         },
         "IntervalType": {
-            "enum": ["minute", "hour", "day", "week", "month"],
+            "enum": ["second", "minute", "hour", "day", "week", "month"],
             "type": "string"
         },
         "LLMTrace": {

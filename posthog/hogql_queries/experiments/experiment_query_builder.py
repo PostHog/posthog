@@ -9,6 +9,7 @@ from posthog.schema import (
     ExperimentMetricMathType,
     ExperimentRatioMetric,
     MultipleVariantHandling,
+    StepOrderValue,
 )
 
 from posthog.hogql import ast
@@ -177,6 +178,24 @@ class ExperimentQueryBuilder:
                 # Add step columns to the SELECT
                 step_columns = self._build_funnel_step_columns()
                 metric_events_cte.expr.select.extend(step_columns)
+
+                # For unordered funnels, we need to filter out metric events that occur _before_ the exposure
+                # event. For ordered funnel metrics, the UDF does this for us.
+                # Here, we add the field we need, first_exposure_timestamp
+                if self.metric.funnel_order_type == StepOrderValue.UNORDERED:
+                    first_exposure_timestamp_expr = parse_expr(
+                        "minIf(timestamp, step_0 = 1) OVER (PARTITION BY entity_id) AS first_exposure_timestamp"
+                    )
+                    metric_events_cte.expr.select.extend([first_exposure_timestamp_expr])
+
+        if self.metric.funnel_order_type == StepOrderValue.UNORDERED:
+            # For unordered funnels, we need to filter out metric events that occur _before_ the exposure
+            # event. For ordered funnel metrics, the UDF does this for us.
+            # Here, we add the where condition to filter out those events
+            if query.ctes and "entity_metrics" in query.ctes:
+                entity_metrics_cte = query.ctes["entity_metrics"]
+                if isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery):
+                    entity_metrics_cte.expr.where = parse_expr("timestamp >= first_exposure_timestamp")
 
         # Inject the additional selects we do for getting the data we need to render the funnel chart
         # Add step counts - how many users reached each step
