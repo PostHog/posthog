@@ -33,7 +33,6 @@ from posthog.hogql.context import HogQLContext
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import capture_legacy_api_call
-from posthog.api.mixins import FileSystemViewSetMixin
 from posthog.api.person import get_funnel_actor_class
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -710,7 +709,7 @@ class CohortSerializer(serializers.ModelSerializer):
         return representation
 
 
-class CohortViewSet(FileSystemViewSetMixin, TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Cohort.objects.all()
     serializer_class = CohortSerializer
     scope_object = "cohort"
@@ -807,28 +806,33 @@ class CohortViewSet(FileSystemViewSetMixin, TeamAndOrgViewSetMixin, ForbidDestro
 
         return graph, behavioral_cohorts
 
-    @extend_schema(summary="Duplicate as static cohort", description="Create a static copy of a dynamic cohort")
+    @extend_schema(summary="Duplicate as static cohort", description="Create a static copy of a cohort")
     @action(methods=["GET"], detail=True, required_scopes=["cohort:write"])
     def duplicate_as_static_cohort(self, request: Request, **kwargs) -> Response:
         cohort: Cohort = self.get_object()
         team = self.team
 
+        serializer_data = {
+            "name": f"{cohort.name} (static copy)",
+            "is_static": True,
+        }
+        serializer_context = {
+            "request": request,
+            "team_id": team.pk,
+            "get_team": lambda: team,
+        }
+
+        # For static cohorts, copy people directly instead of using the insight filter path
         if cohort.is_static:
-            raise ValidationError("Cannot duplicate a static cohort as a static cohort.")
+            from posthog.models.cohort.cohort import CohortPeople
 
-        cohort_serializer = CohortSerializer(
-            data={
-                "name": f"{cohort.name} (static copy)",
-                "is_static": True,
-            },
-            context={
-                "request": request,
-                "from_cohort_id": cohort.pk,
-                "team_id": team.pk,
-                "get_team": lambda: team,
-            },
-        )
+            person_uuids = CohortPeople.objects.filter(cohort_id=cohort.pk).values_list("person__uuid", flat=True)
+            serializer_data["_create_static_person_ids"] = [str(uuid) for uuid in person_uuids]
+        else:
+            # For dynamic cohorts, use the existing insight filter path
+            serializer_context["from_cohort_id"] = cohort.pk
 
+        cohort_serializer = CohortSerializer(data=serializer_data, context=serializer_context)
         cohort_serializer.is_valid(raise_exception=True)
         cohort_serializer.save()
 

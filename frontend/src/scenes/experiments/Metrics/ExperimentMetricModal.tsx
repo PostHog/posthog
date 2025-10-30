@@ -2,23 +2,27 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonModal } from '@posthog/lemon-ui'
 
-import type { ExperimentMetric } from '~/queries/schema/schema-general'
+import type { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
 import { ExperimentMetricForm } from '../ExperimentMetricForm'
+import { modalsLogic } from '../modalsLogic'
 import { type MetricContext, experimentMetricModalLogic } from './experimentMetricModalLogic'
 
 export function ExperimentMetricModal({
     experiment,
+    exposureCriteria,
     onSave,
     onDelete,
 }: {
     experiment: Experiment
+    exposureCriteria: ExperimentExposureCriteria | undefined
     onSave: (metric: ExperimentMetric, context: MetricContext) => void
     onDelete: (metric: ExperimentMetric, context: MetricContext) => void
 }): JSX.Element | null {
     const { isModalOpen, metric, context, isCreateMode, isEditMode } = useValues(experimentMetricModalLogic)
     const { closeExperimentMetricModal, setMetric: setModalMetric } = useActions(experimentMetricModalLogic)
+    const { openExposureCriteriaModal } = useActions(modalsLogic)
 
     if (!isModalOpen || !metric) {
         return null
@@ -92,6 +96,8 @@ export function ExperimentMetricModal({
                 metric={metric}
                 handleSetMetric={setModalMetric}
                 filterTestAccounts={experiment.exposure_criteria?.filterTestAccounts || false}
+                exposureCriteria={exposureCriteria}
+                openExposureCriteriaModal={openExposureCriteriaModal}
             />
         </LemonModal>
     )

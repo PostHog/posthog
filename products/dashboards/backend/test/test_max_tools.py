@@ -25,7 +25,9 @@ class TestEditCurrentDashboardTool:
         configurable = {"team": mock_team, "user": mock_user}
         if context:
             configurable["contextual_tools"] = {"edit_current_dashboard": context}
-        tool = EditCurrentDashboardTool(team=mock_team, user=mock_user, config={"configurable": configurable})
+        tool = EditCurrentDashboardTool(
+            team=mock_team, user=mock_user, config={"configurable": configurable}, tool_call_id="test-tool-call-id"
+        )
         return tool
 
     @pytest.mark.asyncio

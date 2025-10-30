@@ -72,7 +72,7 @@ def _initial_domain_type_expr() -> ast.Expr:
 if(
     {referring_domain} = '$direct',
     '$direct',
-    hogql_lookupDomainType({referring_domain})
+    lookupDomainType({referring_domain})
 )
 """
     )
@@ -287,14 +287,14 @@ def _initial_default_channel_rules_expr():
                 {gad_source} IS NOT NULL
             ),
             coalesce(
-                hogql_lookupPaidSourceType({source}),
+                lookupPaidSourceType({source}),
                 if(
                     match({campaign}, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
                     'Paid Shopping',
                     NULL
                 ),
-                hogql_lookupPaidMediumType({medium}),
-                hogql_lookupPaidSourceType({referring_domain}),
+                lookupPaidMediumType({medium}),
+                lookupPaidSourceType({referring_domain}),
                 multiIf (
                     {gad_source} = '1',
                     'Paid Search',
@@ -318,14 +318,14 @@ def _initial_default_channel_rules_expr():
             'Direct',
 
             coalesce(
-                hogql_lookupOrganicSourceType({source}),
+                lookupOrganicSourceType({source}),
                 if(
                     match({campaign}, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
                     'Organic Shopping',
                     NULL
                 ),
-                hogql_lookupOrganicMediumType({medium}),
-                hogql_lookupOrganicSourceType({referring_domain}),
+                lookupOrganicMediumType({medium}),
+                lookupOrganicSourceType({referring_domain}),
                 multiIf(
                     match({campaign}, '^(.*video.*)$'),
                     'Organic Video',

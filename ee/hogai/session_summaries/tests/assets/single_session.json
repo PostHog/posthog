@@ -1,0 +1,146 @@
+{
+    "segments": [
+        {
+            "index": 0,
+            "name": "Repeated failed login attempts",
+            "start_event_id": "39e6ec9f",
+            "end_event_id": "a54a3cf4",
+            "meta": {
+                "duration": 13,
+                "duration_percentage": 0.7222,
+                "events_count": 46,
+                "events_percentage": 0.8519,
+                "key_action_count": 2,
+                "failure_count": 1,
+                "abandonment_count": 0,
+                "confusion_count": 1,
+                "exception_count": 1
+            }
+        },
+        {
+            "index": 1,
+            "name": "Password-reset detour then exit",
+            "start_event_id": "71ea93fe",
+            "end_event_id": "85b113ae",
+            "meta": {
+                "duration": 4,
+                "duration_percentage": 0.2222,
+                "events_count": 8,
+                "events_percentage": 0.1481,
+                "key_action_count": 3,
+                "failure_count": 1,
+                "abandonment_count": 1,
+                "confusion_count": 0,
+                "exception_count": 0
+            }
+        }
+    ],
+    "key_actions": [
+        {
+            "segment_index": 0,
+            "events": [
+                {
+                    "description": "Entered email to begin login",
+                    "abandonment": false,
+                    "confusion": false,
+                    "exception": null,
+                    "event_id": "dd8fbddb",
+                    "timestamp": "2025-09-16T08:54:39.198000+00:00",
+                    "milliseconds_since_start": 3193,
+                    "window_id": "019951bb-a319-7557-8d3f-4929f56805ab",
+                    "current_url": "http://localhost:8010/login?next=%2F",
+                    "event": "$autocapture",
+                    "event_type": "click",
+                    "event_index": 4,
+                    "session_id": "019951bb-a319-7557-8d3f-4928ddd0b991",
+                    "event_uuid": "019951bb-b150-70f2-a6e5-002a76e98077"
+                },
+                {
+                    "description": "Multiple login submissions returned server errors",
+                    "abandonment": false,
+                    "confusion": true,
+                    "exception": "blocking",
+                    "event_id": "5aad5e12",
+                    "timestamp": "2025-09-16T08:54:39.943000+00:00",
+                    "milliseconds_since_start": 3938,
+                    "window_id": "019951bb-a319-7557-8d3f-4929f56805ab",
+                    "current_url": "http://localhost:8010/login?next=%2F",
+                    "event": "client_request_failure",
+                    "event_type": null,
+                    "event_index": 7,
+                    "session_id": "019951bb-a319-7557-8d3f-4928ddd0b991",
+                    "event_uuid": "019951bb-b439-7b26-8c47-485cbc644765"
+                }
+            ]
+        },
+        {
+            "segment_index": 1,
+            "events": [
+                {
+                    "description": "Clicked \"Forgot your password?\" link",
+                    "abandonment": false,
+                    "confusion": false,
+                    "exception": null,
+                    "event_id": "d05a4e8c",
+                    "timestamp": "2025-09-16T08:54:51.315000+00:00",
+                    "milliseconds_since_start": 15310,
+                    "window_id": "019951bb-a319-7557-8d3f-4929f56805ab",
+                    "current_url": "http://localhost:8010/login?next=%2F",
+                    "event": "$autocapture",
+                    "event_type": "click",
+                    "event_index": 47,
+                    "session_id": "019951bb-a319-7557-8d3f-4928ddd0b991",
+                    "event_uuid": "019951bb-e0af-7c39-a7d7-83c9ee4adabf"
+                },
+                {
+                    "description": "Used copy-to-clipboard on reset page",
+                    "abandonment": false,
+                    "confusion": false,
+                    "exception": null,
+                    "event_id": "22747e68",
+                    "timestamp": "2025-09-16T08:54:52.237000+00:00",
+                    "milliseconds_since_start": 16232,
+                    "window_id": "019951bb-a319-7557-8d3f-4929f56805ab",
+                    "current_url": "http://localhost:8010/reset?email=fdsfsdfs%40fdfd.fdf",
+                    "event": "$autocapture",
+                    "event_type": "click",
+                    "event_index": 49,
+                    "session_id": "019951bb-a319-7557-8d3f-4928ddd0b991",
+                    "event_uuid": "019951bb-e449-7c22-bf72-9e6ec5753f0c"
+                },
+                {
+                    "description": "Left without regaining account access",
+                    "abandonment": true,
+                    "confusion": false,
+                    "exception": null,
+                    "event_id": "daff97e4",
+                    "timestamp": "2025-09-16T08:54:54.450000+00:00",
+                    "milliseconds_since_start": 18445,
+                    "window_id": "019951bb-a319-7557-8d3f-4929f56805ab",
+                    "current_url": "http://localhost:8010/login?next=%2F",
+                    "event": "$pageleave",
+                    "event_type": null,
+                    "event_index": 51,
+                    "session_id": "019951bb-a319-7557-8d3f-4928ddd0b991",
+                    "event_uuid": "019951bb-eced-732e-9998-0d91cbbcb6eb"
+                }
+            ]
+        }
+    ],
+    "segment_outcomes": [
+        {
+            "segment_index": 0,
+            "summary": "User repeatedly submitted login form but every attempt hit blocking API errors",
+            "success": false
+        },
+        {
+            "segment_index": 1,
+            "summary": "Tried password reset, copied link, returned to login, then abandoned session",
+            "success": false
+        }
+    ],
+    "session_outcome": {
+        "description": "Blocking server errors prevented login; password-reset attempt did not recover, leading to abandonment",
+        "success": false
+    }
+}

@@ -309,7 +309,9 @@ jobs:
             - name: Run Playwright tests
               continue-on-error: true
               id: playwright-tests
-              run: pnpm --filter=@posthog/playwright exec playwright test
+              # we can run 10 workers because we have 16 CPU
+              # we don't want to run 16 since we need to leave some for everything else
+              run: pnpm --filter=@posthog/playwright exec playwright test --workers=10
 
             - name: Configure global git diff log
               run: git config --global --add safe.directory '*'
@@ -462,7 +464,7 @@ jobs:
                   docker logs posthog-proxy-1
 
             - name: Archive Playwright report on failure
-              if: failure()
+              if: needs.changes.outputs.shouldRun == 'true' && steps.playwright-tests.outcome == 'failure'
               uses: actions/upload-artifact@v4
               with:
                   name: playwright-report

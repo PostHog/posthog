@@ -43,6 +43,7 @@ import { AvailableFeature, ExporterFormat, RecordingSegment, SessionPlayerData, 
 
 import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
+import { getTestWorkerManager, terminateTestWorker } from './TestWorkerManager'
 import { playerCommentOverlayLogic } from './commenting/playerFrameCommentOverlayLogic'
 import { playerCommentOverlayLogicType } from './commenting/playerFrameCommentOverlayLogicType'
 import { playerSettingsLogic } from './playerSettingsLogic'
@@ -356,6 +357,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ['preflight'],
             featureFlagLogic,
             ['featureFlags'],
+            exportsLogic,
+            ['hasReachedExportFullVideoLimit'],
         ],
         actions: [
             snapshotDataLogic(props),
@@ -1807,6 +1810,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         values.player?.replayer?.destroy()
         actions.setPlayer(null)
 
+        try {
+            terminateTestWorker()
+        } catch (error) {
+            console.warn('[SessionRecordingPlayerLogic] Failed to terminate test worker:', error)
+        }
+
         const playTimeMs = values.playingTimeTracking.watchTime || 0
         const summaryAnalytics: RecordingViewedSummaryAnalytics = {
             viewed_time_ms: cache.openTime !== undefined ? performance.now() - cache.openTime : undefined,
@@ -1842,6 +1851,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             document.addEventListener('fullscreenchange', fullScreenListener)
             return () => document.removeEventListener('fullscreenchange', fullScreenListener)
         }, 'fullscreenListener')
+
+        try {
+            const testWorker = getTestWorkerManager()
+            void testWorker.initialize()
+        } catch (error) {
+            console.warn('[SessionRecordingPlayerLogic] Failed to initialize test worker:', error)
+        }
 
         if (props.sessionRecordingId) {
             actions.loadRecordingData()

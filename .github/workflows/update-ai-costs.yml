@@ -2,6 +2,10 @@ name: Update AI Costs
 
 on:
     workflow_dispatch: # Allow manual triggering
+    schedule:
+        # Run at 10am UTC and 8pm UTC on weekdays (Monday-Friday)
+        - cron: '0 10 * * 1-5' # 10am UTC
+        - cron: '0 20 * * 1-5' # 8pm UTC
 
 permissions:
     contents: read
@@ -37,6 +41,11 @@ jobs:
               run: |
                   cd plugin-server
                   pnpm update-ai-costs
+
+            - name: Format generated files
+              run: |
+                  cd plugin-server
+                  pnpm prettier --write src/ingestion/ai-costs/providers/canonical-providers.ts src/ingestion/ai-costs/providers/llm-costs.json
 
             - name: Check for changes
               id: check-changes
@@ -74,5 +83,5 @@ jobs:
                   labels: |
                       automated
                       llm-analytics
-                  reviewers: |
-                      PostHog/team-llm-analytics
+                  team-reviewers: |
+                      team-llm-analytics

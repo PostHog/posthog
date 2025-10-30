@@ -10,6 +10,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.database.models import UnknownDatabaseField
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext
@@ -30,7 +31,7 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
         )
 
     def to_query(self) -> ast.SelectQuery:
-        view_names = self.database.get_views()
+        view_names = self.database.get_view_names()
         all_views = [self.database.get_table(view_name) for view_name in view_names]
         views = [
             view
@@ -92,20 +93,19 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
             )
 
         if len(queries) == 0:
-            return ast.SelectQuery.empty(
-                columns=[
-                    "event",
-                    "event_name",
-                    "original_amount",
-                    "currency_aware_amount",
-                    "original_currency",
-                    "amount",
-                    "currency",
-                    "person",
-                    "session_id",
-                    "timestamp",
-                ]
-            )
+            columns = [
+                "event",
+                "event_name",
+                "original_amount",
+                "currency_aware_amount",
+                "original_currency",
+                "amount",
+                "currency",
+                "person",
+                "session_id",
+                "timestamp",
+            ]
+            return ast.SelectQuery.empty(columns={key: UnknownDatabaseField(name=key) for key in columns})
         elif len(queries) == 1:
             return queries[0]
         else:

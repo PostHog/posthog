@@ -16,6 +16,7 @@ notification_channel_per_team = {
     JobOwners.TEAM_GROWTH.value: "#alerts-growth",
     JobOwners.TEAM_EXPERIMENTS.value: "#alerts-experiments",
     JobOwners.TEAM_MAX_AI.value: "#alerts-max-ai",
+    JobOwners.TEAM_DATA_WAREHOUSE.value: "#alerts-data-warehouse",
 }
 
 CONSECUTIVE_FAILURE_THRESHOLDS = {
