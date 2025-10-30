@@ -23,8 +23,11 @@ export const scene: SceneExport<ExperimentSceneLogicProps> = {
     }),
 }
 
-export function Experiment(): JSX.Element {
-    const { formMode, experimentMissing, experimentId } = useValues(experimentSceneLogic)
+export function Experiment({ tabId }: ExperimentSceneLogicProps): JSX.Element {
+    if (!tabId) {
+        throw new Error('<Experiment /> must receive a tabId prop')
+    }
+    const { formMode, experimentMissing, experimentId } = useValues(experimentSceneLogic({ tabId }))
     const { currentTeamId } = useValues(teamLogic)
     const isCreateFormEnabled = useFeatureFlag('EXPERIMENTS_CREATE_FORM', 'test')
 
@@ -35,8 +38,8 @@ export function Experiment(): JSX.Element {
         deps: [currentTeamId, experimentId, experimentMissing],
     })
 
-    const logicProps: ExperimentLogicProps = { experimentId, formMode }
-    useAttachedLogic(experimentLogic(logicProps), experimentSceneLogic)
+    const logicProps: ExperimentLogicProps = { experimentId, formMode, tabId }
+    useAttachedLogic(experimentLogic(logicProps), experimentSceneLogic({ tabId }))
 
     if (experimentMissing) {
         return <NotFound object="experiment" />

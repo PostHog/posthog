@@ -140,6 +140,7 @@ export type FormModes = (typeof FORM_MODES)[keyof typeof FORM_MODES]
 export interface ExperimentLogicProps {
     experimentId?: Experiment['id']
     formMode?: FormModes
+    tabId?: string
 }
 
 interface MetricLoadingConfig {
@@ -282,7 +283,11 @@ function convertToTypedExperimentResponse(response: CachedExperimentQueryRespons
 
 export const experimentLogic = kea<experimentLogicType>([
     props({} as ExperimentLogicProps),
-    key((props) => props.experimentId || 'new'),
+    key((props) => {
+        const baseKey = props.experimentId || 'new'
+        // For new experiments, make each tab's instance unique
+        return baseKey === 'new' && props.tabId ? `new-${props.tabId}` : baseKey
+    }),
     path((key) => ['scenes', 'experiment', 'experimentLogic', key]),
     connect(() => ({
         values: [

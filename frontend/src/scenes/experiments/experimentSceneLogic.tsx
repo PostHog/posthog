@@ -20,7 +20,7 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
     props({} as ExperimentSceneLogicProps),
     path(['scenes', 'experiments', 'experimentSceneLogic']),
     tabAwareScene(),
-    connect((props: ExperimentLogicProps) => ({
+    connect((props: ExperimentSceneLogicProps) => ({
         values: [experimentLogic(props), ['experiment', 'experimentMissing', 'isExperimentRunning']],
         actions: [experimentLogic(props), ['loadExperiment', 'loadExposures', 'setEditExperiment', 'resetExperiment']],
     })),
@@ -44,6 +44,7 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
             () => [(_, props) => props.formMode],
             (formMode: ExperimentLogicProps['formMode']): ExperimentLogicProps['formMode'] => formMode,
         ],
+        tabId: [() => [(_, props) => props.tabId], (tabId: string | undefined): string | undefined => tabId],
         breadcrumbs: [
             (s) => [s.experiment, s.experimentId],
             (experiment: Experiment, experimentId: Experiment['id']): Breadcrumb[] => {
