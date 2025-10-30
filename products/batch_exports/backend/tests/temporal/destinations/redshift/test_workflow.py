@@ -435,6 +435,7 @@ async def test_redshift_export_workflow_handles_undefined_function_error(
         batch_export_model=batch_export_model,
         mode=mode,
         copy_inputs=copy_inputs,
+        properties_data_type="SUPER",
         **redshift_batch_export.destination.config,
     )
 
@@ -487,6 +488,7 @@ async def test_redshift_export_workflow_handles_undefined_function_error(
         batch_export_model=model,
         exclude_events=exclude_events,
         sort_key=sort_key,
+        properties_data_type="SUPER",
         copy=mode == "COPY",
     )
 
