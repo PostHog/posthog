@@ -244,15 +244,7 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                             // Otherwise, keep expanded to show active thinking progress
                             const isThinkingComplete = !threadLoading || hasContent || !isLastInGroup
                             thinkingElements = thinkingBlocks.map((block, index) =>
-                                block.type === 'thinking' ? (
-                                    <ReasoningAnswer
-                                        key={`thinking-${index}`}
-                                        content={block.thinking}
-                                        id={message.id || key}
-                                        completed={isThinkingComplete}
-                                        showCompletionIcon={false}
-                                    />
-                                ) : (
+                                block.type === 'server_tool_use' ? (
                                     <ToolCallsAnswer
                                         key={`thinking-${index}`}
                                         toolCalls={[
@@ -269,6 +261,14 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                                                     : [],
                                             },
                                         ]}
+                                    />
+                                ) : (
+                                    <ReasoningAnswer
+                                        key={`thinking-${index}`}
+                                        content={block.thinking}
+                                        id={message.id || key}
+                                        completed={isThinkingComplete}
+                                        showCompletionIcon={false}
                                     />
                                 )
                             )

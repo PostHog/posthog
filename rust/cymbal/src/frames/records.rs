@@ -47,8 +47,8 @@ impl ErrorTrackingStackFrame {
         };
         sqlx::query!(
             r#"
-            INSERT INTO posthog_errortrackingstackframe (raw_id, team_id, created_at, symbol_set_id, contents, resolved, id, context)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO posthog_errortrackingstackframe (raw_id, team_id, created_at, symbol_set_id, contents, resolved, id, context, part)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0)
             ON CONFLICT (raw_id, team_id) DO UPDATE SET
                 created_at = $3,
                 symbol_set_id = $4,
