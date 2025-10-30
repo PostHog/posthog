@@ -122,6 +122,7 @@ function Category({
     isLoading: boolean
 }): JSX.Element {
     const groupRef = useRef<ListBoxGroupHandle>(null)
+    const pendingFocusIndexRef = useRef<number | null>(null)
     const typedItems = items as NewTabTreeDataItem[]
     const isFirstCategory = columnIndex === 0
     const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
@@ -131,9 +132,43 @@ function Category({
         newTabSceneDataGroupedItemsFullData,
         getSectionItemLimit,
         newTabSceneDataInclude,
+        recents,
+        recentsLoading,
     } = useValues(newTabSceneLogic({ tabId }))
-    const { showMoreInSection, logCreateNewItem } = useActions(newTabSceneLogic({ tabId }))
+    const { showMoreInSection, logCreateNewItem, loadMoreRecents } = useActions(newTabSceneLogic({ tabId }))
     const { groupTypes } = useValues(groupsModel)
+    const previousRecentsLoadingRef = useRef(recentsLoading)
+
+    // Make sure the same index remains focused after clicking "load more"
+    useEffect(() => {
+        const wasLoading = previousRecentsLoadingRef.current
+        previousRecentsLoadingRef.current = recentsLoading
+
+        if (category !== 'recents') {
+            pendingFocusIndexRef.current = null
+            return
+        }
+
+        if (wasLoading && !recentsLoading && pendingFocusIndexRef.current !== null) {
+            const indexToFocus = pendingFocusIndexRef.current
+            pendingFocusIndexRef.current = null
+
+            const restoreFocus = (): void => {
+                const focused = groupRef.current?.resumeFocus(indexToFocus)
+                if (!focused) {
+                    setTimeout(() => {
+                        groupRef.current?.resumeFocus(indexToFocus)
+                    }, 50)
+                }
+            }
+
+            if (typeof requestAnimationFrame === 'function') {
+                requestAnimationFrame(restoreFocus)
+            } else {
+                setTimeout(restoreFocus, 0)
+            }
+        }
+    }, [category, recentsLoading])
 
     return (
         <>
@@ -332,7 +367,10 @@ function Category({
                                 (() => {
                                     const currentLimit = getSectionItemLimit(category)
                                     const fullCount = newTabSceneDataGroupedItemsFullData[category] || 0
-                                    const hasMore = fullCount > currentLimit
+                                    const isRecentsSection = category === 'recents'
+                                    const hasMore = isRecentsSection
+                                        ? recents.hasMore || fullCount > currentLimit
+                                        : fullCount > currentLimit
 
                                     return (
                                         hasMore && (
@@ -343,21 +381,26 @@ function Category({
                                             >
                                                 <ButtonPrimitive
                                                     size="sm"
+                                                    disabled={isRecentsSection && recentsLoading}
                                                     onClick={() => {
                                                         const showAllIndex = typedItems.length // The "Show all" button index
 
-                                                        showMoreInSection(category)
-
-                                                        // Restore focus to the item that replaces the "Show all" button
-                                                        setTimeout(() => {
-                                                            // Focus the item at the same index where the "Show all" button was
-                                                            groupRef.current?.resumeFocus(showAllIndex)
-                                                        }, 0)
+                                                        if (isRecentsSection) {
+                                                            pendingFocusIndexRef.current = showAllIndex
+                                                            loadMoreRecents()
+                                                        } else {
+                                                            showMoreInSection(category)
+                                                            setTimeout(() => {
+                                                                groupRef.current?.resumeFocus(showAllIndex)
+                                                            }, 0)
+                                                        }
                                                     }}
                                                     className="w-full text-tertiary data-[focused=true]:text-primary"
                                                 >
-                                                    <IconArrowRight className="rotate-90" /> Show all (
-                                                    {fullCount - currentLimit} more)
+                                                    <IconArrowRight className="rotate-90" />
+                                                    {isRecentsSection
+                                                        ? ' Load more...'
+                                                        : ` Show all (${fullCount - currentLimit} more)`}
                                                 </ButtonPrimitive>
                                             </ListBox.Item>
                                         )
