@@ -147,6 +147,17 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 )
             },
         ],
+        hasZendeskSource: [
+            (s) => [s.dataWarehouseSources],
+            (dataWarehouseSources): boolean => {
+                const sources = dataWarehouseSources?.results
+                if (!sources) {
+                    return false
+                }
+
+                return !!sources.some((source) => source?.source_type === 'Zendesk')
+            },
+        ],
     }),
     urlToAction(({ actions }) => ({
         '/data-warehouse/*': () => {

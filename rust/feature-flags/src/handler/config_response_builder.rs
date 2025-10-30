@@ -277,7 +277,7 @@ mod tests {
             session_recording_event_trigger_config: None,
             session_recording_trigger_match_type_config: None,
             recording_domains: None,
-            cookieless_server_hash_mode: 0,
+            cookieless_server_hash_mode: Some(0),
             timezone: "UTC".to_string(),
         }
     }
