@@ -37,13 +37,15 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
     const createCompiledBytecode = (
         bytecode: any[],
         conditionHash: string,
-        filterPath: string = 'properties.values[0]'
+        filterPath: string = 'properties.values[0]',
+        extra?: Record<string, any>
     ) => {
         return [
             {
                 filter_path: filterPath,
                 bytecode: bytecode,
                 conditionHash: conditionHash,
+                ...(extra || {}),
             },
         ]
     }
@@ -143,6 +145,18 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId)
             expect(result).toHaveLength(2)
             expect(result.map((f) => f.conditionHash).sort()).toEqual(['hash_001', 'hash_002'])
+        })
+
+        it('filters out person property bytecodes explicitly via filter_type', async () => {
+            const personPropBytecode = ['_H', 1, 31, 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 12]
+            const compiledBytecode = createCompiledBytecode(personPropBytecode, 'person_hash', 'properties.values[0]', {
+                filter_type: 'person',
+            })
+
+            await createCohort(postgres, teamId, 'Person Prop Cohort', compiledBytecode)
+
+            const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId)
+            expect(result).toEqual([])
         })
 
         it('handles malformed compiled_bytecode gracefully', async () => {
