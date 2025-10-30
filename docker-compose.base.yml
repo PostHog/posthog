@@ -484,8 +484,6 @@ services:
             - '127.0.0.1:8333:8333' # S3 API
             - '127.0.0.1:9333:9333' # Master server (for admin UI)
         command: server -s3 -s3.port=8333 -dir=/data
-        volumes:
-            - './data/seaweedfs:/data'
 
 networks:
     otel_network:

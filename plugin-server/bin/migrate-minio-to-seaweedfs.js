@@ -27,8 +27,7 @@ const {
     HeadObjectCommand,
     CreateBucketCommand,
 } = require('@aws-sdk/client-s3')
-const { createWriteStream, existsSync, readFileSync, writeFileSync, mkdirSync } = require('fs')
-const { pipeline } = require('stream/promises')
+const { existsSync, readFileSync, writeFileSync } = require('fs')
 
 // Service configurations
 const SERVICES = {
