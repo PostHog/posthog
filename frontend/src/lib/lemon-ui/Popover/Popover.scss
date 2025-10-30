@@ -3,9 +3,9 @@
     display: flex;
     flex-direction: row;
     isolation: isolate;
+    transform: translateZ(0);
     perspective: 80rem;
     perspective-origin: top;
-    transform: translateZ(0);
 
     h5 {
         margin: 0.25rem 0.5rem;
