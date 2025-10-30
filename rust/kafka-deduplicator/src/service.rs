@@ -4,7 +4,9 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use common_kafka::config::KafkaConfig;
+use common_types::CapturedEvent;
 use common_kafka::kafka_producer::create_kafka_producer;
+
 use health::{HealthHandle, HealthRegistry};
 use rdkafka::consumer::Consumer;
 use tokio::sync::oneshot;
@@ -20,7 +22,7 @@ use crate::{
     deduplication_processor::{
         DeduplicationConfig, DeduplicationProcessor, DuplicateEventProducerWrapper,
     },
-    kafka::{stateful_consumer::StatefulKafkaConsumer, ConsumerConfigBuilder},
+    kafka::{batch_consumer::BatchConsumer, ConsumerConfigBuilder},
     processor_pool::ProcessorPool,
     processor_rebalance_handler::ProcessorRebalanceHandler,
     store::DeduplicationStoreConfig,
@@ -30,7 +32,7 @@ use crate::{
 /// The main Kafka Deduplicator service that encapsulates all components
 pub struct KafkaDeduplicatorService {
     config: Config,
-    consumer: Option<StatefulKafkaConsumer>,
+    consumer: Option<BatchConsumer<CapturedEvent>>,
     store_manager: Arc<StoreManager>,
     checkpoint_manager: Option<CheckpointManager>,
     cleanup_task_handle: Option<CleanupTaskHandle>,
@@ -336,13 +338,15 @@ impl KafkaDeduplicatorService {
         self.health_task_handles.push(handle);
 
         // Create stateful Kafka consumer that sends to the processor pool
-        let kafka_consumer = StatefulKafkaConsumer::from_config(
+        let kafka_consumer = BatchConsumer::new(
             &consumer_config,
             rebalance_handler,
             message_sender,
-            self.config.max_in_flight_messages,
+            self.health_task_cancellation.child_token(),
+            &self.config.kafka_consumer_topic,
+            self.config.kafka_consumer_batch_size,
+            self.config.batch_timeout(),
             self.config.commit_interval(),
-            shutdown_rx,
         )
         .with_context(|| {
             format!(
@@ -350,17 +354,6 @@ impl KafkaDeduplicatorService {
                 self.config.kafka_consumer_topic, self.config.kafka_consumer_group
             )
         })?;
-
-        // Subscribe to input topic
-        kafka_consumer
-            .inner_consumer()
-            .subscribe(&[&self.config.kafka_consumer_topic])
-            .with_context(|| {
-                format!(
-                    "Failed to subscribe to input topic '{}'",
-                    self.config.kafka_consumer_topic
-                )
-            })?;
 
         info!(
             "Initialized consumer for topic '{}', publishing to '{:?}'",

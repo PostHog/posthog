@@ -86,6 +86,12 @@ pub struct Config {
     #[envconfig(default = "5")] // 5 seconds
     pub commit_interval_secs: u64,
 
+    #[envconfig(default = "1000")] // 1000 messages
+    pub kafka_consumer_batch_size: usize,
+
+    #[envconfig(default = "1000")] // 1 second
+    pub kafka_consumer_batch_timeout_ms: u64,
+
     #[envconfig(default = "120")] // 120 seconds (2 minutes)
     pub flush_interval_secs: u64,
 

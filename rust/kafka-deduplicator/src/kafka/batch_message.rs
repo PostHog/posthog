@@ -132,6 +132,25 @@ pub struct KafkaMessage<T> {
 }
 
 impl<T> KafkaMessage<T> {
+
+    pub fn new(
+        topic_partition: Partition,
+        offset: i64,
+        key: Option<Vec<u8>>,
+        message: Option<T>,
+        timestamp: SystemTime,
+        headers: Option<Vec<(String, Option<Vec<u8>>)>>,
+    ) -> Self {
+        Self {
+            topic_partition,
+            offset,
+            key,
+            message,
+            timestamp,
+            headers,
+        }
+    }
+
     /// Extract message from borrowed Kafka message efficiently
     pub fn from_borrowed_message<'a>(msg: &'a BorrowedMessage<'a>) -> Result<Self>
     where
