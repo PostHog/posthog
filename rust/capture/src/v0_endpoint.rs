@@ -6,7 +6,7 @@ use bytes::Bytes;
 use axum::extract::{MatchedPath, Query, State};
 use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
-use chrono::{DateTime, Duration, Utc};
+use chrono::DateTime;
 use common_types::{CapturedEvent, RawEvent};
 use limiters::token_dropper::TokenDropper;
 use metrics::counter;
@@ -416,12 +416,6 @@ pub fn process_single_event(
         (_, false) => DataType::AnalyticsMain,
     };
 
-    // only should be used to check if historical topic
-    // rerouting should be applied to this event
-    let raw_event_timestamp = event
-        .timestamp
-        .as_ref()
-        .and_then(|ts| DateTime::parse_from_rfc3339(ts).ok());
 
     // redact the IP address of internally-generated events when tagged as such
     let resolved_ip = if event.properties.contains_key("capture_internal") {
@@ -463,6 +457,15 @@ pub fn process_single_event(
         event_name: event_name.clone(),
     };
 
+    if historical_cfg.should_reroute(metadata.data_type, computed_timestamp) {
+        counter!(
+            "capture_events_rerouted_historical",
+            &[("reason", "timestamp")]
+        )
+        .increment(1);
+        metadata.data_type = DataType::AnalyticsHistorical;
+    }
+
     let event = CapturedEvent {
         uuid: event.uuid.unwrap_or_else(uuid_v7),
         distinct_id: event
@@ -480,42 +483,8 @@ pub fn process_single_event(
         is_cookieless_mode: event
             .extract_is_cookieless_mode()
             .ok_or(CaptureError::InvalidCookielessMode)?,
-        historical_migration: context.historical_migration,
+        historical_migration: metadata.data_type == DataType::AnalyticsHistorical,
     };
-
-    // if this event was historical but not assigned to the right topic
-    // by the submitting user (i.e. no historical prop flag in event)
-    // we should route it there using event#now if older than 1 day
-    let should_reroute_event = if raw_event_timestamp.is_some() {
-        let days_stale = Duration::days(historical_cfg.historical_rerouting_threshold_days);
-        let threshold = Utc::now() - days_stale;
-        let decision = raw_event_timestamp.unwrap().to_utc() <= threshold;
-        if decision {
-            counter!(
-                "capture_events_rerouted_historical",
-                &[("reason", "timestamp")]
-            )
-            .increment(1);
-        }
-        decision
-    } else {
-        let decision = historical_cfg.should_reroute(&event.key());
-        if decision {
-            counter!(
-                "capture_events_rerouted_historical",
-                &[("reason", "key_or_token")]
-            )
-            .increment(1);
-        }
-        decision
-    };
-
-    if metadata.data_type == DataType::AnalyticsMain
-        && historical_cfg.enable_historical_rerouting
-        && should_reroute_event
-    {
-        metadata.data_type = DataType::AnalyticsHistorical;
-    }
 
     Ok(ProcessedEvent { metadata, event })
 }
@@ -759,7 +728,7 @@ mod tests {
 
         let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
 
-        let historical_cfg = router::HistoricalConfig::new(false, 1, None);
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
         let result = process_single_event(&event, historical_cfg, &context);
 
         // Should succeed and use the event timestamp directly since sent_at is None
@@ -793,7 +762,7 @@ mod tests {
             None,
         );
 
-        let historical_cfg = router::HistoricalConfig::new(false, 1, None);
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
         let result = process_single_event(&event, historical_cfg, &context);
 
         // Should succeed and apply clock skew correction
@@ -824,7 +793,7 @@ mod tests {
             Some(true), // $ignore_sent_at = true
         );
 
-        let historical_cfg = router::HistoricalConfig::new(false, 1, None);
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
         let result = process_single_event(&event, historical_cfg, &context);
 
         // Should succeed and use timestamp directly, ignoring sent_at
@@ -848,7 +817,7 @@ mod tests {
 
         let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
 
-        let historical_cfg = router::HistoricalConfig::new(false, 1, None);
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
         let result = process_single_event(&event, historical_cfg, &context);
 
         assert!(result.is_ok());
@@ -871,7 +840,7 @@ mod tests {
 
         let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
 
-        let historical_cfg = router::HistoricalConfig::new(false, 1, None);
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
         let result = process_single_event(&event, historical_cfg, &context);
 
         assert!(result.is_ok());
