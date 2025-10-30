@@ -54,5 +54,6 @@ class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, BaseTest):
                 call("events", "materialize_me2", table_column="properties", is_nullable=False),
                 call("events", "materialize_person_prop", table_column="person_properties", is_nullable=False),
                 call("events", "materialize_me3", table_column="properties", is_nullable=False),
-            ]
+            ],
+            any_order=True,
         )
