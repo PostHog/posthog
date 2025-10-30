@@ -4,6 +4,7 @@ import datetime as dt
 import pytest
 import unittest.mock
 
+from django.conf import settings
 from django.test import override_settings
 
 from psycopg import sql
@@ -12,7 +13,6 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog import constants
 from posthog.batch_exports.service import BatchExportModel, BatchExportSchema, RedshiftCopyInputs
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
 
@@ -178,7 +178,7 @@ async def test_redshift_export_workflow(
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
                 activity_environment.client,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 workflows=[RedshiftBatchExportWorkflow],
                 activities=[
                     start_batch_export_run,
@@ -195,7 +195,7 @@ async def test_redshift_export_workflow(
                         RedshiftBatchExportWorkflow.run,
                         inputs,
                         id=workflow_id,
-                        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=1),
                         execution_timeout=dt.timedelta(seconds=20),
                     )
@@ -261,7 +261,7 @@ async def test_redshift_export_workflow_handles_unexpected_insert_activity_error
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
                 activity_environment.client,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 workflows=[RedshiftBatchExportWorkflow],
                 activities=[
                     mocked_start_batch_export_run,
@@ -288,7 +288,7 @@ async def test_redshift_export_workflow_handles_unexpected_insert_activity_error
                             RedshiftBatchExportWorkflow.run,
                             inputs,
                             id=workflow_id,
-                            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                             retry_policy=RetryPolicy(maximum_attempts=1),
                             execution_timeout=dt.timedelta(seconds=20),
                         )
@@ -332,7 +332,7 @@ async def test_redshift_export_workflow_handles_insert_activity_non_retryable_er
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
                 activity_environment.client,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 workflows=[RedshiftBatchExportWorkflow],
                 activities=[
                     mocked_start_batch_export_run,
@@ -358,7 +358,7 @@ async def test_redshift_export_workflow_handles_insert_activity_non_retryable_er
                         RedshiftBatchExportWorkflow.run,
                         inputs,
                         id=workflow_id,
-                        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
 
