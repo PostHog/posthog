@@ -3,7 +3,7 @@
 set -e
 
 export REPOSITORY_ROOT=$(realpath "$(dirname "$0")/..")
-export GIT_REPO_ROOT=$(git rev-parse --show-toplevel)
+export GIT_REPO_ROOT=$(dirname "$(git rev-parse --git-common-dir)")
 export COMPOSE_PROJECT_NAME=$(basename "$GIT_REPO_ROOT")
 export DEBUG=${DEBUG:-1}
 export SKIP_SERVICE_VERSION_REQUIREMENTS=${SKIP_SERVICE_VERSION_REQUIREMENTS:-1}
