@@ -9,7 +9,7 @@ import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { urls } from 'scenes/urls'
 
 import { EndpointRequest, HogQLQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
-import { EndpointType } from '~/types'
+import { DataWarehouseSyncInterval, EndpointType } from '~/types'
 
 import type { endpointLogicType } from './endpointLogicType'
 import { endpointsLogic } from './endpointsLogic'
@@ -43,6 +43,8 @@ export const endpointLogic = kea<endpointLogicType>([
         setIsUpdateMode: (isUpdateMode: boolean) => ({ isUpdateMode }),
         setSelectedEndpointName: (selectedEndpointName: string | null) => ({ selectedEndpointName }),
         setCacheAge: (cacheAge: number | null) => ({ cacheAge }),
+        setSyncFrequency: (syncFrequency: DataWarehouseSyncInterval | null) => ({ syncFrequency }),
+        setIsMaterialized: (isMaterialized: boolean | null) => ({ isMaterialized }),
         createEndpoint: (request: EndpointRequest) => ({ request }),
         createEndpointSuccess: (response: any) => ({ response }),
         createEndpointFailure: (error: any) => ({ error }),
@@ -55,6 +57,15 @@ export const endpointLogic = kea<endpointLogicType>([
         deactivateEndpoint: (name: string) => ({ name }),
         deactivateEndpointSuccess: (response: any) => ({ response }),
         deactivateEndpointFailure: (error: any) => ({ error }),
+        materializeEndpoint: (name: string, syncFrequency: DataWarehouseSyncInterval) => ({
+            name,
+            syncFrequency,
+        }),
+        materializeEndpointSuccess: (response: any) => ({ response }),
+        materializeEndpointFailure: (error: any) => ({ error }),
+        unmaterializeEndpoint: (name: string) => ({ name }),
+        unmaterializeEndpointSuccess: (response: any) => ({ response }),
+        unmaterializeEndpointFailure: (error: any) => ({ error }),
     }),
     reducers({
         endpointName: [null as string | null, { setEndpointName: (_, { endpointName }) => endpointName }],
@@ -81,6 +92,18 @@ export const endpointLogic = kea<endpointLogicType>([
                 setCacheAge: (_, { cacheAge }) => cacheAge,
             },
         ],
+        syncFrequency: [
+            '24hour' as DataWarehouseSyncInterval | null,
+            {
+                setSyncFrequency: (_, { syncFrequency }) => syncFrequency,
+            },
+        ],
+        isMaterialized: [
+            null as boolean | null,
+            {
+                setIsMaterialized: (_, { isMaterialized }) => isMaterialized,
+            },
+        ],
     }),
     loaders(({ actions }) => ({
         endpoint: [
@@ -104,6 +127,8 @@ export const endpointLogic = kea<endpointLogicType>([
 
                     // TODO: This does not belong here. Refactor to the endpointSceneLogic?
                     actions.setCacheAge(endpoint.cache_age_seconds ?? null)
+                    actions.setSyncFrequency(endpoint.materialization?.sync_frequency ?? null)
+                    actions.setIsMaterialized(endpoint.is_materialized ?? null)
 
                     return endpoint
                 },
@@ -196,6 +221,45 @@ export const endpointLogic = kea<endpointLogicType>([
         deactivateEndpointFailure: ({ error }) => {
             console.error('Failed to deactivate endpoint:', error)
             lemonToast.error('Failed to deactivate endpoint')
+        },
+        materializeEndpoint: async ({ name, syncFrequency }) => {
+            try {
+                const response = await api.endpoint.update(name, {
+                    is_materialized: true,
+                    sync_frequency: syncFrequency,
+                })
+                actions.materializeEndpointSuccess(response)
+            } catch (error) {
+                console.error('Failed to materialize endpoint:', error)
+                actions.materializeEndpointFailure(error)
+            }
+        },
+        materializeEndpointSuccess: ({ response }) => {
+            lemonToast.success('Endpoint materialization enabled successfully')
+            actions.loadEndpoint(response.name)
+        },
+        materializeEndpointFailure: ({ error }) => {
+            console.error('Failed to materialize endpoint:', error)
+            lemonToast.error('Failed to enable materialization')
+        },
+        unmaterializeEndpoint: async ({ name }) => {
+            try {
+                const response = await api.endpoint.update(name, {
+                    is_materialized: false,
+                })
+                actions.unmaterializeEndpointSuccess(response)
+            } catch (error) {
+                console.error('Failed to unmaterialize endpoint:', error)
+                actions.unmaterializeEndpointFailure(error)
+            }
+        },
+        unmaterializeEndpointSuccess: ({ response }) => {
+            lemonToast.success('Endpoint materialization disabled successfully')
+            actions.loadEndpoint(response.name)
+        },
+        unmaterializeEndpointFailure: ({ error }) => {
+            console.error('Failed to disable materialization:', error)
+            lemonToast.error('Failed to disable materialization')
         },
     })),
     permanentlyMount(),

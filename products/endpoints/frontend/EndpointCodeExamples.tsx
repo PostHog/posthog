@@ -19,10 +19,10 @@ function generateVariablesJson(variables: Record<string, any>): string {
     }
 
     return entries
-        .map(([key, value], index) => {
+        .map(([_, value], index) => {
             const isLast = index === entries.length - 1
             const comma = isLast ? '' : ','
-            return `      "${key}": ${JSON.stringify(value.value)}${comma}`
+            return `      "${value.code_name}": ${JSON.stringify(value.value)}${comma}`
         })
         .join('\n')
 }
@@ -97,7 +97,7 @@ export function EndpointCodeExamples({ tabId }: EndpointCodeExamplesProps): JSX.
         return <></>
     }
 
-    const variables = endpoint.parameters || {}
+    const variables = endpoint.query.variables || {}
 
     const getCodeExample = (tab: CodeExampleTab): string => {
         switch (tab) {
