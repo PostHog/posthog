@@ -9,6 +9,7 @@ import {
     IconEye,
     IconFilter,
     IconHide,
+    IconPerson,
     IconPlus,
     IconRevert,
     IconTrash,
@@ -27,6 +28,7 @@ import {
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
@@ -34,6 +36,8 @@ import { isCommentTextFilter, isUniversalGroupFilterLike } from 'lib/components/
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
@@ -48,6 +52,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
+    EventPropertyFilter,
     PersonPropertyFilter,
     PropertyFilterType,
     PropertyOperator,
@@ -68,36 +73,67 @@ import { SavedFilters } from './SavedFilters'
 function QuickFilterButton({
     filterKey,
     label,
+    propertyType,
     filters,
     setFilters,
 }: {
     filterKey: string
     label: string
+    propertyType: PropertyFilterType.Person | PropertyFilterType.Event
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
 }): JSX.Element {
-    return (
-        <LemonButton
-            type="secondary"
-            size="small"
-            onClick={() => {
-                const newFilter: PersonPropertyFilter = {
-                    type: PropertyFilterType.Person,
-                    key: filterKey,
-                    operator: PropertyOperator.Exact,
-                    value: null,
-                }
+    const icon = propertyType === PropertyFilterType.Person ? <IconPerson /> : <IconUnverifiedEvent />
+    const propertyTypeLabel = propertyType === PropertyFilterType.Person ? 'Person property' : 'Event property'
 
-                setFilters({
-                    filter_group: {
-                        type: filters.filter_group.type,
-                        values: [...filters.filter_group.values, newFilter],
-                    },
-                })
-            }}
-        >
-            {label}
-        </LemonButton>
+    const tooltipContent = (
+        <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+                <PropertyFilterIcon type={propertyType} />
+                <span>{propertyTypeLabel}</span>
+            </div>
+            <span>Sent as: {filterKey}</span>
+        </div>
+    )
+
+    return (
+        <Tooltip title={tooltipContent}>
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={icon}
+                data-attr={`quick-filter-${filterKey}`}
+                onClick={() => {
+                    // Create the new filter based on property type
+                    const newFilter: PersonPropertyFilter | EventPropertyFilter = {
+                        type: propertyType,
+                        key: filterKey,
+                        operator: PropertyOperator.Exact,
+                        value: null,
+                    }
+
+                    // Clone the current filter group structure
+                    const currentGroup = filters.filter_group
+                    const newGroup = {
+                        ...currentGroup,
+                        values: currentGroup.values.map((nestedGroup, index) => {
+                            // Add to the first nested group (index 0)
+                            if (index === 0 && 'values' in nestedGroup) {
+                                return {
+                                    ...nestedGroup,
+                                    values: [...nestedGroup.values, newFilter],
+                                }
+                            }
+                            return nestedGroup
+                        }),
+                    }
+
+                    setFilters({ filter_group: newGroup })
+                }}
+            >
+                {label}
+            </LemonButton>
+        </Tooltip>
     )
 }
 
@@ -441,8 +477,35 @@ export const RecordingsUniversalFiltersEmbed = ({
                     </div>
 
                     <div className="flex items-center gap-2 px-2 mt-2">
-                        <span className="font-medium">Quick filters:</span>
-                        <QuickFilterButton filterKey="email" label="Email" filters={filters} setFilters={setFilters} />
+                        <span className="font-medium">Quick add filters:</span>
+                        <QuickFilterButton
+                            filterKey="email"
+                            label="Email"
+                            propertyType={PropertyFilterType.Person}
+                            filters={filters}
+                            setFilters={setFilters}
+                        />
+                        <QuickFilterButton
+                            filterKey="$user_id"
+                            label="User ID"
+                            propertyType={PropertyFilterType.Person}
+                            filters={filters}
+                            setFilters={setFilters}
+                        />
+                        <QuickFilterButton
+                            filterKey="$pathname"
+                            label="Path name"
+                            propertyType={PropertyFilterType.Event}
+                            filters={filters}
+                            setFilters={setFilters}
+                        />
+                        <QuickFilterButton
+                            filterKey="$current_url"
+                            label="Current URL"
+                            propertyType={PropertyFilterType.Event}
+                            filters={filters}
+                            setFilters={setFilters}
+                        />
                     </div>
 
                     <div className="flex justify-between flex-wrap gap-2 px-2 mt-2">
