@@ -89,9 +89,7 @@ impl From<CapturedEventHeaders> for OwnedHeaders {
         let fdpp_str = headers
             .force_disable_person_processing
             .map(|b| b.to_string());
-        let historical_migration_str = headers
-            .historical_migration
-            .map(|b| b.to_string());
+        let historical_migration_str = headers.historical_migration.map(|b| b.to_string());
         OwnedHeaders::new()
             .insert(Header {
                 key: "token",
