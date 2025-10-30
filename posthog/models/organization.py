@@ -1,5 +1,5 @@
 import sys
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
 
 from django.conf import settings
@@ -13,6 +13,7 @@ from django.dispatch import receiver
 from django.utils import timezone
 
 import structlog
+import dateutil.parser
 from rest_framework import exceptions
 
 from posthog.cloud_utils import is_cloud
@@ -24,39 +25,41 @@ from posthog.models.utils import LowercaseSlugField, UUIDTModel, create_with_slu
 if TYPE_CHECKING:
     from posthog.models import Team, User
 
+    from ee.billing.quota_limiting import QuotaResource
+
 
 logger = structlog.get_logger(__name__)
 
 
 class OrganizationUsageResource(TypedDict):
-    usage: Optional[int]
-    limit: Optional[int]
-    todays_usage: Optional[int]
+    usage: int | None
+    limit: int | None
+    todays_usage: int | None
 
 
 # The "usage" field is essentially cached info from the Billing Service to be used for visual reporting to the user
 # as well as for enforcing limits.
 class OrganizationUsageInfo(TypedDict):
-    events: Optional[OrganizationUsageResource]
-    exceptions: Optional[OrganizationUsageResource]
-    recordings: Optional[OrganizationUsageResource]
-    survey_responses: Optional[OrganizationUsageResource]
-    rows_synced: Optional[OrganizationUsageResource]
-    cdp_trigger_events: Optional[OrganizationUsageResource]
-    rows_exported: Optional[OrganizationUsageResource]
-    feature_flag_requests: Optional[OrganizationUsageResource]
-    api_queries_read_bytes: Optional[OrganizationUsageResource]
-    llm_events: Optional[OrganizationUsageResource]
-    period: Optional[list[str]]
+    events: OrganizationUsageResource | None
+    exceptions: OrganizationUsageResource | None
+    recordings: OrganizationUsageResource | None
+    survey_responses: OrganizationUsageResource | None
+    rows_synced: OrganizationUsageResource | None
+    cdp_trigger_events: OrganizationUsageResource | None
+    rows_exported: OrganizationUsageResource | None
+    feature_flag_requests: OrganizationUsageResource | None
+    api_queries_read_bytes: OrganizationUsageResource | None
+    llm_events: OrganizationUsageResource | None
+    period: list[str] | None
 
 
 class ProductFeature(TypedDict):
     key: str
     name: str
     description: str
-    unit: Optional[str]
-    limit: Optional[int]
-    note: Optional[str]
+    unit: str | None
+    limit: int | None
+    note: str | None
     is_plan_default: bool
 
 
@@ -68,7 +71,7 @@ class OrganizationManager(models.Manager):
         self,
         user: Optional["User"],
         *,
-        team_fields: Optional[dict[str, Any]] = None,
+        team_fields: dict[str, Any] | None = None,
         **kwargs,
     ) -> tuple["Organization", Optional["OrganizationMembership"], "Team"]:
         """Instead of doing the legwork of creating an organization yourself, delegate the details with bootstrap."""
@@ -79,7 +82,7 @@ class OrganizationManager(models.Manager):
             _, team = Project.objects.create_with_team(
                 initiating_user=user, organization=organization, team_fields=team_fields
             )
-            organization_membership: Optional[OrganizationMembership] = None
+            organization_membership: OrganizationMembership | None = None
             if user is not None:
                 organization_membership = OrganizationMembership.objects.create(
                     organization=organization,
@@ -209,7 +212,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
     __repr__ = sane_repr("name")
 
     @property
-    def _billing_plan_details(self) -> tuple[Optional[str], Optional[str]]:
+    def _billing_plan_details(self) -> tuple[str | None, str | None]:
         """
         Obtains details on the billing plan for the organization.
         Returns a tuple with (billing_plan_key, billing_realm)
@@ -260,7 +263,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
 
         return self.available_product_features
 
-    def get_available_feature(self, feature: Union[AvailableFeature, str]) -> Optional[ProductFeature]:
+    def get_available_feature(self, feature: Union[AvailableFeature, str]) -> ProductFeature | None:
         return next(
             filter(lambda f: f and f.get("key") == feature, self.available_product_features or []),
             None,
@@ -268,6 +271,151 @@ class Organization(ModelActivityMixin, UUIDTModel):
 
     def is_feature_available(self, feature: Union[AvailableFeature, str]) -> bool:
         return bool(self.get_available_feature(feature))
+
+    def limit_product_until_end_of_billing_cycle(self, resource: "QuotaResource") -> None:
+        """
+        Limit a resource for all teams of this organization until the end of the current billing cycle.
+        Updates the organization's usage data with the quota_limited_until timestamp.
+        """
+        from ee.billing.quota_limiting import (
+            QuotaLimitingCaches,
+            add_limited_team_tokens,
+            update_organization_usage_fields,
+        )
+
+        billing_period = self.current_billing_period
+
+        if billing_period:
+            _start, end = billing_period
+            billing_period_end_timestamp = int(end.timestamp())
+
+            team_tokens: dict[str, int] = {
+                t: billing_period_end_timestamp for t in self.teams.values_list("api_token", flat=True) if t
+            }
+            add_limited_team_tokens(resource, team_tokens, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+
+            update_organization_usage_fields(
+                self,
+                resource,
+                {"quota_limited_until": billing_period_end_timestamp, "quota_limiting_suspended_until": None},
+            )
+        else:
+            raise RuntimeError("Cannot limit without having a billing period")
+
+    def unlimit_product(self, resource: "QuotaResource") -> None:
+        """
+        Remove limiting for a resource for all teams of this organization.
+        Removes teams from the limiting cache and clears quota_limited_until from usage data.
+        """
+        from ee.billing.quota_limiting import (
+            QuotaLimitingCaches,
+            remove_limited_team_tokens,
+            update_organization_usage_fields,
+        )
+
+        team_tokens: list[str] = [t for t in self.teams.values_list("api_token", flat=True) if t]
+        remove_limited_team_tokens(resource, team_tokens, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+
+        if self.usage and resource.value in self.usage:
+            update_organization_usage_fields(
+                self, resource, {"quota_limited_until": None, "quota_limiting_suspended_until": None}
+            )
+
+    def get_limited_products(self) -> dict[str, dict[str, Any]]:
+        """
+        Returns information about which products are currently limited for this organization.
+
+        Uses Redis pipelining to efficiently check all team tokens for all resources in a single batch.
+        Returns both Redis state (source of truth) and usage field data (which may be out of sync).
+
+        Returns a dict mapping resource names to their limiting status:
+        {
+            "events": {
+                "is_limited_in_redis": True,
+                "redis_quota_limited_until": 1234567890,
+                "limited_teams": ["team_token_1", "team_token_2"],
+                "usage_quota_limited_until": 1234567890,
+                "usage_quota_limiting_suspended_until": None
+            },
+            "recordings": {
+                "is_limited_in_redis": False,
+                "redis_quota_limited_until": None,
+                "limited_teams": [],
+                "usage_quota_limited_until": None,
+                "usage_quota_limiting_suspended_until": None
+            },
+            ...
+        }
+        """
+        from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, get_client
+
+        team_tokens = [t for t in self.teams.values_list("api_token", flat=True) if t]
+
+        result: dict[str, dict[str, Any]] = {}
+        for resource in QuotaResource:
+            usage_quota_limited_until = None
+            usage_quota_limiting_suspended_until = None
+
+            if self.usage and resource.value in self.usage:
+                resource_usage = self.usage[resource.value]
+                usage_quota_limited_until = resource_usage.get("quota_limited_until")
+                usage_quota_limiting_suspended_until = resource_usage.get("quota_limiting_suspended_until")
+
+            result[resource.value] = {
+                "is_limited_in_redis": False,
+                "redis_quota_limited_until": None,
+                "limited_teams": [],
+                "usage_quota_limited_until": usage_quota_limited_until,
+                "usage_quota_limiting_suspended_until": usage_quota_limiting_suspended_until,
+            }
+
+        if not team_tokens:
+            return result
+
+        redis_client = get_client()
+        now = timezone.now().timestamp()
+
+        pipe = redis_client.pipeline()
+        checks: list[tuple[QuotaResource, str]] = []
+
+        for resource in QuotaResource:
+            cache_key = f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{resource.value}"
+            for token in team_tokens:
+                pipe.zscore(cache_key, token)
+                checks.append((resource, token))
+
+        scores = pipe.execute()
+
+        for (resource, token), score in zip(checks, scores):
+            if score is not None and score >= now:
+                result[resource.value]["is_limited_in_redis"] = True
+                result[resource.value]["limited_teams"].append(token)
+                current_max = result[resource.value]["redis_quota_limited_until"]
+                if current_max is None or score > current_max:
+                    result[resource.value]["redis_quota_limited_until"] = int(score)
+
+        return result
+
+    @property
+    def current_billing_period(self) -> tuple[datetime, datetime] | None:
+        """
+        Returns the current billing period as a tuple of (start, end).
+        Returns None if usage data is not available or period is not set.
+        """
+        if not self.usage or "period" not in self.usage:
+            return None
+
+        try:
+            period = self.usage["period"]
+            if not period or len(period) < 2:
+                return None
+
+            start = dateutil.parser.isoparse(period[0])
+            end = dateutil.parser.isoparse(period[1])
+            return (start, end)
+        except (ValueError, TypeError, KeyError) as e:
+            logger.warning(f"Failed to parse billing period for organization {self.id}: {e}")
+            return None
 
     @property
     def active_invites(self) -> QuerySet:
@@ -327,7 +475,7 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     def validate_update(
         self,
         membership_being_updated: "OrganizationMembership",
-        new_level: Optional[Level] = None,
+        new_level: Level | None = None,
     ) -> None:
         if new_level is not None:
             if membership_being_updated.id == self.id:
