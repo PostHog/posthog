@@ -1,6 +1,7 @@
 import time
 import socket
 from datetime import UTC, datetime, timedelta
+from http.client import RemoteDisconnected
 from typing import Optional
 
 import pytest
@@ -10,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 from django.db import connection
 
+import requests
 from disposable_email_domains import blocklist as disposable_email_domains_list
 from rest_framework.exceptions import ValidationError
 
@@ -318,6 +320,39 @@ class TestOauthIntegrationModel(BaseTest):
         assert integration.config["refreshed_at"] == 1700000000
         assert integration.errors == "TOKEN_REFRESH_FAILED"
 
+        mock_reload.assert_not_called()
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_refresh_access_token_handles_network_error_preserves_expiry_fields(self, mock_post, mock_reload):
+        """Network errors during refresh should not clear expiry fields so the sweeper can retry."""
+        # Simulate: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+        mock_post.side_effect = requests.exceptions.ConnectionError(
+            "Connection aborted.", RemoteDisconnected("Remote end closed connection without response")
+        )
+
+        # Create an integration with valid expiry fields and refresh token
+        initial_refreshed_at = 1700000000
+        integration = self.create_integration(
+            kind="hubspot",
+            config={"expires_in": 1000, "refreshed_at": initial_refreshed_at},
+            sensitive_config={"refresh_token": "REFRESH"},
+        )
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            with self.settings(**self.mock_settings):
+                # Should swallow the network error and mark as failed without altering expiry fields
+                OauthIntegration(integration).refresh_access_token()
+
+        # Fields should remain present and unchanged
+        assert integration.sensitive_config.get("refresh_token") == "REFRESH"
+        assert isinstance(integration.config.get("expires_in"), int)
+        assert integration.config.get("expires_in") == 1000
+        assert isinstance(integration.config.get("refreshed_at"), int)
+        assert integration.config.get("refreshed_at") == initial_refreshed_at
+
+        # Error should be marked and no reload triggered
+        assert integration.errors == "TOKEN_REFRESH_FAILED"
         mock_reload.assert_not_called()
 
     @patch("posthog.models.integration.requests.post")

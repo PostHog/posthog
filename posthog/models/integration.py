@@ -634,38 +634,49 @@ class OauthIntegration:
         oauth_config = self.oauth_config_for_kind(self.integration.kind)
 
         # Reddit uses HTTP Basic Auth for token refresh
-        if self.integration.kind == "reddit-ads":
-            res = requests.post(
-                oauth_config.token_url,
-                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
-                data={
-                    "refresh_token": self.integration.sensitive_config["refresh_token"],
-                    "grant_type": "refresh_token",
-                },
-                # If I use a standard User-Agent, it will throw a 429 too many requests error
-                headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
+        try:
+            if self.integration.kind == "reddit-ads":
+                res = requests.post(
+                    oauth_config.token_url,
+                    auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
+                    data={
+                        "refresh_token": self.integration.sensitive_config["refresh_token"],
+                        "grant_type": "refresh_token",
+                    },
+                    # If I use a standard User-Agent, it will throw a 429 too many requests error
+                    headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
+                )
+            elif self.integration.kind == "tiktok-ads":
+                res = requests.post(
+                    "https://open.tiktokapis.com/v2/oauth/token/",
+                    data={
+                        "client_key": oauth_config.client_id,  # TikTok uses client_key instead of client_id
+                        "client_secret": oauth_config.client_secret,
+                        "refresh_token": self.integration.sensitive_config["refresh_token"],
+                        "grant_type": "refresh_token",
+                    },
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                )
+            else:
+                res = requests.post(
+                    oauth_config.token_url,
+                    data={
+                        "client_id": oauth_config.client_id,
+                        "client_secret": oauth_config.client_secret,
+                        "refresh_token": self.integration.sensitive_config["refresh_token"],
+                        "grant_type": "refresh_token",
+                    },
+                )
+        except requests.exceptions.RequestException as e:
+            # Network/transient error – mark as failed but do not raise to let the periodic sweeper try again shortly
+            logger.warning(
+                f"Failed to refresh token for Oauth integration id {self.integration.id} due to network error",
+                error=str(e),
             )
-        elif self.integration.kind == "tiktok-ads":
-            res = requests.post(
-                "https://open.tiktokapis.com/v2/oauth/token/",
-                data={
-                    "client_key": oauth_config.client_id,  # TikTok uses client_key instead of client_id
-                    "client_secret": oauth_config.client_secret,
-                    "refresh_token": self.integration.sensitive_config["refresh_token"],
-                    "grant_type": "refresh_token",
-                },
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-            )
-        else:
-            res = requests.post(
-                oauth_config.token_url,
-                data={
-                    "client_id": oauth_config.client_id,
-                    "client_secret": oauth_config.client_secret,
-                    "refresh_token": self.integration.sensitive_config["refresh_token"],
-                    "grant_type": "refresh_token",
-                },
-            )
+            self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
+            oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
+            self.integration.save()
+            return
 
         config: dict = res.json()
 
