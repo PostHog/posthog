@@ -89,11 +89,16 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
             if (id && didPathChange) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 if (parsedId === 'new') {
-                    actions.resetExperiment({
-                        ...NEW_EXPERIMENT,
-                        metrics: query.metric ? [query.metric] : [],
-                        name: query.name ?? '',
-                    })
+                    // Only reset if we're not already viewing a new experiment (tab switch scenario)
+                    const shouldReset = currentLocation.initial || values.experimentId !== 'new'
+
+                    if (shouldReset) {
+                        actions.resetExperiment({
+                            ...NEW_EXPERIMENT,
+                            metrics: query.metric ? [query.metric] : [],
+                            name: query.name ?? '',
+                        })
+                    }
                 } else {
                     // Only load if this is a different experiment or initial load
                     const shouldLoad = currentLocation.initial || values.experiment?.id !== parsedId
