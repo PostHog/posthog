@@ -463,7 +463,9 @@ export function InsightMetaContent({
     return (
         <>
             {titleEl}
-            <DataWarehouseSyncNotice syncStatus={syncStatus} />
+            <div className="self-stretch">
+                <DataWarehouseSyncNotice syncStatus={syncStatus} />
+            </div>
             {!!description && (
                 <LemonMarkdown className="CardMeta__description" lowKeyHeadings>
                     {description}
