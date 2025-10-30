@@ -41,6 +41,7 @@ import {
 } from '~/types'
 
 import { ResizeHandle1D, ResizeHandle2D } from '../handles'
+import { DataWarehouseSyncNotice } from './DataWarehouseSyncNotice'
 import { InsightMeta } from './InsightMeta'
 
 export interface InsightCardProps extends Resizeable {
@@ -253,6 +254,7 @@ function InsightCardInternal(
                             placement={placement}
                         />
                         <div className="InsightCard__viz">
+                            <DataWarehouseSyncNotice syncStatus={insight.data_warehouse_sync_status} />
                             {BlockingEmptyState ? (
                                 BlockingEmptyState
                             ) : (

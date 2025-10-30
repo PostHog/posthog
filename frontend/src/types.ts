@@ -2095,6 +2095,14 @@ export interface TextModel {
     last_modified_at: string
 }
 
+export interface DataWarehouseSyncStatus {
+    table_name: string
+    status: 'disabled' | 'failed' | 'paused'
+    message: string
+    error?: string | null
+    schema_id: string
+}
+
 export interface InsightModel extends Cacheable, WithAccessControl {
     /** The unique key we use when communicating with the user, e.g. in URLs */
     short_id: InsightShortId
@@ -2128,6 +2136,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     alerts?: AlertType[]
     query?: Node | null
     query_status?: QueryStatus
+    data_warehouse_sync_status?: DataWarehouseSyncStatus[] | null
     /** Only used when creating objects */
     _create_in_folder?: string | null
 }

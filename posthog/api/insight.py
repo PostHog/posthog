@@ -1,7 +1,7 @@
 import json
 import logging
 from functools import lru_cache
-from typing import Any, Optional, Union, cast
+from typing import Any, Union, cast
 
 from django.db import transaction
 from django.db.models import Count, F, Max, Prefetch, QuerySet
@@ -122,15 +122,15 @@ def log_and_report_insight_activity(
     team_id: int,
     user: User,
     was_impersonated: bool,
-    changes: Optional[list[Change]] = None,
-    properties: Optional[dict[str, Any]] = None,
+    changes: list[Change] | None = None,
+    properties: dict[str, Any] | None = None,
 ) -> None:
     """
     Insight id and short_id are passed separately as some activities (like delete) alter the Insight instance
 
     The experiments feature creates insights without a name, this does not log those
     """
-    insight_name: Optional[str] = insight.name if insight.name else insight.derived_name
+    insight_name: str | None = insight.name if insight.name else insight.derived_name
     if insight_name:
         log_activity(
             organization_id=organization_id,
@@ -351,6 +351,7 @@ class InsightSerializer(InsightBasicSerializer):
     types = serializers.SerializerMethodField()
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     alerts = serializers.SerializerMethodField(read_only=True)
+    data_warehouse_sync_status = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Insight
@@ -392,6 +393,7 @@ class InsightSerializer(InsightBasicSerializer):
             "_create_in_folder",
             "alerts",
             "last_viewed_at",
+            "data_warehouse_sync_status",
         ]
         read_only_fields = (
             "created_at",
@@ -650,6 +652,95 @@ class InsightSerializer(InsightBasicSerializer):
 
         return AlertSerializer(alerts, many=True, context=self.context).data
 
+    def get_data_warehouse_sync_status(self, insight: Insight):
+        """
+        Check if the insight uses data warehouse tables with sync issues.
+        Returns information about failed or disabled syncs.
+        """
+        from posthog.warehouse.models import DataWarehouseTable, ExternalDataSchema
+
+        query = insight.query
+        if not query or not isinstance(query, dict):
+            return None
+
+        # Extract data warehouse table names from the query
+        table_names = self._extract_data_warehouse_tables(query)
+        if not table_names:
+            return None
+
+        # Get tables with sync issues
+        tables_with_issues = []
+        for table_name in table_names:
+            try:
+                table = DataWarehouseTable.objects.filter(
+                    team_id=insight.team_id, name=table_name, deleted=False
+                ).first()
+
+                if not table or not table.external_data_source:
+                    continue
+
+                # Check all schemas for this table
+                schemas = ExternalDataSchema.objects.filter(table=table, deleted=False).select_related("source")
+
+                for schema in schemas:
+                    # Check if sync is disabled or failed
+                    if not schema.should_sync:
+                        tables_with_issues.append(
+                            {
+                                "table_name": table_name,
+                                "status": "disabled",
+                                "message": f"Sync for table '{table_name}' is disabled",
+                                "schema_id": str(schema.id),
+                            }
+                        )
+                    elif schema.status == ExternalDataSchema.Status.FAILED:
+                        tables_with_issues.append(
+                            {
+                                "table_name": table_name,
+                                "status": "failed",
+                                "message": f"Sync for table '{table_name}' has failed",
+                                "error": schema.latest_error,
+                                "schema_id": str(schema.id),
+                            }
+                        )
+                    elif schema.status == ExternalDataSchema.Status.PAUSED:
+                        tables_with_issues.append(
+                            {
+                                "table_name": table_name,
+                                "status": "paused",
+                                "message": f"Sync for table '{table_name}' is paused",
+                                "schema_id": str(schema.id),
+                            }
+                        )
+
+            except Exception:
+                # Silently ignore errors to avoid breaking insight rendering
+                continue
+
+        return tables_with_issues if tables_with_issues else None
+
+    def _extract_data_warehouse_tables(self, query: dict) -> set[str]:
+        """
+        Recursively extract DataWarehouseNode table names from a query.
+        """
+        table_names = set()
+
+        # Handle InsightVizNode
+        if query.get("kind") == "InsightVizNode":
+            source = query.get("source")
+            if source:
+                table_names.update(self._extract_data_warehouse_tables(source))
+
+        # Handle queries with series (TrendsQuery, FunnelsQuery, etc.)
+        series = query.get("series", [])
+        for node in series:
+            if isinstance(node, dict) and node.get("kind") == "DataWarehouseNode":
+                table_name = node.get("table_name")
+                if table_name:
+                    table_names.add(table_name)
+
+        return table_names
+
     def get_effective_restriction_level(self, insight: Insight) -> Dashboard.RestrictionLevel:
         if self.context.get("is_shared"):
             return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
@@ -687,8 +778,8 @@ class InsightSerializer(InsightBasicSerializer):
         else:
             representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
 
-        dashboard: Optional[Dashboard] = self.context.get("dashboard")
-        request: Optional[Request] = self.context.get("request")
+        dashboard: Dashboard | None = self.context.get("dashboard")
+        request: Request | None = self.context.get("request")
         dashboard_filters_override = filters_override_requested_by_client(request, dashboard) if request else None
         dashboard_variables_override = variables_override_requested_by_client(
             request, dashboard, list(self.context["insight_variables"])
@@ -750,7 +841,7 @@ class InsightSerializer(InsightBasicSerializer):
     def insight_result(self, insight: Insight) -> InsightResult:
         from posthog.caching.calculate_results import calculate_for_query_based_insight
 
-        dashboard: Optional[Dashboard] = self.context.get("dashboard")
+        dashboard: Dashboard | None = self.context.get("dashboard")
 
         with upgrade_query(insight):
             try:
@@ -808,8 +899,8 @@ class InsightSerializer(InsightBasicSerializer):
                 )
 
     @lru_cache(maxsize=1)  # each serializer instance should only deal with one insight/tile combo
-    def dashboard_tile_from_context(self, insight: Insight, dashboard: Optional[Dashboard]) -> Optional[DashboardTile]:
-        dashboard_tile: Optional[DashboardTile] = self.context.get("dashboard_tile", None)
+    def dashboard_tile_from_context(self, insight: Insight, dashboard: Dashboard | None) -> DashboardTile | None:
+        dashboard_tile: DashboardTile | None = self.context.get("dashboard_tile", None)
 
         if dashboard_tile and dashboard_tile.deleted:
             self.context.update({"dashboard_tile": None})
@@ -1092,7 +1183,7 @@ When set, the specified dashboard's filters and date range override will be appl
         instance = self.get_object()
         serializer_context = self.get_serializer_context()
 
-        dashboard_tile: Optional[DashboardTile] = None
+        dashboard_tile: DashboardTile | None = None
         dashboard_id = request.query_params.get("from_dashboard", None)
         if dashboard_id is not None:
             dashboard_tile = (
