@@ -1,4 +1,7 @@
 // Export for use with actions/github-script
+
+const DIFF_THRESHOLD = 0.01
+
 module.exports = ({ github, context, fs }) => {
     // Read the eval results
     const evalResults = fs
@@ -18,27 +21,20 @@ module.exports = ({ github, context, fs }) => {
         const diffs = Object.values(scores)
             .map((v) => v.diff)
             .filter((d) => typeof d === 'number')
-        const maxAbsDiff = diffs.length > 0 ? Math.max(...diffs.map(Math.abs)) : 0
-        const maxDiff = diffs.find((d) => Math.abs(d) === maxAbsDiff) || 0
+        const minDiff = diffs.length > 0 ? Math.min(...diffs) : 0
+        const maxDiff = diffs.length > 0 ? Math.max(...diffs) : 0
 
-        let category = 'neutral'
-        if (result.comparison_experiment_name?.startsWith('master-')) {
-            if (maxDiff < -0.01) {
-                category = 'regression'
-            } else if (maxDiff > 0.01) {
-                category = 'improvement'
-            }
+        return {
+            result,
+            maxAbsDiff: Math.max(Math.abs(minDiff), Math.abs(maxDiff)),
+            category: minDiff < -DIFF_THRESHOLD ? 'regresion' : maxDiff > DIFF_THRESHOLD ? 'improvement' : 'neutral',
         }
-
-        return { result, maxDiff, category }
     })
 
     // Sort: regressions first (most negative to least), then improvements (most positive to least), then neutral
     experimentsWithMaxDiff.sort((a, b) => {
         if (a.category === b.category) {
-            if (a.category === 'regression') return a.maxDiff - b.maxDiff // most negative first
-            if (a.category === 'improvement') return b.maxDiff - a.maxDiff // most positive first
-            return 0
+            return b.maxAbsDiff - a.maxAbsDiff
         }
         const order = { regression: 0, improvement: 1, neutral: 2 }
         return order[a.category] - order[b.category]
@@ -51,7 +47,7 @@ module.exports = ({ github, context, fs }) => {
             .map(([key, value]) => {
                 const score = typeof value.score === 'number' ? `${(value.score * 100).toFixed(2)}%` : value.score
                 let baselineComparison = null
-                const diffHighlight = Math.abs(value.diff) > 0.01 ? '**' : ''
+                const diffHighlight = Math.abs(value.diff) > DIFF_THRESHOLD ? '**' : ''
                 let diffEmoji = '🆕'
                 if (result.comparison_experiment_name?.startsWith('master-')) {
                     baselineComparison = `${diffHighlight}${value.diff > 0 ? '+' : value.diff < 0 ? '' : '±'}${(
@@ -59,7 +55,7 @@ module.exports = ({ github, context, fs }) => {
                     ).toFixed(
                         2
                     )}%${diffHighlight} (improvements: ${value.improvements}, regressions: ${value.regressions})`
-                    diffEmoji = value.diff > 0.01 ? '🟢' : value.diff < -0.01 ? '🔴' : '🔵'
+                    diffEmoji = value.diff > DIFF_THRESHOLD ? '🟢' : value.diff < -DIFF_THRESHOLD ? '🔴' : '🔵'
                 }
                 return `${diffEmoji} **${key}**: **${score}**${baselineComparison ? `, ${baselineComparison}` : ''}`
             })
@@ -98,14 +94,14 @@ module.exports = ({ github, context, fs }) => {
 
     const bodyParts = [
         `## 🧠 AI eval results`,
-        `Evaluated **${totalExperiments}** experiments, comprising **${totalMetrics}** metrics.`,
+        `Evaluated **${totalExperiments}** experiments, comprising **${totalMetrics}** metrics. Showing experiments with largest regressions first.`,
     ]
 
     bodyParts.push(...regressions)
     bodyParts.push(...improvements)
     if (neutral.length > 0) {
         bodyParts.push(
-            `<details><summary>No significant changes (${neutral.length} ${neutral.length === 1 ? 'experiment' : 'experiments'})</summary>\n\n${neutral.join('\n\n')}\n\n</details>`
+            `<details><summary>${neutral.length} ${neutral.length === 1 ? 'experiment' : 'experiments'} with no significant changes</summary>\n\n${neutral.join('\n\n')}\n\n</details>`
         )
     }
 
