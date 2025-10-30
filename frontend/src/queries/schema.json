@@ -13357,9 +13357,6 @@
         "ExperimentStatsBase": {
             "additionalProperties": false,
             "properties": {
-                "breakdown_value": {
-                    "type": "string"
-                },
                 "denominator_sum": {
                     "type": "number"
                 },
@@ -13403,9 +13400,6 @@
         "ExperimentStatsBaseValidated": {
             "additionalProperties": false,
             "properties": {
-                "breakdown_value": {
-                    "type": "string"
-                },
                 "denominator_sum": {
                     "type": "number"
                 },
@@ -13589,9 +13583,6 @@
         "ExperimentVariantResultBayesian": {
             "additionalProperties": false,
             "properties": {
-                "breakdown_value": {
-                    "type": "string"
-                },
                 "chance_to_win": {
                     "type": "number"
                 },
@@ -13659,9 +13650,6 @@
         "ExperimentVariantResultFrequentist": {
             "additionalProperties": false,
             "properties": {
-                "breakdown_value": {
-                    "type": "string"
-                },
                 "confidence_interval": {
                     "items": {
                         "type": "number"
