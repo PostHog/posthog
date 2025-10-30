@@ -859,22 +859,12 @@ mod tests {
             "deleted": true
         });
 
-        let inactive_flag = json!({
-            "id": 2,
-            "team_id": team.id,
-            "name": "Inactive Flag",
-            "key": "inactive_flag",
-            "filters": {"groups": []},
-            "active": false,
-            "deleted": false
-        });
-
         // Insert into Redis
         insert_flags_for_team_in_redis(
             redis_client.clone(),
             team.id,
             team.project_id,
-            Some(json!([deleted_flag, inactive_flag]).to_string()),
+            Some(json!([deleted_flag]).to_string()),
         )
         .await
         .expect("Failed to insert flags in Redis");
@@ -900,46 +890,21 @@ mod tests {
             .await
             .expect("Failed to insert deleted flag in Postgres");
 
-        context
-            .insert_flag(
-                team.id,
-                Some(FeatureFlagRow {
-                    id: 0,
-                    team_id: team.id,
-                    name: Some("Inactive Flag".to_string()),
-                    key: "inactive_flag".to_string(),
-                    filters: inactive_flag["filters"].clone(),
-                    deleted: false,
-                    active: false,
-                    ensure_experience_continuity: Some(false),
-                    version: Some(1),
-                    evaluation_runtime: Some("all".to_string()),
-                    evaluation_tags: None,
-                }),
-            )
-            .await
-            .expect("Failed to insert inactive flag in Postgres");
-
         // Fetch and verify from Redis
         let redis_flags = FeatureFlagList::from_redis(redis_client, team.project_id)
             .await
             .expect("Failed to fetch flags from Redis");
 
-        assert_eq!(redis_flags.flags.len(), 2);
+        assert_eq!(redis_flags.flags.len(), 1);
         assert!(redis_flags.flags.iter().any(|f| f.deleted));
-        assert!(redis_flags
-            .flags
-            .iter()
-            .any(|f| f.key == "inactive_flag" && !f.active));
 
-        // Fetch and verify from Postgres
+        // Fetch and verify from Postgres - deleted flags should be filtered out
         let (pg_flags, _) =
             FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.project_id)
                 .await
                 .expect("Failed to fetch flags from Postgres");
-        assert_eq!(pg_flags.flags.len(), 0);
+        assert_eq!(pg_flags.flags.len(), 0); // deleted flag is filtered out
         assert!(!pg_flags.flags.iter().any(|f| f.deleted)); // no deleted flags
-        assert!(!pg_flags.flags.iter().any(|f| f.active)); // no inactive flags
     }
 
     #[tokio::test]

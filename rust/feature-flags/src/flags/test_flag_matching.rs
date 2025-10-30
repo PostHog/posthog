@@ -61,6 +61,7 @@ mod tests {
                 "team_id": team.id,
                 "name": "flag1",
                 "key": "flag1",
+                "active": true,
                 "filters": {
                     "groups": [
                         {
@@ -4757,6 +4758,7 @@ mod tests {
                 "team_id": team.id,
                 "name": "flag1",
                 "key": "flag1",
+                "active": true,
                 "filters": {
                     "groups": [
                         {
