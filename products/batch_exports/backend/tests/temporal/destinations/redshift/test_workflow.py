@@ -28,8 +28,8 @@ from products.batch_exports.backend.tests.temporal.destinations.redshift.utils i
     MISSING_REQUIRED_ENV_VARS,
     TEST_MODELS,
     assert_clickhouse_records_in_redshift,
-    delete_all_from_s3_prefix,
 )
+from products.batch_exports.backend.tests.temporal.utils.s3 import delete_all_from_s3
 from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
 
 pytestmark = [
@@ -61,7 +61,7 @@ async def clean_up_s3_bucket(s3_client, mode, bucket_name, key_prefix):
     if s3_client is None or bucket_name is None or mode != "COPY":
         return
 
-    await delete_all_from_s3_prefix(s3_client, bucket_name, key_prefix)
+    await delete_all_from_s3(s3_client, bucket_name, key_prefix)
 
 
 @pytest.fixture

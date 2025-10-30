@@ -1,19 +1,12 @@
 import uuid
-import functools
 
 import pytest
 
-from django.conf import settings
-
-import aioboto3
-
-from products.batch_exports.backend.tests.temporal.utils.s3 import delete_all_from_s3
+from products.batch_exports.backend.tests.temporal.utils.s3 import create_test_client, delete_all_from_s3
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 TEST_ROOT_BUCKET = "test-batch-exports"
-SESSION = aioboto3.Session()
-create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
 
 
 @pytest.fixture
