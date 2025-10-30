@@ -12,14 +12,23 @@ This feature generalizes the prototype LLM traces summarization system (PR #4036
 Instead of one hardcoded "user issues" clustering, we introduce **Analysis Themes** - reusable analytical perspectives that can be applied to any subset of traces:
 
 ```text
-┌─────────────────────────────────────────────────────┐
-│ Analysis Theme: "Error Analysis"                    │
-├─────────────────────────────────────────────────────┤
-│ • Filters: error_count > 0                          │
-│ • Prompt: "Explain what went wrong and why..."      │
-│ • Sampling: 5000 traces per day                     │
-│ • Clustering: Daily at 3 AM UTC                     │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│ Analysis Theme: "Unhappy Users"                          │
+├──────────────────────────────────────────────────────────┤
+│ • Filters: None (analyze all traces)                     │
+│ • Prompt: "Identify frustration and pain points..."      │
+│ • theme_relevance: Filter to only unhappy interactions   │
+│ • Clustering: Daily at 3 AM UTC                          │
+└──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│ Analysis Theme: "Performance/Cost Hotspots"              │
+├──────────────────────────────────────────────────────────┤
+│ • Filters: latency > 2s OR total_tokens > 10000          │
+│ • Prompt: "Explain performance/cost issues..."           │
+│ • theme_relevance: Filter to optimization opportunities  │
+│ • Clustering: Daily at 3 AM UTC                          │
+└──────────────────────────────────────────────────────────┘
 ```
 
 **Shipped Themes** (out of the box):
