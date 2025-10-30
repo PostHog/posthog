@@ -62,13 +62,12 @@ function createIssueCohortForm(issue: ErrorTrackingRelationalIssue, onSubmit: Is
             cohortName: (name) => (!name ? 'You must enter a title' : undefined),
         },
         onSubmit: ({ cohortName, cohortDescription }) => {
-            onSubmit(cohortName, cohortDescription)
+            return onSubmit(cohortName, cohortDescription)
         },
     })
 }
 
 function IssueCohortDisplay({ cohort }: { issueId: string; cohort: ErrorTrackingIssueCohort }): JSX.Element {
-    // Load cohort
     return (
         <Link to={urls.cohort(cohort.id)} tooltip="Edit Cohort" target="_blank">
             <ButtonPrimitive variant="panel" fullWidth>
