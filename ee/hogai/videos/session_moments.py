@@ -152,9 +152,6 @@ class SessionMomentsLLMAnalyzer:
                     "duration": moment.duration_s,
                     # Keeping default values
                     "mode": "screenshot",
-                    "css_selector": ".replayer-wrapper",
-                    "width": 1987,
-                    "height": 1312,
                 },
                 created_by=self.user,
                 created_at=created_at,
