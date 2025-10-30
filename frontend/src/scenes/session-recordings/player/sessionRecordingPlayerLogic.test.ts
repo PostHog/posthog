@@ -556,4 +556,32 @@ describe('sessionRecordingPlayerLogic', () => {
             })
         })
     })
+
+    describe('exporting recording to file', () => {
+        it('pauses playback and triggers loading all data before export', async () => {
+            silenceKeaLoadersErrors()
+
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'test',
+                autoPlay: true,
+            })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions([
+                sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
+                'setPlay',
+            ])
+
+            const endTime = logic.values.sessionPlayerData.end?.valueOf()
+
+            await expectLogic(logic, () => {
+                logic.actions.exportRecordingToFile()
+            }).toDispatchActions(['exportRecordingToFile', 'setPause'])
+
+            expect(endTime).toBeTruthy()
+
+            resumeKeaLoadersErrors()
+        })
+    })
 })
