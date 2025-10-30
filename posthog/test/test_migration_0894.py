@@ -81,7 +81,7 @@ class BackfillWeekPartitions(NonAtomicTestMigrations):
         self.team = Team.objects.create(organization=self.organization, name="t1", project=self.project)
 
         # mapping from test case name to schemata
-        self.cases = {
+        self.cases: dict[str, Any] = {
             "Stripe": [],
             "TemporalIO": [],
             "GoogleAds": [],
@@ -99,7 +99,7 @@ class BackfillWeekPartitions(NonAtomicTestMigrations):
                     self.cases[source_type].append((name, schema))
 
     def test_migration(self):
-        ExternalDataSchema = self.apps.get_model("posthog", "ExternalDataSchema")
+        ExternalDataSchema = self.apps.get_model("posthog", "ExternalDataSchema")  # type: ignore
 
         for source_type in self.cases:
             for name, old_schema in self.cases[source_type]:
