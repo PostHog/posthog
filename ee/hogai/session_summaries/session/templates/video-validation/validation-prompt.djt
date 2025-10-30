@@ -59,14 +59,22 @@ For events requiring updates based on Step 1:
    - Keep as "blocking" only if video confirms complete blockage
 
 2.2. Revise event descriptions:
-   - Remove error language if no error occurred
    - Focus on the actual user action observed
-   - Keep descriptions concise (4-8 words)
+   - If no errors occured and the current description is innacurate:
+      - Remove error language
+      - Keep descriptions concise (4-8 words)
+   - If the current description is accurate:
+      - Extend it with the additional info you got
    
-   Examples:
+   Inaccurate description examples - to replace:
    - "Blocking store path exception rendered Error tracking unusable" → "Clicked into Error tracking feature"
    - "Failed API call prevented dashboard load" → "Viewed analytics dashboard"
    - "Error loading recommendations" → "Browsed product recommendations"
+
+   Accurate description examples - to extend:
+   - "ClickHouse timeout error during query" → "Clickhouse timeout and inspector errors; player black"
+   - "Snapshots API hit memory limit" → "Recording player failed to render due to Snapshots API memory limit",
+   - "Backend query failed due to 403 error" -> "Auth errors shown on load, caused by backend query 403 error"
 
 2.3. Update confusion/abandonment flags:
    - Remove confusion: true if video shows intentional navigation
