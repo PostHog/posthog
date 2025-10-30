@@ -297,7 +297,7 @@ mod tests {
             project_id: i64::from(id) - 1,
             name: "team".to_string(),
             api_token: token,
-            cookieless_server_hash_mode: 0,
+            cookieless_server_hash_mode: Some(0),
             timezone: "UTC".to_string(),
             ..Default::default()
         };
@@ -339,7 +339,7 @@ mod tests {
             project_id: 0,
             uuid: Uuid::nil(),
             session_recording_opt_in: false,
-            cookieless_server_hash_mode: 0,
+            cookieless_server_hash_mode: Some(0),
             timezone: "UTC".to_string(),
             ..Default::default()
         };
@@ -361,7 +361,7 @@ mod tests {
         assert_eq!(team_from_redis.api_token, target_token);
         assert_eq!(team_from_redis.id, 343);
         assert_eq!(team_from_redis.project_id, 343); // Same as `id`
-        assert_eq!(team_from_redis.cookieless_server_hash_mode, 0);
+        assert_eq!(team_from_redis.cookieless_server_hash_mode, Some(0));
     }
 
     #[tokio::test]
