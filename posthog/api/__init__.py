@@ -30,6 +30,7 @@ import products.endpoints.backend.api as endpoints
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
+from products.desktop_recordings.backend.api import DesktopRecordingViewSet
 from products.error_tracking.backend.api import (
     ErrorTrackingAssignmentRuleViewSet,
     ErrorTrackingExternalReferenceViewSet,
@@ -874,6 +875,13 @@ environments_router.register(
     r"user_interviews",
     UserInterviewViewSet,
     "environment_user_interviews",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"desktop_recordings",
+    DesktopRecordingViewSet,
+    "environment_desktop_recordings",
     ["team_id"],
 )
 
