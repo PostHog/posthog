@@ -3,10 +3,34 @@ import equal from 'fast-deep-equal'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useState } from 'react'
 
+<<<<<<< HEAD
 import { IconClock, IconEye, IconFilter, IconHide, IconPlus, IconRevert, IconX } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonInput, LemonModal, LemonTab, LemonTabs, Popover } from '@posthog/lemon-ui'
+=======
+import {
+    IconArrowRight,
+    IconAsterisk,
+    IconClock,
+    IconEye,
+    IconFilter,
+    IconHide,
+    IconPlus,
+    IconRevert,
+    IconTrash,
+    IconX,
+} from '@posthog/icons'
+import {
+    LemonBadge,
+    LemonButton,
+    LemonInput,
+    LemonModal,
+    LemonTab,
+    LemonTabs,
+    LemonTag,
+    Popover,
+} from '@posthog/lemon-ui'
+>>>>>>> e0ab50262d (rearrange filters tab)
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
@@ -14,7 +38,6 @@ import { universalFiltersLogic } from 'lib/components/UniversalFilters/universal
 import { isCommentTextFilter, isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
@@ -26,13 +49,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { NodeKind } from '~/queries/schema/schema-general'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    PropertyOperator,
-    RecordingUniversalFilters,
-    UniversalFiltersGroup,
-} from '~/types'
+import { PropertyOperator, RecordingUniversalFilters, UniversalFiltersGroup } from '~/types'
 
 import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
 import { TimestampFormat, playerSettingsLogic } from '../player/playerSettingsLogic'
@@ -288,12 +305,61 @@ export const RecordingsUniversalFiltersEmbed = ({
         )
     }
 
+    const hasFilterChanges = appliedSavedFilter ? !equal(appliedSavedFilter.filters, filters) : false
+
     const tabs: LemonTab<string>[] = [
         {
             key: 'filters',
             label: <div className="px-2">Filters</div>,
             content: (
                 <div className={clsx('relative bg-surface-primary w-full ', className)}>
+                    {appliedSavedFilter && (
+                        <div className="border-b px-2 py-3 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                                <span className="font-medium whitespace-nowrap flex-shrink-0">
+                                    Loaded saved filter:
+                                </span>
+                                <LemonTag
+                                    type={hasFilterChanges ? 'option' : 'primary'}
+                                    icon={hasFilterChanges ? <IconAsterisk /> : undefined}
+                                    closable
+                                    onClose={() => {
+                                        resetFilters?.()
+                                        setAppliedSavedFilter(null)
+                                    }}
+                                    className="max-w-xs"
+                                >
+                                    <span className="truncate">
+                                        {appliedSavedFilter.name || appliedSavedFilter.derived_name || 'Unnamed'}
+                                        {hasFilterChanges && ' (edited)'}
+                                    </span>
+                                </LemonTag>
+                            </div>
+                            {hasFilterChanges && (
+                                <div className="flex gap-2 flex-shrink-0">
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        icon={<IconTrash />}
+                                        onClick={() => setFilters(appliedSavedFilter.filters)}
+                                    >
+                                        Discard changes
+                                    </LemonButton>
+                                    <LemonButton
+                                        type="secondary"
+                                        status="danger"
+                                        size="small"
+                                        onClick={() => void updateSavedFilter()}
+                                        className="max-w-72"
+                                    >
+                                        <span className="truncate">
+                                            Save changes to "{appliedSavedFilter.name || 'Unnamed'}"
+                                        </span>
+                                    </LemonButton>
+                                </div>
+                            )}
+                        </div>
+                    )}
                     <div className="flex items-center py-2 justify-between">
                         <AndOrFilterSelect
                             value={filters.filter_group.type}
@@ -384,14 +450,32 @@ export const RecordingsUniversalFiltersEmbed = ({
                             </UniversalFilters>
                         </div>
                     </div>
-                    <div className="flex justify-between gap-2 border-t pt-4 mx-2 mt-8 ">
+
+                    <div className="flex items-center pt-4 justify-end px-2 gap-2 border-t mt-8">
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            onClick={handleResetFilters}
+                            icon={<IconRevert />}
+                            tooltip="Remove all filters and reset to defaults"
+                            disabledReason={
+                                !(resetFilters && (totalFiltersCount ?? 0) > 0) ? 'No filters applied' : undefined
+                            }
+                        >
+                            Reset filters
+                        </LemonButton>
+                        <LemonButton type="primary" size="small" onClick={() => setIsSaveFiltersModalOpen(true)}>
+                            Save as new filter
+                        </LemonButton>
+                    </div>
+                    {/* <div className="flex justify-between gap-2 border-t pt-4 mx-2 mt-8 ">
                         <div className="flex flex-wrap gap-2 items-center justify-end">
                             <LemonButton
                                 type="tertiary"
                                 size="small"
                                 onClick={handleResetFilters}
                                 icon={<IconRevert />}
-                                tooltip="Reset any changes you've made to the filters"
+                                tooltip="Remove all filters and reset to defaults"
                                 disabledReason={
                                     !(resetFilters && (totalFiltersCount ?? 0) > 0) ? 'No filters applied' : undefined
                                 }
@@ -452,7 +536,7 @@ export const RecordingsUniversalFiltersEmbed = ({
                         >
                             {(totalFiltersCount ?? 0) === 0 ? 'Close filters' : 'Start watching'}
                         </LemonButton>
-                    </div>
+                    </div> */}
                     {SaveFiltersModal()}
                 </div>
             ),
