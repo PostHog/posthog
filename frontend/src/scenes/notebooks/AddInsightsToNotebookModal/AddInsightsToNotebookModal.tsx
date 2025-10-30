@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { AddSavedInsightsToNotebook } from 'scenes/saved-insights/AddSavedInsightsToNotebook'
 
-import { AddSavedInsightsToNotebook } from './AddSavedInsightsToNotebook'
 import { addInsightsToNotebookModalLogic } from './addInsightsToNotebookModalLogic'
 
 export function AddInsightsToNotebookModal(): JSX.Element {
