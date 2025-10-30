@@ -22,7 +22,7 @@ class Migration(migrations.Migration):
                 # No reverse SQL needed as the index will be dropped with the constraint
                 migrations.RunSQL(
                     """
-                    CREATE UNIQUE INDEX CONCURRENTLY "idx_team_id_raw_id_part" ON "posthog_errortrackingstackframe" ("team_id", "raw_id", "part");
+                    CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "idx_team_id_raw_id_part" ON "posthog_errortrackingstackframe" ("team_id", "raw_id", "part");
                     """,
                     reverse_sql="""
                         DROP INDEX IF EXISTS "idx_team_id_raw_id_part";
