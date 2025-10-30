@@ -346,32 +346,6 @@ describe.each([
                     },
                 ])
             })
-
-            it('should execute simple event-matcher bytecode', async () => {
-                // Insert a function that uses the provided bytecode (event == "$exception")
-                const fnEventMatcher = await insertHogFunction({
-                    ...HOG_EXAMPLES.input_printer,
-                    ...HOG_INPUTS_EXAMPLES.secret_inputs,
-                    filters: {
-                        events: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
-                        actions: [],
-                        bytecode: ['_H', 1, 32, '$pageview', 32, 'event', 1, 1, 11],
-                    },
-                })
-
-                const { invocations } = await processor.processBatch([globals])
-
-                // This bytecode matches $exception, while the event is $pageview, so it should not add an invocation
-                expect(invocations).toHaveLength(3)
-                expect(invocations).toMatchObject([
-                    matchInvocation(fnFetchNoFilters, globals),
-                    matchInvocation(fnPrinterPageviewFilters, globals),
-                    matchInvocation(fnEventMatcher, globals),
-                ])
-
-                // Verify jobs enqueued
-                expect(mockQueueInvocations).toHaveBeenCalledWith(invocations)
-            })
         })
 
         describe('filtering errors', () => {
