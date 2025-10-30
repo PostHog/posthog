@@ -307,10 +307,10 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         return false
                     }
                     // Load sources that have timestamps <= target, once a target is set
-                    if (s.start_timestamp && values.targetTimestampToBufferMillis) {
-                        const sourceStartTime = new Date(s.start_timestamp).getTime()
-                        return sourceStartTime <= values.targetTimestampToBufferMillis
-                    }
+                    //if (s.start_timestamp && values.targetTimestampToBufferMillis) {
+                    //   const sourceStartTime = new Date(s.start_timestamp).getTime()
+                    //    return sourceStartTime <= values.targetTimestampToBufferMillis
+                    //}
 
                     return true
                 })
