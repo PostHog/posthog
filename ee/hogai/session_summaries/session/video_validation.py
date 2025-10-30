@@ -132,6 +132,7 @@ class SessionSummaryVideoValidator:
         for ki, key_actions in enumerate(self.summary.data.get("key_actions", [])):
             segment_index = key_actions["segment_index"]
             for ei, event in enumerate(key_actions.get("events", [])):
+                # TODO: Decide if it adds to value to check other issues also (not just blocking issues)
                 if event.get(SessionSummaryIssueTypes.EXCEPTION.value) != SessionSummaryExceptionTypes.BLOCKING.value:
                     continue
                 # Keep only blocking exceptions
