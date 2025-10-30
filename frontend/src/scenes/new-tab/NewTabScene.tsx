@@ -131,12 +131,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                 >
                     <div className="flex flex-col flex-1 max-w-[1200px] mx-auto w-full gap-4 px-4 @lg/main-content:px-8 group/colorful-product-icons colorful-product-icons-true">
                         <div className="flex flex-col gap-2 mb-32">
-                            <Results
-                                tabId={tabId || ''}
-                                searchInputRef={commandInputRef.current?.getInputRef() || { current: null }}
-                                listboxRef={listboxRef}
-                                handleAskAi={handleAskAi}
-                            />
+                            <Results tabId={tabId || ''} listboxRef={listboxRef} handleAskAi={handleAskAi} />
                         </div>
                     </div>
                 </ScrollableShadows>
