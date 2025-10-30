@@ -247,6 +247,7 @@ class TestTrendsBreakdownEmptyNullProperties(ClickhouseTestMixin, APIBaseTest):
                 break
 
         self.assertIsNotNone(none_none_result, "Should have a (None, None) breakdown result")
+        assert none_none_result is not None  # Type narrowing for mypy
         self.assertEqual(
             none_none_result["count"],
             1,
