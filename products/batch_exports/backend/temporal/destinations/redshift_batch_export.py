@@ -109,6 +109,10 @@ NON_RETRYABLE_ERROR_TYPES = (
     "DatatypeMismatch",
     # Raised when multiple S3 operations failed with a ClientError.
     "ClientErrorGroup",
+    # Raised by PostgreSQL client when a function doesn't exist for the specified types.
+    # This can indicate, for example, attempting to compare two types that cannot be
+    # compared.
+    "UndefinedFunction",
 )
 
 
@@ -324,7 +328,28 @@ class RedshiftClient(PostgreSQLClient):
 
         async with self.connection.transaction():
             async with self.connection.cursor() as cursor:
-                await cursor.execute(delete_query)
+                try:
+                    await cursor.execute(delete_query)
+                except psycopg.errors.UndefinedFunction:
+                    self.logger.exception(
+                        "Query failed",
+                        table=final_table_name,
+                        schema=schema,
+                        stage_table=stage_table_name,
+                        query="DELETE",
+                    )
+                    self.external_logger.error(  # noqa: TRY400
+                        "A non-retryable 'UndefinedFunction' error happened when attempting to"
+                        " delete existing rows from '%s.%s' before a 'MERGE' command can be executed."
+                        "This can indicate that the schema of the table does not match what the"
+                        " batch export expects."
+                        "Please review the table schema before retrying again, there may be fields"
+                        " that have been created with incorrect types. The batch export will always"
+                        " create a table with the correct schema if it doesn't already exist.",
+                        schema,
+                        final_table_name,
+                    )
+
                 await cursor.execute(merge_query)
 
     async def acopy_from_s3_bucket(
