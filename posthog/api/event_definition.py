@@ -295,7 +295,7 @@ class EventDefinitionViewSet(
         )
 
         # Build a mapping of event_definition_id -> property group properties
-        schema_map = {}
+        schema_map: dict[str, list[Any]] = {}
         for event_schema in event_schemas:
             event_id = str(event_schema.event_definition_id)
             if event_id not in schema_map:
@@ -346,7 +346,9 @@ class EventDefinitionViewSet(
                 for prop in properties:
                     ts_type = self._map_property_type(prop.property_type)
                     optional_marker = "" if prop.is_required else "?"
-                    output.append(f"        {prop.name}{optional_marker}: {ts_type}")
+                    # Always quote property names (simpler and handles all edge cases)
+                    prop_name = f"'{prop.name.replace("'", "\\'")}'"
+                    output.append(f"        {prop_name}{optional_marker}: {ts_type}")
                 output.append("    }")
 
         output.append("}")
