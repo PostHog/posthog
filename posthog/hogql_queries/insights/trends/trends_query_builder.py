@@ -154,7 +154,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         ordering,
                         total_count_for_breakdown,
                         row_number() OVER (
-                            ORDER BY ordering ASC, total_count_for_breakdown DESC
+                            ORDER BY ordering ASC, total_count_for_breakdown DESC, breakdown_value ASC
                         ) AS breakdown_rank
                     FROM totals_per_breakdown
                 ) AS ranked_breakdown_totals,
