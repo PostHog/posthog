@@ -48,6 +48,8 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
+    PersonPropertyFilter,
+    PropertyFilterType,
     PropertyOperator,
     RecordingUniversalFilters,
     UniversalFiltersGroup,
@@ -62,6 +64,42 @@ import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLo
 import { CurrentFilterIndicator } from './CurrentFilterIndicator'
 import { DurationFilter } from './DurationFilter'
 import { SavedFilters } from './SavedFilters'
+
+function QuickFilterButton({
+    filterKey,
+    label,
+    filters,
+    setFilters,
+}: {
+    filterKey: string
+    label: string
+    filters: RecordingUniversalFilters
+    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
+}): JSX.Element {
+    return (
+        <LemonButton
+            type="secondary"
+            size="small"
+            onClick={() => {
+                const newFilter: PersonPropertyFilter = {
+                    type: PropertyFilterType.Person,
+                    key: filterKey,
+                    operator: PropertyOperator.Exact,
+                    value: null,
+                }
+
+                setFilters({
+                    filter_group: {
+                        type: filters.filter_group.type,
+                        values: [...filters.filter_group.values, newFilter],
+                    },
+                })
+            }}
+        >
+            {label}
+        </LemonButton>
+    )
+}
 
 function HideRecordingsMenu(): JSX.Element {
     const { hideViewedRecordings, hideRecordingsMenuLabelFor } = useValues(playerSettingsLogic)
@@ -402,6 +440,11 @@ export const RecordingsUniversalFiltersEmbed = ({
                                 }
                             />
                         </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 px-2 mt-2">
+                        <span className="font-medium">Quick filters:</span>
+                        <QuickFilterButton filterKey="email" label="Email" filters={filters} setFilters={setFilters} />
                     </div>
 
                     <div className="flex justify-between flex-wrap gap-2 px-2 mt-2">
