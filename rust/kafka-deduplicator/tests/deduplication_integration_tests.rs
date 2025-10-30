@@ -395,7 +395,10 @@ async fn test_basic_deduplication() -> Result<()> {
             duplicate_event.get("distinct_fields").is_some(),
             "Missing distinct_fields"
         );
-        assert!(duplicate_event.get("dedup_type").is_some(), "Missing dedup_type field");
+        assert!(
+            duplicate_event.get("dedup_type").is_some(),
+            "Missing dedup_type field"
+        );
         assert!(
             duplicate_event.get("is_confirmed").is_some(),
             "Missing is_confirmed"

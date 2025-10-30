@@ -101,9 +101,7 @@ impl DuplicateEvent {
         let team_id = None;
 
         // Extract distinct_id
-        let distinct_id = source_event
-            .extract_distinct_id()
-            .unwrap_or_else(|| "".to_string());
+        let distinct_id = source_event.extract_distinct_id().unwrap_or_default();
 
         // Extract event name
         let event = source_event.event.clone();
@@ -130,38 +128,32 @@ impl DuplicateEvent {
                     Some((original_value, new_value)) => {
                         // Both values exist - property changed
                         distinct_fields_vec.push(DifferentField {
-                            field_name: format!("properties.{}", prop_name),
+                            field_name: format!("properties.{prop_name}"),
                             original_value: original_value.clone(),
                             new_value: new_value.clone(),
                         });
                     }
                     None => {
                         // Property exists in one event but not the other
-                        // Check which event has the property
-                        let original_has = original_event.properties.contains_key(prop_name);
-                        let source_has = source_event.properties.contains_key(prop_name);
-
-                        let (original_val, new_val) = if original_has && !source_has {
-                            // Property was removed in new event
-                            (
-                                serde_json::to_string(&original_event.properties[prop_name])
+                        let (original_val, new_val) = match (
+                            original_event.properties.get(prop_name),
+                            source_event.properties.get(prop_name),
+                        ) {
+                            (Some(original), None) => (
+                                serde_json::to_string(original)
                                     .unwrap_or_else(|_| "null".to_string()),
                                 "null".to_string(),
-                            )
-                        } else if !original_has && source_has {
-                            // Property was added in new event
-                            (
+                            ),
+                            (None, Some(source)) => (
                                 "null".to_string(),
-                                serde_json::to_string(&source_event.properties[prop_name])
+                                serde_json::to_string(source)
                                     .unwrap_or_else(|_| "null".to_string()),
-                            )
-                        } else {
-                            // Shouldn't happen, but handle it gracefully
-                            ("null".to_string(), "null".to_string())
+                            ),
+                            _ => ("null".to_string(), "null".to_string()),
                         };
 
                         distinct_fields_vec.push(DifferentField {
-                            field_name: format!("properties.{}", prop_name),
+                            field_name: format!("properties.{prop_name}"),
                             original_value: original_val,
                             new_value: new_val,
                         });
@@ -364,11 +356,18 @@ mod tests {
         let similarity = EventSimilarity {
             overall_score: 0.8,
             different_field_count: 1,
-            different_fields: vec![(DedupFieldName::Uuid, "uuid1".to_string(), "uuid2".to_string())],
+            different_fields: vec![(
+                DedupFieldName::Uuid,
+                "uuid1".to_string(),
+                "uuid2".to_string(),
+            )],
             properties_similarity: 0.7,
             different_property_count: 3,
             different_properties: vec![
-                ("$browser".to_string(), Some(("Firefox".to_string(), "Chrome".to_string()))),
+                (
+                    "$browser".to_string(),
+                    Some(("Firefox".to_string(), "Chrome".to_string())),
+                ),
                 ("custom_prop".to_string(), None), // Added in new event
                 ("removed_prop".to_string(), None), // Removed in new event
             ],
