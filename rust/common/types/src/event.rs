@@ -186,6 +186,19 @@ pub struct InternallyCapturedEvent {
 }
 
 impl CapturedEvent {
+    pub fn to_headers(&self) -> CapturedEventHeaders {
+        CapturedEventHeaders {
+            token: Some(self.token.clone()),
+            distinct_id: Some(self.distinct_id.clone()),
+            timestamp: None, // Not available in CapturedEvent, would need to parse from data
+            event: None,     // Not available in CapturedEvent, would need to parse from data
+            uuid: Some(self.uuid.to_string()),
+            now: Some(self.now.clone()),
+            force_disable_person_processing: Some(false), // Batch import events don't need person processing disabled
+            historical_migration: Some(self.historical_migration),
+        }
+    }
+
     pub fn key(&self) -> String {
         if self.is_cookieless_mode {
             format!("{}:{}", self.token, self.ip)
