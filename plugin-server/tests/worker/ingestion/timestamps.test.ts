@@ -9,28 +9,44 @@ import {
 } from '../../../src/worker/ingestion/timestamps'
 
 describe('parseDate()', () => {
+    // Get local timezone offset for Oct 29, 2021 at midnight
+    const testDate = new Date('2021-10-29T00:00:00')
+    const offsetMinutes = testDate.getTimezoneOffset()
+    const offsetHours = Math.abs(Math.floor(offsetMinutes / 60))
+    const offsetMins = Math.abs(offsetMinutes % 60)
+    const offsetSign = offsetMinutes <= 0 ? '+' : '-'
+    const tzOffset = `${offsetSign}${String(offsetHours).padStart(2, '0')}:${String(offsetMins).padStart(2, '0')}`
+
+    // For timestamps without explicit timezone, they'll be interpreted in local time then converted to UTC
+    // So '2021-10-29 00:00:00' in local time becomes '2021-10-29T00:00:00<local-offset>' in UTC
+    const expectedLocalAsUTC = `2021-10-29T00:00:00.000${tzOffset}`
+    const parsedExpected = parseDate(expectedLocalAsUTC)
+
+    // Note: '2021-10-29' (date-only) is treated as UTC by new Date(), not local time
+    const expectedDateOnly = parseDate('2021-10-29T00:00:00.000Z')
+
     const timestamps = [
-        '2021-10-29',
-        '2021-10-29 00:00:00',
-        '2021-10-29 00:00:00.000000',
-        '2021-10-29T00:00:00.000Z',
-        '2021-10-29 00:00:00+00:00',
-        '2021-10-29T00:00:00.000-00:00',
-        '2021-10-29T00:00:00.000',
-        '2021-10-29T00:00:00.000+00:00',
-        '2021-W43-5',
-        '2021-302',
+        { input: '2021-10-29', expected: expectedDateOnly }, // Date-only format is treated as UTC
+        { input: '2021-10-29 00:00:00', expected: parsedExpected },
+        { input: '2021-10-29 00:00:00.000000', expected: parsedExpected },
+        { input: '2021-10-29T00:00:00.000Z', expected: parseDate('2021-10-29T00:00:00.000Z') },
+        { input: '2021-10-29 00:00:00+00:00', expected: parseDate('2021-10-29T00:00:00.000Z') },
+        { input: '2021-10-29T00:00:00.000-00:00', expected: parseDate('2021-10-29T00:00:00.000Z') },
+        { input: '2021-10-29T00:00:00.000', expected: parsedExpected },
+        { input: '2021-10-29T00:00:00.000+00:00', expected: parseDate('2021-10-29T00:00:00.000Z') },
+        { input: '2021-W43-5', expected: parsedExpected },
+        { input: '2021-302', expected: parsedExpected },
     ]
 
-    test.each(timestamps)('parses %s', (timestamp) => {
-        const parsedTimestamp = parseDate(timestamp)
-        expect(parsedTimestamp.year).toBe(2021)
-        expect(parsedTimestamp.month).toBe(10)
-        expect(parsedTimestamp.day).toBe(29)
-        expect(parsedTimestamp.hour).toBe(0)
-        expect(parsedTimestamp.minute).toBe(0)
-        expect(parsedTimestamp.second).toBe(0)
-        expect(parsedTimestamp.millisecond).toBe(0)
+    test.each(timestamps)('parses $input', ({ input, expected }) => {
+        const parsedTimestamp = parseDate(input)
+        expect(parsedTimestamp.year).toBe(expected.year)
+        expect(parsedTimestamp.month).toBe(expected.month)
+        expect(parsedTimestamp.day).toBe(expected.day)
+        expect(parsedTimestamp.hour).toBe(expected.hour)
+        expect(parsedTimestamp.minute).toBe(expected.minute)
+        expect(parsedTimestamp.second).toBe(expected.second)
+        expect(parsedTimestamp.millisecond).toBe(expected.millisecond)
     })
 })
 
