@@ -221,8 +221,12 @@ function LLMAnalyticsGenerations(): JSX.Element {
                     "f'{round(toFloat(properties.$ai_latency), 2)} s' -- Latency": {
                         renderTitle: () => renderSortableColumnTitle('properties.$ai_latency', 'Latency'),
                     },
-                    "f'${round(toFloat(properties.$ai_total_cost_usd), 6)}' -- Total cost": {
-                        renderTitle: () => renderSortableColumnTitle('properties.$ai_total_cost_usd', 'Total cost'),
+                    "f'${round(toFloat(properties.$ai_total_cost_usd), 6)}' -- Cost": {
+                        renderTitle: () => (
+                            <Tooltip title="Cost of this generation">
+                                {renderSortableColumnTitle('properties.$ai_total_cost_usd', 'Cost')}
+                            </Tooltip>
+                        ),
                     },
                     timestamp: {
                         renderTitle: () => renderSortableColumnTitle('timestamp', 'Time'),

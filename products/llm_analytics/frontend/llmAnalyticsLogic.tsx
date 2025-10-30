@@ -53,7 +53,7 @@ export function getDefaultGenerationsColumns(showInputOutput: boolean): string[]
         "if(notEmpty(properties.$ai_error) OR properties.$ai_is_error = 'true', '❌', '') -- Error",
         "f'{round(toFloat(properties.$ai_latency), 2)} s' -- Latency",
         "f'{properties.$ai_input_tokens} → {properties.$ai_output_tokens} (∑ {toInt(properties.$ai_input_tokens) + toInt(properties.$ai_output_tokens)})' -- Token usage",
-        "f'${round(toFloat(properties.$ai_total_cost_usd), 6)}' -- Total cost",
+        "f'${round(toFloat(properties.$ai_total_cost_usd), 6)}' -- Cost",
         'timestamp',
     ]
 }
@@ -389,7 +389,8 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     },
                 },
                 {
-                    title: 'Total cost',
+                    title: 'Cost',
+                    description: 'Total cost of all generations',
                     query: {
                         kind: NodeKind.TrendsQuery,
                         series: [

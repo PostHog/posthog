@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
@@ -101,16 +102,32 @@ export function LLMAnalyticsUsers(): JSX.Element {
                         renderTitle: () => renderSortableColumnTitle('last_seen', 'Last Seen'),
                     },
                     traces: {
-                        renderTitle: () => renderSortableColumnTitle('traces', 'Traces'),
+                        renderTitle: () => (
+                            <Tooltip title="Number of traces created by this user">
+                                {renderSortableColumnTitle('traces', 'Traces')}
+                            </Tooltip>
+                        ),
                     },
                     generations: {
-                        renderTitle: () => renderSortableColumnTitle('generations', 'Generations'),
+                        renderTitle: () => (
+                            <Tooltip title="Number of generations created by this user">
+                                {renderSortableColumnTitle('generations', 'Generations')}
+                            </Tooltip>
+                        ),
                     },
                     errors: {
-                        renderTitle: () => renderSortableColumnTitle('errors', 'Errors'),
+                        renderTitle: () => (
+                            <Tooltip title="Number of errors encountered by this user">
+                                {renderSortableColumnTitle('errors', 'Errors')}
+                            </Tooltip>
+                        ),
                     },
                     total_cost: {
-                        renderTitle: () => renderSortableColumnTitle('total_cost', 'Total cost'),
+                        renderTitle: () => (
+                            <Tooltip title="Total cost of all generations for this user">
+                                {renderSortableColumnTitle('total_cost', 'Cost')}
+                            </Tooltip>
+                        ),
                         render: function RenderCost({ value }) {
                             if (!value || !Number(value)) {
                                 return <span>N/A</span>

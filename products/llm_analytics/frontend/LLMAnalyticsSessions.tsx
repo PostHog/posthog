@@ -170,6 +170,16 @@ export function LLMAnalyticsSessions(): JSX.Element {
                 setPropertyFilters(filters.properties || [])
             }}
             context={{
+                emptyStateHeading: 'There were no AI sessions in this period',
+                emptyStateDetail: (
+                    <>
+                        Try changing the date range or filters. AI sessions require the <code>$ai_session_id</code>{' '}
+                        property to group related traces.{' '}
+                        <Link to="https://posthog.com/docs/llm-analytics/sessions" target="_blank">
+                            Learn more →
+                        </Link>
+                    </>
+                ),
                 columns: {
                     session_id: {
                         title: 'Session ID',
@@ -191,19 +201,39 @@ export function LLMAnalyticsSessions(): JSX.Element {
                         },
                     },
                     traces: {
-                        renderTitle: () => renderSortableColumnTitle('traces', 'Traces'),
+                        renderTitle: () => (
+                            <Tooltip title="Number of traces in this session">
+                                {renderSortableColumnTitle('traces', 'Traces')}
+                            </Tooltip>
+                        ),
                     },
                     spans: {
-                        renderTitle: () => renderSortableColumnTitle('spans', 'Spans'),
+                        renderTitle: () => (
+                            <Tooltip title="Number of spans in this session">
+                                {renderSortableColumnTitle('spans', 'Spans')}
+                            </Tooltip>
+                        ),
                     },
                     generations: {
-                        renderTitle: () => renderSortableColumnTitle('generations', 'Generations'),
+                        renderTitle: () => (
+                            <Tooltip title="Number of generations in this session">
+                                {renderSortableColumnTitle('generations', 'Generations')}
+                            </Tooltip>
+                        ),
                     },
                     errors: {
-                        renderTitle: () => renderSortableColumnTitle('errors', 'Errors'),
+                        renderTitle: () => (
+                            <Tooltip title="Number of errors in this session">
+                                {renderSortableColumnTitle('errors', 'Errors')}
+                            </Tooltip>
+                        ),
                     },
                     total_cost: {
-                        renderTitle: () => renderSortableColumnTitle('total_cost', 'Total cost'),
+                        renderTitle: () => (
+                            <Tooltip title="Total cost of all generations in this session">
+                                {renderSortableColumnTitle('total_cost', 'Cost')}
+                            </Tooltip>
+                        ),
                         render: function RenderCost({ value }) {
                             if (!value || !Number(value)) {
                                 return <span>N/A</span>
@@ -212,7 +242,11 @@ export function LLMAnalyticsSessions(): JSX.Element {
                         },
                     },
                     total_latency: {
-                        renderTitle: () => renderSortableColumnTitle('total_latency', 'Total latency'),
+                        renderTitle: () => (
+                            <Tooltip title="Total latency of all generations in this session">
+                                {renderSortableColumnTitle('total_latency', 'Latency')}
+                            </Tooltip>
+                        ),
                         render: function RenderLatency({ value }) {
                             if (!value || !Number(value)) {
                                 return <span>N/A</span>

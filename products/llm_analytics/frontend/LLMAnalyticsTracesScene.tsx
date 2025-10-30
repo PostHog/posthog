@@ -74,19 +74,21 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
                 title: 'Person',
             },
             errors: {
-                title: 'Errors',
+                renderTitle: () => <Tooltip title="Number of errors in this trace">Errors</Tooltip>,
                 render: ErrorsColumn,
             },
             totalLatency: {
-                title: 'Latency',
+                renderTitle: () => <Tooltip title="Total latency of all generations in this trace">Latency</Tooltip>,
                 render: LatencyColumn,
             },
             usage: {
-                title: 'Token Usage',
+                renderTitle: () => (
+                    <Tooltip title="Total token usage (input + output) for this trace">Token Usage</Tooltip>
+                ),
                 render: UsageColumn,
             },
             totalCost: {
-                title: 'Total Cost',
+                renderTitle: () => <Tooltip title="Total cost of all generations in this trace">Cost</Tooltip>,
                 render: CostColumn,
             },
         },
