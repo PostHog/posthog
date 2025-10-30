@@ -215,6 +215,12 @@ deploy:
         bin_script: upgrade-hobby
         description: Upgrade existing hobby deployment with data loss warnings and volume
             checks
+    deploy:migrate-recordings:
+        bin_script: migrate-session-recordings-hobby
+        description: Migrate session recordings from MinIO to SeaweedFS for hobby deployments
+    deploy:migrate-storage:
+        bin_script: migrate-minio-to-seaweedfs
+        description: Migrate objects between MinIO and SeaweedFS (local dev and hobby)
 build:
     build:frontend:
         cmd: pnpm --filter=@posthog/frontend build
