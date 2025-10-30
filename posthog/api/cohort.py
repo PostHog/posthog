@@ -194,26 +194,15 @@ def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list
         import json
         import hashlib
 
+        from posthog.cdp.filters import build_behavioral_event_expr
         from posthog.models.property.property import Property
 
         # Only treat basic behavioral as a simple event-name matcher for bytecode
         if filter_data.get("type") == "behavioral":
             v = filter_data.get("value")
             if v in {"performed_event", "performed_event_multiple"}:
-                # Generate HogQL event matcher and AND it with any event_filters on this behavioral filter
-                event_name = filter_data.get("key")
-                if not isinstance(event_name, str) or not event_name:
-                    return None, "Invalid event key for behavioral filter", None
-
-                # Build a list of expressions: event equality plus optional per-filter properties
-                expressions: list[dict] = [{"type": "hogql", "key": f"event = '{event_name}'"}]
-
-                # If behavioral filter carries event_filters, include them (each is a Property-like dict)
-                event_filters = filter_data.get("event_filters") or []
-                if isinstance(event_filters, list) and event_filters:
-                    expressions.extend(event_filters)
-
-                expr = property_to_expr(expressions, team)
+                # Reuse shared builder to create combined (event AND properties) expression
+                expr = build_behavioral_event_expr(filter_data, team)
                 bytecode = create_bytecode(expr, cohort_membership_supported=True).bytecode
 
                 # Generate conditionHash from bytecode

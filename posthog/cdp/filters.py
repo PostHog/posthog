@@ -191,3 +191,64 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
         filters["bytecode_error"] = error_msg
 
     return filters
+
+
+# ========= Realtime Cohort helpers ========= #
+
+
+def build_behavioral_event_expr(behavioral_filter: dict, team: Team) -> ast.Expr:
+    """Build combined expression for a behavioral event filter (event AND its per-filter properties).
+
+    Supports only performed_event and performed_event_multiple (non-temporal bytecode use-case).
+    """
+    value = behavioral_filter.get("value")
+    if value not in {"performed_event", "performed_event_multiple"}:
+        # Unsupported behavioral types do not contribute to realtime bytecode
+        return ast.Constant(value=True)
+
+    event_name = behavioral_filter.get("key")
+    if not isinstance(event_name, str) or not event_name:
+        return ast.Constant(value=True)
+
+    parts: list[ast.Expr] = [parse_expr("event = {event}", {"event": ast.Constant(value=event_name)})]
+    # Optional per-filter event properties
+    event_filters = behavioral_filter.get("event_filters") or []
+    if isinstance(event_filters, list) and event_filters:
+        parts.append(property_to_expr(event_filters, team))
+
+    return _combine_expressions(parts)
+
+
+def cohort_filters_to_expr(filters: dict, team: Team) -> ast.Expr:
+    """Assemble a HogQL expression for cohort filters similarly to hog function filters.
+
+    - Recursively walks the cohort `properties` group
+    - For behavioral filters, builds event matcher AND per-filter properties
+    - For other filters, defers to property_to_expr
+    """
+
+    def _node_to_expr(node: any) -> ast.Expr:
+        if isinstance(node, list):
+            return _combine_expressions([_node_to_expr(child) for child in node])
+        if not isinstance(node, dict):
+            return ast.Constant(value=True)
+
+        node_type = node.get("type")
+        # PropertyGroup: {"type": "AND"|"OR", "values": [...]}
+        if node_type in ("AND", "OR") and isinstance(node.get("values"), list):
+            exprs = [_node_to_expr(child) for child in node["values"]]
+            if node_type == "AND":
+                return ast.And(exprs=exprs)
+            else:
+                return ast.Or(exprs=exprs)
+
+        if node_type == "behavioral":
+            return build_behavioral_event_expr(node, team)
+
+        # Fallback to standard property handling (event/person/group/etc.)
+        return property_to_expr(node, team)
+
+    props = filters.get("properties")
+    if not props:
+        return ast.Constant(value=True)
+    return _node_to_expr(props)
