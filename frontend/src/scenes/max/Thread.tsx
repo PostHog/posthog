@@ -238,10 +238,11 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                         const thinkingContent = getThinkingMessageFromResponse(message)
                         if (thinkingContent) {
                             // Thinking should be collapsed (show "Thought") if:
+                            // 1. The thread has finished streaming (thinking might be at the end), OR
                             // 1. The message has content or tool_calls, OR
                             // 2. The message is not the last in group (there are subsequent messages)
                             // Otherwise, keep expanded to show active thinking progress
-                            const isThinkingComplete = hasContent || !isLastInGroup
+                            const isThinkingComplete = !threadLoading || hasContent || !isLastInGroup
                             thinkingElement = (
                                 <ReasoningAnswer
                                     key={`${key}-thinking`}
