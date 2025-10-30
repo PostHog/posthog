@@ -47,11 +47,11 @@ export class TemporalService {
             }
         }
 
+        const port = this.hub.TEMPORAL_PORT || '7233'
+        const address = `${this.hub.TEMPORAL_HOST}:${port}`
+
         // Create connection first
-        const connection = await Connection.connect({
-            address: this.hub.TEMPORAL_HOST || 'localhost:7233',
-            tls,
-        })
+        const connection = await Connection.connect({ address, tls })
 
         // Then create client with connection
         const client = new Client({
@@ -60,7 +60,7 @@ export class TemporalService {
         })
 
         logger.info('✅ Connected to Temporal', {
-            address: this.hub.TEMPORAL_HOST,
+            address,
             namespace: this.hub.TEMPORAL_NAMESPACE,
             tlsEnabled: tls !== false,
         })

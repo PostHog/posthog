@@ -33,30 +33,9 @@ where
 {
     // Try to get team from cache first
     match Team::from_redis(redis_reader.clone(), token).await {
-        Ok(team) if team.organization_id.is_some() => {
-            debug!(team_id = team.id, "Found complete team in Redis cache");
-            Ok(team)
-        }
         Ok(team) => {
-            debug!(
-                team_id = team.id,
-                "Team in cache missing organization_id, treating as cache miss"
-            );
-            // Treat as cache miss - fetch complete team from database
-            match db_lookup().await {
-                Ok(team) => {
-                    debug!(team_id = team.id, "Found team in PostgreSQL");
-                    // Update Redis cache with complete team
-                    if let Err(e) = Team::update_redis_cache(redis_writer, &team).await {
-                        warn!(team_id = team.id, error = %e, "Failed to update Redis cache");
-                    }
-                    Ok(team)
-                }
-                Err(e) => {
-                    warn!(error = %e, "Team not found in PostgreSQL");
-                    Err(e)
-                }
-            }
+            debug!(team_id = team.id, "Found team in Redis cache");
+            Ok(team)
         }
         Err(e) => {
             debug!(error = %e, "Team not found in Redis cache");
@@ -279,7 +258,7 @@ mod tests {
             project_id: i64::from(id) - 1,
             name: "team".to_string(),
             api_token: token,
-            cookieless_server_hash_mode: 0,
+            cookieless_server_hash_mode: Some(0),
             timezone: "UTC".to_string(),
             ..Default::default()
         };
@@ -289,7 +268,7 @@ mod tests {
         let client =
             redis::Client::open("redis://localhost:6379/").expect("Failed to create redis client");
         let mut conn = client
-            .get_async_connection()
+            .get_multiplexed_async_connection()
             .await
             .expect("Failed to get redis connection");
         conn.set::<String, String, ()>(
@@ -321,7 +300,7 @@ mod tests {
             project_id: 0,
             uuid: Uuid::nil(),
             session_recording_opt_in: false,
-            cookieless_server_hash_mode: 0,
+            cookieless_server_hash_mode: Some(0),
             timezone: "UTC".to_string(),
             ..Default::default()
         };
@@ -343,7 +322,7 @@ mod tests {
         assert_eq!(team_from_redis.api_token, target_token);
         assert_eq!(team_from_redis.id, 343);
         assert_eq!(team_from_redis.project_id, 343); // Same as `id`
-        assert_eq!(team_from_redis.cookieless_server_hash_mode, 0);
+        assert_eq!(team_from_redis.cookieless_server_hash_mode, Some(0));
     }
 
     #[tokio::test]

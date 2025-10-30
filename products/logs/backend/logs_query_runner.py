@@ -235,11 +235,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
         )
 
         _step = (qdr.date_to() - qdr.date_from()) / 50
-        if _step < dt.timedelta(minutes=1):
-            _step = dt.timedelta(minutes=1)
-
-        _step = dt.timedelta(seconds=int(60 * round(_step.total_seconds() / 60)))
-        interval_type = IntervalType.MINUTE
+        interval_type = IntervalType.SECOND
 
         def find_closest(target, arr):
             if not arr:
@@ -251,7 +247,14 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
         # set the number of intervals to a "round" number of minutes
         # it's hard to reason about the rate of logs on e.g. 13 minute intervals
         # the min interval is 1 minute and max interval is 1 day
-        interval_count = find_closest(_step.total_seconds() // 60, [1, 2, 5, 10, 15, 30, 60, 120, 240, 360, 720, 1440])
+        interval_count = find_closest(
+            _step.total_seconds(),
+            [1, 5] + [x * 60 for x in [1, 2, 5, 10, 15, 30, 60, 120, 240, 360, 720, 1440]],
+        )
+
+        if _step >= dt.timedelta(minutes=1):
+            interval_type = IntervalType.MINUTE
+            interval_count //= 60
 
         return QueryDateRange(
             date_range=self.query.dateRange,
