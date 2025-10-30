@@ -34,8 +34,6 @@ export interface SnapshotLogicProps {
     accessToken?: string
 }
 
-export const DEFAULT_LOADING_BUFFER = 15 * 60 * 1000
-
 export const snapshotDataLogic = kea<snapshotDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'snapshotLogic', key]),
     props({} as SnapshotLogicProps),
@@ -51,7 +49,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         loadSnapshotsForSource: (sources: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[]) => ({
             sources,
         }),
-        loadUntilTimestamp: (targetBufferTimestampMillis: number | null) => ({ targetBufferTimestampMillis }),
         maybeStartPolling: true,
         startPolling: true,
         stopPolling: true,
@@ -63,12 +60,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             0,
             {
                 loadSnapshotsForSourceSuccess: (state) => state + 1,
-            },
-        ],
-        targetTimestampToBufferMillis: [
-            null as number | null,
-            {
-                loadUntilTimestamp: (_, { targetBufferTimestampMillis }) => targetBufferTimestampMillis,
             },
         ],
         loadingSources: [
@@ -266,19 +257,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             actions.loadNextSnapshotSource()
         },
 
-        loadUntilTimestamp: ({ targetBufferTimestampMillis }) => {
-            // load until timestmap changes frequently we want to be careful not to load if we already are
-            if (
-                targetBufferTimestampMillis === cache.lastTargetTimestamp ||
-                values.snapshotSourcesLoading ||
-                values.snapshotsForSourceLoading
-            ) {
-                return
-            }
-            cache.lastTargetTimestamp = targetBufferTimestampMillis
-            actions.loadNextSnapshotSource()
-        },
-
         maybeStartPolling: () => {
             if (props.blobV2PollingDisabled || !values.allSourcesLoaded || values.isPolling || document.hidden) {
                 return
@@ -306,16 +284,10 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     if (cache.snapshotsBySource?.[sourceKey]?.sourceLoaded) {
                         return false
                     }
-                    // Load sources that have timestamps <= target, once a target is set
-                    if (s.start_timestamp && values.targetTimestampToBufferMillis) {
-                        const sourceStartTime = new Date(s.start_timestamp).getTime()
-                        return sourceStartTime <= values.targetTimestampToBufferMillis
-                    }
 
                     return true
                 })
 
-                // Load up to 10 sources at once
                 if (nextSourcesToLoad.length > 0) {
                     return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 10))
                 }
@@ -403,6 +375,5 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         cache.snapshotsBySource = undefined
         cache.previousSourceKeys = undefined
         cache.lastSourcesChangeTime = undefined
-        cache.lastTargetTimestamp = undefined
     }),
 ])
