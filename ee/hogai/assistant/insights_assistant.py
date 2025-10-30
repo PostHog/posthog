@@ -2,14 +2,7 @@ from collections.abc import AsyncGenerator
 from typing import Any, Optional
 from uuid import UUID
 
-from posthog.schema import (
-    AssistantGenerationStatusEvent,
-    AssistantGenerationStatusType,
-    AssistantMessage,
-    HumanMessage,
-    MaxBillingContext,
-    VisualizationMessage,
-)
+from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext, VisualizationMessage
 
 from posthog.models import Team, User
 
@@ -19,7 +12,6 @@ from ee.hogai.graph.base import BaseAssistantNode
 from ee.hogai.graph.graph import InsightsAssistantGraph
 from ee.hogai.graph.query_executor.nodes import QueryExecutorNode
 from ee.hogai.graph.taxonomy.types import TaxonomyNodeName
-from ee.hogai.utils.state import GraphValueUpdateTuple, validate_value_update
 from ee.hogai.utils.types import (
     AssistantMode,
     AssistantNodeName,
@@ -27,7 +19,6 @@ from ee.hogai.utils.types import (
     AssistantState,
     PartialAssistantState,
 )
-from ee.hogai.utils.types.base import AssistantResultUnion
 from ee.hogai.utils.types.composed import MaxNodeName
 from ee.models import Conversation
 
@@ -127,13 +118,3 @@ class InsightsAssistant(BaseAssistant):
                 "is_new_conversation": False,
             },
         )
-
-    async def _aprocess_value_update(self, update: GraphValueUpdateTuple) -> AssistantResultUnion | None:
-        _, maybe_state_update = update
-        state_update = validate_value_update(maybe_state_update)
-        if intersected_nodes := state_update.keys() & self.VISUALIZATION_NODES.keys():
-            node_name: MaxNodeName = intersected_nodes.pop()
-            node_val = state_update[node_name]
-            if isinstance(node_val, PartialAssistantState) and node_val.intermediate_steps:
-                return AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
-        return await super()._aprocess_value_update(update)

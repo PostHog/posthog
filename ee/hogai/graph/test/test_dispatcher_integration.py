@@ -15,9 +15,14 @@ from langchain_core.runnables import RunnableConfig
 from posthog.schema import AssistantMessage
 
 from ee.hogai.graph.base import BaseAssistantNode
-from ee.hogai.utils.dispatcher import MessageAction, NodeStartAction
-from ee.hogai.utils.types import AssistantNodeName
-from ee.hogai.utils.types.base import AssistantDispatcherEvent, AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import (
+    AssistantDispatcherEvent,
+    AssistantNodeName,
+    AssistantState,
+    MessageAction,
+    NodeStartAction,
+    PartialAssistantState,
+)
 
 
 class MockAssistantNode(BaseAssistantNode):
@@ -116,8 +121,6 @@ class TestDispatcherIntegration(BaseTest):
             await node(state, config)
 
         # Should have at least one NODE_START action
-        from ee.hogai.utils.dispatcher import NodeStartAction
-
         node_start_actions = [action for action in dispatched_actions if isinstance(action, NodeStartAction)]
         self.assertGreater(len(node_start_actions), 0)
 

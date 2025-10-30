@@ -449,3 +449,7 @@ AssistantActionUnion = MessageAction | MessageChunkAction | NodeStartAction
 class AssistantDispatcherEvent(BaseModel):
     action: AssistantActionUnion = Field(discriminator="type")
     node_name: str
+
+
+class LangGraphUpdateEvent(BaseModel):
+    update: Any

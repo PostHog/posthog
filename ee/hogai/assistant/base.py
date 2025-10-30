@@ -9,7 +9,6 @@ import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
 from langchain_core.callbacks.base import BaseCallbackHandler
-from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.errors import GraphRecursionError
 from langgraph.graph.state import CompiledStateGraph
@@ -34,16 +33,15 @@ from posthog.sync import database_sync_to_async
 from ee.hogai.graph.base import BaseAssistantNode
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import extract_stream_update
-from ee.hogai.utils.state import (
-    GraphValueUpdateTuple,
-    is_message_update,
-    is_state_update,
-    is_value_update,
-    validate_state_update,
-)
+from ee.hogai.utils.state import validate_state_update
 from ee.hogai.utils.stream_processor import AssistantStreamProcessor
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantOutput
-from ee.hogai.utils.types.base import AssistantDispatcherEvent, AssistantMode, AssistantResultUnion, MessageChunkAction
+from ee.hogai.utils.types.base import (
+    AssistantDispatcherEvent,
+    AssistantMode,
+    AssistantResultUnion,
+    LangGraphUpdateEvent,
+)
 from ee.hogai.utils.types.composed import AssistantMaxGraphState, AssistantMaxPartialGraphState, MaxNodeName
 from ee.models import Conversation
 
@@ -321,29 +319,12 @@ class BaseAssistant(ABC):
     async def _process_update(self, update: Any) -> list[AssistantResultUnion] | None:
         update = extract_stream_update(update)
 
-        new_message: AssistantResultUnion | None = None
         if not isinstance(update, AssistantDispatcherEvent):
-            if is_state_update(update):
-                _, new_state = update
-                self._state = validate_state_update(new_state, self._state_type)
-            elif is_value_update(update) and (new_message := await self._aprocess_value_update(update)):
-                return [new_message]
+            if updates := self._stream_processor.process_langgraph_update(LangGraphUpdateEvent(update=update)):
+                return updates
+        elif new_message := self._stream_processor.process(update):
+            return [new_message]
 
-            if is_message_update(update):
-                # Convert the message chunk update to a dispatcher event to prepare for a bright future without LangGraph
-                message, state = update[1]
-                if not isinstance(message, AIMessageChunk):
-                    return None
-                update = AssistantDispatcherEvent(
-                    action=MessageChunkAction(message=message), node_name=state["langgraph_node"]
-                )
-
-        if isinstance(update, AssistantDispatcherEvent) and (new_message := self._stream_processor.process(update)):
-            return [new_message] if new_message else None
-
-        return None
-
-    async def _aprocess_value_update(self, update: GraphValueUpdateTuple) -> AssistantResultUnion | None:
         return None
 
     def _build_root_config_for_persistence(self) -> RunnableConfig:

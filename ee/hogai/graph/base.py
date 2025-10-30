@@ -59,21 +59,15 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
             # This will be deprecated once all tools become MaxTools and are removed from the graph
             self._parent_tool_call_id = state.root_tool_call_id
 
-        self.dispatcher.node_start()
-
         thread_id = (config.get("configurable") or {}).get("thread_id")
         if thread_id and await self._is_conversation_cancelled(thread_id):
             raise GenerationCanceled
 
         try:
-            new_state = await self.arun(state, config)
+            return await self.arun(state, config)
         except NotImplementedError:
-            new_state = await database_sync_to_async(self.run, thread_sensitive=False)(state, config)
-
-        if new_state is not None and (messages := getattr(new_state, "messages", [])):
-            for message in messages:
-                self.dispatcher.message(message)
-        return new_state
+            pass
+        return await database_sync_to_async(self.run, thread_sensitive=False)(state, config)
 
     def run(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
         """DEPRECATED. Use `arun` instead."""

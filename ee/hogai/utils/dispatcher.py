@@ -10,7 +10,6 @@ from ee.hogai.utils.types.base import (
     AssistantDispatcherEvent,
     AssistantMessageUnion,
     MessageAction,
-    NodeStartAction,
 )
 
 if TYPE_CHECKING:
@@ -88,12 +87,6 @@ class AssistantDispatcher:
             if not should_skip:
                 message.parent_tool_call_id = self._parent_tool_call_id
         self.dispatch(MessageAction(message=message))
-
-    def node_start(self) -> None:
-        """
-        Dispatch a node start action to the stream.
-        """
-        self.dispatch(NodeStartAction())
 
     def set_as_root(self) -> None:
         """

@@ -2,6 +2,7 @@ from typing import cast
 
 import structlog
 from langchain_core.messages import AIMessageChunk
+from pydantic import BaseModel
 
 from posthog.schema import (
     AssistantGenerationStatusEvent,
@@ -16,16 +17,17 @@ from posthog.schema import (
 )
 
 from ee.hogai.utils.helpers import normalize_ai_message, should_output_assistant_message
-from ee.hogai.utils.state import merge_message_chunk
+from ee.hogai.utils.state import is_message_update, is_value_update, merge_message_chunk, validate_value_update
 from ee.hogai.utils.types.base import (
     AssistantDispatcherEvent,
     AssistantMessageUnion,
     AssistantResultUnion,
+    LangGraphUpdateEvent,
     MessageAction,
     MessageChunkAction,
     NodeStartAction,
 )
-from ee.hogai.utils.types.composed import MaxNodeName
+from ee.hogai.utils.types.composed import AssistantMaxPartialGraphState, MaxNodeName
 
 logger = structlog.get_logger(__name__)
 
@@ -92,6 +94,36 @@ class AssistantStreamProcessor:
             return (
                 result if result is not None else AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK)
             )
+
+    def process_langgraph_update(self, event: LangGraphUpdateEvent) -> list[AssistantResultUnion] | None:
+        """
+        Process a LangGraph update event.
+        """
+        if is_value_update(event.update):
+            state_update = validate_value_update(event.update[1])
+            message_updates: list[AssistantResultUnion] = []
+            for node_name, node_val in state_update.items():
+                if not isinstance(node_val, BaseModel):
+                    continue
+                for message in cast(AssistantMaxPartialGraphState, node_val).messages:
+                    if new_message := self.process(
+                        AssistantDispatcherEvent(action=MessageAction(message=message), node_name=node_name)
+                    ):
+                        message_updates.append(new_message)
+            return message_updates
+
+        if is_message_update(event.update):
+            # Convert the message chunk update to a dispatcher event to prepare for a bright future without LangGraph
+            maybe_message_chunk, state = event.update[1]
+            if not isinstance(maybe_message_chunk, AIMessageChunk):
+                return None
+            action = AssistantDispatcherEvent(
+                action=MessageChunkAction(message=maybe_message_chunk), node_name=state["langgraph_node"]
+            )
+            processed_update = self.process(action)
+            return [processed_update] if processed_update else None
+
+        return None
 
     def _find_parent_ids(self, message: AssistantMessage) -> tuple[str | None, str | None]:
         """
