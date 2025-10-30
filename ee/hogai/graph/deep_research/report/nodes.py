@@ -120,10 +120,7 @@ class DeepResearchReportNode(DeepResearchNode):
             current_run_notebooks=current_run_notebooks,
         )
 
-        # writer = get_stream_writer()
-        # custom_message = self._message_to_langgraph_update(notebook_update_message, DeepResearchNodeName.REPORT)
-        # writer(custom_message)
-        await self._write_message(notebook_update_message)
+        self.dispatcher.message(notebook_update_message)
 
         return PartialDeepResearchState(
             messages=[notebook_update_message],

@@ -192,7 +192,8 @@ class TestSessionSummarizationNode(BaseTest):
                 "intermediate_steps": [[mock_action, None]],
             }
         )
-        mock_search_tool_class.return_value = mock_tool_instance
+        # Mock create_tool_class as an AsyncMock that returns the tool instance
+        mock_search_tool_class.create_tool_class = AsyncMock(return_value=mock_tool_instance)
         mock_db_sync.side_effect = self._create_mock_db_sync_to_async()
         state = self._create_test_state(query="ambiguous query", should_use_current_filters=False)
         result = async_to_sync(self.node.arun)(state, {"configurable": {"thread_id": str(conversation.id)}})
@@ -361,7 +362,7 @@ class TestSessionSummarizationNode(BaseTest):
         mock_filters = self._create_mock_filters()
         mock_tool_instance = MagicMock()
         mock_tool_instance._invoke_graph = AsyncMock(return_value={"output": mock_filters})
-        mock_search_tool_class.return_value = mock_tool_instance
+        mock_search_tool_class.create_tool_class = AsyncMock(return_value=mock_tool_instance)
 
         # Mock empty session results
         mock_query_runner_class.return_value = self._create_mock_query_runner([])
@@ -411,7 +412,7 @@ class TestSessionSummarizationNode(BaseTest):
         mock_filters = self._create_mock_filters()
         mock_tool_instance = MagicMock()
         mock_tool_instance._invoke_graph = AsyncMock(return_value={"output": mock_filters})
-        mock_search_tool_class.return_value = mock_tool_instance
+        mock_search_tool_class.create_tool_class = AsyncMock(return_value=mock_tool_instance)
 
         # Return 2 sessions (below threshold of 5)
         mock_query_runner_class.return_value = self._create_mock_query_runner(
@@ -532,7 +533,7 @@ class TestSessionSummarizationNode(BaseTest):
         mock_filters = self._create_mock_filters()
         mock_tool_instance = MagicMock()
         mock_tool_instance._invoke_graph = AsyncMock(return_value={"output": mock_filters})
-        mock_search_tool_class.return_value = mock_tool_instance
+        mock_search_tool_class.create_tool_class = AsyncMock(return_value=mock_tool_instance)
 
         # Mock empty session results
         mock_query_runner_class.return_value = self._create_mock_query_runner([])
@@ -546,7 +547,7 @@ class TestSessionSummarizationNode(BaseTest):
         mock_generate_filter_query.assert_called_once_with(
             "test query", {"configurable": {"thread_id": str(conversation.id)}}
         )
-        mock_search_tool_class.assert_called_once()
+        mock_search_tool_class.create_tool_class.assert_called_once()
         mock_tool_instance._invoke_graph.assert_called_once()
 
         # Should return "No sessions were found" message
