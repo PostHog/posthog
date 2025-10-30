@@ -341,9 +341,9 @@ class RedshiftClient(PostgreSQLClient):
                     self.external_logger.error(  # noqa: TRY400
                         "A non-retryable 'UndefinedFunction' error happened when attempting to"
                         " delete existing rows from '%s.%s' before a 'MERGE' command can be executed."
-                        "This can indicate that the schema of the table does not match what the"
+                        " This can indicate that the schema of the table does not match what the"
                         " batch export expects."
-                        "Please review the table schema before retrying again, there may be fields"
+                        " Please review the table schema before retrying again, there may be fields"
                         " that have been created with incorrect types. The batch export will always"
                         " create a table with the correct schema if it doesn't already exist.",
                         schema,
