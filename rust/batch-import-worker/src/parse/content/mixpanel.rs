@@ -105,6 +105,7 @@ impl MixpanelEvent {
                     sent_at: None,
                     token,
                     event: raw_event.event.clone(),
+                    timestamp,
                     is_cookieless_mode: false,
                     historical_migration: true,
                 };

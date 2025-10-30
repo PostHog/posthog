@@ -30,8 +30,15 @@ pub fn captured_parse_fn(
         };
         // We'll respect the events uuid if ones set
         let uuid = raw.uuid.unwrap_or_else(Uuid::now_v7);
-        // Grab the events timestamp, or make one up
-        let timestamp = get_timestamp(&raw);
+        // Parse the event's timestamp using common timestamp parser
+        let now = Utc::now();
+        let timestamp = common_types::timestamp::parse_event_timestamp(
+            raw.timestamp.as_deref(),
+            None, // No offset for historical data
+            None, // No sent_at for historical data
+            true, // Ignore sent_at
+            now,
+        );
 
         // Only return the event if import_events is enabled
         if context.import_events {
@@ -40,10 +47,11 @@ pub fn captured_parse_fn(
                 distinct_id,
                 ip: "127.0.0.1".to_string(),
                 data: serde_json::to_string(&raw)?,
-                now: timestamp,
+                now: now.to_rfc3339(), // Ingestion time
                 sent_at: None, // We don't know when it was sent at, since it's a historical import
                 token: context.token.clone(),
                 event: raw.event.clone(),
+                timestamp, // Event timestamp (when the event actually occurred)
                 is_cookieless_mode: false,
                 historical_migration: true,
             };
@@ -55,14 +63,6 @@ pub fn captured_parse_fn(
         } else {
             Ok(None)
         }
-    }
-}
-
-// We use the events timestamp value, if it has one, otherwise we use the current time
-fn get_timestamp(event: &RawEvent) -> String {
-    match &event.timestamp {
-        Some(timestamp) => timestamp.clone(),
-        None => Utc::now().to_rfc3339(),
     }
 }
 
@@ -182,9 +182,17 @@ mod tests {
             "now field must be set for events"
         );
 
-        assert_eq!(
+        // now should be the ingestion time (current time), not the event timestamp
+        assert_ne!(
             result.inner.now, event_timestamp,
-            "now field should equal the event timestamp for captured events"
+            "now field should be ingestion time, not event timestamp"
+        );
+
+        // timestamp should be the event timestamp
+        assert_eq!(
+            result.inner.timestamp.to_rfc3339(),
+            event_timestamp,
+            "timestamp field should equal the event timestamp"
         );
 
         let serialized = serde_json::to_value(&result.inner).unwrap();

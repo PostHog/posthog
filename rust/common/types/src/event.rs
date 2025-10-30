@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::ops::Not;
 
 use crate::util::{empty_datetime_is_none, empty_string_uuid_is_none};
+use chrono::{DateTime, Utc};
 use rdkafka::message::{Header, Headers, OwnedHeaders};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -171,6 +172,7 @@ pub struct CapturedEvent {
     pub sent_at: Option<OffsetDateTime>,
     pub token: String,
     pub event: String,
+    pub timestamp: DateTime<Utc>,
     #[serde(skip_serializing_if = "<&bool>::not", default)]
     pub is_cookieless_mode: bool,
     #[serde(skip_serializing_if = "<&bool>::not", default)]
@@ -191,7 +193,7 @@ impl CapturedEvent {
         CapturedEventHeaders {
             token: Some(self.token.clone()),
             distinct_id: Some(self.distinct_id.clone()),
-            timestamp: None, // Not available in CapturedEvent, would need to parse from data
+            timestamp: Some(self.timestamp.timestamp_millis().to_string()),
             event: Some(self.event.clone()),
             uuid: Some(self.uuid.to_string()),
             now: Some(self.now.clone()),
@@ -388,10 +390,13 @@ mod tests {
             distinct_id: "test_user".to_string(),
             ip: "127.0.0.1".to_string(),
             data: r#"{"event":"test_event"}"#.to_string(),
-            now: "2023-01-01T12:00:00Z".to_string(),
+            now: "2023-01-02T10:00:00Z".to_string(), // Ingestion time
             sent_at: None,
             token: "test_token".to_string(),
             event: "test_event".to_string(),
+            timestamp: DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z") // Event time (earlier)
+                .unwrap()
+                .with_timezone(&Utc),
             is_cookieless_mode: false,
             historical_migration: true,
         };
@@ -412,10 +417,13 @@ mod tests {
             distinct_id: "test_user".to_string(),
             ip: "127.0.0.1".to_string(),
             data: r#"{"event":"test_event"}"#.to_string(),
-            now: "2023-01-01T12:00:00Z".to_string(),
+            now: "2023-01-02T15:30:00Z".to_string(), // Ingestion time
             sent_at: None,
             token: "test_token".to_string(),
             event: "test_event".to_string(),
+            timestamp: DateTime::parse_from_rfc3339("2023-01-02T15:25:00Z") // Event time (5 min earlier)
+                .unwrap()
+                .with_timezone(&Utc),
             is_cookieless_mode: false,
             historical_migration: false,
         };
@@ -437,9 +445,10 @@ mod tests {
             "distinct_id": "test_user",
             "ip": "127.0.0.1",
             "data": "{\"event\":\"test_event\"}",
-            "now": "2023-01-01T12:00:00Z",
+            "now": "2023-01-03T18:00:00Z",
             "token": "test_token",
             "event": "test_event",
+            "timestamp": "2023-01-03T17:45:00Z",
             "is_cookieless_mode": false
         }"#;
 

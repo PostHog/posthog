@@ -144,6 +144,9 @@ mod tests {
             sent_at: None,
             token: "test_token".to_string(),
             event: "test_event".to_string(),
+            timestamp: chrono::DateTime::parse_from_rfc3339("2023-10-15T14:30:00+00:00")
+                .unwrap()
+                .with_timezone(&chrono::Utc),
             is_cookieless_mode: false,
             historical_migration: true,
         };
@@ -156,7 +159,10 @@ mod tests {
         assert_eq!(headers.now, Some("2023-10-15T14:30:00+00:00".to_string()));
         assert_eq!(headers.historical_migration, Some(true));
         assert_eq!(headers.force_disable_person_processing, Some(false));
-        assert_eq!(headers.timestamp, None);
+        assert_eq!(
+            headers.timestamp,
+            Some(event.timestamp.timestamp_millis().to_string())
+        );
         assert_eq!(headers.event, Some("test_event".to_string()));
     }
 
@@ -171,6 +177,9 @@ mod tests {
             sent_at: None,
             token: "another_token".to_string(),
             event: "another_event".to_string(),
+            timestamp: chrono::DateTime::parse_from_rfc3339("2023-10-15T15:00:00+00:00")
+                .unwrap()
+                .with_timezone(&chrono::Utc),
             is_cookieless_mode: false,
             historical_migration: false,
         };

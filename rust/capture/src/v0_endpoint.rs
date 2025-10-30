@@ -476,6 +476,7 @@ pub fn process_single_event(
         sent_at: context.sent_at,
         token: context.token.clone(),
         event: event_name,
+        timestamp: computed_timestamp,
         is_cookieless_mode: event
             .extract_is_cookieless_mode()
             .ok_or(CaptureError::InvalidCookielessMode)?,
@@ -678,6 +679,7 @@ pub async fn process_replay_events<'a>(
         sent_at: context.sent_at,
         token: context.token.clone(),
         event: "$snapshot_items".to_string(),
+        timestamp: computed_timestamp,
         is_cookieless_mode,
         historical_migration: context.historical_migration,
     };

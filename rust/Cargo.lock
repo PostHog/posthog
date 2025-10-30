@@ -1947,7 +1947,10 @@ name = "common-types"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "dateparser",
+ "jiff",
  "rdkafka",
+ "regex",
  "serde",
  "serde_json",
  "sqlx",

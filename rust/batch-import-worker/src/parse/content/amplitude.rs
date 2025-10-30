@@ -215,6 +215,7 @@ fn create_group_identify_event(
         sent_at: None,
         token: context.token.clone(),
         event: "$groupidentify".to_string(),
+        timestamp,
         is_cookieless_mode: false,
         historical_migration: true,
     };
@@ -591,6 +592,7 @@ impl AmplitudeEvent {
                     sent_at: None,
                     token,
                     event: raw_event.event.clone(),
+                    timestamp,
                     is_cookieless_mode: false,
                     historical_migration: true,
                 };
