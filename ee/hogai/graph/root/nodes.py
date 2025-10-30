@@ -369,20 +369,17 @@ class RootNodeTools(AssistantNode):
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_message = state.messages[-1]
         if not isinstance(last_message, AssistantMessage) or not last_message.tool_calls:
-            return PartialAssistantState(root_tool_calls_count=0)  # Reset tools
-        # Filter out web_search as that tool is fully handled by the LLM AI, so we don't need to do anything with it
-        filtered_tool_calls = [tool_call for tool_call in last_message.tool_calls if tool_call.name != "web_search"]
-        if not filtered_tool_calls:
-            return PartialAssistantState(root_tool_calls_count=0)  # Reset tools
+            return PartialAssistantState(root_tool_calls_count=0)
 
         tool_call_count = state.root_tool_calls_count or 0
 
-        if len(filtered_tool_calls) != 1:
+        tools_calls = last_message.tool_calls
+        if len(tools_calls) != 1:
             raise ValueError("Expected exactly one tool call.")
 
         tool_names = self.context_manager.get_contextual_tools().keys()
         is_editing_insight = AssistantTool.EDIT_CURRENT_INSIGHT in tool_names
-        tool_call = filtered_tool_calls[0]
+        tool_call = tools_calls[0]
 
         from ee.hogai.tool import get_contextual_tool_class
 

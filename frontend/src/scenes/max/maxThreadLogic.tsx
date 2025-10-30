@@ -761,7 +761,7 @@ function enhanceThreadToolCalls(
 }
 
 /** Assistant streaming event handler. */
-async function onEventImplementation(
+export async function onEventImplementation(
     event: string,
     data: string,
     { actions, values, props }: Pick<BuiltLogic<maxThreadLogicType>, 'actions' | 'values' | 'props'>

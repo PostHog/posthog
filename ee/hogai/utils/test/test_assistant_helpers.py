@@ -7,13 +7,17 @@ from posthog.schema import (
     AssistantMessage,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
+    ContextMessage,
     HumanMessage,
     VisualizationMessage,
 )
 
 from ee.hogai.utils.helpers import (
+    convert_tool_messages_to_dict,
+    filter_and_merge_messages,
     find_start_message,
     find_start_message_idx,
+    insert_messages_before_start,
     normalize_ai_message,
     should_output_assistant_message,
 )
@@ -289,18 +293,21 @@ class TestNormalizeAIMessage(BaseTest):
         assert result.meta.thinking is not None
         self.assertEqual(len(result.meta.thinking), 2)
 
-        # OpenAI format
+        # OpenAI format - when content is a string (not list), extract_thinking_from_ai_message is used
         message = AIMessage(
-            content=[], tool_calls=[], additional_kwargs={"reasoning": {"summary": [{"text": "Some thinking"}]}}
+            content="Some response",
+            tool_calls=[],
+            additional_kwargs={"reasoning": {"summary": [{"text": "Some thinking"}]}},
         )
 
         [result] = normalize_ai_message(message)
 
-        self.assertEqual(result.content, "")
+        self.assertEqual(result.content, "Some response")
         self.assertIsNotNone(result.meta)
         assert result.meta is not None
         assert result.meta.thinking is not None
         self.assertEqual(len(result.meta.thinking), 1)
+        self.assertEqual(result.meta.thinking[0]["type"], "thinking")
 
 
 class TestExtractThinkingFromAIMessage(BaseTest):
@@ -394,3 +401,434 @@ class TestExtractThinkingFromAIMessage(BaseTest):
         self.assertEqual(len(thinking), 2)
         self.assertEqual(thinking[0]["content"], "Thought 1")
         self.assertEqual(thinking[1]["content"], "Thought 2")
+
+
+class TestFilterAndMergeMessages(BaseTest):
+    """Test filter_and_merge_messages with various message sequences."""
+
+    def test_filter_basic_conversation(self):
+        """Test basic filtering with human and assistant messages"""
+        messages = [
+            HumanMessage(content="Hello", id="h1"),
+            AssistantMessage(content="Hi there", type="ai", id="a1"),
+            HumanMessage(content="How are you?", id="h2"),
+            AssistantMessage(content="I'm good", type="ai", id="a2"),
+        ]
+
+        result = filter_and_merge_messages(messages)
+
+        self.assertEqual(len(result), 4)
+        self.assertEqual(result[0].content, "Hello")
+        self.assertEqual(result[1].content, "Hi there")
+        self.assertEqual(result[2].content, "How are you?")
+        self.assertEqual(result[3].content, "I'm good")
+
+    def test_merge_consecutive_human_messages(self):
+        """Test that consecutive human messages get merged"""
+        messages = [
+            HumanMessage(content="First", id="h1"),
+            HumanMessage(content="Second", id="h2"),
+            AssistantMessage(content="Response", type="ai", id="a1"),
+        ]
+
+        result = filter_and_merge_messages(messages)
+
+        self.assertEqual(len(result), 2)
+        # After merging, consecutive messages should be combined
+        self.assertIsInstance(result[0], HumanMessage)
+        self.assertIn("First", result[0].content)
+        self.assertIn("Second", result[0].content)
+        self.assertEqual(result[1].content, "Response")
+
+    def test_filter_removes_non_matching_entities(self):
+        """Test that messages not matching entity_filter are excluded"""
+        messages = [
+            HumanMessage(content="Hello", id="h1"),
+            AssistantMessage(content="Response", type="ai", id="a1"),
+            VisualizationMessage(answer=AssistantTrendsQuery(series=[])),
+            AssistantToolCallMessage(content="Tool result", tool_call_id="tc1", type="tool"),
+        ]
+
+        result = filter_and_merge_messages(messages)
+
+        # Default filter includes AssistantMessage and VisualizationMessage
+        self.assertEqual(len(result), 3)
+        self.assertIsInstance(result[0], HumanMessage)
+        self.assertIsInstance(result[1], AssistantMessage)
+        self.assertIsInstance(result[2], VisualizationMessage)
+
+    def test_filter_with_custom_entity_filter(self):
+        """Test filtering with custom entity types"""
+        messages = [
+            HumanMessage(content="Hello", id="h1"),
+            AssistantMessage(content="Response", type="ai", id="a1"),
+            VisualizationMessage(answer=AssistantTrendsQuery(series=[])),
+        ]
+
+        result = filter_and_merge_messages(messages, entity_filter=AssistantMessage)
+
+        self.assertEqual(len(result), 2)
+        self.assertIsInstance(result[0], HumanMessage)
+        self.assertIsInstance(result[1], AssistantMessage)
+
+    def test_filter_preserves_message_ids(self):
+        """Test that message IDs are preserved after filtering"""
+        messages = [
+            HumanMessage(content="First", id="h1"),
+            HumanMessage(content="Second", id="h2"),
+            AssistantMessage(content="Response", type="ai", id="a1"),
+        ]
+
+        result = filter_and_merge_messages(messages)
+
+        # The merged human message should preserve one of the IDs
+        self.assertIsNotNone(result[0].id)
+        self.assertEqual(result[1].id, "a1")
+
+    def test_filter_empty_messages(self):
+        """Test filtering with empty message list"""
+        result = filter_and_merge_messages([])
+        self.assertEqual(len(result), 0)
+
+    def test_filter_only_human_messages(self):
+        """Test filtering when only human messages exist"""
+        messages = [
+            HumanMessage(content="First", id="h1"),
+            HumanMessage(content="Second", id="h2"),
+            HumanMessage(content="Third", id="h3"),
+        ]
+
+        result = filter_and_merge_messages(messages)
+
+        # All human messages should be merged into one
+        self.assertEqual(len(result), 1)
+        self.assertIsInstance(result[0], HumanMessage)
+
+
+class TestConvertToolMessagesToDict(BaseTest):
+    """Test convert_tool_messages_to_dict function."""
+
+    def test_convert_single_tool_message(self):
+        """Test converting a single tool message to dictionary"""
+        messages = [
+            AssistantToolCallMessage(content="Result 1", tool_call_id="tc1", type="tool"),
+        ]
+
+        result = convert_tool_messages_to_dict(messages)
+
+        self.assertEqual(len(result), 1)
+        self.assertIn("tc1", result)
+        self.assertEqual(result["tc1"].content, "Result 1")
+
+    def test_convert_multiple_tool_messages(self):
+        """Test converting multiple tool messages"""
+        messages = [
+            AssistantToolCallMessage(content="Result 1", tool_call_id="tc1", type="tool"),
+            AssistantToolCallMessage(content="Result 2", tool_call_id="tc2", type="tool"),
+            AssistantToolCallMessage(content="Result 3", tool_call_id="tc3", type="tool"),
+        ]
+
+        result = convert_tool_messages_to_dict(messages)
+
+        self.assertEqual(len(result), 3)
+        self.assertEqual(result["tc1"].content, "Result 1")
+        self.assertEqual(result["tc2"].content, "Result 2")
+        self.assertEqual(result["tc3"].content, "Result 3")
+
+    def test_convert_ignores_non_tool_messages(self):
+        """Test that non-tool messages are ignored"""
+        messages = [
+            HumanMessage(content="Hello", id="h1"),
+            AssistantMessage(content="Response", type="ai", id="a1"),
+            AssistantToolCallMessage(content="Result 1", tool_call_id="tc1", type="tool"),
+            VisualizationMessage(answer=AssistantTrendsQuery(series=[])),
+        ]
+
+        result = convert_tool_messages_to_dict(messages)
+
+        self.assertEqual(len(result), 1)
+        self.assertIn("tc1", result)
+
+    def test_convert_empty_messages(self):
+        """Test converting empty message list"""
+        result = convert_tool_messages_to_dict([])
+        self.assertEqual(len(result), 0)
+
+    def test_convert_preserves_tool_call_metadata(self):
+        """Test that tool message metadata is preserved"""
+        messages = [
+            AssistantToolCallMessage(
+                content="Result with UI", tool_call_id="tc1", type="tool", ui_payload={"data": "value"}
+            ),
+        ]
+
+        result = convert_tool_messages_to_dict(messages)
+
+        self.assertEqual(result["tc1"].ui_payload, {"data": "value"})
+
+
+class TestInsertMessagesBeforeStart(BaseTest):
+    """Test insert_messages_before_start function."""
+
+    def test_insert_before_first_message(self):
+        """Test inserting messages at the beginning (no start_id)"""
+        messages = [
+            HumanMessage(content="First", id="h1"),
+            AssistantMessage(content="Response", type="ai", id="a1"),
+        ]
+        new_messages = [ContextMessage(content="Context", type="context")]
+
+        result = insert_messages_before_start(messages, new_messages, start_id=None)
+
+        self.assertEqual(len(result), 3)
+        self.assertIsInstance(result[0], ContextMessage)
+        self.assertEqual(result[1].content, "First")
+        self.assertEqual(result[2].content, "Response")
+
+    def test_insert_before_specific_message(self):
+        """Test inserting messages before a specific message ID"""
+        messages = [
+            HumanMessage(content="First", id="h1"),
+            AssistantMessage(content="Response 1", type="ai", id="a1"),
+            HumanMessage(content="Second", id="h2"),
+            AssistantMessage(content="Response 2", type="ai", id="a2"),
+        ]
+        new_messages = [ContextMessage(content="Context", type="context")]
+
+        result = insert_messages_before_start(messages, new_messages, start_id="h2")
+
+        self.assertEqual(len(result), 5)
+        self.assertEqual(result[0].content, "First")
+        self.assertEqual(result[1].content, "Response 1")
+        self.assertIsInstance(result[2], ContextMessage)
+        self.assertEqual(result[3].content, "Second")
+        self.assertEqual(result[4].content, "Response 2")
+
+    def test_insert_multiple_new_messages(self):
+        """Test inserting multiple new messages"""
+        messages = [
+            HumanMessage(content="First", id="h1"),
+            AssistantMessage(content="Response", type="ai", id="a1"),
+        ]
+        new_messages = [
+            ContextMessage(content="Context 1", type="context"),
+            ContextMessage(content="Context 2", type="context"),
+        ]
+
+        result = insert_messages_before_start(messages, new_messages, start_id="h1")
+
+        self.assertEqual(len(result), 4)
+        self.assertIsInstance(result[0], ContextMessage)
+        self.assertIsInstance(result[1], ContextMessage)
+        self.assertEqual(result[2].content, "First")
+        self.assertEqual(result[3].content, "Response")
+
+    def test_insert_when_start_id_not_found(self):
+        """Test inserting when start_id doesn't exist (should insert at beginning)"""
+        messages = [
+            HumanMessage(content="First", id="h1"),
+            AssistantMessage(content="Response", type="ai", id="a1"),
+        ]
+        new_messages = [ContextMessage(content="Context", type="context")]
+
+        result = insert_messages_before_start(messages, new_messages, start_id="nonexistent")
+
+        self.assertEqual(len(result), 3)
+        self.assertIsInstance(result[0], ContextMessage)
+        self.assertEqual(result[1].content, "First")
+
+
+class TestNormalizeAIMessageWebSearch(BaseTest):
+    """Test normalize_ai_message with web search and server tool use blocks."""
+
+    def test_normalize_with_server_tool_use(self):
+        """Test normalizing message with server_tool_use block"""
+        message = AIMessage(
+            content=[
+                {"type": "text", "text": "Let me search for that."},
+                {
+                    "type": "server_tool_use",
+                    "id": "search_1",
+                    "name": "web_search",
+                    "partial_json": '{"query": "test query"}',
+                },
+            ],
+            tool_calls=[],
+        )
+
+        result = normalize_ai_message(message)
+
+        # Server tool use should create two messages
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0].content, "Let me search for that.")
+        # First message has meta with empty thinking
+        self.assertIsNone(result.meta)
+
+        # Second message starts with server_tool_use
+        self.assertEqual(result[1].content, "")
+        self.assertIsNotNone(result[1].meta)
+        assert result[1].meta is not None
+        self.assertEqual(len(result[1].meta.thinking), 1)
+        self.assertEqual(result[1].meta.thinking[0]["type"], "server_tool_use")
+        self.assertEqual(result[1].meta.thinking[0]["input"], {"query": "test query"})
+
+    def test_normalize_with_web_search_result(self):
+        """Test normalizing message with web_search_tool_result block"""
+        message = AIMessage(
+            content=[
+                {
+                    "type": "server_tool_use",
+                    "id": "search_1",
+                    "name": "web_search",
+                    "partial_json": '{"query": "test"}',
+                },
+                {
+                    "type": "web_search_tool_result",
+                    "tool_use_id": "search_1",
+                    "content": [{"type": "text", "text": "Search results here"}],
+                },
+                {"type": "text", "text": "Based on the search results..."},
+            ],
+            tool_calls=[],
+        )
+
+        result = normalize_ai_message(message)
+
+        # Server tool use creates a new message
+        self.assertEqual(len(result), 2)
+
+        # Second message has both server_tool_use and web_search_tool_result in thinking
+        assert result[1].meta is not None
+        self.assertEqual(len(result[1].meta.thinking), 2)
+        self.assertEqual(result[1].meta.thinking[0]["type"], "server_tool_use")
+        self.assertEqual(result[1].meta.thinking[1]["type"], "web_search_tool_result")
+        self.assertEqual(result[1].content, "Based on the search results...")
+
+    def test_normalize_with_citations(self):
+        """Test normalizing message with citations in text blocks"""
+        message = AIMessage(
+            content=[
+                {
+                    "type": "text",
+                    "text": "According to sources",
+                    "citations": [
+                        {"url": "https://example.com/article1"},
+                        {"url": "https://docs.posthog.com/guide"},
+                    ],
+                }
+            ],
+            tool_calls=[],
+        )
+
+        [result] = normalize_ai_message(message)
+
+        # Citations should be appended as markdown links
+        self.assertIn("According to sources", result.content)
+        self.assertIn("(example.com)", result.content)
+        self.assertIn("https://example.com/article1", result.content)
+        self.assertIn("(docs.posthog.com)", result.content)
+        self.assertIn("https://docs.posthog.com/guide", result.content)
+
+    def test_normalize_with_thinking_and_server_tool_use(self):
+        """Test normalizing message with both thinking and server_tool_use blocks"""
+        message = AIMessage(
+            content=[
+                {"type": "thinking", "thinking": "I need to search for this"},
+                {"type": "text", "text": "Let me look that up."},
+                {
+                    "type": "server_tool_use",
+                    "id": "search_1",
+                    "name": "web_search",
+                    "partial_json": '{"query": "info"}',
+                },
+                {"type": "text", "text": "Here's what I found."},
+            ],
+            tool_calls=[],
+        )
+
+        result = normalize_ai_message(message)
+
+        # Should create two messages due to server_tool_use
+        self.assertEqual(len(result), 2)
+
+        # First message has thinking and text
+        assert result[0].meta is not None
+        self.assertEqual(len(result[0].meta.thinking), 1)
+        self.assertEqual(result[0].meta.thinking[0]["type"], "thinking")
+        self.assertEqual(result[0].content, "Let me look that up.")
+
+        # Second message has server_tool_use and subsequent text
+        assert result[1].meta is not None
+        self.assertEqual(len(result[1].meta.thinking), 1)
+        self.assertEqual(result[1].meta.thinking[0]["type"], "server_tool_use")
+        self.assertEqual(result[1].content, "Here's what I found.")
+
+    def test_normalize_with_invalid_partial_json(self):
+        """Test normalizing message with invalid partial_json in server_tool_use"""
+        message = AIMessage(
+            content=[
+                {
+                    "type": "server_tool_use",
+                    "id": "search_1",
+                    "name": "web_search",
+                    "partial_json": "{invalid json",  # Invalid JSON
+                }
+            ],
+            tool_calls=[],
+        )
+
+        result = normalize_ai_message(message)
+
+        # Should handle gracefully without crashing
+        self.assertEqual(len(result), 2)
+        assert result[1].meta is not None
+        self.assertEqual(len(result[1].meta.thinking), 1)
+        # The input field should not be set due to JSON parse error
+        self.assertNotIn("input", result[1].meta.thinking[0])
+
+    def test_normalize_complex_web_search_flow(self):
+        """Test normalizing a complete web search flow with multiple blocks"""
+        message = AIMessage(
+            content=[
+                {"type": "thinking", "thinking": "User wants to know about X"},
+                {"type": "text", "text": "Let me search for information about X."},
+                {
+                    "type": "server_tool_use",
+                    "id": "search_1",
+                    "name": "web_search",
+                    "partial_json": '{"query": "information about X"}',
+                },
+                {
+                    "type": "web_search_tool_result",
+                    "tool_use_id": "search_1",
+                    "content": [{"type": "text", "text": "Results..."}],
+                },
+                {"type": "thinking", "thinking": "Now I can answer"},
+                {
+                    "type": "text",
+                    "text": "Based on my search",
+                    "citations": [{"url": "https://source.com"}],
+                },
+            ],
+            tool_calls=[],
+        )
+
+        result = normalize_ai_message(message)
+
+        # Server tool use creates a split
+        self.assertEqual(len(result), 2)
+
+        # First message: thinking + text before server_tool_use
+        assert result[0].meta is not None
+        self.assertEqual(len(result[0].meta.thinking), 1)
+        self.assertEqual(result[0].meta.thinking[0]["type"], "thinking")
+        self.assertEqual(result[0].content, "Let me search for information about X.")
+
+        # Second message: server_tool_use + result + thinking + text with citations
+        assert result[1].meta is not None
+        self.assertEqual(len(result[1].meta.thinking), 3)
+        self.assertEqual(result[1].meta.thinking[0]["type"], "server_tool_use")
+        self.assertEqual(result[1].meta.thinking[1]["type"], "web_search_tool_result")
+        self.assertEqual(result[1].meta.thinking[2]["type"], "thinking")
+        self.assertIn("Based on my search", result[1].content)
+        self.assertIn("(source.com)", result[1].content)

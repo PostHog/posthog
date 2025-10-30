@@ -269,10 +269,7 @@ def extract_thinking_from_ai_message(response: BaseMessage) -> list[dict[str, An
 
 def normalize_ai_message(message: AIMessage | AIMessageChunk) -> list[AssistantMessage]:
     _create_blank_assistant_message = lambda: AssistantMessage(
-        content="",
-        id=None if isinstance(message, AIMessageChunk) else str(uuid4()),
-        tool_calls=[],
-        meta=AssistantMessageMetadata(thinking=[]),
+        content="", id=None if isinstance(message, AIMessageChunk) else str(uuid4()), tool_calls=[]
     )
     if isinstance(message.content, list):
         messages: list[AssistantMessage] = [_create_blank_assistant_message()]
@@ -281,6 +278,13 @@ def normalize_ai_message(message: AIMessage | AIMessageChunk) -> list[AssistantM
                 if content_item["type"] == "server_tool_use":
                     # Server tool use requires starting a new AssistantMessage for correct presentation of the subsequent output
                     messages.append(_create_blank_assistant_message())
+                    # Also we need to parse `input` from `partial_json`, as weirdly server tool uses in LangChain
+                    # have an empty `input` even `partial_json` is ready and clearly has args
+                    if content_item.get("partial_json"):
+                        try:
+                            content_item["input"] = json.loads(content_item["partial_json"])  # type: ignore
+                        except json.JSONDecodeError:
+                            pass
                 if content_item["type"] == "text":
                     if "text" in content_item:
                         messages[-1].content += content_item["text"]
@@ -289,15 +293,11 @@ def normalize_ai_message(message: AIMessage | AIMessageChunk) -> list[AssistantM
                             f" [({urlparse(citation['url']).netloc})]({citation['url']})"  # Must have space in front
                             for citation in content_item["citations"]
                         )
-                if content_item["type"] in SUPPORTED_ANTHROPIC_BLOCKS:
+                elif content_item["type"] in SUPPORTED_ANTHROPIC_BLOCKS:
                     # All of these blocks must be preserved in their original order for Anthropic interleaved thinking
+                    if not messages[-1].meta:
+                        messages[-1].meta = AssistantMessageMetadata(thinking=[])
                     messages[-1].meta.thinking.append(content_item)  # type: ignore
-                    if content_item["type"] == "server_tool_use" and content_item.get("partial_json"):
-                        try:
-                            # Weirdly server tool uses in LangChain don't have `input`, even when they have the full `partial_json`
-                            messages[-1].meta.thinking[-1]["input"] = json.loads(content_item["partial_json"])  # type: ignore
-                        except json.JSONDecodeError:
-                            pass
 
             elif isinstance(content_item, str):
                 messages[-1].content += content_item
