@@ -1036,9 +1036,10 @@ describe('IngestionConsumer', () => {
         const TRANSFORMATION_TEST_TIMEOUT = 30000
         let compiledGeoipBytecode: any
 
+        // Ensure longer timeout applies to hooks in this block too
+        jest.setTimeout(TRANSFORMATION_TEST_TIMEOUT)
+
         beforeAll(async () => {
-            jest.setTimeout(TRANSFORMATION_TEST_TIMEOUT)
-            // Compile once to avoid per-test overhead
             compiledGeoipBytecode = await compileHog(geoipTemplate.code)
         })
 
