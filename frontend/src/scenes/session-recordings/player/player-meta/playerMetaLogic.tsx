@@ -39,6 +39,19 @@ import { SessionSummaryContent } from './types'
 
 const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
 
+// Common person properties that should always be available to pin
+const COMMON_PERSON_PROPERTIES = [
+    'email',
+    '$user_id',
+    '$initial_geoip_country_code',
+    '$initial_browser',
+    '$initial_device_type',
+    '$initial_os',
+    '$initial_utm_source',
+    '$initial_utm_campaign',
+    '$initial_utm_medium',
+]
+
 function getAllPersonProperties(sessionPlayerMetaData: SessionRecordingType | null): Record<string, any> {
     return sessionPlayerMetaData?.person?.properties ?? {}
 }
@@ -331,6 +344,13 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     }
                 })
 
+                // Add common person properties so they're always available to pin
+                COMMON_PERSON_PROPERTIES.forEach((property) => {
+                    if (!allPropertyKeys.has(property)) {
+                        allPropertyKeys.add(property)
+                    }
+                })
+
                 Array.from(allPropertyKeys).forEach((property) => {
                     if (property === '$geoip_subdivision_1_name' || property === '$geoip_city_name') {
                         // they're just shown in the title for Country
@@ -382,10 +402,19 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         displayOverviewItems: [
             (s) => [s.allOverviewItems, s.pinnedProperties],
             (allOverviewItems, pinnedProperties) => {
-                // Filter to show only pinned properties
-                return allOverviewItems.filter((item) => {
+                // Filter to show only pinned properties and sort by pinned order
+                const pinnedItems = allOverviewItems.filter((item) => {
                     const key = item.type === 'property' ? item.property : item.label
                     return pinnedProperties.includes(String(key))
+                })
+
+                // Sort by the order in pinnedProperties array
+                return pinnedItems.sort((a, b) => {
+                    const aKey = a.type === 'property' ? a.property : a.label
+                    const bKey = b.type === 'property' ? b.property : b.label
+                    const aIndex = pinnedProperties.indexOf(String(aKey))
+                    const bIndex = pinnedProperties.indexOf(String(bKey))
+                    return aIndex - bIndex
                 })
             },
         ],
