@@ -100,7 +100,7 @@ class TestSessionSummariesAPI(APIBaseTest):
     ) -> None:
         """Test successful creation of session summaries"""
         # Setup mocks
-        mock_feature_enabled.return_value = True
+        mock_feature_enabled.side_effect = [True, False]  # Allow summaries, but not video validation
         mock_find_sessions.return_value = (
             datetime(2024, 1, 1, 10, 0, 0),
             datetime(2024, 1, 1, 11, 0, 0),
@@ -133,6 +133,7 @@ class TestSessionSummariesAPI(APIBaseTest):
             min_timestamp=datetime(2024, 1, 1, 10, 0, 0),
             max_timestamp=datetime(2024, 1, 1, 11, 0, 0),
             extra_summary_context=mock_execute.call_args[1]["extra_summary_context"],
+            video_validation_enabled=False,
         )
         # Check extra_summary_context separately
         self.assertEqual(mock_execute.call_args[1]["extra_summary_context"].focus_area, "login process")

@@ -7,6 +7,7 @@ import posthoganalytics
 from openai import AsyncStream
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
+from openai.types.responses import Response as OpenAIResponse
 from posthoganalytics.ai.openai import AsyncOpenAI, OpenAI
 from posthoganalytics.client import Client
 from rest_framework import exceptions
@@ -54,7 +55,7 @@ def get_async_openai_client() -> AsyncOpenAI:
 
 def _prepare_messages(
     input_prompt: str, session_id: str, assistant_start_text: str | None = None, system_prompt: str | None = None
-):
+) -> list[dict[str, str]]:
     """Compose message list for the OpenAI chat API."""
     messages = []
     if system_prompt:
@@ -120,7 +121,7 @@ async def call_llm(
     assistant_start_text: str | None = None,
     system_prompt: str | None = None,
     trace_id: str | None = None,
-) -> ChatCompletion:
+) -> ChatCompletion | OpenAIResponse:
     """
     LLM non-streaming call.
     """
@@ -136,10 +137,11 @@ async def call_llm(
             posthog_trace_id=trace_id,
         )
     elif model in SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS:
-        result = await client.chat.completions.create(  # type: ignore[call-overload]
-            messages=messages,
+        result = await client.responses.create(  # type: ignore[call-overload]
+            input=messages,
             model=model,
-            reasoning_effort=SESSION_SUMMARIES_REASONING_EFFORT,
+            reasoning={"effort": SESSION_SUMMARIES_REASONING_EFFORT},
+            text={"verbosity": "low"},
             user=user_param,
             posthog_trace_id=trace_id,
         )

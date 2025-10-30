@@ -21,7 +21,8 @@ class GeminiConfig:
     TEMPERATURE: float = 0
 
     SUPPORTED_MODELS: list[str] = [
-        "gemini-2.5-flash",
+        "gemini-2.5-flash-preview-09-2025",
+        "gemini-2.5-flash-lite-preview-09-2025" "gemini-2.5-flash",
         "gemini-2.5-pro",
         "gemini-2.0-flash",
         "gemini-2.0-flash-lite",
@@ -70,9 +71,11 @@ class GeminiProvider:
                                     "id": f"gemini_tool_{hash(str(part.function_call))}",
                                     "function": {
                                         "name": part.function_call.name,
-                                        "arguments": json.dumps(dict(part.function_call.args))
-                                        if part.function_call.args
-                                        else "{}",
+                                        "arguments": (
+                                            json.dumps(dict(part.function_call.args))
+                                            if part.function_call.args
+                                            else "{}"
+                                        ),
                                     },
                                 }
 

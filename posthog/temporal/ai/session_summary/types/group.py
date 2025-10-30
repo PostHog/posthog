@@ -36,6 +36,7 @@ class SessionGroupSummaryInputs:
     model_to_use: str
     extra_summary_context: ExtraSummaryContext | None = None
     local_reads_prod: bool = False
+    video_validation_enabled: bool | None = None
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
