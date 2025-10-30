@@ -1,4 +1,4 @@
-import { IconAtSign, IconBook, IconCompass, IconCreditCard, IconMemory, IconSearch } from '@posthog/icons'
+import { IconAtSign, IconBook, IconCompass, IconCreditCard, IconGlobe, IconMemory, IconSearch } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Scene } from 'scenes/sceneTypes'
@@ -63,7 +63,18 @@ export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'descrip
     callback?: (toolOutput: any, conversationId: string) => void | Promise<void>
 }
 
-export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, ToolDefinition> = {
+export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'> | 'web_search', ToolDefinition> = {
+    web_search: {
+        name: 'Search the web', // Web search is a special case of a tool, as it's a built-in LLM provider one
+        description: 'Search the web for up-to-date information',
+        icon: <IconGlobe />,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return `Searched the web for **${toolCall.args.query}**`
+            }
+            return `Searching the web for **${toolCall.args.query}**...`
+        },
+    },
     session_summarization: {
         name: 'Summarize sessions',
         description: 'Summarize sessions to analyze real user behavior',
@@ -378,21 +389,6 @@ export const MAX_GENERALLY_CANNOT: string[] = [
 ]
 
 export function getToolDefinition(identifier: string): ToolDefinition | null {
-    // Handle web_search as a special case (native Anthropic tool)
-    if (identifier === 'web_search') {
-        return {
-            name: 'Search the web',
-            description: 'Search the web for up-to-date information',
-            icon: <IconSearch />,
-            displayFormatter: (toolCall) => {
-                if (toolCall.status === 'completed') {
-                    return `Searched the web for **${toolCall.args.query}**...`
-                }
-                return `Searching the web for **${toolCall.args.query}**...`
-            },
-        }
-    }
-
     const flatTools = Object.entries(TOOL_DEFINITIONS).flatMap(([key, tool]) => {
         if (tool.subtools) {
             return [{ ...tool, key }, ...Object.entries(tool.subtools).map(([key, value]) => ({ ...value, key }))]
