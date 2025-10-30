@@ -2,6 +2,7 @@ import json
 import uuid
 import logging
 from collections.abc import Generator
+from typing import Any
 
 from django.conf import settings
 
@@ -21,6 +22,8 @@ class GeminiConfig:
     TEMPERATURE: float = 0
 
     SUPPORTED_MODELS: list[str] = [
+        "gemini-2.5-flash-preview-09-2025",
+        "gemini-2.5-flash-lite-preview-09-2025",
         "gemini-2.5-flash",
         "gemini-2.5-pro",
         "gemini-2.0-flash",
@@ -70,9 +73,11 @@ class GeminiProvider:
                                     "id": f"gemini_tool_{hash(str(part.function_call))}",
                                     "function": {
                                         "name": part.function_call.name,
-                                        "arguments": json.dumps(dict(part.function_call.args))
-                                        if part.function_call.args
-                                        else "{}",
+                                        "arguments": (
+                                            json.dumps(dict(part.function_call.args))
+                                            if part.function_call.args
+                                            else "{}"
+                                        ),
                                     },
                                 }
 
@@ -81,6 +86,27 @@ class GeminiProvider:
                                 results.append(f"data: {json.dumps({'type': 'text', 'text': part.text})}\n\n")
 
         return results
+
+    @staticmethod
+    def prepare_config_kwargs(
+        system: str,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        tools: list[dict] | None = None,
+    ) -> dict[str, Any]:
+        effective_temperature = temperature if temperature is not None else GeminiConfig.TEMPERATURE
+        effective_max_tokens = max_tokens  # May be None; Gemini API uses max_output_tokens
+        # Build config with conditionals
+        config_kwargs: dict[str, Any] = {
+            "temperature": effective_temperature,
+        }
+        if system:
+            config_kwargs["system_instruction"] = system
+        if effective_max_tokens is not None:
+            config_kwargs["max_output_tokens"] = effective_max_tokens
+        if tools is not None:
+            config_kwargs["tools"] = tools
+        return config_kwargs
 
     def stream_response(
         self,
@@ -96,24 +122,13 @@ class GeminiProvider:
         groups: dict | None = None,
     ) -> Generator[str, None]:
         """
-        Async generator function that yields SSE formatted data
+        Async generator function that yields SSE formatted data.
         """
         self.validate_model(self.model_id)
-
         try:
-            effective_temperature = temperature if temperature is not None else GeminiConfig.TEMPERATURE
-            effective_max_tokens = max_tokens  # May be None; Gemini API uses max_output_tokens
-
-            # Build config with conditionals
-            config_kwargs = {
-                "system_instruction": system,
-                "temperature": effective_temperature,
-            }
-            if effective_max_tokens is not None:
-                config_kwargs["max_output_tokens"] = effective_max_tokens
-            if tools is not None:
-                config_kwargs["tools"] = tools
-
+            config_kwargs = self.prepare_config_kwargs(
+                system=system, temperature=temperature, max_tokens=max_tokens, tools=tools
+            )
             response = self.client.models.generate_content_stream(
                 model=self.model_id,
                 contents=convert_anthropic_messages_to_gemini(messages),
@@ -135,10 +150,47 @@ class GeminiProvider:
                     yield f"data: {json.dumps({'type': 'usage', 'input_tokens': input_tokens, 'output_tokens': output_tokens})}\n\n"
 
         except APIError as e:
-            logger.exception(f"Gemini API error: {e}")
+            logger.exception(f"Gemini API error when streaming response: {e}")
             yield f"data: {json.dumps({'type': 'error', 'error': f'Gemini API error'})}\n\n"
             return
         except Exception as e:
-            logger.exception(f"Unexpected error: {e}")
+            logger.exception(f"Unexpected error when streaming response: {e}")
             yield f"data: {json.dumps({'type': 'error', 'error': f'Unexpected error'})}\n\n"
             return
+
+    def get_response(
+        self,
+        system: str,
+        prompt: str,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        tools: list[dict] | None = None,
+        distinct_id: str = "",
+        trace_id: str | None = None,
+        properties: dict | None = None,
+        groups: dict | None = None,
+    ) -> str:
+        """
+        Get direct string response from Gemini API for a provided string prompt (no streaming).
+        """
+        self.validate_model(self.model_id)
+        try:
+            config_kwargs = self.prepare_config_kwargs(
+                system=system, temperature=temperature, max_tokens=max_tokens, tools=tools
+            )
+            response = self.client.models.generate_content(
+                model=self.model_id,
+                contents=prompt,
+                config=GenerateContentConfig(**config_kwargs),
+                posthog_distinct_id=distinct_id,
+                posthog_trace_id=trace_id or str(uuid.uuid4()),
+                posthog_properties={**(properties or {}), "ai_product": "playground"},
+                posthog_groups=groups or {},
+            )
+            return response.text
+        except APIError as err:
+            logger.exception(f"Gemini API error when getting response: {err}")
+            raise
+        except Exception as err:
+            logger.exception(f"Unexpected error when getting response: {err}")
+            raise

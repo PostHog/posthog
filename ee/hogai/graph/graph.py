@@ -8,6 +8,7 @@ from posthog.models.user import User
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.billing.nodes import BillingNode
+from ee.hogai.graph.llm_traces_summaries.nodes import LLMTracesSummarizationNode
 from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
 from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
@@ -236,6 +237,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             "end": AssistantNodeName.END,
             "insights_search": AssistantNodeName.INSIGHTS_SEARCH,
             "session_summarization": AssistantNodeName.SESSION_SUMMARIZATION,
+            "llm_traces_summarization": AssistantNodeName.LLM_TRACES_SUMMARIZATION,
             "create_dashboard": AssistantNodeName.DASHBOARD_CREATION,
         }
         root_node = RootNode(self._team, self._user)
@@ -374,6 +376,12 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         self._graph.add_edge(AssistantNodeName.SESSION_SUMMARIZATION, AssistantNodeName.ROOT)
         return self
 
+    def add_llm_traces_summarization(self, end_node: AssistantNodeName = AssistantNodeName.END):
+        llm_traces_summarization_node = LLMTracesSummarizationNode(self._team, self._user)
+        self.add_node(AssistantNodeName.LLM_TRACES_SUMMARIZATION, llm_traces_summarization_node)
+        self._graph.add_edge(AssistantNodeName.LLM_TRACES_SUMMARIZATION, AssistantNodeName.ROOT)
+        return self
+
     def add_dashboard_creation(self, end_node: AssistantNodeName = AssistantNodeName.END):
         builder = self._graph
         dashboard_creation_node = DashboardCreationNode(self._team, self._user)
@@ -393,6 +401,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             .add_billing()
             .add_insights_search()
             .add_session_summarization()
+            .add_llm_traces_summarization()
             .add_dashboard_creation()
             .compile(checkpointer=checkpointer)
         )
