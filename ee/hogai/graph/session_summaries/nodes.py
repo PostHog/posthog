@@ -189,6 +189,7 @@ class _SessionSearch:
         tool = await SearchSessionRecordingsTool.create_tool_class(
             team=self._node._team,
             user=self._node._user,
+            node_path=self._node.node_path,
             state=state,
             config=config,
             context_manager=self._node.context_manager,

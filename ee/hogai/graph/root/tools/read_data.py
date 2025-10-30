@@ -9,7 +9,7 @@ from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.sql.mixins import HogQLDatabaseMixin
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.prompt import format_prompt_string
-from ee.hogai.utils.types.base import AssistantState
+from ee.hogai.utils.types.base import AssistantState, NodePath
 
 from .read_billing_tool.tool import ReadBillingTool
 
@@ -64,6 +64,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         *,
         team: Team,
         user: User,
+        node_path: tuple[NodePath, ...] | None = None,
         state: AssistantState | None = None,
         config: RunnableConfig | None = None,
         context_manager: AssistantContextManager | None = None,
@@ -85,6 +86,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             team=team,
             user=user,
             state=state,
+            node_path=node_path,
             config=config,
             args_schema=args,
             description=description,

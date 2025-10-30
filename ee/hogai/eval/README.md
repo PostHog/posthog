@@ -52,7 +52,7 @@ from ee.hogai.eval.base import MaxPrivateEval
 from ee.hogai.eval.offline.conftest import EvaluationContext, capture_score, get_eval_context
 from ee.hogai.eval.schema import DatasetInput
 from ee.hogai.eval.scorers.sql import SQLSemanticsCorrectness, SQLSyntaxCorrectness
-from ee.hogai.graph import AssistantGraph
+from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantState
 from ee.models import Conversation
 

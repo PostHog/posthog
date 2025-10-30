@@ -157,7 +157,8 @@ class CreateAndQueryInsightTool(MaxTool):
     thinking_message: str = "Coming up with an insight"
 
     async def _arun_impl(self, query_description: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
-        graph = InsightsGraph(self._team, self._user).compile_full_graph()
+        print(self._node_path)
+        graph = InsightsGraph(self._team, self._user, self._node_path).compile_full_graph()
         new_state = self._state.model_copy(
             update={
                 "root_tool_call_id": tool_call_id,
@@ -204,4 +205,4 @@ class CreateAndQueryInsightTool(MaxTool):
         """
         Determines if the tool is in editing mode.
         """
-        return AssistantTool.EDIT_CURRENT_INSIGHT.value in context_manager.get_contextual_tools()
+        return AssistantTool.CREATE_AND_QUERY_INSIGHT.value in context_manager.get_contextual_tools()

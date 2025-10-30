@@ -9,7 +9,7 @@ from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.query_planner.toolkit import TaxonomyAgentToolkit
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.helpers import format_events_yaml
-from ee.hogai.utils.types.base import AssistantState
+from ee.hogai.utils.types.base import AssistantState, NodePath
 
 READ_TAXONOMY_TOOL_DESCRIPTION = """
 Use this tool to explore the user's taxonomy (i.e. data schema).
@@ -155,6 +155,7 @@ class ReadTaxonomyTool(MaxTool):
         *,
         team: Team,
         user: User,
+        node_path: tuple[NodePath, ...] | None = None,
         state: AssistantState | None = None,
         config: RunnableConfig | None = None,
         context_manager: AssistantContextManager | None = None,
@@ -201,6 +202,7 @@ class ReadTaxonomyTool(MaxTool):
             user=user,
             state=state,
             config=config,
+            node_path=node_path,
             args_schema=ReadTaxonomyToolArgsWithGroups,
             context_manager=context_manager,
         )

@@ -274,7 +274,6 @@ export type AssistantTool =
     | 'create_hog_function_inputs'
     | 'create_message_template'
     | 'navigate'
-    | 'edit_current_insight'
     | 'filter_error_tracking_issues'
     | 'find_error_tracking_impactful_issue_event_list'
     | 'experiment_results_summary'

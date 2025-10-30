@@ -5,7 +5,7 @@ from posthog.models.user import User
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.base import BaseAssistantGraph
-from ee.hogai.utils.types import AssistantNodeName, AssistantState
+from ee.hogai.utils.types.base import AssistantNodeName, AssistantState, NodePath, PartialAssistantState
 
 from ..funnels.nodes import FunnelGeneratorNode, FunnelGeneratorToolsNode
 from ..query_executor.nodes import QueryExecutorNode
@@ -16,23 +16,23 @@ from ..sql.nodes import SQLGeneratorNode, SQLGeneratorToolsNode
 from ..trends.nodes import TrendsGeneratorNode, TrendsGeneratorToolsNode
 
 
-class InsightsGraph(BaseAssistantGraph[AssistantState]):
-    def __init__(self, team: Team, user: User, tool_call_id: str | None = None):
-        super().__init__(team, user, AssistantState, tool_call_id)
+class InsightsGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
+    def __init__(self, team: Team, user: User, node_path: tuple[NodePath, ...]):
+        super().__init__(team, user, AssistantState, node_path)
 
     def add_rag_context(self):
         self._has_start_node = True
-        retriever = InsightRagContextNode(self._team, self._user)
+        retriever = InsightRagContextNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.INSIGHT_RAG_CONTEXT, retriever)
         self._graph.add_edge(AssistantNodeName.START, AssistantNodeName.INSIGHT_RAG_CONTEXT)
         self._graph.add_edge(AssistantNodeName.INSIGHT_RAG_CONTEXT, AssistantNodeName.QUERY_PLANNER)
         return self
 
     def add_trends_generator(self, next_node: AssistantNodeName = AssistantNodeName.QUERY_EXECUTOR):
-        trends_generator = TrendsGeneratorNode(self._team, self._user)
+        trends_generator = TrendsGeneratorNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.TRENDS_GENERATOR, trends_generator)
 
-        trends_generator_tools = TrendsGeneratorToolsNode(self._team, self._user)
+        trends_generator_tools = TrendsGeneratorToolsNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.TRENDS_GENERATOR_TOOLS, trends_generator_tools)
 
         self._graph.add_edge(AssistantNodeName.TRENDS_GENERATOR_TOOLS, AssistantNodeName.TRENDS_GENERATOR)
@@ -48,10 +48,10 @@ class InsightsGraph(BaseAssistantGraph[AssistantState]):
         return self
 
     def add_funnel_generator(self, next_node: AssistantNodeName = AssistantNodeName.QUERY_EXECUTOR):
-        funnel_generator = FunnelGeneratorNode(self._team, self._user)
+        funnel_generator = FunnelGeneratorNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.FUNNEL_GENERATOR, funnel_generator)
 
-        funnel_generator_tools = FunnelGeneratorToolsNode(self._team, self._user)
+        funnel_generator_tools = FunnelGeneratorToolsNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.FUNNEL_GENERATOR_TOOLS, funnel_generator_tools)
 
         self._graph.add_edge(AssistantNodeName.FUNNEL_GENERATOR_TOOLS, AssistantNodeName.FUNNEL_GENERATOR)
@@ -67,10 +67,10 @@ class InsightsGraph(BaseAssistantGraph[AssistantState]):
         return self
 
     def add_retention_generator(self, next_node: AssistantNodeName = AssistantNodeName.QUERY_EXECUTOR):
-        retention_generator = RetentionGeneratorNode(self._team, self._user)
+        retention_generator = RetentionGeneratorNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.RETENTION_GENERATOR, retention_generator)
 
-        retention_generator_tools = RetentionGeneratorToolsNode(self._team, self._user)
+        retention_generator_tools = RetentionGeneratorToolsNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.RETENTION_GENERATOR_TOOLS, retention_generator_tools)
 
         self._graph.add_edge(AssistantNodeName.RETENTION_GENERATOR_TOOLS, AssistantNodeName.RETENTION_GENERATOR)
@@ -91,11 +91,11 @@ class InsightsGraph(BaseAssistantGraph[AssistantState]):
             dict[Literal["trends", "funnel", "retention", "sql", "continue", "end"], AssistantNodeName]
         ] = None,
     ):
-        query_planner = QueryPlannerNode(self._team, self._user)
+        query_planner = QueryPlannerNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.QUERY_PLANNER, query_planner)
         self._graph.add_edge(AssistantNodeName.QUERY_PLANNER, AssistantNodeName.QUERY_PLANNER_TOOLS)
 
-        query_planner_tools = QueryPlannerToolsNode(self._team, self._user)
+        query_planner_tools = QueryPlannerToolsNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.QUERY_PLANNER_TOOLS, query_planner_tools)
         self._graph.add_conditional_edges(
             AssistantNodeName.QUERY_PLANNER_TOOLS,
@@ -114,10 +114,10 @@ class InsightsGraph(BaseAssistantGraph[AssistantState]):
         return self
 
     def add_sql_generator(self, next_node: AssistantNodeName = AssistantNodeName.QUERY_EXECUTOR):
-        sql_generator = SQLGeneratorNode(self._team, self._user)
+        sql_generator = SQLGeneratorNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.SQL_GENERATOR, sql_generator)
 
-        sql_generator_tools = SQLGeneratorToolsNode(self._team, self._user)
+        sql_generator_tools = SQLGeneratorToolsNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.SQL_GENERATOR_TOOLS, sql_generator_tools)
 
         self._graph.add_edge(AssistantNodeName.SQL_GENERATOR_TOOLS, AssistantNodeName.SQL_GENERATOR)
@@ -133,7 +133,7 @@ class InsightsGraph(BaseAssistantGraph[AssistantState]):
         return self
 
     def add_query_executor(self, next_node: AssistantNodeName = AssistantNodeName.END):
-        query_executor_node = QueryExecutorNode(self._team, self._user)
+        query_executor_node = QueryExecutorNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.QUERY_EXECUTOR, query_executor_node)
         self._graph.add_edge(AssistantNodeName.QUERY_EXECUTOR, next_node)
         return self

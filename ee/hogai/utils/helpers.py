@@ -38,8 +38,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
-from ee.hogai.utils.types import AssistantMessageUnion
-from ee.hogai.utils.types.base import AssistantDispatcherEvent
+from ee.hogai.utils.types.base import AssistantDispatcherEvent, AssistantMessageUnion
 
 
 def remove_line_breaks(line: str) -> str:

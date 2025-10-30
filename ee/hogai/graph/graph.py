@@ -7,7 +7,7 @@ from posthog.models.user import User
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.base import BaseAssistantGraph
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
-from ee.hogai.utils.types import AssistantNodeName, AssistantState
+from ee.hogai.utils.types.base import AssistantNodeName, AssistantState, PartialAssistantState
 
 from .memory.nodes import (
     MemoryCollectorNode,
@@ -22,9 +22,9 @@ from .memory.nodes import (
 from .root.nodes import RootNode, RootNodeTools
 
 
-class AssistantGraph(BaseAssistantGraph[AssistantState]):
+class AssistantGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
     def __init__(self, team: Team, user: User):
-        super().__init__(team, user, AssistantState)
+        super().__init__(team, user, AssistantState, ())
 
     def add_title_generator(self, end_node: AssistantNodeName = AssistantNodeName.END):
         self._has_start_node = True
@@ -36,9 +36,9 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         return self
 
     def add_root(self, router: Callable[[AssistantState], AssistantNodeName] | None = None):
-        root_node = RootNode(self._team, self._user)
+        root_node = RootNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.ROOT, root_node)
-        root_node_tools = RootNodeTools(self._team, self._user)
+        root_node_tools = RootNodeTools(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.ROOT_TOOLS, root_node_tools)
         self._graph.add_conditional_edges(
             AssistantNodeName.ROOT, router or cast(Callable[[AssistantState], AssistantNodeName], root_node.router)
@@ -52,12 +52,14 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
     ):
         self._has_start_node = True
 
-        memory_onboarding = MemoryOnboardingNode(self._team, self._user)
-        memory_initializer = MemoryInitializerNode(self._team, self._user)
-        memory_initializer_interrupt = MemoryInitializerInterruptNode(self._team, self._user)
-        memory_onboarding_enquiry = MemoryOnboardingEnquiryNode(self._team, self._user)
-        memory_onboarding_enquiry_interrupt = MemoryOnboardingEnquiryInterruptNode(self._team, self._user)
-        memory_onboarding_finalize = MemoryOnboardingFinalizeNode(self._team, self._user)
+        memory_onboarding = MemoryOnboardingNode(self._team, self._user, self._node_path)
+        memory_initializer = MemoryInitializerNode(self._team, self._user, self._node_path)
+        memory_initializer_interrupt = MemoryInitializerInterruptNode(self._team, self._user, self._node_path)
+        memory_onboarding_enquiry = MemoryOnboardingEnquiryNode(self._team, self._user, self._node_path)
+        memory_onboarding_enquiry_interrupt = MemoryOnboardingEnquiryInterruptNode(
+            self._team, self._user, self._node_path
+        )
+        memory_onboarding_finalize = MemoryOnboardingFinalizeNode(self._team, self._user, self._node_path)
 
         self.add_node(AssistantNodeName.MEMORY_ONBOARDING, memory_onboarding)
         self.add_node(AssistantNodeName.MEMORY_INITIALIZER, memory_initializer)
@@ -107,7 +109,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
     ):
         self._has_start_node = True
 
-        memory_collector = MemoryCollectorNode(self._team, self._user)
+        memory_collector = MemoryCollectorNode(self._team, self._user, self._node_path)
         self._graph.add_edge(AssistantNodeName.START, AssistantNodeName.MEMORY_COLLECTOR)
         self.add_node(AssistantNodeName.MEMORY_COLLECTOR, memory_collector)
         self._graph.add_conditional_edges(
@@ -118,7 +120,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         return self
 
     def add_memory_collector_tools(self):
-        memory_collector_tools = MemoryCollectorToolsNode(self._team, self._user)
+        memory_collector_tools = MemoryCollectorToolsNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.MEMORY_COLLECTOR_TOOLS, memory_collector_tools)
         self._graph.add_edge(AssistantNodeName.MEMORY_COLLECTOR_TOOLS, AssistantNodeName.MEMORY_COLLECTOR)
         return self
