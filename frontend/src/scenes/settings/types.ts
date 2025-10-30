@@ -113,6 +113,7 @@ export type SettingId =
     | 'organization-ai-consent'
     | 'organization-experiment-stats-method'
     | 'organization-roles'
+    | 'organization-variables'
     | 'organization-delete'
     | 'organization-proxy'
     | 'organization-security'
