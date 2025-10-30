@@ -1,6 +1,10 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use aws_config::{meta::region::RegionProviderChain, Region};
+use aws_config::{
+    meta::region::RegionProviderChain, retry::RetryConfig, timeout::TimeoutConfig, BehaviorVersion,
+    Region,
+};
+
 use aws_sdk_s3::{Client, Config};
 use std::path::Path;
 use tokio::fs;
@@ -20,7 +24,17 @@ impl S3Uploader {
         let region_provider =
             RegionProviderChain::default_provider().or_else(Region::new(config.aws_region.clone()));
 
-        let aws_config = aws_config::from_env().region(region_provider).load().await;
+        let timeout_config = TimeoutConfig::builder()
+            .operation_timeout(config.s3_operation_timeout)
+            .operation_attempt_timeout(config.s3_attempt_timeout)
+            .build();
+
+        let aws_config = aws_config::defaults(BehaviorVersion::latest())
+            .region(region_provider)
+            .timeout_config(timeout_config)
+            .retry_config(RetryConfig::adaptive())
+            .load()
+            .await;
 
         let s3_config = Config::from(&aws_config);
         let client = Client::from_conf(s3_config);
@@ -33,19 +47,14 @@ impl S3Uploader {
             .await
             .with_context(|| format!("Failed to read file: {local_path:?}"))?;
 
-        let put_object = self
-            .client
+        self.client
             .put_object()
             .bucket(&self.config.s3_bucket)
             .key(s3_key)
-            .body(body.into());
-
-        // Apply timeout if configured
-        let result = tokio::time::timeout(self.config.s3_timeout, put_object.send())
+            .body(body.into())
+            .send()
             .await
-            .with_context(|| format!("S3 upload timeout for key: {s3_key}"))?;
-
-        result.with_context(|| format!("Failed to upload to S3 key: {s3_key}"))?;
+            .with_context(|| format!("Failed to upload to S3 key: {s3_key}"))?;
 
         info!(
             "Uploaded file {local_path:?} to s3://{0}/{s3_key}",
@@ -71,10 +80,10 @@ impl CheckpointUploader for S3Uploader {
         let upload_futures: Vec<_> = plan
             .files_to_upload
             .iter()
-            .map(|(filename, local_path)| {
+            .map(|local_file| {
                 let bucket: String = self.config.s3_bucket.clone();
-                let src = Path::new(local_path).to_path_buf();
-                let dest: String = plan.info.get_file_key(filename);
+                let src = local_file.local_path.to_path_buf();
+                let dest: String = plan.info.get_file_key(&local_file.filename);
 
                 async move {
                     self.upload_file(&src, &dest).await.with_context(|| {
@@ -92,18 +101,14 @@ impl CheckpointUploader for S3Uploader {
         // Upload metadata.json - not using upload_file b/c meta is in memory and must be seriealized
         let metadata_json = plan.info.metadata.to_json()?;
         let metadata_key = plan.info.get_metadata_key();
-        let put_object = self
-            .client
+        self.client
             .put_object()
             .bucket(&self.config.s3_bucket)
             .key(&metadata_key)
-            .body(metadata_json.into_bytes().into());
-
-        let result = tokio::time::timeout(self.config.s3_timeout, put_object.send())
+            .body(metadata_json.into_bytes().into())
+            .send()
             .await
-            .with_context(|| format!("S3 upload timeout for key: {metadata_key}"))?;
-
-        result.with_context(|| format!("Failed to upload metadata to S3 key: {metadata_key}"))?;
+            .with_context(|| format!("Failed to upload metadata to S3 key: {metadata_key}"))?;
 
         info!(
             "Uploaded {} files and metadata file to s3://{}/{}",

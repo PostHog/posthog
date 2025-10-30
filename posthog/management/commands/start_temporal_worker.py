@@ -28,6 +28,7 @@ from posthog.constants import (
     TASKS_TASK_QUEUE,
     TEST_TASK_QUEUE,
     VIDEO_EXPORT_TASK_QUEUE,
+    WEEKLY_DIGEST_TASK_QUEUE,
 )
 from posthog.temporal.ai import (
     ACTIVITIES as AI_ACTIVITIES,
@@ -95,6 +96,10 @@ from posthog.temporal.usage_reports import (
     ACTIVITIES as USAGE_REPORTS_ACTIVITIES,
     WORKFLOWS as USAGE_REPORTS_WORKFLOWS,
 )
+from posthog.temporal.weekly_digest import (
+    ACTIVITIES as WEEKLY_DIGEST_ACTIVITIES,
+    WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS,
+)
 
 from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
@@ -126,6 +131,7 @@ WORKFLOWS_DICT = {
     VIDEO_EXPORT_TASK_QUEUE: VIDEO_EXPORT_WORKFLOWS,
     SESSION_REPLAY_TASK_QUEUE: DELETE_RECORDING_WORKFLOWS + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
     MESSAGING_TASK_QUEUE: MESSAGING_WORKFLOWS,
+    WEEKLY_DIGEST_TASK_QUEUE: WEEKLY_DIGEST_WORKFLOWS,
 }
 ACTIVITIES_DICT = {
     SYNC_BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_ACTIVITIES,
@@ -148,6 +154,7 @@ ACTIVITIES_DICT = {
     VIDEO_EXPORT_TASK_QUEUE: VIDEO_EXPORT_ACTIVITIES,
     SESSION_REPLAY_TASK_QUEUE: DELETE_RECORDING_ACTIVITIES + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES,
     MESSAGING_TASK_QUEUE: MESSAGING_ACTIVITIES,
+    WEEKLY_DIGEST_TASK_QUEUE: WEEKLY_DIGEST_ACTIVITIES,
 }
 
 TASK_QUEUE_METRIC_PREFIXES = {
@@ -216,6 +223,12 @@ class Command(BaseCommand):
             default=settings.MAX_CONCURRENT_ACTIVITIES,
             help="Maximum number of concurrent activity tasks for this worker",
         )
+        parser.add_argument(
+            "--use-pydantic-converter",
+            action="store_true",
+            default=settings.TEMPORAL_USE_PYDANTIC_CONVERTER,
+            help="Use Pydantic data converter for this worker",
+        )
 
     def handle(self, *args, **options):
         temporal_host = options["temporal_host"]
@@ -228,6 +241,7 @@ class Command(BaseCommand):
         graceful_shutdown_timeout_seconds = options.get("graceful_shutdown_timeout_seconds", None)
         max_concurrent_workflow_tasks = options.get("max_concurrent_workflow_tasks", None)
         max_concurrent_activities = options.get("max_concurrent_activities", None)
+        use_pydantic_converter = options["use_pydantic_converter"]
 
         try:
             workflows = WORKFLOWS_DICT[task_queue]
@@ -297,6 +311,7 @@ class Command(BaseCommand):
                     max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
                     max_concurrent_activities=max_concurrent_activities,
                     metric_prefix=TASK_QUEUE_METRIC_PREFIXES.get(task_queue, None),
+                    use_pydantic_converter=use_pydantic_converter,
                 )
             )
 

@@ -16,8 +16,6 @@ common-alloc = { path = "../common/alloc" }
 capture = { path = "../capture" }
 opentelemetry-proto = { workspace = true }
 tonic = { workspace = true }
-tonic-web = { workspace = true }
-tower = { workspace = true }
 jsonwebtoken = "8.3"
 serde = { workspace = true }
 serde_derive = { workspace = true }
@@ -32,6 +30,8 @@ sha2 = "0.10.8"
 uuid = { workspace = true }
 chrono = { workspace = true }
 apache-avro = { version = "0.18.0", features = ["zstandard"] }
+prost = "0.13.5"
+bytes = { workspace = true }
 
 [dev-dependencies]
 

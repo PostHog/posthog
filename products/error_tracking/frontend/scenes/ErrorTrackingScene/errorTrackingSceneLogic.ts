@@ -1,5 +1,9 @@
+import equal from 'fast-deep-equal'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+
+import { Params } from 'scenes/sceneTypes'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { DataTableNode } from '~/queries/schema/schema-general'
@@ -10,16 +14,20 @@ import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLog
 import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
 import { bulkSelectLogic } from '../../logics/bulkSelectLogic'
 import { errorTrackingQuery } from '../../queries'
-import { ERROR_TRACKING_LISTING_RESOLUTION } from '../../utils'
+import { ERROR_TRACKING_LISTING_RESOLUTION, syncSearchParams, updateSearchParams } from '../../utils'
 import type { errorTrackingSceneLogicType } from './errorTrackingSceneLogicType'
 
 export const ERROR_TRACKING_SCENE_LOGIC_KEY = 'ErrorTrackingScene'
+
+const DEFAULT_ACTIVE_TAB = 'issues'
+
+export type ErrorTrackingSceneActiveTab = 'issues' | 'impact'
 
 export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     path(['products', 'error_tracking', 'scenes', 'ErrorTrackingScene', 'errorTrackingSceneLogic']),
 
     actions({
-        setActiveTab: (activeTab: string) => ({ activeTab }),
+        setActiveTab: (activeTab: ErrorTrackingSceneActiveTab) => ({ activeTab }),
     }),
 
     connect(() => ({
@@ -34,7 +42,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
 
     reducers({
         activeTab: [
-            'issues',
+            DEFAULT_ACTIVE_TAB as ErrorTrackingSceneActiveTab,
             {
                 setActiveTab: (_, { activeTab }) => activeTab,
             },
@@ -96,6 +104,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             () => [],
             (): SidePanelSceneContext => ({
                 activity_scope: ActivityScope.ERROR_TRACKING_ISSUE,
+                discussions_disabled: true,
             }),
         ],
     }),
@@ -103,4 +112,35 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     subscriptions(({ actions }) => ({
         query: () => actions.setSelectedIssueIds([]),
     })),
+
+    actionToUrl(({ values }) => {
+        const buildURL = (): [
+            string,
+            Params,
+            Record<string, any>,
+            {
+                replace: boolean
+            },
+        ] => {
+            return syncSearchParams(router, (params: Params) => {
+                updateSearchParams(params, 'activeTab', values.activeTab, DEFAULT_ACTIVE_TAB)
+                return params
+            })
+        }
+
+        return {
+            setActiveTab: () => buildURL(),
+        }
+    }),
+
+    urlToAction(({ actions, values }) => {
+        const urlToAction = (_: any, params: Params): void => {
+            if (params.activeTab && !equal(params.activeTab, values.activeTab)) {
+                actions.setActiveTab(params.activeTab)
+            }
+        }
+        return {
+            '*': urlToAction,
+        }
+    }),
 ])

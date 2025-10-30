@@ -52,11 +52,15 @@ pub const FLAG_REQUEST_KLUDGE_COUNTER: &str = "flags_request_kludge_total";
 pub const FLAG_POOL_UTILIZATION_GAUGE: &str = "flags_pool_utilization_ratio";
 pub const FLAG_CONNECTION_HOLD_TIME: &str = "flags_connection_hold_time_ms";
 pub const FLAG_CONNECTION_QUEUE_DEPTH_GAUGE: &str = "flags_connection_queue_depth";
-pub const FLAG_READER_TIMEOUT_WITH_WRITER_STATE_COUNTER: &str =
-    "flags_reader_timeout_with_writer_state_total";
 pub const FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER: &str =
     "flags_experience_continuity_requests_total";
 
 // Flag definitions rate limiting
 pub const FLAG_DEFINITIONS_RATE_LIMITED_COUNTER: &str = "flags_flag_definitions_rate_limited_total";
 pub const FLAG_DEFINITIONS_REQUESTS_COUNTER: &str = "flags_flag_definitions_requests_total";
+
+// Timeout tracking and classification
+pub const FLAG_ACQUIRE_TIMEOUT_COUNTER: &str = "flags_acquire_timeout_total";
+
+// Error classification
+pub const FLAG_DATABASE_ERROR_COUNTER: &str = "flags_database_error_total";

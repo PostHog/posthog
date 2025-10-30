@@ -10,7 +10,7 @@ use crate::{
 };
 use anyhow::Error;
 use axum::async_trait;
-use common_database::{get_pool_with_config, Client, CustomDatabaseError, PoolConfig};
+use common_database::{get_pool, Client, CustomDatabaseError};
 use common_redis::{Client as RedisClientTrait, RedisClient};
 use common_types::{PersonId, TeamId};
 use rand::{distributions::Alphanumeric, Rng};
@@ -38,7 +38,7 @@ pub async fn insert_new_team_in_redis(
         project_id: i64::from(id),
         name: "team".to_string(),
         api_token: token,
-        cookieless_server_hash_mode: 0,
+        cookieless_server_hash_mode: Some(0),
         timezone: "UTC".to_string(),
         ..Default::default()
     };
@@ -98,8 +98,7 @@ pub async fn setup_redis_client(url: Option<String>) -> Arc<dyn RedisClientTrait
         Some(value) => value,
         None => "redis://localhost:6379/".to_string(),
     };
-    // Use 5 second timeout for tests to handle concurrent test execution
-    let client = RedisClient::with_timeout(redis_url, Some(5000))
+    let client = RedisClient::new(redis_url)
         .await
         .expect("Failed to create redis client");
     Arc::new(client)
@@ -140,27 +139,8 @@ pub fn create_flag_from_json(json_value: Option<String>) -> Vec<FeatureFlag> {
 
 pub async fn setup_pg_reader_client(config: Option<&Config>) -> Arc<dyn Client + Send + Sync> {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
-    let pool_config = PoolConfig {
-        max_connections: config.max_pg_connections,
-        min_connections: config.min_pg_connections,
-        acquire_timeout: std::time::Duration::from_secs(config.acquire_timeout_secs),
-        idle_timeout: if config.idle_timeout_secs > 0 {
-            Some(std::time::Duration::from_secs(config.idle_timeout_secs))
-        } else {
-            None
-        },
-        max_lifetime: if config.max_lifetime_secs > 0 {
-            Some(std::time::Duration::from_secs(config.max_lifetime_secs))
-        } else {
-            None
-        },
-        test_before_acquire: *config.test_before_acquire,
-        statement_timeout: Some(std::time::Duration::from_millis(
-            config.statement_timeout_ms,
-        )),
-    };
     Arc::new(
-        get_pool_with_config(&config.read_database_url, pool_config)
+        get_pool(&config.read_database_url, config.max_pg_connections)
             .await
             .expect("Failed to create Postgres client"),
     )
@@ -168,27 +148,8 @@ pub async fn setup_pg_reader_client(config: Option<&Config>) -> Arc<dyn Client +
 
 pub async fn setup_pg_writer_client(config: Option<&Config>) -> Arc<dyn Client + Send + Sync> {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
-    let pool_config = PoolConfig {
-        max_connections: config.max_pg_connections_write,
-        min_connections: config.min_pg_connections_write,
-        acquire_timeout: std::time::Duration::from_secs(config.acquire_timeout_secs_write),
-        idle_timeout: if config.idle_timeout_secs > 0 {
-            Some(std::time::Duration::from_secs(config.idle_timeout_secs))
-        } else {
-            None
-        },
-        max_lifetime: if config.max_lifetime_secs > 0 {
-            Some(std::time::Duration::from_secs(config.max_lifetime_secs))
-        } else {
-            None
-        },
-        test_before_acquire: *config.test_before_acquire,
-        statement_timeout: Some(std::time::Duration::from_millis(
-            config.statement_timeout_ms,
-        )),
-    };
     Arc::new(
-        get_pool_with_config(&config.write_database_url, pool_config)
+        get_pool(&config.write_database_url, config.max_pg_connections)
             .await
             .expect("Failed to create Postgres client"),
     )
@@ -201,38 +162,18 @@ pub async fn setup_dual_pg_readers(
 ) -> (Arc<dyn Client + Send + Sync>, Arc<dyn Client + Send + Sync>) {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
 
-    let read_pool_config = PoolConfig {
-        max_connections: config.max_pg_connections,
-        min_connections: config.min_pg_connections,
-        acquire_timeout: std::time::Duration::from_secs(config.acquire_timeout_secs),
-        idle_timeout: if config.idle_timeout_secs > 0 {
-            Some(std::time::Duration::from_secs(config.idle_timeout_secs))
-        } else {
-            None
-        },
-        max_lifetime: if config.max_lifetime_secs > 0 {
-            Some(std::time::Duration::from_secs(config.max_lifetime_secs))
-        } else {
-            None
-        },
-        test_before_acquire: *config.test_before_acquire,
-        statement_timeout: Some(std::time::Duration::from_millis(
-            config.statement_timeout_ms,
-        )),
-    };
-
     if config.is_persons_db_routing_enabled() {
         // Separate persons and non-persons databases
         let persons_reader = Arc::new(
-            get_pool_with_config(
+            get_pool(
                 &config.get_persons_read_database_url(),
-                read_pool_config.clone(),
+                config.max_pg_connections,
             )
             .await
             .expect("Failed to create Postgres persons reader client"),
         );
         let non_persons_reader = Arc::new(
-            get_pool_with_config(&config.read_database_url, read_pool_config)
+            get_pool(&config.read_database_url, config.max_pg_connections)
                 .await
                 .expect("Failed to create Postgres client"),
         );
@@ -240,7 +181,7 @@ pub async fn setup_dual_pg_readers(
     } else {
         // Same database for both
         let client = Arc::new(
-            get_pool_with_config(&config.read_database_url, read_pool_config)
+            get_pool(&config.read_database_url, config.max_pg_connections)
                 .await
                 .expect("Failed to create Postgres client"),
         );
@@ -255,38 +196,18 @@ pub async fn setup_dual_pg_writers(
 ) -> (Arc<dyn Client + Send + Sync>, Arc<dyn Client + Send + Sync>) {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
 
-    let write_pool_config = PoolConfig {
-        max_connections: config.max_pg_connections_write,
-        min_connections: config.min_pg_connections_write,
-        acquire_timeout: std::time::Duration::from_secs(config.acquire_timeout_secs_write),
-        idle_timeout: if config.idle_timeout_secs > 0 {
-            Some(std::time::Duration::from_secs(config.idle_timeout_secs))
-        } else {
-            None
-        },
-        max_lifetime: if config.max_lifetime_secs > 0 {
-            Some(std::time::Duration::from_secs(config.max_lifetime_secs))
-        } else {
-            None
-        },
-        test_before_acquire: *config.test_before_acquire,
-        statement_timeout: Some(std::time::Duration::from_millis(
-            config.statement_timeout_ms,
-        )),
-    };
-
     if config.is_persons_db_routing_enabled() {
         // Separate persons and non-persons databases
         let persons_writer = Arc::new(
-            get_pool_with_config(
+            get_pool(
                 &config.get_persons_write_database_url(),
-                write_pool_config.clone(),
+                config.max_pg_connections,
             )
             .await
             .expect("Failed to create Postgres persons writer client"),
         );
         let non_persons_writer = Arc::new(
-            get_pool_with_config(&config.write_database_url, write_pool_config)
+            get_pool(&config.write_database_url, config.max_pg_connections)
                 .await
                 .expect("Failed to create Postgres client"),
         );
@@ -294,7 +215,7 @@ pub async fn setup_dual_pg_writers(
     } else {
         // Same database for both
         let client = Arc::new(
-            get_pool_with_config(&config.write_database_url, write_pool_config)
+            get_pool(&config.write_database_url, config.max_pg_connections)
                 .await
                 .expect("Failed to create Postgres client"),
         );
@@ -400,7 +321,7 @@ pub async fn insert_new_team_in_pg(
         project_id: id as i64,
         name: "Test Team".to_string(),
         api_token: token.clone(),
-        cookieless_server_hash_mode: 0,
+        cookieless_server_hash_mode: Some(0),
         timezone: "UTC".to_string(),
         ..Default::default()
     };
@@ -427,7 +348,7 @@ pub async fn insert_new_team_in_pg(
         r#"INSERT INTO posthog_team
         (id, uuid, organization_id, project_id, api_token, name, created_at, updated_at, app_urls, anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control, test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage, event_properties, event_properties_with_usage, event_properties_numerical, cookieless_server_hash_mode, base_currency, session_recording_retention_period, web_analytics_pre_aggregated_tables_enabled) VALUES
         ($1, $2, $3::uuid, $4, $5, $6, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '["data-attr"]', false, false, '[]', '[]', '[]', '[]', '[]', $7, 'USD', '30d', false)"#
-    ).bind(team.id).bind(uuid).bind(org_id).bind(team.project_id).bind(&team.api_token).bind(&team.name).bind(team.cookieless_server_hash_mode).execute(&mut *non_persons_conn).await?;
+    ).bind(team.id).bind(uuid).bind(org_id).bind(team.project_id).bind(&team.api_token).bind(&team.name).bind(team.cookieless_server_hash_mode.unwrap_or(0)).execute(&mut *non_persons_conn).await?;
     assert_eq!(res.rows_affected(), 1);
 
     // Insert group type mappings
@@ -871,7 +792,7 @@ pub struct TestContext {
     pub persons_writer: Arc<dyn Client + Send + Sync>,
     pub non_persons_reader: Arc<dyn Client + Send + Sync>,
     pub non_persons_writer: Arc<dyn Client + Send + Sync>,
-    pub config: Config,
+    config: Config,
 }
 
 impl TestContext {
@@ -996,7 +917,6 @@ impl TestContext {
             self.persons_reader.clone(),
             team_id,
             distinct_ids,
-            &self.config,
         )
         .await
     }
@@ -1203,7 +1123,7 @@ impl TestContext {
             project_id: id as i64,
             name: "Test Team".to_string(),
             api_token: public_token.clone(),
-            cookieless_server_hash_mode: 0,
+            cookieless_server_hash_mode: Some(0),
             timezone: "UTC".to_string(),
             ..Default::default()
         };
@@ -1259,7 +1179,7 @@ impl TestContext {
 
         query = query
             .bind(&team.name)
-            .bind(team.cookieless_server_hash_mode);
+            .bind(team.cookieless_server_hash_mode.unwrap_or(0));
 
         let res = query.execute(&mut *conn).await?;
         assert_eq!(res.rows_affected(), 1);

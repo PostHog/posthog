@@ -8,7 +8,7 @@ This module defines:
 """
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Union
 from zoneinfo import ZoneInfo
 
@@ -211,10 +211,13 @@ def _get_experiment_saved_metrics_timeseries(context: dagster.SensorEvaluationCo
     experiment_saved_metrics = []
 
     # Query experiments that are eligible for timeseries analysis (running experiments only)
+    # Exclude experiments running for longer than 3 months to avoid continuously recalculating
+    # likely stale experiments. Users can still manually backfill those.
     experiments = Experiment.objects.filter(
         deleted=False,
         stats_config__timeseries=True,
         start_date__isnull=False,
+        start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=90),
         end_date__isnull=True,
     ).prefetch_related("experimenttosavedmetric_set__saved_metric")
 

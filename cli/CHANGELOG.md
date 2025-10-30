@@ -1,5 +1,26 @@
 # posthog-cli
 
+# 0.5.7
+
+- Fix bug where files point to the same sourcemap
+
+# 0.5.6
+
+- Adding experimental support for hermes sourcemaps
+
+# 0.5.5
+
+- When running inject command multiple times, we only update chunk ids when releases are different
+
+# 0.5.4
+
+- Added no fail flag to disable non-zero exit codes on errors.
+
+# 0.5.3
+
+- Add support for ignoring public path prefixes appended by bundlers to sourceMappingURLs when searching for sourcemaps
+  associated with minified source code. Does not modify the sourceMappingURL as published.
+
 # 0.5.2
 
 - Fixes a bug where chunks which shared a sourcemap were mishandled, leading to an error during upload in recent versions, and a silent

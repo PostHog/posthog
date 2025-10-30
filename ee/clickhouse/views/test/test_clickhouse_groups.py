@@ -1491,6 +1491,19 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         self.assertEqual(list_response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(list_response.json()), 0)
 
+    def test_create_detail_dashboard(self):
+        GroupTypeMapping.objects.create(
+            team=self.team, project=self.project, group_type="organization", group_type_index=0
+        )
+
+        response = self.client.put(self.url + "/create_detail_dashboard", {"group_type_index": 0})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["group_type"], "organization")
+        self.assertEqual(data["group_type_index"], 0)
+        self.assertIsNotNone(data["detail_dashboard"])
+
 
 class GroupUsageMetricViewSetTestCase(APIBaseTest):
     def setUp(self):
