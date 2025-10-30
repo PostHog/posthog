@@ -357,26 +357,34 @@ export class PostgresPersonRepository
             const distinctIdVersionStartIndex = columns.length + 1
             const distinctIdStartIndex = distinctIdVersionStartIndex + distinctIds.length
 
+            // Build the distinct IDs CTE with a single INSERT statement for all distinct IDs
+            // This is more efficient than multiple separate CTEs as it performs a single batched insert
+            const distinctIdsCTE =
+                distinctIds.length > 0
+                    ? `, distinct_ids AS (
+                            INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                            VALUES ${distinctIds
+                                .map(
+                                    // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in
+                                    // `addDistinctId`
+                                    (_, index) => `(
+                                $${distinctIdStartIndex + index},
+                                (SELECT id FROM inserted_person),
+                                $${teamIdParamIndex},
+                                $${distinctIdVersionStartIndex + index}
+                            )`
+                                )
+                                .join(', ')}
+                        )`
+                    : ''
+
             const query =
                 `WITH inserted_person AS (
                         INSERT INTO posthog_person (${columns.join(', ')})
                         VALUES (${valuePlaceholders})
                         RETURNING *
                     )` +
-                distinctIds
-                    .map(
-                        // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in
-                        // `addDistinctId`
-                        (_, index) => `, distinct_id_${index} AS (
-                            INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
-                            VALUES (
-                                $${distinctIdStartIndex + index},
-                                (SELECT id FROM inserted_person),
-                                $${teamIdParamIndex},
-                                $${distinctIdVersionStartIndex + index})
-                            )`
-                    )
-                    .join('') +
+                distinctIdsCTE +
                 ` SELECT * FROM inserted_person;`
 
             const { rows } = await this.postgres.query<RawPerson>(
