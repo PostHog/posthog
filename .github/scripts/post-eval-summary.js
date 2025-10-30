@@ -1,6 +1,6 @@
 // Export for use with actions/github-script
 
-const DIFF_THRESHOLD = 0.01
+const DIFF_THRESHOLD = 0.02
 
 module.exports = ({ github, context, fs }) => {
     // Read the eval results
