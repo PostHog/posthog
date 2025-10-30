@@ -423,10 +423,6 @@ tools:
         bin_script: create-notebook-node.sh
         description: Create a new NotebookNode file and update types and editor references
         hidden: true
-    start:frontend:typegen:
-        bin_script: start-frontend-typegen
-        description: 'TODO: add description for start-frontend-typegen'
-        hidden: true
 utilities:
     utilities:posthog-worktree:
         bin_script: posthog-worktree
