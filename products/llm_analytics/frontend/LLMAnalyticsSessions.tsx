@@ -64,10 +64,10 @@ export function LLMAnalyticsSessions(): JSX.Element {
                 try {
                     const response = await api.query(tracesQuerySource)
                     if (response.results) {
-                        setSessionTraces({
-                            ...sessionTraces,
+                        setSessionTraces((prev) => ({
+                            ...prev,
                             [sessionId]: response.results,
-                        })
+                        }))
                     }
                 } catch (error) {
                     console.error('Error loading traces for session:', error)
@@ -136,10 +136,10 @@ export function LLMAnalyticsSessions(): JSX.Element {
                 try {
                     const response = await api.query(traceQuery)
                     if (response.results && response.results[0]) {
-                        setFullTraces({
-                            ...fullTraces,
+                        setFullTraces((prev) => ({
+                            ...prev,
                             [traceId]: response.results[0],
-                        })
+                        }))
                     }
                 } catch (error) {
                     console.error('Error loading full trace:', error)
