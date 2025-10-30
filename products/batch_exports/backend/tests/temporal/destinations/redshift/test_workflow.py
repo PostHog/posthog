@@ -442,7 +442,7 @@ async def test_redshift_export_workflow_handles_undefined_function_error(
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
                 activity_environment.client,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 workflows=[RedshiftBatchExportWorkflow],
                 activities=[
                     start_batch_export_run,
@@ -459,7 +459,7 @@ async def test_redshift_export_workflow_handles_undefined_function_error(
                         RedshiftBatchExportWorkflow.run,
                         inputs,
                         id=workflow_id,
-                        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=1),
                         execution_timeout=dt.timedelta(seconds=20),
                     )
@@ -510,7 +510,7 @@ async def test_redshift_export_workflow_handles_undefined_function_error(
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
                 activity_environment.client,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 workflows=[RedshiftBatchExportWorkflow],
                 activities=[
                     start_batch_export_run,
@@ -527,7 +527,7 @@ async def test_redshift_export_workflow_handles_undefined_function_error(
                         RedshiftBatchExportWorkflow.run,
                         inputs,
                         id=workflow_id,
-                        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=1),
                         execution_timeout=dt.timedelta(seconds=20),
                     )
