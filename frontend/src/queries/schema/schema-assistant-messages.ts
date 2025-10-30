@@ -76,8 +76,8 @@ export interface AssistantForm {
 
 export interface AssistantMessageMetadata {
     form?: AssistantForm
+    /** Thinking blocks, as well as server_tool_use and web_search_tool_result ones. Anthropic format of blocks. */
     thinking?: Record<string, unknown>[]
-    web_search_results?: Record<string, unknown>[]
 }
 
 export interface AssistantToolCall {
@@ -96,8 +96,6 @@ export interface AssistantMessage extends BaseAssistantMessage {
     content: string
     meta?: AssistantMessageMetadata
     tool_calls?: AssistantToolCall[]
-    /** Tools fully handled within the LLM provider API, like web search. */
-    server_tool_calls?: AssistantToolCall[]
 }
 
 export interface ReasoningMessage extends BaseAssistantMessage {

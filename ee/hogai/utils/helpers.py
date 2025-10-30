@@ -40,6 +40,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
+from ee.hogai.utils.anthropic import SUPPORTED_ANTHROPIC_BLOCKS
 from ee.hogai.utils.types import AssistantMessageUnion
 from ee.hogai.utils.types.base import AssistantDispatcherEvent
 
@@ -251,7 +252,7 @@ def extract_thinking_from_ai_message(response: BaseMessage) -> list[dict[str, An
     for content in response.content:
         # Anthropic style reasoning
         if isinstance(content, dict) and "type" in content:
-            if content["type"] in ("thinking", "redacted_thinking"):
+            if content["type"] in SUPPORTED_ANTHROPIC_BLOCKS:
                 thinking.append(content)
     if response.additional_kwargs.get("reasoning") and (
         summary := response.additional_kwargs["reasoning"].get("summary")
@@ -271,16 +272,15 @@ def normalize_ai_message(message: AIMessage | AIMessageChunk) -> list[AssistantM
         content="",
         id=None if isinstance(message, AIMessageChunk) else str(uuid4()),
         tool_calls=[],
-        server_tool_calls=[],
-        meta=AssistantMessageMetadata(thinking=[], web_search_results=[]),
+        meta=AssistantMessageMetadata(thinking=[]),
     )
     if isinstance(message.content, list):
         messages: list[AssistantMessage] = [_create_blank_assistant_message()]
         for content_item in message.content:
-            if messages[-1].server_tool_calls:
-                # Server tool use necessisates starting a new AssistantMessage for correct presentation
-                messages.append(_create_blank_assistant_message())
             if isinstance(content_item, dict) and "type" in content_item:
+                if content_item["type"] == "server_tool_use":
+                    # Server tool use requires starting a new AssistantMessage for correct presentation of the subsequent output
+                    messages.append(_create_blank_assistant_message())
                 if content_item["type"] == "text":
                     if "text" in content_item:
                         messages[-1].content += content_item["text"]
@@ -289,22 +289,16 @@ def normalize_ai_message(message: AIMessage | AIMessageChunk) -> list[AssistantM
                             f" [({urlparse(citation['url']).netloc})]({citation['url']})"  # Must have space in front
                             for citation in content_item["citations"]
                         )
-                if content_item["type"] in ("thinking", "redacted_thinking"):
+                if content_item["type"] in SUPPORTED_ANTHROPIC_BLOCKS:
+                    # All of these blocks must be preserved in their original order for Anthropic interleaved thinking
                     messages[-1].meta.thinking.append(content_item)
-                if content_item["type"] == "server_tool_use":
-                    try:
-                        args_parsed = json.loads(content_item["partial_json"])  # Not provided by LangChain
-                    except (KeyError, json.JSONDecodeError):
-                        args_parsed = {}
-                    messages[-1].server_tool_calls.append(
-                        AssistantToolCall(
-                            id=content_item["id"],
-                            name=content_item["name"],
-                            args=args_parsed,
-                        )
-                    )
-                if content_item["type"] == "web_search_tool_result":
-                    messages[-1].meta.web_search_results.append(content_item)
+                    if content_item["type"] == "server_tool_use" and content_item.get("partial_json"):
+                        try:
+                            # Weirdly server tool uses in LangChain don't have `input`, even when they have the full `partial_json`
+                            messages[-1].meta.thinking[-1]["input"] = json.loads(content_item["partial_json"])
+                        except json.JSONDecodeError:
+                            pass
+
             elif isinstance(content_item, str):
                 messages[-1].content += content_item
     else:
@@ -335,11 +329,6 @@ def normalize_ai_message(message: AIMessage | AIMessageChunk) -> list[AssistantM
             for tool_call in message.tool_calls
         ]
     messages[-1].tool_calls = tool_calls
-
-    # Clean up meta field: set to None if all lists are empty
-    for msg in messages:
-        if msg.meta and not msg.meta.thinking and not msg.meta.web_search_results and not msg.meta.form:
-            msg.meta = None
 
     return messages
 

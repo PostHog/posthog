@@ -50,7 +50,7 @@ import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
-import { isAssistantMessage, isAssistantMessageBlank, isAssistantToolCallMessage, isHumanMessage, isNotebookUpdateMessage } from './utils'
+import { isAssistantMessage, isAssistantToolCallMessage, isHumanMessage, isNotebookUpdateMessage } from './utils'
 import { getRandomThinkingMessage } from './utils/thinkingMessages'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
@@ -568,11 +568,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                     // Don't add thinking message if:
                     // 1. There are tool calls in progress, OR
-                    // 2. The last message is a streaming ASSISTANT message (no id) - it will show its own thinking/content
+                    // 2. The last message is a streaming ASSISTANT message (no ID or it starts with 'temp-') - it will show its own thinking/content
                     // Note: Human messages should always trigger thinking loader, only assistant messages can be "streaming"
                     // Note: NotebookUpdateMessages do stream, but they are not added to the thread until they have an id
                     const lastMessageIsStreamingAssistant =
-                        finalMessageSoFar && isAssistantMessage(finalMessageSoFar) && !finalMessageSoFar.id
+                        finalMessageSoFar &&
+                        isAssistantMessage(finalMessageSoFar) &&
+                        (!finalMessageSoFar.id || finalMessageSoFar.id.startsWith('temp-'))
                     const shouldAddThinkingMessage =
                         toolCallsInProgress.length === 0 && !lastMessageIsStreamingAssistant
 
@@ -754,20 +756,6 @@ function enhanceThreadToolCalls(
                 }
             })
         }
-        if (isAssistantMessage(message) && message.server_tool_calls?.length) {
-            message.server_tool_calls = message.server_tool_calls.map<EnhancedToolCall>((toolCall) => {
-                const isCompleted = !isFinalGroup || messageIndex < group.length - 1
-                const isFailed = !isCompleted && !isLoading
-                return {
-                    ...toolCall,
-                    status: isFailed
-                        ? TaskExecutionStatus.Failed
-                        : isCompleted
-                          ? TaskExecutionStatus.Completed
-                          : TaskExecutionStatus.InProgress,
-                }
-            })
-        }
         return message
     })
 }
@@ -845,31 +833,27 @@ async function onEventImplementation(
                 ? values.threadRaw.findIndex((msg) => msg.id === parsedResponse.id)
                 : -1
 
-            const lastCompletedMessageIndex = values.threadRaw.findLastIndex((msg) => msg.status === 'completed')
+            const isLoading = !parsedResponse.id || parsedResponse.id.startsWith('temp-')
             if (existingMessageIndex >= 0) {
-                // Replace existing message with same ID
+                // When streaming a message with an already-present ID, we simply replace it
+                // (primarily when streaming in-progress messages with a temp- ID)
                 actions.replaceMessage(existingMessageIndex, {
                     ...parsedResponse,
-                    status: !parsedResponse.id ? 'loading' : 'completed',
+                    status: isLoading ? 'loading' : 'completed',
                 })
-            } else if (
-                // Nice property that for an empty threadRaw `values.threadRaw.length - 1` is -1, so also works
-                lastCompletedMessageIndex === values.threadRaw.length - 1 ||
-                // After a server tool call, the next message must be blank - then we move onto the new post-tool message
-                // (example: web search, where the post-search message shows up as distinct from the one calling search)
-                (isAssistantMessage(parsedResponse) && isAssistantMessageBlank(parsedResponse))
-            ) {
+            } else if (isLoading) {
+                // When a new temp message is streamed for the first time, we append it
                 actions.addMessage({
                     ...parsedResponse,
-                    status: !parsedResponse.id ? 'loading' : 'completed',
+                    status: 'loading',
                 })
-            } else if (parsedResponse) {
-                // When streaming incomplete messages (ID-less), we always replace the last message so far.
-                // When we get the completed ones, we replace from the last completed message to obtain the final state.
-                const indexToReplaceAt = parsedResponse.id ? lastCompletedMessageIndex + 1 : values.threadRaw.length - 1
-                actions.replaceMessage(indexToReplaceAt, {
+            } else {
+                // When we get the completed messages at the end of a generation,
+                // we replace from the last completed message to arrive at the final state
+                const lastCompletedMessageIndex = values.threadRaw.findLastIndex((msg) => msg.status === 'completed')
+                actions.replaceMessage(lastCompletedMessageIndex + 1, {
                     ...parsedResponse,
-                    status: !parsedResponse.id ? 'loading' : 'completed',
+                    status: 'completed',
                 })
             }
         }

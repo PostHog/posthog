@@ -68,15 +68,6 @@ export function isUpdateMessage(message: RootAssistantMessage | undefined | null
     return message?.type === AssistantMessageType.Update
 }
 
-export function isAssistantMessageBlank(message: AssistantMessage): boolean {
-    return (
-        message.content === '' &&
-        message.tool_calls?.length === 0 &&
-        message.server_tool_calls?.length === 0 &&
-        message.meta?.thinking?.length === 0
-    )
-}
-
 export function castAssistantQuery(
     query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery | null
 ): TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery {

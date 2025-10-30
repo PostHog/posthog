@@ -3503,8 +3503,12 @@ class AssistantMessageMetadata(BaseModel):
         extra="forbid",
     )
     form: Optional[AssistantForm] = None
-    thinking: Optional[list[dict[str, Any]]] = None
-    web_search_results: Optional[list[dict[str, Any]]] = None
+    thinking: Optional[list[dict[str, Any]]] = Field(
+        default=None,
+        description=(
+            "Thinking blocks, as well as server_tool_use and web_search_tool_result ones. Anthropic format of blocks."
+        ),
+    )
 
 
 class AssistantNumericValuePropertyFilter(BaseModel):
@@ -5926,9 +5930,6 @@ class AssistantMessage(BaseModel):
     id: Optional[str] = None
     meta: Optional[AssistantMessageMetadata] = None
     parent_tool_call_id: Optional[str] = None
-    server_tool_calls: Optional[list[AssistantToolCall]] = Field(
-        default=None, description="Tools fully handled within the LLM provider API, like web search."
-    )
     tool_calls: Optional[list[AssistantToolCall]] = None
     type: Literal["ai"] = "ai"
 

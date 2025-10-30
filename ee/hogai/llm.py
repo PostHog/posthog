@@ -6,7 +6,7 @@ from django.conf import settings
 import pytz
 from asgiref.sync import sync_to_async
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
+from langchain_core.messages import BaseMessage, SystemMessage
 from langchain_core.outputs import LLMResult
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langchain_openai import ChatOpenAI
@@ -165,7 +165,6 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
     ) -> LLMResult:
         project_org_user_variables = self._get_project_org_user_variables()
         messages = self._enrich_messages(messages, project_org_user_variables)
-        messages = self._recombine_messages_with_server_tool_calls(messages)
         return super().generate(messages, *args, **kwargs)
 
     async def agenerate(
@@ -176,29 +175,4 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
     ) -> LLMResult:
         project_org_user_variables = await self._aget_project_org_user_variables()
         messages = self._enrich_messages(messages, project_org_user_variables)
-        messages = self._recombine_messages_with_server_tool_calls(messages)
         return await super().agenerate(messages, *args, **kwargs)
-
-    def _recombine_messages_with_server_tool_calls(self, messages: list[list[BaseMessage]]) -> list[list[BaseMessage]]:
-        """This recombines assistant messages with Anthropic server tool calls, like web_search.
-
-        This is because in converting the Anthropic messages to the OpenAI format with str `content`,
-        we split messages whenever there is a web search call, so that post-search generation is a separate message
-        in the UI. But Anthropic doesn't like this, as this way we also split the interleaved thinking of one original
-        message into multiple message - because thinking is signed, this is verboten. So we need to recombine."""
-        recombined_messages: list[list[BaseMessage]] = []
-        for message_sublist in messages:
-            recombined_message_sublist: list[BaseMessage] = []
-            for msg in message_sublist:
-                if (
-                    isinstance(msg, AIMessage)
-                    and recombined_message_sublist
-                    and isinstance(recombined_message_sublist[-1], AIMessage)
-                ):
-                    recombined_message_sublist[-1].content += msg.content
-                    recombined_message_sublist[-1].tool_calls.extend(msg.tool_calls)
-                else:
-                    recombined_message_sublist.append(msg)
-            recombined_messages.append(recombined_message_sublist)
-
-        return recombined_messages

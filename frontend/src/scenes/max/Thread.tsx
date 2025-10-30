@@ -234,35 +234,53 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                             (message.tool_calls && message.tool_calls.length > 0)
                         )
 
-                        let thinkingElement = null
-                        const thinkingContent = getThinkingMessageFromResponse(message)
-                        if (thinkingContent) {
+                        let thinkingElements = null
+                        const thinkingBlocks = getThinkingMessageFromResponse(message)
+                        if (thinkingBlocks) {
                             // Thinking should be collapsed (show "Thought") if:
                             // 1. The thread has finished streaming (thinking might be at the end), OR
                             // 1. The message has content or tool_calls, OR
                             // 2. The message is not the last in group (there are subsequent messages)
                             // Otherwise, keep expanded to show active thinking progress
                             const isThinkingComplete = !threadLoading || hasContent || !isLastInGroup
-                            thinkingElement = (
-                                <ReasoningAnswer
-                                    key={`${key}-thinking`}
-                                    content={thinkingContent}
-                                    id={message.id || key}
-                                    completed={isThinkingComplete}
-                                    showCompletionIcon={false}
-                                />
+                            thinkingElements = thinkingBlocks.map((block, index) =>
+                                block.type === 'thinking' ? (
+                                    <ReasoningAnswer
+                                        key={`thinking-${index}`}
+                                        content={block.thinking}
+                                        id={message.id || key}
+                                        completed={isThinkingComplete}
+                                        showCompletionIcon={false}
+                                    />
+                                ) : (
+                                    <ToolCallsAnswer
+                                        key={`thinking-${index}`}
+                                        toolCalls={[
+                                            {
+                                                type: 'tool_call',
+                                                id: block.id,
+                                                name: block.name,
+                                                args: block.input,
+                                                status: block.results
+                                                    ? ExecutionStatus.Completed
+                                                    : ExecutionStatus.InProgress,
+                                                updates: block.results
+                                                    ? block.results.map((result) => `[${result.title}](${result.url})`)
+                                                    : [],
+                                            },
+                                        ]}
+                                    />
+                                )
                             )
                         }
 
                         // Render tool calls if present (tool_calls are enhanced with status by threadGrouped selector)
-                        const allToolCalls: EnhancedToolCall[] = [
-                            ...((message.tool_calls || []) as EnhancedToolCall[]),
-                            ...((message.server_tool_calls || []) as EnhancedToolCall[]),
-                        ]
-                        const toolCallElements =
-                            allToolCalls.length > 0 ? (
-                                <ToolCallsAnswer key={`${key}-tools`} toolCalls={allToolCalls} />
-                            ) : null
+                        const toolCallElements = message.tool_calls?.length ? (
+                            <ToolCallsAnswer
+                                key={`${key}-tools`}
+                                toolCalls={message.tool_calls as EnhancedToolCall[]}
+                            />
+                        ) : null
 
                         // Render main text content
                         const textElement = message.content ? (
@@ -297,7 +315,7 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
 
                         return (
                             <div key={key} className="flex flex-col gap-1.5">
-                                {thinkingElement}
+                                {thinkingElements}
                                 {textElement}
                                 {toolCallElements}
                                 {actionsElement}

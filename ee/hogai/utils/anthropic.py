@@ -8,10 +8,13 @@ from posthog.schema import AssistantMessage, AssistantToolCallMessage, ContextMe
 
 from ee.hogai.utils.types.base import AssistantMessageUnion
 
+# The blocks below MUST be preserved as in the original Anthropic responses, in order for thinking signatures to match up
+SUPPORTED_ANTHROPIC_BLOCKS = ("thinking", "redacted_thinking", "server_tool_use", "web_search_tool_result")
+
 
 def get_anthropic_thinking_from_assistant_message(message: AssistantMessage) -> list[dict[str, Any]]:
     if message.meta and message.meta.thinking:
-        return [item for item in message.meta.thinking if item["type"] in ("thinking", "redacted_thinking")]
+        return [item for item in message.meta.thinking if item["type"] in SUPPORTED_ANTHROPIC_BLOCKS]
     return []
 
 
@@ -44,16 +47,6 @@ def convert_assistant_message_to_anthropic_message(
     content = get_anthropic_thinking_from_assistant_message(message)
     if message.content:
         content.append({"type": "text", "text": message.content})
-
-    # Add web search calls and results if present
-    # This is critica for interleaved thinking, where throws an error if we drop any intermediate block
-    if message.server_tool_calls:
-        content.extend(
-            {"type": "server_tool_use", "name": tool.name, "id": tool.id, "input": tool.args}
-            for tool in message.server_tool_calls
-        )
-    if message.meta and message.meta.web_search_results:
-        content.extend(message.meta.web_search_results)
 
     # Filter out tool calls without a tool response, so the completion doesn't fail.
     tool_calls = [tool for tool in (message.model_dump()["tool_calls"] or []) if tool["id"] in tool_result_map]

@@ -70,9 +70,10 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'> | 'we
         icon: <IconGlobe />,
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
-                return `Searched the web for **${toolCall.args.query}**`
+                // The args won't be fully streamed initially, so we need to check if `query` is present
+                return toolCall.args.query ? `Searched the web for **${toolCall.args.query}**` : 'Searched the web'
             }
-            return `Searching the web for **${toolCall.args.query}**...`
+            return toolCall.args.query ? `Searching the web for **${toolCall.args.query}**...` : 'Searching the web...'
         },
     },
     session_summarization: {

@@ -1501,13 +1501,6 @@
                 "parent_tool_call_id": {
                     "type": "string"
                 },
-                "server_tool_calls": {
-                    "description": "Tools fully handled within the LLM provider API, like web search.",
-                    "items": {
-                        "$ref": "#/definitions/AssistantToolCall"
-                    },
-                    "type": "array"
-                },
                 "tool_calls": {
                     "items": {
                         "$ref": "#/definitions/AssistantToolCall"
@@ -1529,13 +1522,7 @@
                     "$ref": "#/definitions/AssistantForm"
                 },
                 "thinking": {
-                    "items": {
-                        "additionalProperties": {},
-                        "type": "object"
-                    },
-                    "type": "array"
-                },
-                "web_search_results": {
+                    "description": "Thinking blocks, as well as server_tool_use and web_search_tool_result ones. Anthropic format of blocks.",
                     "items": {
                         "additionalProperties": {},
                         "type": "object"
