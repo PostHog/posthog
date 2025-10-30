@@ -70,11 +70,11 @@ export interface QueryTile {
 export interface LLMAnalyticsLogicProps {
     logicKey?: string
     tabId?: string
-}
-
-export interface GroupReducerProps {
-    groupKey: string
-    groupTypeIndex: number
+    personId?: string
+    group?: {
+        groupKey: string
+        groupTypeIndex: number
+    }
 }
 
 /**
@@ -112,8 +112,6 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         toggleGenerationExpanded: (uuid: string, traceId: string) => ({ uuid, traceId }),
         setLoadedTrace: (traceId: string, trace: LLMTrace) => ({ traceId, trace }),
         clearExpandedGenerations: true,
-        setPersonId: (personId: string) => ({ personId }),
-        setGroup: (group: GroupReducerProps) => ({ group }),
     }),
 
     reducers({
@@ -221,20 +219,6 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 setDates: () => ({}),
                 setPropertyFilters: () => ({}),
                 setShouldFilterTestAccounts: () => ({}),
-            },
-        ],
-
-        personId: [
-            null as string | null,
-            {
-                setPersonId: (_, { personId }) => personId,
-            },
-        ],
-
-        group: [
-            null as GroupReducerProps | null,
-            {
-                setGroup: (_, { group }) => group,
             },
         ],
     }),
@@ -709,8 +693,8 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 s.dateFilter,
                 s.shouldFilterTestAccounts,
                 s.propertyFilters,
-                s.personId,
-                s.group,
+                (_, props) => props.personId,
+                (_, props) => props.group,
                 groupsModel.selectors.groupsTaxonomicTypes,
                 featureFlagLogic.selectors.featureFlags,
             ],
@@ -732,7 +716,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     },
                     filterTestAccounts: shouldFilterTestAccounts ?? false,
                     properties: propertyFilters,
-                    personId,
+                    personId: personId ?? undefined,
                     groupKey: group?.groupKey,
                     groupTypeIndex: group?.groupTypeIndex,
                 },
