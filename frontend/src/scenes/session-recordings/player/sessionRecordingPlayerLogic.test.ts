@@ -558,29 +558,33 @@ describe('sessionRecordingPlayerLogic', () => {
     })
 
     describe('exporting recording to file', () => {
-        it('pauses playback when export is triggered', async () => {
+        it('waits for recording to be fully loaded before exporting', async () => {
             silenceKeaLoadersErrors()
 
             logic = sessionRecordingPlayerLogic({
                 sessionRecordingId: '2',
                 playerKey: 'test',
-                autoPlay: true,
             })
             logic.mount()
 
             await expectLogic(logic).toDispatchActions([
                 sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
-                'setPlay',
             ])
+
+            // Mock fullyLoaded to be true so export completes
+            Object.defineProperty(logic.values.sessionPlayerData, 'fullyLoaded', {
+                value: true,
+                writable: true,
+            })
 
             const endTime = logic.values.sessionPlayerData.end?.valueOf()
             expect(endTime).toBeTruthy()
 
-            // Trigger export without waiting for it to complete (it will wait for fullyLoaded in real usage)
-            logic.actions.exportRecordingToFile()
-
-            // Just verify setPause is called immediately
-            await expectLogic(logic).toDispatchActions(['setPause'])
+            await expectLogic(logic, () => {
+                logic.actions.exportRecordingToFile()
+            })
+                .toDispatchActions(['exportRecordingToFile', 'setPause'])
+                .toFinishAllListeners()
 
             resumeKeaLoadersErrors()
         })
