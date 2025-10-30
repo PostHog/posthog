@@ -253,18 +253,6 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                     'flex flex-col gap-2 mb-32': newTabSceneData,
                                 })}
                             >
-                                {/* TODO: Remove this once we're done testing */}
-                                {newTabSceneData && (
-                                    <div className="col-span-full border border-primary border-px rounded-md p-2 mb-2">
-                                        <p className="flex flex-col items-center @md/main-content:flex-row gap-1 m-0 text-sm text-tertiary">
-                                            <IconInfo className="size-4 text-accent" /> You're trying out the new tab UX
-                                            with the flag:{' '}
-                                            <span className="font-mono border border-primary border-px rounded-md px-1 mb-0">
-                                                data-in-new-tab-scene
-                                            </span>
-                                        </p>
-                                    </div>
-                                )}
                                 <Results
                                     tabId={tabId || ''}
                                     searchInputRef={commandInputRef.current?.getInputRef() || { current: null }}
