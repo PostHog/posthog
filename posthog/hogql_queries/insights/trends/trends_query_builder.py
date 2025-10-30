@@ -122,7 +122,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 "sum(count) OVER (PARTITION BY breakdown_value) AS total_count_for_breakdown"
             )
             inner_query.select.append(total_count_for_breakdown)
-            inner_query.order_by = [ast.OrderExpr(expr=ast.Field(chain=["total_count_for_breakdown"]), order="DESC")]
 
             if self.breakdown.is_multiple_breakdown:
                 breakdown_count = len(self.breakdown.field_exprs)
@@ -143,9 +142,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     -- Breakdown values ranked by total count
                     SELECT
                         *,
+                        {{breakdown_order}} AS ordering,
                         row_number() OVER (
                             PARTITION BY day_start
-                            ORDER BY total_count_for_breakdown DESC
+                            ORDER BY ordering ASC, total_count_for_breakdown DESC
                         ) AS breakdown_rank
                     FROM {{inner_query}}
                 ) AS ranked_breakdown_values,
@@ -196,6 +196,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 ) as all_dates,
 
                 -- Transpose the results into arrays for each breakdown value
+                {'SELECT date, total, breakdown_value FROM (' if is_cumulative else ''}
                 SELECT
                     all_dates AS date,
                     arrayMap(d ->
@@ -214,7 +215,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     FROM top_n_and_other_breakdown_values
                     GROUP BY breakdown_value
                 )
-                ORDER BY {{breakdown_order}} ASC, arraySum(vals) DESC, breakdown_value ASC
+                ORDER BY {{breakdown_order}} ASC, arraySum(total) DESC, breakdown_value ASC
+                {')' if is_cumulative else ''}
                 """,
                 {
                     "inner_query": inner_query,
