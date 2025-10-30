@@ -154,6 +154,7 @@ impl HogValue {
                 let key: &str = needle.try_as()?;
                 Ok(map.contains_key(key).into())
             }
+            HogLiteral::Null => Ok(HogLiteral::Null),
             _ => Err(VmError::CannotCoerce(
                 self.type_name().to_string(),
                 other.type_name().to_string(),
