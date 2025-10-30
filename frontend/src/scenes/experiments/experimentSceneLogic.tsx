@@ -95,18 +95,33 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                         name: query.name ?? '',
                     })
                 } else {
-                    actions.loadExperiment()
+                    // Only load if this is a different experiment or initial load
+                    const shouldLoad = currentLocation.initial || values.experiment?.id !== parsedId
+
+                    if (shouldLoad) {
+                        actions.loadExperiment()
+                    }
+
                     if (values.isExperimentRunning) {
                         actions.loadExposures()
                     }
                 }
             }
         },
-        '/experiments/:id/:formMode': ({ id }, _, __, currentLocation, previousLocation) => {
+        '/experiments/:id/:formMode': ({ id, formMode }, _, __, currentLocation, previousLocation) => {
             const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
 
             if (id && didPathChange) {
-                actions.loadExperiment()
+                const parsedId = id === 'new' ? 'new' : parseInt(id)
+
+                // For form modes, always reload to ensure proper data transformation (duplicate/edit)
+                // unless we're just switching back to a tab that already has this exact experiment+formMode loaded
+                const shouldLoad =
+                    currentLocation.initial || values.experiment?.id !== parsedId || values.formMode !== formMode
+
+                if (shouldLoad) {
+                    actions.loadExperiment()
+                }
             }
         },
     })),
