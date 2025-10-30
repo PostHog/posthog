@@ -27,7 +27,7 @@ module.exports = ({ github, context, fs }) => {
         return {
             result,
             maxAbsDiff: Math.max(Math.abs(minDiff), Math.abs(maxDiff)),
-            category: minDiff < -DIFF_THRESHOLD ? 'regresion' : maxDiff > DIFF_THRESHOLD ? 'improvement' : 'neutral',
+            category: minDiff < -DIFF_THRESHOLD ? 'regression' : maxDiff > DIFF_THRESHOLD ? 'improvement' : 'neutral',
         }
     })
 
