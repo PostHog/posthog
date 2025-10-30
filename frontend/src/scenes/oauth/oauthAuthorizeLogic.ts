@@ -55,6 +55,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
     })),
     actions({
         setScopes: (scopes: string[]) => ({ scopes }),
+        setRequiredAccessLevel: (requiredAccessLevel: 'organization' | 'team' | null) => ({ requiredAccessLevel }),
         cancel: () => ({}),
     }),
     loaders({
@@ -94,7 +95,22 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 setScopes: (_, { scopes }) => scopes,
             },
         ],
+        requiredAccessLevel: [
+            null as 'organization' | 'team' | null,
+            {
+                setRequiredAccessLevel: (_, { requiredAccessLevel }) => requiredAccessLevel,
+            },
+        ],
     }),
+    listeners(({ actions }) => ({
+        setRequiredAccessLevel: ({ requiredAccessLevel }) => {
+            if (requiredAccessLevel === 'organization') {
+                actions.setOauthAuthorizationValue('access_type', 'organizations')
+            } else if (requiredAccessLevel === 'team') {
+                actions.setOauthAuthorizationValue('access_type', 'teams')
+            }
+        },
+    })),
     forms(() => ({
         oauthAuthorization: {
             defaults: {
@@ -156,8 +172,11 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         '/oauth/authorize': (_, searchParams) => {
             const requestedScopes = searchParams['scope']?.split(' ')?.filter((scope: string) => scope.length) ?? []
             const scopes = requestedScopes.length === 0 ? DEFAULT_OAUTH_SCOPES : requestedScopes
+            const rawRequiredAccessLevel = searchParams['required_access_level'] as 'organization' | 'project' | null
+            const requiredAccessLevel = rawRequiredAccessLevel === 'project' ? 'team' : rawRequiredAccessLevel
 
             actions.setScopes(scopes)
+            actions.setRequiredAccessLevel(requiredAccessLevel || null)
             actions.loadOAuthApplication()
             actions.loadAllTeams()
         },

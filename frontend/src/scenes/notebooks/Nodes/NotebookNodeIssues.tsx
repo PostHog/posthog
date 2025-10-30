@@ -7,6 +7,7 @@ import { InsightLogicProps } from '~/types'
 
 import { issueFiltersLogic } from 'products/error_tracking/frontend/components/IssueFilters/issueFiltersLogic'
 import { issueQueryOptionsLogic } from 'products/error_tracking/frontend/components/IssueQueryOptions/issueQueryOptionsLogic'
+import { ErrorTrackingSetupPrompt } from 'products/error_tracking/frontend/components/SetupPrompt/SetupPrompt'
 import { issuesDataNodeLogic } from 'products/error_tracking/frontend/logics/issuesDataNodeLogic'
 import { errorTrackingQuery } from 'products/error_tracking/frontend/queries'
 import { IssuesFilters } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/issues/IssuesFilters'
@@ -44,7 +45,9 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeIssuesAttribute
 
     return (
         <ContextualFilters nodeId={attributes.nodeId}>
-            <IssuesQuery personId={attributes.personId} />
+            <ErrorTrackingSetupPrompt className="border-none">
+                <IssuesQuery personId={attributes.personId} />
+            </ErrorTrackingSetupPrompt>
         </ContextualFilters>
     )
 }

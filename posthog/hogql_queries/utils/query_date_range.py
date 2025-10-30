@@ -13,8 +13,15 @@ from posthog.models.team import Team, WeekStartDay
 from posthog.queries.util import get_earliest_timestamp, get_trunc_func_ch
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_date_parse_with_delta_mapping
 
-IntervalLiteral = Literal["minute", "hour", "day", "week", "month"]
-ORDERED_INTERVALS = [IntervalType.MINUTE, IntervalType.HOUR, IntervalType.DAY, IntervalType.WEEK, IntervalType.MONTH]
+IntervalLiteral = Literal["second", "minute", "hour", "day", "week", "month"]
+ORDERED_INTERVALS = [
+    IntervalType.SECOND,
+    IntervalType.MINUTE,
+    IntervalType.HOUR,
+    IntervalType.DAY,
+    IntervalType.WEEK,
+    IntervalType.MONTH,
+]
 
 
 def compare_interval_length(
@@ -96,15 +103,15 @@ class QueryDateRange:
 
         if not self._date_range or not self._date_range.explicitDate:
             is_relative = not self._date_range or not self._date_range.date_to or delta_mapping is not None
-
-            if self.interval_name not in ("hour", "minute"):
+            if compare_interval_length(self.interval_type, ">", IntervalType.HOUR):
                 date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
             elif is_relative:
-                if self.interval_name == "hour":
+                if self.interval_type == IntervalType.HOUR:
                     date_to = date_to.replace(minute=59, second=59, microsecond=999999)
-                else:
+                elif self.interval_type == IntervalType.MINUTE:
                     date_to = date_to.replace(second=59, microsecond=999999)
-
+                elif self.interval_type == IntervalType.SECOND:
+                    date_to = (date_to - timedelta(seconds=1)).replace(microsecond=999999)
         return date_to
 
     def get_earliest_timestamp(self) -> datetime:
@@ -124,7 +131,7 @@ class QueryDateRange:
                 now=self.now_with_timezone,
                 # this makes sure we truncate date_from to the start of the day, when looking at last N days by hour
                 # when we look at graphs by minute (last hour or last three hours), don't truncate
-                always_truncate=not (self.interval_name == "minute" or self._exact_timerange),
+                always_truncate=not (self.interval_name in ("second", "minute") or self._exact_timerange),
                 team_week_start_day=self._team.week_start_day,
             )
         else:
@@ -186,6 +193,8 @@ class QueryDateRange:
     def align_with_interval(self, start: datetime, *, interval_name: Optional[IntervalLiteral] = None) -> datetime:
         interval_name = interval_name or self.interval_name
 
+        if interval_name == "second":
+            return start.replace(microsecond=0)
         if interval_name == "minute":
             return start.replace(second=0, microsecond=0)
         if interval_name == "hour":
@@ -209,6 +218,7 @@ class QueryDateRange:
             months=self.interval_count if self.interval_name == "month" else 0,
             hours=self.interval_count if self.interval_name == "hour" else 0,
             minutes=self.interval_count if self.interval_name == "minute" else 0,
+            seconds=self.interval_count if self.interval_name == "second" else 0,
         )
 
     def all_values(self, *, interval_name: Optional[IntervalLiteral] = None) -> list[datetime]:
@@ -366,6 +376,7 @@ class QueryDateRange:
 
 
 PERIOD_MAP: dict[str, timedelta | relativedelta] = {
+    "second": timedelta(seconds=1),
     "minute": timedelta(minutes=1),
     "hour": timedelta(hours=1),
     "day": timedelta(days=1),

@@ -48,9 +48,9 @@ DUMMY_CURRENT_FILTERS = MaxRecordingUniversalFilters(
 
 @pytest.fixture
 def call_search_session_recordings(demo_org_team_user):
-    graph = SessionReplayFilterOptionsGraph(demo_org_team_user[1], demo_org_team_user[2]).compile_full_graph(
-        checkpointer=DjangoCheckpointer()
-    )
+    graph = SessionReplayFilterOptionsGraph(
+        demo_org_team_user[1], demo_org_team_user[2], tool_call_id="test-tool-call-id"
+    ).compile_full_graph(checkpointer=DjangoCheckpointer())
 
     async def callable(change: str) -> dict:
         conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])

@@ -65,10 +65,7 @@ pub fn upload(input_sets: &[SymbolSetUpload], batch_size: usize) -> Result<()> {
         info!("Starting upload of batch {i}, {} symbol sets", batch.len());
         let start_response = start_upload(batch)?;
 
-        let id_map: HashMap<_, _> = batch
-            .into_iter()
-            .map(|u| (u.chunk_id.as_str(), u))
-            .collect();
+        let id_map: HashMap<_, _> = batch.iter().map(|u| (u.chunk_id.as_str(), u)).collect();
 
         info!(
             "Server returned {} upload keys ({} skipped as already present)",
@@ -99,7 +96,7 @@ pub fn upload(input_sets: &[SymbolSetUpload], batch_size: usize) -> Result<()> {
     Ok(())
 }
 
-fn start_upload<'a>(symbol_sets: &[&SymbolSetUpload]) -> Result<BulkUploadStartResponse> {
+fn start_upload(symbol_sets: &[&SymbolSetUpload]) -> Result<BulkUploadStartResponse> {
     let base_url = format!(
         "{}/api/environments/{}/error_tracking/symbol_sets",
         context().token.get_host(),
@@ -151,14 +148,11 @@ fn upload_to_s3(presigned_url: PresignedUrl, data: &[u8]) -> Result<()> {
                 }
             }
             Result::Err(e) => {
-                last_err = Some(anyhow!("Failed to upload chunk: {}", e));
+                last_err = Some(anyhow!("Failed to upload chunk: {e:?}"));
             }
         }
         if attempt < 3 {
-            warn!(
-                "Upload attempt {} failed, retrying in {:?}...",
-                attempt, delay
-            );
+            warn!("Upload attempt {attempt} failed, retrying in {delay:?}...",);
             std::thread::sleep(delay);
             delay *= 2;
         }

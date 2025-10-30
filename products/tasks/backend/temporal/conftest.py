@@ -10,7 +10,7 @@ from posthog.models.integration import Integration
 from posthog.models.user import User
 from posthog.temporal.common.logger import configure_logger
 
-from products.tasks.backend.models import Task, TaskWorkflow, WorkflowStage
+from products.tasks.backend.models import Task
 
 
 @pytest.fixture
@@ -66,42 +66,6 @@ async def ateam(aorganization):
 
 
 @pytest.fixture
-async def task_workflow(ateam):
-    """Create a test workflow with stages."""
-    workflow = await sync_to_async(TaskWorkflow.objects.create)(
-        team=ateam,
-        name="Test Workflow",
-        description="Test workflow for temporal activities",
-        is_default=True,
-        is_active=True,
-    )
-
-    stages = []
-    for i, (name, key, color) in enumerate(
-        [
-            ("Backlog", "backlog", "#6b7280"),
-            ("Ready", "ready", "#3b82f6"),
-            ("In Progress", "in_progress", "#10b981"),
-            ("Done", "done", "#22c55e"),
-        ]
-    ):
-        stage = await sync_to_async(WorkflowStage.objects.create)(
-            workflow=workflow,
-            name=name,
-            key=key,
-            position=i,
-            color=color,
-            is_manual_only=(i != 2),  # Only "In Progress" is not manual
-            agent_name="claude_code_agent" if i == 2 else None,
-        )
-        stages.append(stage)
-
-    yield workflow, stages
-
-    await sync_to_async(workflow.delete)()
-
-
-@pytest.fixture
 async def github_integration(ateam):
     """Create a test GitHub integration."""
     integration = await sync_to_async(Integration.objects.create)(
@@ -132,10 +96,8 @@ async def auser(ateam):
 
 
 @pytest.fixture
-async def test_task(ateam, auser, task_workflow, github_integration):
+async def test_task(ateam, auser, github_integration):
     """Create a test task."""
-    workflow, stages = task_workflow
-    backlog_stage = stages[0]
 
     task = await sync_to_async(Task.objects.create)(
         team=ateam,
@@ -143,8 +105,6 @@ async def test_task(ateam, auser, task_workflow, github_integration):
         title="Test Task for Temporal Activities",
         description="This is a test task for testing temporal activities",
         origin_product=Task.OriginProduct.USER_CREATED,
-        workflow=workflow,
-        current_stage=backlog_stage,
         position=0,
         github_integration=github_integration,
         repository_config={"organization": "PostHog", "repository": "posthog-js"},

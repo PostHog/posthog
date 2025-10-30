@@ -19,7 +19,7 @@ import {
 } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { objectClean, objectsEqual } from 'lib/utils'
+import { isString, objectClean, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
@@ -27,7 +27,13 @@ import { urls } from 'scenes/urls'
 
 import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { groupsModel } from '~/models/groupsModel'
-import { NodeKind, RecordingOrder, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema/schema-general'
+import {
+    NodeKind,
+    RecordingOrder,
+    RecordingsQuery,
+    RecordingsQueryResponse,
+    VALID_RECORDING_ORDERS,
+} from '~/queries/schema/schema-general'
 import {
     EntityTypes,
     FilterLogicalOperator,
@@ -93,11 +99,21 @@ const isPersonPropertyShortcutSearchParams = (
     return (x as PersonPropertyShortcutSearchParams).personProperty !== undefined
 }
 
+function isValidRecordingOrder(order: unknown): boolean {
+    return !!order && isString(order) && VALID_RECORDING_ORDERS.includes(order as RecordingOrder)
+}
+
+function isValidRecordingOrderDirection(direction: unknown): boolean {
+    return !!direction && isString(direction) && ['ASC', 'DESC'].includes(direction)
+}
+
 const isReplayURLSearchParams = (x: ReplayURLSearchParamTypes): x is ReplayURLSearchParams => {
+    const replayURLSearchParams = x as ReplayURLSearchParams
     return (
-        (x as ReplayURLSearchParams).filters !== undefined ||
-        (x as ReplayURLSearchParams).order !== undefined ||
-        (x as ReplayURLSearchParams).order_direction !== undefined
+        (replayURLSearchParams.filters === undefined || isValidRecordingFilters(replayURLSearchParams.filters)) &&
+        (replayURLSearchParams.order === undefined || isValidRecordingOrder(replayURLSearchParams.order)) &&
+        (replayURLSearchParams.order_direction === undefined ||
+            isValidRecordingOrderDirection(replayURLSearchParams.order_direction))
     )
 }
 
@@ -176,7 +192,7 @@ const handleLoadCollectionRecordings = (shortId: string): void => {
  * @param filters - The filters to check.
  * @returns True if the filters are valid, false otherwise.
  */
-export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilters>): boolean {
+export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilters> | undefined): boolean {
     if (!filters || typeof filters !== 'object') {
         return false
     }
@@ -238,7 +254,10 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
     const having_predicates: RecordingsQuery['having_predicates'] = []
     let comment_text: RecordingsQuery['comment_text'] = undefined
 
-    const order: RecordingsQuery['order'] = universalFilters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY
+    // it was possible to store an invalid order key in local storage sometimes, let's just ignore that instead of erroring
+    const order: RecordingsQuery['order'] = isValidRecordingOrder(universalFilters.order)
+        ? universalFilters.order
+        : DEFAULT_RECORDING_FILTERS_ORDER_BY
     const order_direction: RecordingsQuery['order_direction'] = universalFilters.order_direction || 'DESC'
 
     const durationFilter = universalFilters.duration[0]
@@ -586,7 +605,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                         recordings = [...recordings, ...fetchedRecordings.results]
                     }
-                    // TODO: Check for pinnedRecordings being IDs and fetch them, returning the merged list
 
                     return recordings
                 },

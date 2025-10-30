@@ -1,26 +1,41 @@
 import { manualCosts } from './manual-providers'
 
 describe('manualCosts', () => {
-    const mistralModels: Array<{
+    const testCases: Array<{
         model: string
-        expected: { prompt_token: number; completion_token: number }
+        expected: { prompt_token: number; completion_token: number; cache_read_token?: number }
     }> = [
         {
-            model: 'mistral-medium-3',
+            model: 'gpt-4.5',
             expected: {
-                prompt_token: 4e-7,
-                completion_token: 0.000002,
+                prompt_token: 0.000075,
+                completion_token: 0.00015,
+            },
+        },
+        {
+            model: 'claude-2',
+            expected: {
+                prompt_token: 0.000008,
+                completion_token: 0.000024,
+            },
+        },
+        {
+            model: 'gemini-2.5-pro-preview:large',
+            expected: {
+                prompt_token: 0.0000025,
+                completion_token: 0.000015,
+                cache_read_token: 0.000000625,
+            },
+        },
+        {
+            model: 'deepseek-v3-fireworks',
+            expected: {
+                prompt_token: 0.0000009,
+                completion_token: 0.0000009,
             },
         },
         {
             model: 'mistral-large-latest',
-            expected: {
-                prompt_token: 0.000002,
-                completion_token: 0.000006,
-            },
-        },
-        {
-            model: 'mistral-large',
             expected: {
                 prompt_token: 0.000002,
                 completion_token: 0.000006,
@@ -33,27 +48,38 @@ describe('manualCosts', () => {
                 completion_token: 0.0000003,
             },
         },
+        {
+            model: 'text-embedding-3-small',
+            expected: {
+                prompt_token: 0.00000002,
+                completion_token: 0,
+            },
+        },
+        {
+            model: 'text-embedding-3-large',
+            expected: {
+                prompt_token: 0.00000013,
+                completion_token: 0,
+            },
+        },
+        {
+            model: 'text-embedding-ada-002',
+            expected: {
+                prompt_token: 0.0000001,
+                completion_token: 0,
+            },
+        },
     ]
 
-    describe('openrouter/auto model', () => {
-        it('is defined with zero costs', () => {
-            const openrouterAuto = manualCosts.find((model) => model.model === 'openrouter/auto')
+    it.each(testCases)('has expected costs for $model', ({ model, expected }) => {
+        const modelEntry = manualCosts.find((entry) => entry.model === model)
 
-            expect(openrouterAuto).toBeDefined()
-            expect(openrouterAuto?.provider).toBe('openrouter')
-            expect(openrouterAuto?.cost.prompt_token).toBe(0)
-            expect(openrouterAuto?.cost.completion_token).toBe(0)
-        })
-    })
+        expect(modelEntry).toBeDefined()
+        expect(modelEntry?.cost.default.prompt_token).toBe(expected.prompt_token)
+        expect(modelEntry?.cost.default.completion_token).toBe(expected.completion_token)
 
-    describe('mistral models', () => {
-        it.each(mistralModels)('has expected costs for $model', ({ model, expected }) => {
-            const mistralModel = manualCosts.find((entry) => entry.model === model)
-
-            expect(mistralModel).toBeDefined()
-            expect(mistralModel?.provider).toBe('mistral')
-            expect(mistralModel?.cost.prompt_token).toBe(expected.prompt_token)
-            expect(mistralModel?.cost.completion_token).toBe(expected.completion_token)
-        })
+        if (expected.cache_read_token !== undefined) {
+            expect(modelEntry?.cost.default.cache_read_token).toBe(expected.cache_read_token)
+        }
     })
 })

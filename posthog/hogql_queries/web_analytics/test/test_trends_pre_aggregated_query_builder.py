@@ -8,7 +8,7 @@ from posthog.schema import HogQLQueryModifiers, IntervalType, WebTrendsMetric, W
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.hogql_queries.web_analytics.trends_pre_aggregated_query_builder import TrendsPreAggregatedQueryBuilder
 
@@ -43,7 +43,7 @@ class TestTrendsPreAggregatedQueryBuilder(ClickhouseTestMixin, APIBaseTest):
 
         ast_query = builder.get_query()
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
-        hogql_query = print_ast(ast_query, context=context, dialect="hogql")
+        hogql_query, _ = prepare_and_print_ast(ast_query, context=context, dialect="hogql")
 
         # Verify the query structure
         self.assertIn("SELECT", hogql_query)
@@ -70,7 +70,7 @@ class TestTrendsPreAggregatedQueryBuilder(ClickhouseTestMixin, APIBaseTest):
 
         ast_query = builder.get_query()
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
-        hogql_query = print_ast(ast_query, context=context, dialect="hogql")
+        hogql_query, _ = prepare_and_print_ast(ast_query, context=context, dialect="hogql")
 
         # Verify all metrics are included
         self.assertIn("uniqMerge(persons_uniq_state) AS unique_users", hogql_query)
@@ -90,7 +90,7 @@ class TestTrendsPreAggregatedQueryBuilder(ClickhouseTestMixin, APIBaseTest):
 
         ast_query = builder.get_query()
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
-        hogql_query = print_ast(ast_query, context=context, dialect="hogql")
+        hogql_query, _ = prepare_and_print_ast(ast_query, context=context, dialect="hogql")
 
         # Verify weekly interval function is used
         self.assertIn("toStartOfWeek(period_bucket) AS bucket", hogql_query)
@@ -107,7 +107,7 @@ class TestTrendsPreAggregatedQueryBuilder(ClickhouseTestMixin, APIBaseTest):
 
         ast_query = builder.get_query()
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
-        hogql_query = print_ast(ast_query, context=context, dialect="hogql")
+        hogql_query, _ = prepare_and_print_ast(ast_query, context=context, dialect="hogql")
 
         # Verify monthly interval function is used
         self.assertIn("toStartOfMonth(period_bucket) AS bucket", hogql_query)
@@ -127,7 +127,7 @@ class TestTrendsPreAggregatedQueryBuilder(ClickhouseTestMixin, APIBaseTest):
 
         ast_query = builder.get_query()
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
-        hogql_query = print_ast(ast_query, context=context, dialect="hogql")
+        hogql_query, _ = prepare_and_print_ast(ast_query, context=context, dialect="hogql")
 
         # Verify session metrics are included
         self.assertIn("sumMerge(total_session_duration_state) AS session_duration", hogql_query)

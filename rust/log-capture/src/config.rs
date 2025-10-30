@@ -4,23 +4,18 @@ use capture::config::KafkaConfig;
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
+    // management endpoint serves _readiness/_liveness/metrics
+    #[envconfig(from = "MANAGEMENT_BIND_HOST", default = "::")]
+    pub management_host: String,
+
+    #[envconfig(from = "MANAGEMENT_BIND_PORT", default = "8080")]
+    pub management_port: u16,
+
     #[envconfig(from = "BIND_HOST", default = "::")]
     pub host: String,
 
-    #[envconfig(from = "BIND_PORT", default = "4317")]
+    #[envconfig(from = "BIND_PORT", default = "4318")]
     pub port: u16,
-
-    #[envconfig(from = "JWT_SECRET")]
-    pub jwt_secret: String,
-
-    #[envconfig(from = "INSETER_PERIOD_MS", default = "1000")]
-    pub inserter_period_ms: u64,
-
-    #[envconfig(from = "INSETER_MAX_BYTES", default = "50000000")]
-    pub inserter_max_bytes: u64,
-
-    #[envconfig(from = "INSETER_MAX_ROWS", default = "10000")]
-    pub inserter_max_rows: u64,
 
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,

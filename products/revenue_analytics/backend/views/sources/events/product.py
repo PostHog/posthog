@@ -16,9 +16,10 @@ def build(handle: SourceHandle) -> BuiltQuery:
 
     if not event.productProperty:
         return BuiltQuery(
-            key=f"{event.eventName}.no_property",
+            key=event.eventName,
             prefix=prefix,
-            query=ast.SelectQuery.empty(columns=list(PRODUCT_SCHEMA.fields.keys())),
+            query=ast.SelectQuery.empty(columns=PRODUCT_SCHEMA.fields),
+            test_comments="no_property",
         )
 
     events_query = ast.SelectQuery(

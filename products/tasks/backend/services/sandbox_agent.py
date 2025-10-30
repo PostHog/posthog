@@ -84,20 +84,20 @@ class SandboxAgent:
 
         return is_clean, result.stdout
 
-    async def execute_task(self, task_id: str, repository: str, workflow_id: str) -> ExecutionResult:
+    async def execute_task(self, task_id: str, repository: str) -> ExecutionResult:
         if not self.sandbox.is_running:
             raise RuntimeError(f"Sandbox not in running state. Current status: {self.sandbox.status}")
 
         org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        command = f"cd {repo_path} && {self._get_task_command(task_id, workflow_id, repo_path)}"
+        command = f"cd {repo_path} && {self._get_task_command(task_id, repo_path)}"
 
-        logger.info(f"Executing task {task_id} with workflow {workflow_id} in {repo_path} in sandbox {self.sandbox.id}")
+        logger.info(f"Executing task {task_id} in {repo_path} in sandbox {self.sandbox.id}")
         return await self.sandbox.execute(command, timeout_seconds=DEFAULT_TASK_TIMEOUT_SECONDS)
 
-    def _get_task_command(self, task_id: str, workflow_id: str, repo_path: str) -> str:
-        return f"git reset --hard HEAD && IS_SANDBOX=True node /scripts/runAgent.mjs --taskId {task_id} --workflowId {workflow_id} --repositoryPath {repo_path}"
+    def _get_task_command(self, task_id: str, repo_path: str) -> str:
+        return f"git reset --hard HEAD && IS_SANDBOX=True node /scripts/runAgent.mjs --taskId {task_id} --repositoryPath {repo_path}"
 
     def _get_setup_command(self, repo_path: str) -> str:
         return f"git reset --hard HEAD && IS_SANDBOX=True && node /scripts/runAgent.mjs --repositoryPath {repo_path} --prompt '{SETUP_REPOSITORY_PROMPT.format(cwd=repo_path, repository=repo_path)}' --max-turns 20"

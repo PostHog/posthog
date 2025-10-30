@@ -21,6 +21,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from posthog.warehouse.models.modeling import DataWarehouseModelPath
 
 logger = structlog.get_logger(__name__)
 
@@ -68,30 +69,39 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         else:
             raise ValueError(f"Unsupported viewset kind: {self.kind}")
 
-        expected_view_names = {view.name for view in expected_views}
+        # NOTE: Views that depend on other views MUST be placed AFTER the views they depend on
+        # or else we'll fail to build the paths properly.
+        expected_view_names = [view.name for view in expected_views]
 
         views_created = 0
         views_updated = 0
 
         with transaction.atomic():
             for view in expected_views:
-                saved_query, created = DataWarehouseSavedQuery.objects.update_or_create(
-                    name=view.name,
-                    team=self.team,
-                    managed_viewset=self,
-                    defaults={
-                        "query": view.query,
-                        "columns": view.columns,
-                        "is_materialized": True,
-                        "sync_frequency_interval": timedelta(hours=6),
-                    },
-                )
+                # Get the one from the DB or create a new one if doesn't exist yet
+                saved_query = DataWarehouseSavedQuery.objects.filter(
+                    name=view.name, team=self.team, managed_viewset=self
+                ).first()
+                if saved_query:
+                    created = False
+                else:
+                    saved_query = DataWarehouseSavedQuery(name=view.name, team=self.team, managed_viewset=self)
+                    created = True
 
-                # Always update query and columns, even for existing objects
-                if not created:
-                    saved_query.query = view.query
-                    saved_query.columns = view.columns
-                    saved_query.save(update_fields=["query", "columns"])
+                # Do NOT use get_columns because it runs the query, and these are possibly heavy
+                saved_query.query = view.query
+                saved_query.columns = view.columns
+                saved_query.external_tables = saved_query.s3_tables
+                saved_query.is_materialized = True
+                saved_query.sync_frequency_interval = timedelta(hours=12)
+                saved_query.save()
+
+                # Make sure paths properly exist both on creation and update
+                # This is required for Temporal to properly build the DAG
+                if not DataWarehouseModelPath.objects.filter(team=saved_query.team, saved_query=saved_query).exists():
+                    DataWarehouseModelPath.objects.create_from_saved_query(saved_query)
+                else:
+                    DataWarehouseModelPath.objects.update_from_saved_query(saved_query)
 
                 if created:
                     views_created += 1
@@ -178,7 +188,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
 
     def _get_expected_views_for_revenue_analytics(self) -> list[ExpectedView]:
         """
-        Reuses build_all_revenue_analytics_views() from create_hogql_database logic.
+        Reuses build_all_revenue_analytics_views() from Database.create_for logic.
         For each source (events + external data sources):
           - Creates 5 views: customer, charge, subscription, revenue_item, product
         """

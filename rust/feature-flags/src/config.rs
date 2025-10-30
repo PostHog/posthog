@@ -1,6 +1,8 @@
 use common_cookieless::CookielessConfig;
+use common_types::TeamId;
 use envconfig::Envconfig;
 use once_cell::sync::Lazy;
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::num::ParseIntError;
 use std::ops::Deref;
@@ -105,6 +107,41 @@ impl FromStr for TeamIdCollection {
     }
 }
 
+/// Flag definitions rate limits configuration
+/// Parses JSON from FLAG_DEFINITIONS_RATE_LIMITS environment variable
+/// Format: {"team_id": "rate_string", ...}
+/// Example: {"123": "1200/minute", "456": "2400/hour"}
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct FlagDefinitionsRateLimits(pub HashMap<TeamId, String>);
+
+impl FromStr for FlagDefinitionsRateLimits {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+
+        // Empty string means no custom rate limits
+        if s.is_empty() {
+            return Ok(FlagDefinitionsRateLimits::default());
+        }
+
+        // Parse JSON into HashMap<String, String>
+        let parsed: HashMap<String, String> = serde_json::from_str(s)
+            .map_err(|e| format!("Failed to parse FLAG_DEFINITIONS_RATE_LIMITS as JSON: {e}"))?;
+
+        // Convert string keys to TeamId
+        let mut rate_limits = HashMap::new();
+        for (team_id_str, rate_string) in parsed {
+            let team_id = team_id_str
+                .parse::<TeamId>()
+                .map_err(|e| format!("Invalid team ID '{team_id_str}': {e}"))?;
+            rate_limits.insert(team_id, rate_string);
+        }
+
+        Ok(FlagDefinitionsRateLimits(rate_limits))
+    }
+}
+
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
     #[envconfig(default = "127.0.0.1:3001")]
@@ -128,9 +165,27 @@ pub struct Config {
     // Database connection pool settings:
     // - High traffic: Increase max_pg_connections (e.g., 20-50)
     // - Bursty traffic: Increase idle_timeout_secs to keep connections warm
-    // - Note: With 4 pools (readers/writers × persons/non-persons), total connections = 4 × max_pg_connections
+    // - Set min_connections > 0 to pre-warm pools at startup and avoid cold-start latency
+    // - Total connections depend on configuration:
+    //   - With persons DB routing: 4 pools × max_pg_connections
+    //   - Without persons DB routing: 2 pools × max_pg_connections (persons pools alias to non-persons)
     #[envconfig(default = "10")]
     pub max_pg_connections: u32,
+
+    // Minimum connections to maintain in each pool
+    // Set > 0 to pre-warm connections at startup for faster first requests
+    // Production recommendation: Set to 2-5 to avoid cold start on deploy
+    #[envconfig(default = "0")]
+    pub min_non_persons_reader_connections: u32,
+
+    #[envconfig(default = "0")]
+    pub min_non_persons_writer_connections: u32,
+
+    #[envconfig(default = "0")]
+    pub min_persons_reader_connections: u32,
+
+    #[envconfig(default = "0")]
+    pub min_persons_writer_connections: u32,
 
     #[envconfig(default = "redis://localhost:6379/")]
     pub redis_url: String,
@@ -164,18 +219,35 @@ pub struct Config {
     #[envconfig(default = "300")]
     pub idle_timeout_secs: u64,
 
-    // Force refresh connections after this many seconds regardless of activity
-    // - Set to 0 to disable (connections never refresh automatically)
-    // - Decrease for unreliable networks or frequent DB restarts (e.g., 600-900)
-    // - Increase for stable environments to reduce overhead (e.g., 3600-7200)
-    #[envconfig(default = "1800")]
-    pub max_lifetime_secs: u64,
-
     // Test connection health before returning from pool
     // - Set to true for production to catch stale connections
     // - Set to false in tests or very stable environments for slight performance gain
     #[envconfig(default = "true")]
     pub test_before_acquire: FlexBool,
+
+    // PostgreSQL statement_timeout for non-persons reader queries (milliseconds)
+    // - Set to 0 to use database default (typically unlimited)
+    // - Non-persons readers may run longer analytical queries
+    // - Default: 5000ms (5 seconds)
+    // - This timeout is enforced server-side and properly kills queries
+    #[envconfig(default = "5000")]
+    pub non_persons_reader_statement_timeout_ms: u64,
+
+    // PostgreSQL statement_timeout for persons reader queries (milliseconds)
+    // - Set to 0 to use database default (typically unlimited)
+    // - Persons readers may run longer analytical queries
+    // - Default: 5000ms (5 seconds)
+    // - This timeout is enforced server-side and properly kills queries
+    #[envconfig(default = "5000")]
+    pub persons_reader_statement_timeout_ms: u64,
+
+    // PostgreSQL statement_timeout for writer database queries (milliseconds)
+    // - Set to 0 to use database default (typically unlimited)
+    // - Writers should be fast transactional operations
+    // - Default: 10000ms (10 seconds)
+    // - This timeout is enforced server-side and properly kills queries
+    #[envconfig(default = "10000")]
+    pub writer_statement_timeout_ms: u64,
 
     // How often to report database pool metrics (seconds)
     // - Decrease for more granular monitoring (e.g., 10-15)
@@ -262,6 +334,18 @@ pub struct Config {
     #[envconfig(from = "FLAGS_SESSION_REPLAY_QUOTA_CHECK", default = "false")]
     pub flags_session_replay_quota_check: bool,
 
+    // Flag definitions rate limiting
+    // Default rate limit for all teams (requests per minute)
+    // Can be overridden per-team using FLAG_DEFINITIONS_RATE_LIMITS
+    #[envconfig(from = "FLAG_DEFINITIONS_DEFAULT_RATE_PER_MINUTE", default = "600")]
+    pub flag_definitions_default_rate_per_minute: u32,
+
+    // Per-team rate limit overrides for flag definitions endpoint
+    // JSON format: {"team_id": "rate_string", ...}
+    // Example: {"123": "1200/minute", "456": "2400/hour"}
+    #[envconfig(from = "FLAG_DEFINITIONS_RATE_LIMITS", default = "")]
+    pub flag_definitions_rate_limits: FlagDefinitionsRateLimits,
+
     // OpenTelemetry configuration
     #[envconfig(from = "OTEL_EXPORTER_OTLP_ENDPOINT")]
     pub otel_url: Option<String>,
@@ -274,6 +358,46 @@ pub struct Config {
 
     #[envconfig(from = "OTEL_LOG_LEVEL", default = "info")]
     pub otel_log_level: Level,
+
+    // Rate limiting configuration for /flags endpoint (token-based)
+    // Enable/disable token-based rate limiting (defaults to off to match /decide)
+    #[envconfig(from = "FLAGS_RATE_LIMIT_ENABLED", default = "false")]
+    pub flags_rate_limit_enabled: FlexBool,
+
+    // Token bucket capacity (maximum burst size)
+    // Matches Python's DecideRateThrottle default of 500
+    #[envconfig(from = "FLAGS_BUCKET_CAPACITY", default = "500")]
+    pub flags_bucket_capacity: u32,
+
+    // Token bucket replenish rate (tokens per second)
+    // Matches Python's DecideRateThrottle default of 10.0
+    #[envconfig(from = "FLAGS_BUCKET_REPLENISH_RATE", default = "10.0")]
+    pub flags_bucket_replenish_rate: f64,
+
+    // IP-based rate limiting configuration
+    // Provides defense-in-depth against DDoS attacks with rotating fake tokens
+    // This limits ALL requests per IP address, regardless of token validity
+    #[envconfig(from = "FLAGS_IP_RATE_LIMIT_ENABLED", default = "false")]
+    pub flags_ip_rate_limit_enabled: FlexBool,
+
+    // IP rate limit burst size (maximum requests per IP in a burst)
+    #[envconfig(from = "FLAGS_IP_BURST_SIZE", default = "1000")]
+    pub flags_ip_burst_size: u32,
+
+    // IP rate limit replenish rate (requests per second per IP)
+    // Set higher than token bucket rate to account for multiple users behind same IP
+    #[envconfig(from = "FLAGS_IP_REPLENISH_RATE", default = "50.0")]
+    pub flags_ip_replenish_rate: f64,
+
+    // Log-only mode for rate limiting (defaults to true for safe rollout)
+    // When true, rate limits are checked and violations logged, but requests are not blocked
+    // This allows gathering metrics to tune limits before enforcing them
+    #[envconfig(from = "FLAGS_RATE_LIMIT_LOG_ONLY", default = "true")]
+    pub flags_rate_limit_log_only: FlexBool,
+
+    // Log-only mode for IP-based rate limiting (defaults to true for safe rollout)
+    #[envconfig(from = "FLAGS_IP_RATE_LIMIT_LOG_ONLY", default = "true")]
+    pub flags_ip_rate_limit_log_only: FlexBool,
 }
 
 impl Config {
@@ -292,10 +416,16 @@ impl Config {
                 .to_string(),
             max_concurrency: 1000,
             max_pg_connections: 10,
+            min_non_persons_reader_connections: 0,
+            min_non_persons_writer_connections: 0,
+            min_persons_reader_connections: 0,
+            min_persons_writer_connections: 0,
             acquire_timeout_secs: 3,
             idle_timeout_secs: 300,
-            max_lifetime_secs: 1800,
             test_before_acquire: FlexBool(true),
+            non_persons_reader_statement_timeout_ms: 5000,
+            persons_reader_statement_timeout_ms: 5000,
+            writer_statement_timeout_ms: 5000,
             db_monitor_interval_secs: 30,
             db_pool_warn_utilization: 0.8,
             billing_limiter_cache_ttl_secs: 5,
@@ -319,6 +449,8 @@ impl Config {
             session_replay_rrweb_script: "".to_string(),
             session_replay_rrweb_script_allowed_teams: TeamIdCollection::None,
             flags_session_replay_quota_check: false,
+            flag_definitions_default_rate_per_minute: 600,
+            flag_definitions_rate_limits: FlagDefinitionsRateLimits::default(),
             otel_url: None,
             otel_sampling_rate: 1.0,
             otel_service_name: "posthog-feature-flags".to_string(),
@@ -326,6 +458,14 @@ impl Config {
             object_storage_bucket: "posthog".to_string(),
             object_storage_region: "us-east-1".to_string(),
             object_storage_endpoint: "".to_string(),
+            flags_rate_limit_enabled: FlexBool(false),
+            flags_bucket_capacity: 500,
+            flags_bucket_replenish_rate: 10.0,
+            flags_ip_rate_limit_enabled: FlexBool(false),
+            flags_ip_burst_size: 500,
+            flags_ip_replenish_rate: 100.0,
+            flags_rate_limit_log_only: FlexBool(true),
+            flags_ip_rate_limit_log_only: FlexBool(true),
         }
     }
 
@@ -431,6 +571,10 @@ mod tests {
         );
         assert_eq!(config.max_concurrency, 1000);
         assert_eq!(config.max_pg_connections, 10);
+        assert_eq!(config.min_non_persons_reader_connections, 0);
+        assert_eq!(config.min_non_persons_writer_connections, 0);
+        assert_eq!(config.min_persons_reader_connections, 0);
+        assert_eq!(config.min_persons_writer_connections, 0);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
         assert_eq!(config.team_ids_to_track, TeamIdCollection::All);
         assert_eq!(
@@ -460,6 +604,10 @@ mod tests {
         );
         assert_eq!(config.max_concurrency, 1000);
         assert_eq!(config.max_pg_connections, 10);
+        assert_eq!(config.min_non_persons_reader_connections, 0);
+        assert_eq!(config.min_non_persons_writer_connections, 0);
+        assert_eq!(config.min_persons_reader_connections, 0);
+        assert_eq!(config.min_persons_writer_connections, 0);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
         assert_eq!(config.team_ids_to_track, TeamIdCollection::All);
         assert_eq!(
@@ -486,6 +634,10 @@ mod tests {
         );
         assert_eq!(config.max_concurrency, 1000);
         assert_eq!(config.max_pg_connections, 10);
+        assert_eq!(config.min_non_persons_reader_connections, 0);
+        assert_eq!(config.min_non_persons_writer_connections, 0);
+        assert_eq!(config.min_persons_reader_connections, 0);
+        assert_eq!(config.min_persons_writer_connections, 0);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
         assert_eq!(config.team_ids_to_track, TeamIdCollection::All);
         assert_eq!(
@@ -547,5 +699,63 @@ mod tests {
     fn test_invalid_number() {
         let result: Result<TeamIdCollection, _> = "abc".parse();
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_flag_definitions_rate_limits_empty() {
+        let limits: FlagDefinitionsRateLimits = "".parse().unwrap();
+        assert_eq!(limits.0.len(), 0);
+    }
+
+    #[test]
+    fn test_flag_definitions_rate_limits_valid_json() {
+        let json = r#"{"123": "1200/minute", "456": "2400/hour"}"#;
+        let limits: FlagDefinitionsRateLimits = json.parse().unwrap();
+        assert_eq!(limits.0.len(), 2);
+        assert_eq!(limits.0.get(&123), Some(&"1200/minute".to_string()));
+        assert_eq!(limits.0.get(&456), Some(&"2400/hour".to_string()));
+    }
+
+    #[test]
+    fn test_flag_definitions_rate_limits_single_team() {
+        let json = r#"{"789": "100/second"}"#;
+        let limits: FlagDefinitionsRateLimits = json.parse().unwrap();
+        assert_eq!(limits.0.len(), 1);
+        assert_eq!(limits.0.get(&789), Some(&"100/second".to_string()));
+    }
+
+    #[test]
+    fn test_flag_definitions_rate_limits_invalid_json() {
+        let result: Result<FlagDefinitionsRateLimits, _> = "not json".parse();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("Failed to parse FLAG_DEFINITIONS_RATE_LIMITS"));
+    }
+
+    #[test]
+    fn test_flag_definitions_rate_limits_invalid_team_id() {
+        let json = r#"{"abc": "600/minute"}"#;
+        let result: Result<FlagDefinitionsRateLimits, _> = json.parse();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid team ID"));
+    }
+
+    #[test]
+    fn test_flag_definitions_rate_limits_negative_team_id() {
+        let json = r#"{"-123": "600/minute"}"#;
+        let result: Result<FlagDefinitionsRateLimits, _> = json.parse();
+        // Negative numbers are technically valid i32, so this should succeed
+        assert!(result.is_ok());
+        let limits = result.unwrap();
+        assert_eq!(limits.0.get(&-123), Some(&"600/minute".to_string()));
+    }
+
+    #[test]
+    fn test_flag_definitions_rate_limits_whitespace() {
+        let json = r#"  {"123": "600/minute"}  "#;
+        let limits: FlagDefinitionsRateLimits = json.parse().unwrap();
+        assert_eq!(limits.0.len(), 1);
+        assert_eq!(limits.0.get(&123), Some(&"600/minute".to_string()));
     }
 }

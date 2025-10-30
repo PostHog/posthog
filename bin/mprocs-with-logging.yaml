@@ -19,6 +19,7 @@ procs:
         shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue general-purpose-task-queue 2>&1 | tee /tmp/posthog-temporal-worker-general-purpose.log'
 
     temporal-worker-batch-exports:
+        # added a sleep to give the docker stuff time to start
         shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue batch-exports-task-queue --metrics-port 8002 2>&1 | tee /tmp/posthog-temporal-worker-batch-exports.log'
 
     temporal-worker-data-warehouse:
@@ -45,6 +46,12 @@ procs:
     temporal-worker-session-replay:
         shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue session-replay-task-queue --metrics-port 8010 2>&1 | tee /tmp/posthog-temporal-worker-session-replay.log'
 
+    temporal-worker-analytics-platform:
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue analytics-platform-task-queue --metrics-port 8011 2>&1 | tee /tmp/posthog-temporal-worker-analytics-platform.log'
+
+    temporal-worker-weekly-digest:
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue weekly-digest-task-queue --metrics-port 8012 --use-pydantic-converter 2>&1 | tee /tmp/posthog-temporal-worker-weekly-digest.log'
+
     dagster:
         shell: |-
             bin/check_postgres_up && \
@@ -70,7 +77,6 @@ procs:
         shell: |-
             bin/check_kafka_clickhouse_up && \
             bin/start-rust-service embedding-worker 2>&1 | tee /tmp/posthog-embedding-worker.log
-        autostart: false
 
     feature-flags:
         shell: |-
@@ -109,6 +115,9 @@ procs:
 
     migrate-persons-db:
         shell: 'bin/check_postgres_up posthog_persons && cd rust && DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog_persons sqlx migrate run --source persons_migrations 2>&1 | tee /tmp/posthog-migrate-persons-db.log'
+
+    migrate-behavioral-cohorts:
+        shell: 'bin/check_postgres_up behavioral_cohorts && rust/bin/migrate-behavioral-cohorts 2>&1 | tee /tmp/posthog-migrate-behavioral-cohorts.log'
 
     generate-demo-data:
         shell: |-

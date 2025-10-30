@@ -335,6 +335,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentSharedMetricAssigned',
                 'reportExperimentDashboardCreated',
                 'reportExperimentMetricTimeout',
+                'reportExperimentTimeseriesViewed',
+                'reportExperimentTimeseriesRecalculated',
             ],
             teamLogic,
             ['addProductIntent'],

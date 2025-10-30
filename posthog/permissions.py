@@ -13,6 +13,7 @@ from rest_framework.views import APIView
 from rest_framework.viewsets import ViewSet
 
 from posthog.auth import (
+    OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
     SessionAuthentication,
@@ -397,7 +398,7 @@ class ScopeBasePermission(BasePermission):
 
 class APIScopePermission(ScopeBasePermission):
     """
-    The request is via an API key and the user has the appropriate scopes.
+    The request is via an API key or OAuth token and the user has the appropriate scopes.
 
     This permission requires that the view has a "scope" attribute which is the base scope required for the action.
     E.g. scope="insight" for a view that requires "insight:read" or "insight:write" for the relevant actions.
@@ -411,14 +412,22 @@ class APIScopePermission(ScopeBasePermission):
         # Helps devs remember to add it.
         self._get_scope_object(request, view)
 
-        # API Scopes currently only apply to PersonalAPIKeyAuthentication
-        if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
-            return True
+        # API Scopes apply to PersonalAPIKeyAuthentication and OAuthAccessTokenAuthentication
 
-        key_scopes = request.successful_authenticator.personal_api_key.scopes
-
-        # TRICKY: Legacy API keys have no scopes and are allowed to do anything, even if the view is unsupported.
-        if not key_scopes:
+        if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+            key_scopes = request.successful_authenticator.personal_api_key.scopes
+            # TRICKY: Legacy Personal API keys have no scopes and are allowed to do anything
+            if not key_scopes:
+                return True
+        elif isinstance(request.successful_authenticator, OAuthAccessTokenAuthentication):
+            # OAuth tokens store scopes as space-separated string
+            token_scope_string = request.successful_authenticator.access_token.scope
+            key_scopes = token_scope_string.split() if token_scope_string else []
+            # OAuth tokens with no scopes should not have access
+            if not key_scopes:
+                self.message = "OAuth token has no scopes and cannot access this resource"
+                return False
+        else:
             return True
 
         required_scopes = self._get_required_scopes(request, view)
@@ -452,8 +461,14 @@ class APIScopePermission(ScopeBasePermission):
 
         self._check_organization_personal_api_key_restrictions(request, view)
 
-        scoped_organizations = request.successful_authenticator.personal_api_key.scoped_organizations
-        scoped_teams = request.successful_authenticator.personal_api_key.scoped_teams
+        if isinstance(request.successful_authenticator, OAuthAccessTokenAuthentication):
+            scoped_organizations = request.successful_authenticator.access_token.scoped_organizations
+            scoped_teams = request.successful_authenticator.access_token.scoped_teams
+        elif isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+            scoped_organizations = request.successful_authenticator.personal_api_key.scoped_organizations
+            scoped_teams = request.successful_authenticator.personal_api_key.scoped_teams
+        else:
+            raise ValueError("Unexpected authentication type")
 
         if scoped_teams:
             try:

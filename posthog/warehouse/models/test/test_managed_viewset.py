@@ -56,10 +56,9 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
             self.assertTrue(view.is_materialized)
             self.assertIsNotNone(view.query)
             self.assertIsNotNone(view.columns)
+            self.assertIsNotNone(view.external_tables)
             self.assertIn("HogQLQuery", view.query.get("kind", ""))  # type: ignore
 
-        # TODO: There's a bug here, these shouldn't include the weird `no_property` bit
-        # Will fix in a follow-up, not related to the changes that introduced this test
         expected_view_names = sorted(
             [
                 "revenue_analytics.all.revenue_analytics_charge",
@@ -70,13 +69,13 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
                 "revenue_analytics.events.purchase.charge_events_revenue_view",
                 "revenue_analytics.events.purchase.customer_events_revenue_view",
                 "revenue_analytics.events.purchase.revenue_item_events_revenue_view",
-                "revenue_analytics.events.purchase_no_property.product_events_revenue_view",
-                "revenue_analytics.events.purchase_no_property.subscription_events_revenue_view",
+                "revenue_analytics.events.purchase.product_events_revenue_view",
+                "revenue_analytics.events.purchase.subscription_events_revenue_view",
                 "revenue_analytics.events.subscription_charge.charge_events_revenue_view",
                 "revenue_analytics.events.subscription_charge.customer_events_revenue_view",
                 "revenue_analytics.events.subscription_charge.product_events_revenue_view",
                 "revenue_analytics.events.subscription_charge.revenue_item_events_revenue_view",
-                "revenue_analytics.events.subscription_charge_no_property.subscription_events_revenue_view",
+                "revenue_analytics.events.subscription_charge.subscription_events_revenue_view",
             ]
         )
 
@@ -110,6 +109,7 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
         saved_query.refresh_from_db()
         self.assertNotEqual(saved_query.query, old_query)
         self.assertNotEqual(saved_query.columns, old_columns)
+        self.assertIsNotNone(saved_query.external_tables)  # Was unset, guarantee we've set it
         self.assertIn("HogQLQuery", saved_query.query.get("kind", ""))  # type: ignore
 
     def test_delete_with_views(self):

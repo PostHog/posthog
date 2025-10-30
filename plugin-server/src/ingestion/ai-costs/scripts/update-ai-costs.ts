@@ -2,29 +2,102 @@ import fs from 'fs'
 import bigDecimal from 'js-big-decimal'
 import path from 'path'
 
-interface ModelRow {
-    model: string
-    provider?: string
-    cost: {
-        prompt_token: number
-        completion_token: number
-        cache_read_token?: number
-        cache_write_token?: number
-    }
+interface ModelCost {
+    prompt_token: number
+    completion_token: number
+    cache_read_token?: number
+    cache_write_token?: number
+    request?: number
+    web_search?: number
+    image?: number
+    image_output?: number
+    audio?: number
+    input_audio_cache?: number
+    internal_reasoning?: number
 }
 
-interface HeliconeModel {
-    provider: string
+interface ModelRow {
     model: string
-    operator: string
-    input_cost_per_1m: number
-    output_cost_per_1m: number
-    prompt_cache_write_per_1m?: number
-    prompt_cache_read_per_1m?: number
-    show_in_playground?: boolean
+    cost: Record<string, ModelCost>
 }
 
 const PATH_TO_PROVIDERS = path.join(__dirname, '../providers')
+const OPENROUTER_COSTS_FILENAME = 'llm-costs.json'
+
+const parsePricingNumber = (value: unknown): number | undefined => {
+    if (value === null || value === undefined) {
+        return undefined
+    }
+
+    const valueAsString = typeof value === 'number' ? value.toString() : value
+    if (typeof valueAsString !== 'string') {
+        return undefined
+    }
+
+    try {
+        const decimalValue = new bigDecimal(valueAsString).getValue()
+        const parsed = parseFloat(decimalValue)
+        if (Number.isNaN(parsed)) {
+            return undefined
+        }
+
+        if (parsed < 0) {
+            return 0
+        }
+
+        return parsed
+    } catch (error) {
+        console.warn('Failed to parse pricing value:', value, error)
+        return undefined
+    }
+}
+
+const buildModelCost = (pricing: Record<string, unknown> | undefined): ModelCost | null => {
+    if (!pricing) {
+        return null
+    }
+
+    const promptToken = parsePricingNumber(pricing.prompt)
+    const completionToken = parsePricingNumber(pricing.completion)
+
+    if (promptToken === undefined || completionToken === undefined) {
+        return null
+    }
+
+    const cost: ModelCost = {
+        prompt_token: promptToken,
+        completion_token: completionToken,
+    }
+
+    const optionalPricingFields: Array<[keyof ModelCost, string]> = [
+        ['cache_read_token', 'input_cache_read'],
+        ['cache_write_token', 'input_cache_write'],
+        ['request', 'request'],
+        ['web_search', 'web_search'],
+        ['image', 'image'],
+        ['image_output', 'image_output'],
+        ['audio', 'audio'],
+        ['input_audio_cache', 'input_audio_cache'],
+        ['internal_reasoning', 'internal_reasoning'],
+    ]
+
+    for (const [targetField, sourceField] of optionalPricingFields) {
+        const parsedValue = parsePricingNumber(pricing[sourceField])
+        if (parsedValue !== undefined && parsedValue !== 0) {
+            cost[targetField] = parsedValue
+        }
+    }
+
+    return cost
+}
+
+const normalizeProviderKey = (endpoint: { tag?: string; provider_name?: string; name?: string }): string => {
+    const rawKey = endpoint.tag || endpoint.provider_name || endpoint.name || 'unknown'
+    return rawKey
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+}
 
 const fetchOpenRouterCosts = async (): Promise<ModelRow[]> => {
     // eslint-disable-next-line no-restricted-globals
@@ -43,122 +116,130 @@ const fetchOpenRouterCosts = async (): Promise<ModelRow[]> => {
     console.log('OpenRouter models:', data.data.length)
     const models = data.data
 
-    // Group models by provider
-    const providerModels = new Map<string, ModelRow[]>()
+    const allModels: ModelRow[] = []
 
-    for (const model of models) {
-        if (!model?.id || !model?.pricing?.prompt || !model?.pricing?.completion) {
-            console.warn('Skipping invalid model:', model)
+    for (const [modelIndex, model] of models.entries()) {
+        if (!model?.id) {
+            console.warn('Skipping model without id:', model)
             continue
         }
-        const [provider, ...modelParts] = model.id.split('/')
 
-        if (!providerModels.has(provider)) {
-            providerModels.set(provider, [])
+        const defaultCost = buildModelCost(model.pricing)
+        if (!defaultCost) {
+            console.warn('Skipping model without valid pricing:', model.id)
+            continue
         }
 
-        // Convert pricing values to numbers before using toFixed(10)
-        const promptPrice = new bigDecimal(model.pricing.prompt).getValue()
-        const completionPrice = new bigDecimal(model.pricing.completion).getValue()
-
-        // Extract cache costs if available
-        let cacheReadCost: number | undefined
-        let cacheWriteCost: number | undefined
-
-        if (model.pricing.input_cache_read && parseFloat(model.pricing.input_cache_read) > 0) {
-            cacheReadCost = parseFloat(model.pricing.input_cache_read)
+        const costs: Record<string, ModelCost> = {
+            default: defaultCost,
         }
 
-        if (model.pricing.input_cache_write && parseFloat(model.pricing.input_cache_write) > 0) {
-            cacheWriteCost = parseFloat(model.pricing.input_cache_write)
+        const encodedModelId = model.id
+            .split('/')
+            .map((segment: string) => encodeURIComponent(segment))
+            .join('/')
+
+        try {
+            console.log(`Fetching endpoint pricing for ${modelIndex + 1}/${models.length} ${model.id}...`)
+            // eslint-disable-next-line no-restricted-globals
+            const endpointRes = await fetch(`https://openrouter.ai/api/v1/models/${encodedModelId}/endpoints`, {})
+            if (!endpointRes.ok) {
+                console.warn(
+                    `Failed to fetch endpoint pricing for ${model.id}: ${endpointRes.status} ${endpointRes.statusText}`
+                )
+            } else {
+                let endpointsPayload
+                try {
+                    endpointsPayload = await endpointRes.json()
+                } catch (parseError) {
+                    console.warn('Failed to parse endpoint pricing payload for model:', model.id, parseError)
+                }
+
+                const endpoints = endpointsPayload?.data?.endpoints ?? []
+                for (const endpoint of endpoints) {
+                    const endpointCost = buildModelCost(endpoint?.pricing)
+                    if (!endpointCost) {
+                        continue
+                    }
+
+                    const providerKey = normalizeProviderKey(endpoint)
+                    const safeProviderKey =
+                        providerKey && providerKey !== 'default'
+                            ? providerKey
+                            : `provider-${endpoint.provider_name ?? 'unknown'}`
+                    costs[safeProviderKey] = endpointCost
+                }
+            }
+        } catch (error) {
+            console.warn('Error fetching endpoint pricing for model:', model.id, error)
         }
 
-        const modelRow: ModelRow = {
-            model: modelParts.join('/'), // Only include the part after the provider
-            cost: {
-                prompt_token: parseFloat(promptPrice),
-                completion_token: parseFloat(completionPrice),
-                ...(cacheReadCost !== undefined && { cache_read_token: cacheReadCost }),
-                ...(cacheWriteCost !== undefined && { cache_write_token: cacheWriteCost }),
-            },
-        }
-
-        providerModels.get(provider)!.push(modelRow)
+        allModels.push({
+            model: model.id,
+            cost: costs,
+        })
     }
 
-    const allProviders = Array.from(providerModels.values()).flat()
+    allModels.sort((a, b) => a.model.localeCompare(b.model))
 
-    // Sort by model name for easier diffs
-    allProviders.sort((a, b) => a.model.localeCompare(b.model))
-
-    return allProviders
+    return allModels
 }
 
-const fetchHeliconeCosts = async (): Promise<ModelRow[]> => {
-    // eslint-disable-next-line no-restricted-globals
-    const res = await fetch('https://www.helicone.ai/api/llm-costs', {})
-    if (!res.ok) {
-        throw new Error(`Failed to fetch Helicone models: ${res.status} ${res.statusText}`)
+const sortProviderCosts = (models: ModelRow[]): ModelRow[] => {
+    return models.map((model) => {
+        const sortedCost: Record<string, ModelCost> = {}
+
+        // Get all provider keys and sort them
+        const providerKeys = Object.keys(model.cost)
+        const otherProviders = providerKeys.filter((key) => key !== 'default').sort()
+
+        // Always put 'default' first, then add the rest alphabetically
+        if (model.cost.default) {
+            sortedCost.default = model.cost.default
+        }
+
+        for (const provider of otherProviders) {
+            sortedCost[provider] = model.cost[provider]
+        }
+
+        return {
+            ...model,
+            cost: sortedCost,
+        }
+    })
+}
+
+const generateCanonicalProviders = (models: ModelRow[]): void => {
+    // Extract all unique provider keys from the cost data
+    const providerSet = new Set<string>()
+
+    for (const model of models) {
+        for (const providerKey of Object.keys(model.cost)) {
+            providerSet.add(providerKey)
+        }
     }
 
-    let responseData: { data: HeliconeModel[] }
-    try {
-        responseData = await res.json()
-    } catch (e) {
-        throw new Error('Failed to parse Helicone API response as JSON')
-    }
+    // Sort deterministically: default first, then alphabetically
+    const allProviders = Array.from(providerSet)
+    const otherProviders = allProviders.filter((p) => p !== 'default').sort()
+    const providers = allProviders.includes('default') ? ['default', ...otherProviders] : otherProviders
 
-    const data = responseData.data
-    console.log(`Fetched ${data.length} models from Helicone`)
+    // Generate TypeScript file content
+    const now = new Date()
+    const timestamp = `${now.toISOString().split('.')[0].replace('T', ' ')} UTC`
+    const typeUnion = providers.map((p) => `    | '${p}'`).join('\n')
 
-    const modelRows: ModelRow[] = []
+    const fileContent = `// Auto-generated from OpenRouter API - Do not edit manually
+// Generated at: ${timestamp}
 
-    for (const heliconeModel of data) {
-        // Skip models without required fields
-        if (
-            !heliconeModel.model ||
-            heliconeModel.input_cost_per_1m === undefined ||
-            heliconeModel.output_cost_per_1m === undefined
-        ) {
-            console.warn('Skipping invalid Helicone model:', heliconeModel)
-            continue
-        }
+export type CanonicalProvider =
+${typeUnion}
+`
 
-        const modelRow: ModelRow = {
-            model: heliconeModel.model,
-            provider:
-                heliconeModel.provider.toLowerCase() === 'google' ? 'gemini' : heliconeModel.provider.toLowerCase(),
-            cost: {
-                // Convert from cost per million to cost per token using bigDecimal for precision
-                prompt_token: parseFloat(
-                    new bigDecimal(heliconeModel.input_cost_per_1m).divide(new bigDecimal(1_000_000)).getValue()
-                ),
-                completion_token: parseFloat(
-                    new bigDecimal(heliconeModel.output_cost_per_1m).divide(new bigDecimal(1_000_000)).getValue()
-                ),
-            },
-        }
-
-        // Add cache costs if available
-        if (heliconeModel.prompt_cache_read_per_1m !== undefined) {
-            modelRow.cost.cache_read_token = parseFloat(
-                new bigDecimal(heliconeModel.prompt_cache_read_per_1m).divide(new bigDecimal(1_000_000)).getValue()
-            )
-        }
-
-        if (heliconeModel.prompt_cache_write_per_1m !== undefined) {
-            modelRow.cost.cache_write_token = parseFloat(
-                new bigDecimal(heliconeModel.prompt_cache_write_per_1m).divide(new bigDecimal(1_000_000)).getValue()
-            )
-        }
-
-        modelRows.push(modelRow)
-    }
-
-    // Sort by model name for easier diffs
-    modelRows.sort((a, b) => a.model.localeCompare(b.model))
-
-    return modelRows
+    // Write the file
+    const filePath = path.join(PATH_TO_PROVIDERS, 'canonical-providers.ts')
+    fs.writeFileSync(filePath, fileContent)
+    console.log(`Generated canonical-providers.ts with ${providers.length} provider types`)
 }
 
 const main = async () => {
@@ -172,20 +253,15 @@ const main = async () => {
     const openRouterCosts = await fetchOpenRouterCosts()
     console.log(`Fetched ${openRouterCosts.length} models from OpenRouter`)
 
-    console.log('Fetching costs from Helicone...')
-    const heliconeCosts = await fetchHeliconeCosts()
-    console.log(`Fetched ${heliconeCosts.length} models from Helicone`)
+    // Sort provider costs deterministically (default first, then alphabetically)
+    const sortedCosts = sortProviderCosts(openRouterCosts)
 
     // Write OpenRouter costs as backup
-    fs.writeFileSync(
-        path.join(PATH_TO_PROVIDERS, 'backup-llm-provider-costs.json'),
-        JSON.stringify(openRouterCosts, null, 2)
-    )
-    console.log('Wrote OpenRouter costs to backup-llm-provider-costs.json')
+    fs.writeFileSync(path.join(PATH_TO_PROVIDERS, OPENROUTER_COSTS_FILENAME), JSON.stringify(sortedCosts, null, 4))
+    console.log(`Wrote OpenRouter costs to ${OPENROUTER_COSTS_FILENAME}`)
 
-    // Write Helicone costs as primary (for future use)
-    fs.writeFileSync(path.join(PATH_TO_PROVIDERS, 'llm-provider-costs.json'), JSON.stringify(heliconeCosts, null, 2))
-    console.log('Wrote Helicone costs to llm-provider-costs.json')
+    // Generate canonical providers TypeScript file
+    generateCanonicalProviders(sortedCosts)
 }
 
 ;(async () => {

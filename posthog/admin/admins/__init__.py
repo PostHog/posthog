@@ -15,6 +15,7 @@ from .group_type_mapping_admin import GroupTypeMappingAdmin
 from .hog_function_admin import HogFunctionAdmin
 from .insight_admin import InsightAdmin
 from .instance_setting_admin import InstanceSettingAdmin
+from .oauth_admin import OAuthApplicationAdmin
 from .organization_admin import OrganizationAdmin
 from .organization_domain_admin import OrganizationDomainAdmin
 from .person_distinct_id_admin import PersonDistinctIdAdmin
@@ -44,6 +45,7 @@ __all__ = [
     "InsightAdmin",
     "InstanceSettingAdmin",
     "LinkAdmin",
+    "OAuthApplicationAdmin",
     "OrganizationAdmin",
     "OrganizationDomainAdmin",
     "PersonalAPIKeyAdmin",

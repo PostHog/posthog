@@ -29,13 +29,19 @@ def build(handle: SourceHandle) -> BuiltQuery:
     charge_schema = next((schema for schema in schemas if schema.name == STRIPE_CHARGE_RESOURCE_NAME), None)
     if charge_schema is None:
         return BuiltQuery(
-            key=f"{prefix}.no_source", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
+            key=str(source.id),  # Using source rather than table because table hasn't been found yet
+            prefix=prefix,
+            query=ast.SelectQuery.empty(columns=SCHEMA.fields),
+            test_comments="no_schema",
         )
 
     charge_schema = cast(ExternalDataSchema, charge_schema)
     if charge_schema.table is None:
         return BuiltQuery(
-            key=f"{prefix}.no_table", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
+            key=str(source.id),  # Using source rather than table because table hasn't been found
+            prefix=prefix,
+            query=ast.SelectQuery.empty(columns=SCHEMA.fields),
+            test_comments="no_table",
         )
 
     table = cast(DataWarehouseTable, charge_schema.table)

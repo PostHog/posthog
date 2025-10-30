@@ -703,7 +703,7 @@ def create_group_type_mapping_detail_dashboard(group_type_mapping, user) -> Dash
     dashboard = Dashboard.objects.create(
         name=f"Template dashboard for {singular} overview",
         description=f"This dashboard template powers the Overview page for all {plural}. Any insights will automatically filter to the selected {singular}.",
-        team=group_type_mapping.team,
+        team_id=group_type_mapping.team_id,
         created_by=user,
         creation_mode="template",
     )
