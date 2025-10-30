@@ -145,9 +145,12 @@ function matchesRecentsSearch(entry: FileSystemEntry, searchChunks: string[]): b
 
     const name = splitPath(entry.path).pop() || entry.path
     const nameLower = name.toLowerCase()
+    const typeLower = entry.type?.toLowerCase() ?? ''
     const categoryLower = 'recents'
 
-    return searchChunks.every((chunk) => nameLower.includes(chunk) || categoryLower.includes(chunk))
+    return searchChunks.every(
+        (chunk) => nameLower.includes(chunk) || typeLower.includes(chunk) || categoryLower.includes(chunk)
+    )
 }
 
 export const newTabSceneLogic = kea<newTabSceneLogicType>([
@@ -1181,7 +1184,9 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     return items.filter((item) =>
                         searchChunks.every(
                             (chunk) =>
-                                item.name.toLowerCase().includes(chunk) || item.category.toLowerCase().includes(chunk)
+                                item.name.toLowerCase().includes(chunk) ||
+                                item.category.toLowerCase().includes(chunk) ||
+                                item.record?.type?.toLowerCase().includes(chunk)
                         )
                     )
                 }
