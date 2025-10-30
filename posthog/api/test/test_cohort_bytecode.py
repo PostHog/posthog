@@ -488,7 +488,9 @@ class TestCohortBytecode(APIBaseTest):
         # Bytecode contains only performed_event matcher (downgraded), not performed_event_multiple, and the filter JSON stays as originally input
         bytecode_entry = cohort_ok.compiled_bytecode[0]
         self.assertNotIn("performed_event_multiple", str(bytecode_entry["bytecode"]))
-        self.assertIn("performed_event", str(bytecode_entry["bytecode"]))
+        # HogQL event matcher bytecode should reference the event name and 'event' field
+        self.assertIn("$pageview", str(bytecode_entry["bytecode"]))
+        self.assertIn("event", str(bytecode_entry["bytecode"]))
         filters_dict = cohort_ok.filters
         filter_val = filters_dict["properties"]["values"][0]
         self.assertEqual(filter_val["value"], "performed_event_multiple")
