@@ -188,7 +188,7 @@ impl KafkaSink {
         self.producer.flush(Duration::new(30, 0))
     }
 
-    pub async fn write(&self, token: &str, rows: Vec<KafkaLogRow>) -> Result<(), anyhow::Error> {
+    pub async fn write(&self, token: &str, rows: Vec<KafkaLogRow>, uncompressed_bytes: u64) -> Result<(), anyhow::Error> {
         let schema = Schema::parse_str(AVRO_SCHEMA)?;
         let mut writer = Writer::with_codec(
             &schema,
@@ -211,6 +211,12 @@ impl KafkaSink {
             headers: Some(OwnedHeaders::new().insert(Header {
                 key: "token",
                 value: Some(&token.to_string()),
+            }).insert(Header {
+                key: "bytes_uncompressed",
+                value: Some(&uncompressed_bytes.to_string()),
+            }).insert(Header {
+                key: "bytes_compressed",
+                value: Some(&payload.len().to_string()),
             })),
         }) {
             Err((err, _)) => Err(anyhow!(format!("kafka error: {}", err))),

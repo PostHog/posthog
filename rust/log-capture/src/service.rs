@@ -81,7 +81,7 @@ pub async fn export_logs_http(
         }
     }
 
-    if let Err(e) = service.sink.write(token.unwrap(), rows).await {
+    if let Err(e) = service.sink.write(token.unwrap(), rows, body.len() as u64).await {
         error!("Failed to send logs to Kafka: {}", e);
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
