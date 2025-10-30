@@ -288,11 +288,7 @@ docker:
         hidden: true
     docker:server:
         bin_script: docker-server
-        description: Run gunicorn application server with Prometheus metrics support
-        hidden: true
-    docker:server-unit:
-        bin_script: docker-server-unit
-        description: Run NGINX Unit application server with configurable workers
+        description: Run Granian ASGI server with Prometheus metrics support
         hidden: true
     docker:worker-beat:
         bin_script: docker-worker-beat
@@ -399,10 +395,9 @@ tools:
     tool:turbo:
         bin_script: turbo
         description: Turborepo wrapper with automatic dependency installation
-    tool:unit-metrics:
-        bin_script: unit_metrics.py
-        description: WSGI app that aggregates Prometheus metrics from NGINX Unit status
-            endpoint
+    tool:granian-metrics:
+        bin_script: granian_metrics.py
+        description: HTTP server that aggregates Prometheus metrics from Granian workers
         hidden: true
     tool:create-ch-migration:
         cmd: python manage.py create_ch_migration
