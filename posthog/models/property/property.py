@@ -112,12 +112,10 @@ VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES = {
     BehavioralPropertyType.PERFORMED_EVENT: [
         {"time_value", "time_interval"},
         {"explicit_datetime"},
-        set(),  # Allow simple event matching without temporal constraints
     ],
     BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE: [
         {"time_value", "time_interval"},
         {"explicit_datetime"},
-        set(),  # Allow simple event matching without temporal constraints
     ],
 }
 

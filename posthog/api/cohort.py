@@ -196,8 +196,20 @@ def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list
 
         from posthog.models.property.property import Property
 
-        # Convert the filter data to a Property object for bytecode generation
-        property_obj = Property(**filter_data)
+        # Only treat basic behavioral as event for bytecode; otherwise leave normal
+        if filter_data.get("type") == "behavioral" and filter_data.get("value") in {
+            "performed_event",
+            "performed_event_multiple",
+        }:
+            event_dict = {
+                k: v
+                for k, v in filter_data.items()
+                if k in {"key", "operator", "value", "group_type_index", "event_type"}
+            }
+            event_dict["type"] = "event"
+            property_obj = Property(**event_dict)
+        else:
+            property_obj = Property(**filter_data)
         expr = property_to_expr(property_obj, team)
         bytecode = create_bytecode(expr, cohort_membership_supported=True).bytecode
 
@@ -225,7 +237,9 @@ class FilterBytecodeMixin(BaseModel):
         if info and info.context:
             team = info.context.get("team")
             if team:
-                bytecode, error, condition_hash = generate_cohort_filter_bytecode(self.model_dump(), team)
+                bytecode, error, condition_hash = generate_cohort_filter_bytecode(
+                    self.model_dump(exclude_none=True), team
+                )
                 if bytecode:
                     self.bytecode = bytecode
                 if condition_hash:
