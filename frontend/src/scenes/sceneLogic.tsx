@@ -802,7 +802,7 @@ export const sceneLogic = kea<sceneLogicType>([
                                     !path.startsWith('/projects')
                             )
                         )
-                        if (!productsNotDependingOnEventIngestion.find((key) => productKeyFromUrl === key)) {
+                        if (!productsNotDependingOnEventIngestion.includes(productKeyFromUrl as ProductKey)) {
                             if (
                                 !teamLogic.values.hasOnboardedAnyProduct &&
                                 !allProductUrls.some((path) =>
