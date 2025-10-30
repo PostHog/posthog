@@ -6,8 +6,11 @@ import socket
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Optional
 from urllib.parse import urlencode
+
+if TYPE_CHECKING:
+    import aiohttp
 
 from django.conf import settings
 from django.db import models
@@ -704,9 +707,8 @@ class SlackIntegration:
     def client(self) -> WebClient:
         return WebClient(self.integration.sensitive_config["access_token"])
 
-    @property
-    def async_client(self) -> AsyncWebClient:
-        return AsyncWebClient(self.integration.sensitive_config["access_token"])
+    def async_client(self, session: Optional["aiohttp.ClientSession"] = None) -> AsyncWebClient:
+        return AsyncWebClient(self.integration.sensitive_config["access_token"], session=session)
 
     def list_channels(self, should_include_private_channels: bool, authed_user: str) -> list[dict]:
         # NOTE: Annoyingly the Slack API has no search so we have to load all channels...

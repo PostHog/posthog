@@ -65,7 +65,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database, create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -1452,7 +1452,7 @@ class QueryRunnerWithHogQLContext(AnalyticsQueryRunner[AR]):
         # We create a new context here because we need to access the database
         # below in the to_query method and creating a database is pretty heavy
         # so we'll reuse this database for the query once it eventually runs
-        self.database = create_hogql_database(team=self.team)
+        self.database = Database.create_for(team=self.team)
         self.hogql_context = HogQLContext(team_id=self.team.pk, database=self.database)
 
 
