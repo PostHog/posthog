@@ -165,7 +165,7 @@ class TestNormalizeAIMessage(BaseTest):
             ],
         )
 
-        result = normalize_ai_message(message)
+        [result] = normalize_ai_message(message)
 
         self.assertIsInstance(result, AssistantMessage)
         self.assertEqual(result.content, "Hello world")
@@ -187,7 +187,7 @@ class TestNormalizeAIMessage(BaseTest):
         """Test normalizing AIMessage without tool calls"""
         message = AIMessage(content="Simple message", tool_calls=[])
 
-        result = normalize_ai_message(message)
+        [result] = normalize_ai_message(message)
 
         self.assertEqual(result.content, "Simple message")
         assert isinstance(result.tool_calls, list)
@@ -205,7 +205,7 @@ class TestNormalizeAIMessage(BaseTest):
             tool_calls=[],
         )
 
-        result = normalize_ai_message(message)
+        [result] = normalize_ai_message(message)
 
         expected_content = "First text blockSecond text blockThird text block"
         self.assertEqual(result.content, expected_content)
@@ -226,7 +226,7 @@ class TestNormalizeAIMessage(BaseTest):
             tool_calls=[],
         )
 
-        result = normalize_ai_message(message)
+        [result] = normalize_ai_message(message)
 
         self.assertEqual(result.content, "Regular textMore text")
         assert result.meta is not None
@@ -249,7 +249,7 @@ class TestNormalizeAIMessage(BaseTest):
             tool_calls=[{"id": "tool_1", "name": "search", "args": {"query": "test"}}],
         )
 
-        result = normalize_ai_message(message)
+        [result] = normalize_ai_message(message)
 
         self.assertEqual(result.content, "Start textMiddle textEnd text")
         assert isinstance(result.tool_calls, list)
@@ -266,7 +266,7 @@ class TestNormalizeAIMessage(BaseTest):
         """Test normalizing AIMessage with empty content list"""
         message = AIMessage(content=[], tool_calls=[])
 
-        result = normalize_ai_message(message)
+        [result] = normalize_ai_message(message)
 
         self.assertEqual(result.content, "")
         self.assertIsNone(result.meta)
@@ -281,7 +281,7 @@ class TestNormalizeAIMessage(BaseTest):
             tool_calls=[],
         )
 
-        result = normalize_ai_message(message)
+        [result] = normalize_ai_message(message)
 
         self.assertEqual(result.content, "")
         self.assertIsNotNone(result.meta)
@@ -294,7 +294,7 @@ class TestNormalizeAIMessage(BaseTest):
             content=[], tool_calls=[], additional_kwargs={"reasoning": {"summary": [{"text": "Some thinking"}]}}
         )
 
-        result = normalize_ai_message(message)
+        [result] = normalize_ai_message(message)
 
         self.assertEqual(result.content, "")
         self.assertIsNotNone(result.meta)
@@ -318,7 +318,7 @@ class TestNormalizeAIMessage(BaseTest):
             tool_calls=[],
         )
 
-        result = normalize_ai_message(message)
+        [result] = normalize_ai_message(message)
 
         self.assertEqual(result.content, "Let me search for that information.Based on the search results...")
         assert isinstance(result.tool_calls, list)
@@ -342,7 +342,7 @@ class TestNormalizeAIMessage(BaseTest):
             tool_calls=[{"id": "regular_tool_456", "name": "read_taxonomy", "args": {}}],
         )
 
-        result = normalize_ai_message(message)
+        [result] = normalize_ai_message(message)
 
         self.assertEqual(result.content, "I'll use multiple tools.")
         assert isinstance(result.tool_calls, list)

@@ -291,11 +291,11 @@ def normalize_ai_message(message: AIMessage | AIMessageChunk) -> list[AssistantM
                         )
                 if content_item["type"] in SUPPORTED_ANTHROPIC_BLOCKS:
                     # All of these blocks must be preserved in their original order for Anthropic interleaved thinking
-                    messages[-1].meta.thinking.append(content_item)
+                    messages[-1].meta.thinking.append(content_item)  # type: ignore
                     if content_item["type"] == "server_tool_use" and content_item.get("partial_json"):
                         try:
                             # Weirdly server tool uses in LangChain don't have `input`, even when they have the full `partial_json`
-                            messages[-1].meta.thinking[-1]["input"] = json.loads(content_item["partial_json"])
+                            messages[-1].meta.thinking[-1]["input"] = json.loads(content_item["partial_json"])  # type: ignore
                         except json.JSONDecodeError:
                             pass
 

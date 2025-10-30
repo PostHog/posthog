@@ -64,10 +64,6 @@ export function isNotebookUpdateMessage(
     return message?.type === AssistantMessageType.Notebook
 }
 
-export function isUpdateMessage(message: RootAssistantMessage | undefined | null): message is UpdateMessage {
-    return message?.type === AssistantMessageType.Update
-}
-
 export function castAssistantQuery(
     query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery | null
 ): TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery {

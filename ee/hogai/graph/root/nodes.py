@@ -159,8 +159,7 @@ class RootNode(AssistantNode):
 
         # Mark the longest default prefix as cacheable
         add_cache_control(system_prompts[-1])
-
-        message = await model.ainvoke(system_prompts + langchain_messages, config)
+        message: LangchainAIMessage = await model.ainvoke(system_prompts + langchain_messages, config)
 
         new_messages = normalize_ai_message(message)
         # Replace the messages with the new message window

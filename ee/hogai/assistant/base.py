@@ -15,7 +15,6 @@ from langgraph.errors import GraphRecursionError
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StreamMode
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
-from pydantic import BaseModel
 
 from posthog.schema import (
     AssistantEventType,
@@ -346,13 +345,13 @@ class BaseAssistant(ABC):
         elif is_value_update(update) and (new_message := await self._aprocess_value_update(update)):
             return [new_message] if new_message else None
         elif is_message_update(update) and (new_messages := await self._aprocess_message_update(update)):
-            return new_messages[-1:]  # Stream only the latest message, no point in streaming previous ones
+            return new_messages
         return None
 
     async def _aprocess_value_update(self, update: GraphValueUpdateTuple) -> AssistantResultUnion | None:
         return None
 
-    async def _aprocess_message_update(self, update: GraphMessageUpdateTuple) -> list[BaseModel] | None:
+    async def _aprocess_message_update(self, update: GraphMessageUpdateTuple) -> list[AssistantMessageUnion] | None:
         """
         Process LLM chunks from "messages" stream mode.
 
@@ -377,7 +376,7 @@ class BaseAssistant(ABC):
         self._chunks = merge_message_chunk(self._chunks, langchain_message)
 
         # Stream ephemeral messages (no ID = not persisted)
-        return normalize_ai_message(self._chunks)
+        return cast(list[AssistantMessageUnion], normalize_ai_message(self._chunks))
 
     def _build_root_config_for_persistence(self) -> RunnableConfig:
         """

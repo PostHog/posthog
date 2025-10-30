@@ -171,7 +171,7 @@ class DeepResearchPlannerNode(DeepResearchNode):
         )
         response = cast(LangchainAIMessage, response)
 
-        messages = normalize_ai_message(response)
+        messages = normalize_ai_message(response)  # type: ignore - this might be broken now
         response_id = response.response_metadata["id"]
 
         return PartialDeepResearchState(

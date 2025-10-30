@@ -127,8 +127,12 @@ export const getThinkingMessageFromResponse = (message: AssistantMessage): (Serv
                 name: block.name as string,
                 input: block.input as Record<string, unknown>,
             }
-            blocks.push(toolUseIdToBlock[block.id])
+            blocks.push(toolUseIdToBlock[block.id as string])
         } else if (block.type === 'web_search_tool_result') {
+            if (!Array.isArray(block.content)) {
+                console.error('web_search_tool_result is not an array', block)
+                continue // Making TypeScript happy
+            }
             toolUseIdToBlock[block.tool_use_id as string].results = block.content.map((content) => ({
                 title: content.title as string,
                 url: content.url as string,
