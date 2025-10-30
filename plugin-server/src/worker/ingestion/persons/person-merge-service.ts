@@ -318,7 +318,7 @@ export class PersonMergeService {
                 // never needs an override.
                 const distinctId1Version = 0
 
-                const [person, _] = await this.personCreateService.createPerson(
+                const [person, wasCreated] = await this.personCreateService.createPerson(
                     timestamp,
                     this.context.eventProperties['$set'] || {},
                     this.context.eventProperties['$set_once'] || {},
@@ -332,8 +332,10 @@ export class PersonMergeService {
                     ],
                     tx
                 )
-                // We don't need to update the person later, so we return false for needsPersonUpdate
-                return mergeSuccess(person, Promise.resolve(), false)
+                // If person was not created (creation conflict) and is not identified,
+                // we need to update it later
+                const needsPersonUpdate = !wasCreated && !person.is_identified
+                return mergeSuccess(person, Promise.resolve(), needsPersonUpdate)
             })
         }
     }

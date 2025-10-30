@@ -255,10 +255,11 @@ describe('snapshotDataLogic', () => {
             expectedAllSourcesLoaded: boolean
         }> = [
             {
-                description: 'allSourcesLoaded should be false when targetTimestamp limits loading',
+                description:
+                    'allSourcesLoaded should be true - quick fix loads all sources regardless of targetTimestamp',
                 sources: [createSource(0), createSource(1), createSource(20)],
                 targetTimestamp: baseTimestamp + DEFAULT_LOADING_BUFFER,
-                expectedAllSourcesLoaded: false,
+                expectedAllSourcesLoaded: true, // Changed from false - we now load all sources to prevent buffering issues
             },
             {
                 description: 'allSourcesLoaded should be true when all sources are loaded without targetTimestamp',
