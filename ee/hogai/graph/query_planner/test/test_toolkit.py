@@ -13,6 +13,7 @@ from ee.hogai.graph.query_planner.toolkit import TaxonomyAgentToolkit, final_ans
 
 
 class DummyToolkit(TaxonomyAgentToolkit):
+    _parent_tool_call_id: str | None = None
     pass
 
 
