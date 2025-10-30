@@ -14,7 +14,7 @@ const ALLOWED_FORMULA_CHARACTERS = /^[a-zA-Z \-*^0-9+/().]+$/
 
 export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element | null {
     const { formulaNodes, hasFormula } = useValues(insightVizDataLogic(insightProps))
-    const { updateInsightFilter, toggleFormulaMode } = useActions(insightVizDataLogic(insightProps))
+    const { updateInsightFilter, removeFormulaNode } = useActions(insightVizDataLogic(insightProps))
 
     // Initialize with at least one empty value
     const [values, setValues] = useState<TrendsFormulaNode[]>(formulaNodes)
@@ -107,18 +107,10 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
 
     const removeFormula = (index: number): void => {
         const newValues = localValues.filter((_, i) => i !== index)
-
-        // If this was the last formula, turn off formula mode
-        if (newValues.length === 0) {
-            toggleFormulaMode()
-            return
-        }
-
         setLocalValues(newValues)
-        // Only update if there are non-empty values
-        if (newValues.some((v) => v.formula.trim() !== '')) {
-            updateFormulas(newValues)
-        }
+
+        // Delegate to Kea action to handle business logic
+        removeFormulaNode(index, localValues)
     }
 
     return hasFormula ? (
