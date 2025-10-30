@@ -133,6 +133,13 @@ jobs:
         steps:
             - name: Code check out
               uses: actions/checkout@v4
+              with:
+                  clean: false
+            - name: Clean up data directories with container permissions
+              run: |
+                  # Use docker to clean up files created by containers
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+              continue-on-error: true
 
             - name: Stop/Start stack with Docker Compose
               run: |

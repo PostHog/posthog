@@ -122,6 +122,15 @@ jobs:
         steps:
             - uses: actions/checkout@v4
               if: needs.changes.outputs.rust == 'true'
+              with:
+                  clean: false
+            - name: Clean up data directories with container permissions
+              if: needs.changes.outputs.rust == 'true'
+              working-directory: .
+              run: |
+                  # Use docker to clean up files created by containers (from repo root, not rust/)
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+              continue-on-error: true
 
             - name: Setup main repo and dependencies
               if: needs.changes.outputs.rust == 'true'
