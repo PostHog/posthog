@@ -394,8 +394,8 @@ class TestCohortBytecode(APIBaseTest):
         self.assertEqual(create_resp.status_code, 201)
         cohort_id = create_resp.json()["id"]
         cohort = Cohort.objects.get(id=cohort_id)
-        # cohort_type is only computed on update; create no longer sets it
-        self.assertIsNone(cohort.cohort_type)
+        # cohort_type is computed on create when filters support realtime
+        self.assertEqual(cohort.cohort_type, "realtime")
         self.assertIsNotNone(cohort.compiled_bytecode)
         base_len = len(cast(list[dict[str, Any]], cohort.compiled_bytecode))
 
@@ -449,3 +449,230 @@ class TestCohortBytecode(APIBaseTest):
         self.assertEqual(cohort.cohort_type, "realtime")
         self.assertIsNotNone(cohort.compiled_bytecode)
         self.assertEqual(len(cast(list[dict[str, Any]], cohort.compiled_bytecode)), 3)
+
+    def test_behavioral_bytecode_supported_and_unsupported_generation(self):
+        """
+        Checks that performed_event_multiple and performed_event_first_time downgrade to performed_event matcher with correct explicit_datetime,
+        and unsupported behavioral types are not compiled for bytecode.
+        """
+        from posthog.models.cohort.cohort import Cohort
+
+        # Supported case: performed_event_multiple
+        cohort_data_supported = {
+            "name": "test behavioral bytecode supported",
+            "filters": {
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "behavioral",
+                            "key": "$pageview",
+                            "value": "performed_event_multiple",
+                            "event_type": "events",
+                            "time_value": 30,
+                            "time_interval": "day",
+                        }
+                    ],
+                }
+            },
+        }
+        resp_ok = self.client.post(f"/api/projects/{self.team.id}/cohorts/", cohort_data_supported, format="json")
+        self.assertEqual(resp_ok.status_code, 201)
+        cohort_id_ok = resp_ok.json()["id"]
+        # PATCH to trigger cohort_type logic
+        self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort_id_ok}/", cohort_data_supported, format="json")
+        cohort_ok = Cohort.objects.get(id=cohort_id_ok)
+        self.assertEqual(cohort_ok.cohort_type, "realtime")
+        self.assertIsInstance(cohort_ok.compiled_bytecode, list)
+        self.assertEqual(len(cohort_ok.compiled_bytecode), 1)
+        # Bytecode contains only performed_event matcher (downgraded), not performed_event_multiple, and the filter JSON stays as originally input
+        bytecode_entry = cohort_ok.compiled_bytecode[0]
+        self.assertNotIn("performed_event_multiple", str(bytecode_entry["bytecode"]))
+        self.assertIn("performed_event", str(bytecode_entry["bytecode"]))
+        filters_dict = cohort_ok.filters
+        filter_val = filters_dict["properties"]["values"][0]
+        self.assertEqual(filter_val["value"], "performed_event_multiple")
+
+        # Unsupported cases: performed_event_first_time and performed_event_regularly
+        for unsupported_val in ["performed_event_first_time", "performed_event_regularly"]:
+            cohort_data_unsupported = {
+                "name": f"test behavioral bytecode unsupported {unsupported_val}",
+                "filters": {
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "behavioral",
+                                "key": "$pageview",
+                                "value": unsupported_val,
+                                "event_type": "events",
+                                "time_value": 7,
+                                "time_interval": "week",
+                            }
+                        ],
+                    }
+                },
+            }
+            resp_no = self.client.post(f"/api/projects/{self.team.id}/cohorts/", cohort_data_unsupported, format="json")
+            self.assertEqual(resp_no.status_code, 201)
+            cohort_id_no = resp_no.json()["id"]
+            self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{cohort_id_no}/", cohort_data_unsupported, format="json"
+            )
+            cohort_no = Cohort.objects.get(id=cohort_id_no)
+            # Should NOT be considered realtime
+            self.assertIsNone(cohort_no.cohort_type)
+            # Should NOT emit any relevant bytecode
+            self.assertTrue(cohort_no.compiled_bytecode is None or not cohort_no.compiled_bytecode)
+
+
+class TestCohortTypePersistence(TestCohortBytecode):
+    def test_cohort_type_set_on_create_supported(self):
+        cohort_data = {
+            "name": "test cohort_type on create supported",
+            "filters": {
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "behavioral",
+                            "key": "$pageview",
+                            "value": "performed_event_multiple",
+                            "event_type": "events",
+                        }
+                    ],
+                }
+            },
+        }
+        resp = self.client.post(f"/api/projects/{self.team.id}/cohorts/", cohort_data, format="json")
+        self.assertEqual(resp.status_code, 201)
+        cohort_id = resp.json()["id"]
+        from posthog.models.cohort.cohort import Cohort
+
+        cohort = Cohort.objects.get(id=cohort_id)
+        self.assertEqual(cohort.cohort_type, "realtime")
+        self.assertIsInstance(cohort.compiled_bytecode, list)
+
+    def test_cohort_type_set_on_create_unsupported(self):
+        cohort_data = {
+            "name": "test cohort_type on create unsupported",
+            "filters": {
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "behavioral",
+                            "key": "$pageview",
+                            "value": "performed_event_first_time",
+                            "event_type": "events",
+                        }
+                    ],
+                }
+            },
+        }
+        resp = self.client.post(f"/api/projects/{self.team.id}/cohorts/", cohort_data, format="json")
+        self.assertEqual(resp.status_code, 201)
+        cohort_id = resp.json()["id"]
+        from posthog.models.cohort.cohort import Cohort
+
+        cohort = Cohort.objects.get(id=cohort_id)
+        self.assertIsNone(cohort.cohort_type)
+        self.assertTrue(cohort.compiled_bytecode is None or not cohort.compiled_bytecode)
+
+    def test_cohort_type_flips_on_update(self):
+        from posthog.models.cohort.cohort import Cohort
+
+        # Create unsupported
+        cohort_data = {
+            "name": "test cohort_type on update flip",
+            "filters": {
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "behavioral",
+                            "key": "$pageview",
+                            "value": "performed_event_first_time",
+                            "event_type": "events",
+                        }
+                    ],
+                }
+            },
+        }
+        resp = self.client.post(f"/api/projects/{self.team.id}/cohorts/", cohort_data, format="json")
+        self.assertEqual(resp.status_code, 201)
+        cohort_id = resp.json()["id"]
+        cohort = Cohort.objects.get(id=cohort_id)
+        self.assertIsNone(cohort.cohort_type)
+        # Patch to supported
+        patch_data = {
+            "filters": {
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "behavioral",
+                            "key": "$pageview",
+                            "value": "performed_event_multiple",
+                            "event_type": "events",
+                        }
+                    ],
+                }
+            },
+        }
+        resp = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/", patch_data, format="json")
+        self.assertEqual(resp.status_code, 200)
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.cohort_type, "realtime")
+        # Flip back to unsupported
+        patch_data2 = {
+            "filters": {
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "behavioral",
+                            "key": "$pageview",
+                            "value": "performed_event_first_time",
+                            "event_type": "events",
+                        }
+                    ],
+                }
+            },
+        }
+        resp = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/", patch_data2, format="json")
+        self.assertEqual(resp.status_code, 200)
+        cohort.refresh_from_db()
+        self.assertIsNone(cohort.cohort_type)
+
+    def test_explicit_cohort_type_field_preserved_on_patch(self):
+        from posthog.models.cohort.cohort import Cohort
+
+        # Supported on create
+        cohort_data = {
+            "name": "test cohort_type explicit field",
+            "filters": {
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "behavioral",
+                            "key": "$pageview",
+                            "value": "performed_event_multiple",
+                            "event_type": "events",
+                        }
+                    ],
+                }
+            },
+        }
+        resp = self.client.post(f"/api/projects/{self.team.id}/cohorts/", cohort_data, format="json")
+        self.assertEqual(resp.status_code, 201)
+        cohort_id = resp.json()["id"]
+        cohort = Cohort.objects.get(id=cohort_id)
+        self.assertEqual(cohort.cohort_type, "realtime")
+        # Patch explicit value should be ignored (read-only), response OK and value unchanged
+        patch_data = {"cohort_type": "static"}
+        resp = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/", patch_data, format="json")
+        self.assertEqual(resp.status_code, 200)
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.cohort_type, "realtime")

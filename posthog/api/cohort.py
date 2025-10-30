@@ -196,18 +196,17 @@ def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list
 
         from posthog.models.property.property import Property
 
-        # Only treat basic behavioral as event for bytecode; otherwise leave normal
-        if filter_data.get("type") == "behavioral" and filter_data.get("value") in {
-            "performed_event",
-            "performed_event_multiple",
-        }:
-            event_dict = {
-                k: v
-                for k, v in filter_data.items()
-                if k in {"key", "operator", "value", "group_type_index", "event_type"}
-            }
-            event_dict["type"] = "event"
-            property_obj = Property(**event_dict)
+        # Only treat basic behavioral as performed_event for bytecode; always strip to base event + explicit_datetime threshold
+        if filter_data.get("type") == "behavioral":
+            v = filter_data.get("value")
+            if v in {"performed_event", "performed_event_multiple"}:
+                event_dict = {k: filter_data[k] for k in ("key", "negation", "event_type") if k in filter_data}
+                event_dict["type"] = "behavioral"
+                event_dict["value"] = "performed_event"
+                property_obj = Property(**event_dict, bytecode_generation=True)
+            else:
+                # Do not generate bytecode for unsupported behavioral values
+                return None, "Unsupported behavioral filter for realtime bytecode", None
         else:
             property_obj = Property(**filter_data)
         expr = property_to_expr(property_obj, team)
@@ -461,6 +460,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "count",
             "compiled_bytecode",
             "experiment_set",
+            "cohort_type",
         ]
 
     def validate_cohort_type(self, value):
@@ -537,6 +537,7 @@ class CohortSerializer(serializers.ModelSerializer):
             )
             validated_data["filters"] = clean_filters
             validated_data["compiled_bytecode"] = compiled_bytecode
+            validated_data["cohort_type"] = computed_cohort_type
 
         person_ids = validated_data.pop("_create_static_person_ids", None)
         cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
@@ -833,9 +834,8 @@ class CohortSerializer(serializers.ModelSerializer):
                     filters, cohort.team, current_cohort_type=cohort.cohort_type
                 )
                 cohort.filters = clean_filters
-                # Only override cohort_type from computation if not explicitly provided in this update
-                if "cohort_type" not in validated_data:
-                    cohort.cohort_type = computed_cohort_type
+                # Always compute cohort_type from filters; ignore any client-provided value
+                cohort.cohort_type = computed_cohort_type
                 cohort.compiled_bytecode = compiled_bytecode
             else:
                 cohort.filters = filters
