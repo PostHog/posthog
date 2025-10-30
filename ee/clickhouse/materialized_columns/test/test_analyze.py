@@ -1,4 +1,4 @@
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+from posthog.test.base import BaseTest, ClickhouseDestroyTablesMixin, ClickhouseTestMixin
 from unittest.mock import call, patch
 
 from posthog.clickhouse.client import sync_execute
@@ -6,7 +6,7 @@ from posthog.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
 
 
-class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, BaseTest):
+class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseTest):
     @patch("ee.clickhouse.materialized_columns.analyze.materialize")
     @patch("ee.clickhouse.materialized_columns.analyze.backfill_materialized_columns")
     def test_mat_columns(self, patch_backfill, patch_materialize):
