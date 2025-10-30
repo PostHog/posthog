@@ -47,6 +47,8 @@ class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, BaseTest):
             )
             """.format(query=query, log_comment='{"team_id": 2}')
             )
+
+        sync_execute("SYSTEM FLUSH LOGS")
         materialize_properties_task()
         patch_materialize.assert_has_calls(
             [
