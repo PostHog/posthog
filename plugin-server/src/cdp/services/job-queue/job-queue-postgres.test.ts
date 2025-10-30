@@ -1,3 +1,5 @@
+import { v4 as uuidv4 } from 'uuid'
+
 import { CyclotronJobQueuePostgres } from './job-queue-postgres'
 
 // Mock external dependency to avoid needing the actual implementation in tests
@@ -44,7 +46,7 @@ describe('CyclotronJobQueue - postgres', () => {
 
             const invocation: any = {
                 ...baseInvocation,
-                id: '01971158-5dd2-0000-2dde-9d3478269401',
+                id: uuidv4(),
             }
 
             await queue.queueInvocations([invocation])
