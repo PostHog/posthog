@@ -1448,6 +1448,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     values.player?.replayer?.pause()
                     actions.startBuffer()
                     actions.clearPlayerError()
+                    // the target buffer timestamp won't have been updated yet, so we calculate it directly
+                    actions.loadUntilTimestamp(timestamp + DEFAULT_LOADING_BUFFER)
                 }
             }
 
@@ -1518,6 +1520,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
             }
 
+            // Tell the data logic what timestamp we want buffered to
+            // It will decide if it needs to load more data
+            actions.loadUntilTimestamp(values.targetBufferTimestamp)
+
             // If we're beyond buffered position, set to buffering
             if (values.currentSegment?.kind === 'buffer') {
                 // Pause only the animation, not our player, so it will restart
@@ -1557,10 +1563,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             } else {
                 actions.setMaskWindow(false)
             }
-
-            // Tell the data logic what timestamp we want buffered to
-            // It will decide if it needs to load more data
-            actions.loadUntilTimestamp(values.targetBufferTimestamp)
 
             // The normal loop. Progress the player position and continue the loop
             actions.setCurrentTimestamp(newTimestamp)

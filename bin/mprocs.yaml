@@ -50,7 +50,7 @@ procs:
         shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue analytics-platform-task-queue --metrics-port 8011'
 
     temporal-worker-weekly-digest:
-        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue weekly-digest-task-queue --metrics-port 8012'
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue weekly-digest-task-queue --metrics-port 8012 --use-pydantic-converter'
 
     dagster:
         shell: |-
