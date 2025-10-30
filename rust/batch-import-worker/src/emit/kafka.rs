@@ -130,7 +130,6 @@ impl<'a> KafkaEmitterTransaction<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use common_types::{CapturedEvent, CapturedEventHeaders};
     use uuid::Uuid;
 
@@ -144,6 +143,7 @@ mod tests {
             now: "2023-10-15T14:30:00+00:00".to_string(),
             sent_at: None,
             token: "test_token".to_string(),
+            event: "test_event".to_string(),
             is_cookieless_mode: false,
             historical_migration: true,
         };
@@ -157,7 +157,7 @@ mod tests {
         assert_eq!(headers.historical_migration, Some(true));
         assert_eq!(headers.force_disable_person_processing, Some(false));
         assert_eq!(headers.timestamp, None);
-        assert_eq!(headers.event, None);
+        assert_eq!(headers.event, Some("test_event".to_string()));
     }
 
     #[test]
@@ -170,6 +170,7 @@ mod tests {
             now: "2023-10-15T15:00:00+00:00".to_string(),
             sent_at: None,
             token: "another_token".to_string(),
+            event: "another_event".to_string(),
             is_cookieless_mode: false,
             historical_migration: false,
         };
@@ -189,5 +190,6 @@ mod tests {
         );
         assert_eq!(parsed_headers.historical_migration, Some(false));
         assert_eq!(parsed_headers.force_disable_person_processing, Some(false));
+        assert_eq!(parsed_headers.event, Some("another_event".to_string()));
     }
 }

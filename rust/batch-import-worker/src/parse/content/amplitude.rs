@@ -214,6 +214,7 @@ fn create_group_identify_event(
         now: timestamp.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
         sent_at: None,
         token: context.token.clone(),
+        event: "$groupidentify".to_string(),
         is_cookieless_mode: false,
         historical_migration: true,
     };
@@ -589,6 +590,7 @@ impl AmplitudeEvent {
                     now: Utc::now().to_rfc3339(),
                     sent_at: None,
                     token,
+                    event: raw_event.event.clone(),
                     is_cookieless_mode: false,
                     historical_migration: true,
                 };

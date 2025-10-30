@@ -170,6 +170,7 @@ pub struct CapturedEvent {
     )]
     pub sent_at: Option<OffsetDateTime>,
     pub token: String,
+    pub event: String,
     #[serde(skip_serializing_if = "<&bool>::not", default)]
     pub is_cookieless_mode: bool,
     #[serde(skip_serializing_if = "<&bool>::not", default)]
@@ -191,7 +192,7 @@ impl CapturedEvent {
             token: Some(self.token.clone()),
             distinct_id: Some(self.distinct_id.clone()),
             timestamp: None, // Not available in CapturedEvent, would need to parse from data
-            event: None,     // Not available in CapturedEvent, would need to parse from data
+            event: Some(self.event.clone()),
             uuid: Some(self.uuid.to_string()),
             now: Some(self.now.clone()),
             force_disable_person_processing: Some(false), // Batch import events don't need person processing disabled
@@ -390,6 +391,7 @@ mod tests {
             now: "2023-01-01T12:00:00Z".to_string(),
             sent_at: None,
             token: "test_token".to_string(),
+            event: "test_event".to_string(),
             is_cookieless_mode: false,
             historical_migration: true,
         };
@@ -413,6 +415,7 @@ mod tests {
             now: "2023-01-01T12:00:00Z".to_string(),
             sent_at: None,
             token: "test_token".to_string(),
+            event: "test_event".to_string(),
             is_cookieless_mode: false,
             historical_migration: false,
         };
@@ -435,7 +438,9 @@ mod tests {
             "ip": "127.0.0.1",
             "data": "{\"event\":\"test_event\"}",
             "now": "2023-01-01T12:00:00Z",
-            "token": "test_token"
+            "token": "test_token",
+            "event": "test_event",
+            "is_cookieless_mode": false
         }"#;
 
         let deserialized: CapturedEvent =

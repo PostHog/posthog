@@ -107,7 +107,9 @@ fn create_captured_event() -> CapturedEvent {
         // serialized RawEvent
         data: data.to_string(),
         sent_at: Some(now_offset_datetime),
+        event: event_name.to_string(),
         is_cookieless_mode: false,
+        historical_migration: false,
     }
 }
 

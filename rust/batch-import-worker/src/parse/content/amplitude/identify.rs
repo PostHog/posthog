@@ -73,6 +73,7 @@ pub fn create_identify_event(
         now: Utc::now().to_rfc3339(),
         sent_at: None,
         token: token.to_string(),
+        event: "$identify".to_string(),
         is_cookieless_mode: false,
         historical_migration: true,
     };

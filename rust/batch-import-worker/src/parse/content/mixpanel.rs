@@ -104,6 +104,7 @@ impl MixpanelEvent {
                     now: Utc::now().to_rfc3339(),
                     sent_at: None,
                     token,
+                    event: raw_event.event.clone(),
                     is_cookieless_mode: false,
                     historical_migration: true,
                 };

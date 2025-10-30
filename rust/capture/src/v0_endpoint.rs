@@ -454,11 +454,13 @@ pub fn process_single_event(
         context.now,
     );
 
+    let event_name = event.event.clone();
+
     let mut metadata = ProcessedEventMetadata {
         data_type,
         session_id: None,
         computed_timestamp: Some(computed_timestamp),
-        event_name: event.event.clone(),
+        event_name: event_name.clone(),
     };
 
     let event = CapturedEvent {
@@ -473,6 +475,7 @@ pub fn process_single_event(
             .to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true),
         sent_at: context.sent_at,
         token: context.token.clone(),
+        event: event_name,
         is_cookieless_mode: event
             .extract_is_cookieless_mode()
             .ok_or(CaptureError::InvalidCookielessMode)?,
@@ -674,6 +677,7 @@ pub async fn process_replay_events<'a>(
             .to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true),
         sent_at: context.sent_at,
         token: context.token.clone(),
+        event: "$snapshot_items".to_string(),
         is_cookieless_mode,
         historical_migration: context.historical_migration,
     };

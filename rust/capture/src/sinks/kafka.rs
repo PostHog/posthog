@@ -496,6 +496,7 @@ mod tests {
             now: "".to_string(),
             sent_at: None,
             token: "token1".to_string(),
+            event: "test_event".to_string(),
             is_cookieless_mode: false,
             historical_migration: false,
         };
@@ -541,6 +542,7 @@ mod tests {
             now: "".to_string(),
             sent_at: None,
             token: "token1".to_string(),
+            event: "test_event".to_string(),
             is_cookieless_mode: false,
             historical_migration: false,
         };
@@ -570,6 +572,7 @@ mod tests {
                 now: "".to_string(),
                 sent_at: None,
                 token: "token1".to_string(),
+                event: "test_event".to_string(),
                 is_cookieless_mode: false,
                 historical_migration: false,
             },
