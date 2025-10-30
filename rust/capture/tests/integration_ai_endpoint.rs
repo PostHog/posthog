@@ -166,7 +166,6 @@ fn setup_ai_test_router() -> Router {
         25 * 1024 * 1024,
         false,
         1_i64,
-        None,
         false,
         0.0_f32,
         26_214_400, // 25MB default for AI endpoint
@@ -1488,7 +1487,6 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         25 * 1024 * 1024,
         false,
         1_i64,
-        None,
         false,
         0.0_f32,
         26_214_400, // 25MB default for AI endpoint
