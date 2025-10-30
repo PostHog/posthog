@@ -206,7 +206,7 @@
         <!-- example of using a different storage policy for a system table -->
         <!-- storage_policy>local_ssd</storage_policy -->
 
-        <ttl>event_date + INTERVAL 5 DAY</ttl>
+        <ttl>event_date + INTERVAL 12 DAY</ttl>
         <ttl_only_drop_parts>1</ttl_only_drop_parts>
     </query_log>
 
