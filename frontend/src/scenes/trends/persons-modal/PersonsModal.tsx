@@ -127,7 +127,7 @@ export function PersonsModal({
                 inline={inline}
             >
                 <LemonModal.Header>
-                    <h3>{getTitle()}</h3>
+                    <h3 className="truncate">{getTitle()}</h3>
                 </LemonModal.Header>
                 <div className="px-4 py-2">
                     {actorsResponse && !!missingActorsCount && !hasGroups && (
@@ -211,8 +211,8 @@ export function PersonsModal({
                         )}
                     </div>
                 </div>
-                <div className="px-4 overflow-hidden flex flex-col">
-                    <div className="relative min-h-20 p-2 deprecated-space-y-2 rounded bg-border-light overflow-y-auto mb-2">
+                <div className="px-4 overflow-hidden flex flex-col max-h-[60vh]">
+                    <div className="relative min-h-20 p-2 deprecated-space-y-2 rounded bg-border-light overflow-y-auto mb-2 flex-1">
                         {errorObject ? (
                             validationError ? (
                                 <InsightValidationError query={query} detail={validationError} />
@@ -368,14 +368,14 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
 
                 <ProfilePicture name={name} size="md" />
 
-                <div className="flex-1 overflow-hidden">
+                <div className="flex-1 overflow-hidden min-w-0">
                     {isGroupType(actor) ? (
-                        <div className="font-bold">
+                        <div className="font-bold truncate">
                             <GroupActorDisplay actor={actor} />
                         </div>
                     ) : (
                         <>
-                            <div className="font-bold flex items-start">
+                            <div className="font-bold flex items-start truncate">
                                 <PersonDisplay person={actor} withIcon={false} />
                             </div>
                             {actor.distinct_ids?.[0] && (
@@ -383,7 +383,7 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                                     explicitValue={actor.distinct_ids[0]}
                                     iconStyle={{ color: 'var(--color-accent)' }}
                                     iconPosition="end"
-                                    className="text-xs text-secondary"
+                                    className="text-xs text-secondary truncate"
                                 >
                                     {midEllipsis(actor.distinct_ids[0], 32)}
                                 </CopyToClipboardInline>

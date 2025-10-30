@@ -134,3 +134,46 @@ export const ServerError: StoryFn = () => {
         </div>
     )
 }
+
+export const WithAllButtons: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            [EXAMPLE_PERSONS_RESPONSE.initial]: EXAMPLE_PERSONS_RESPONSE,
+            [`/api/projects/:team_id/persons/${EXAMPLE_PERSONS_RESPONSE.results[0].people[0].uuid}/properties_timeline/`]:
+                {
+                    points: [
+                        {
+                            timestamp: '2022-12-02T00:00:00.000Z',
+                            properties: {
+                                name: 'Francisco Elliott',
+                                email: 'mortgage2056@yandex.com',
+                                $geoip_country_code: 'US',
+                            },
+                            matched_recordings: ['1234567890'],
+                            relevant_event_count: 2,
+                        },
+                    ],
+                    crucial_property_keys: ['$geoip_country_code'],
+                    effective_date_from: '2022-12-01T00:00:00.000+00:00',
+                    effective_date_to: '2022-12-13T23:59:59.999999+00:00',
+                } as RawPropertiesTimelineResult,
+        },
+    })
+
+    return (
+        <div className="flex max-h-200">
+            <PersonsModalComponent
+                title="Page Reports - Persons on 12 Oct 2025"
+                url={EXAMPLE_PERSONS_RESPONSE.initial}
+                query={{
+                    kind: 'InsightActorsQuery',
+                    source: {
+                        kind: 'TrendsQuery',
+                        series: [{ kind: 'EventsNode', event: '$pageview' }],
+                    },
+                }}
+                inline
+            />
+        </div>
+    )
+}
