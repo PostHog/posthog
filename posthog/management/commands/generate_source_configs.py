@@ -19,7 +19,8 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.sources import SourceRegistry
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 logger = get_logger(__name__)
 logger.setLevel(logging.INFO)

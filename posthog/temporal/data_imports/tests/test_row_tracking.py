@@ -19,7 +19,8 @@ from posthog.temporal.data_imports.row_tracking import (
     setup_row_tracking,
     will_hit_billing_limit,
 )
-from posthog.warehouse.models import ExternalDataSource
+
+from products.data_warehouse.backend.models import ExternalDataSource
 
 
 class TestRowTracking(BaseTest):

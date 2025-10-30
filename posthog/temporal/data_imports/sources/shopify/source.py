@@ -19,7 +19,8 @@ from posthog.temporal.data_imports.sources.shopify.shopify import (
     shopify_source,
     validate_credentials as validate_shopify_credentials,
 )
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

@@ -7,7 +7,7 @@ from ..batch_exports.models import BatchExport, BatchExportBackfill, BatchExport
 from ..session_recordings.models.session_recording import SessionRecording
 from ..session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from ..session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
-from ..warehouse.models import DataWarehouseTable
+from products.data_warehouse.backend.models import DataWarehouseTable
 from ._deprecated_prompts import Prompt, PromptSequence, UserPromptState
 from .action import Action
 from .action.action_step import ActionStep

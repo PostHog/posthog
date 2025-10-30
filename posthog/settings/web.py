@@ -41,6 +41,7 @@ PRODUCTS_APPS = [
     "products.marketing_analytics.backend.apps.MarketingAnalyticsConfig",
     "products.error_tracking.backend.apps.ErrorTrackingConfig",
     "products.notebooks.backend.apps.NotebooksConfig",
+    "products.data_warehouse.backend.apps.DataWarehouseConfig",
 ]
 
 INSTALLED_APPS = [
