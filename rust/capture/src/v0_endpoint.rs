@@ -849,7 +849,7 @@ mod tests {
         let processed = result.unwrap();
 
         // Should have historical_migration=false in the event payload
-        assert_eq!(processed.event.historical_migration, false);
+        assert!(!processed.event.historical_migration);
         // Should be routed to AnalyticsMain
         assert_eq!(processed.metadata.data_type, DataType::AnalyticsMain);
     }
@@ -872,7 +872,7 @@ mod tests {
         let processed = result.unwrap();
 
         // Should have historical_migration=true in the event payload
-        assert_eq!(processed.event.historical_migration, true);
+        assert!(processed.event.historical_migration);
         // Should be routed to AnalyticsHistorical
         assert_eq!(processed.metadata.data_type, DataType::AnalyticsHistorical);
     }
