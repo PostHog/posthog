@@ -201,10 +201,8 @@ def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list
         if filter_data.get("type") == "behavioral":
             v = filter_data.get("value")
             if v in {"performed_event", "performed_event_multiple"}:
-                # Reuse shared builder to create combined (event AND properties) expression
                 expr = build_behavioral_event_expr(filter_data, team)
                 bytecode = create_bytecode(expr, cohort_membership_supported=True).bytecode
-
                 # Generate conditionHash from bytecode
                 condition_hash = None
                 if bytecode:
