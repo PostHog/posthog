@@ -221,10 +221,11 @@ function invocationToCyclotronJobInitial(invocation: CyclotronJobInvocation): Cy
     }
 
     // Preserve the invocation id when inserting into Postgres so switching backends keeps the same ID
-    const looksLikeUuid = typeof invocation.id === 'string' && isUuid(invocation.id)
+    // cyclotron db expects this to be a valid UUID
+    const isValidUuid = typeof invocation.id === 'string' && isUuid(invocation.id)
 
     const job: CyclotronJobInit & { id?: string } = {
-        id: looksLikeUuid ? invocation.id : undefined,
+        id: isValidUuid ? invocation.id : undefined,
         teamId: invocation.teamId,
         functionId: invocation.functionId,
         queueName: invocation.queue,

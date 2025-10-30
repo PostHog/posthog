@@ -28,7 +28,7 @@ describe('CyclotronJobQueue - postgres', () => {
         return { queue, bulkCreateJobs }
     }
 
-    describe('queueInvocations - looksLikeUuid behavior', () => {
+    describe('queueInvocations - isValidUuid behavior', () => {
         const baseInvocation = {
             teamId: 1,
             functionId: '0196a6b9-1104-0000-f099-9cf11985a307',
@@ -41,7 +41,7 @@ describe('CyclotronJobQueue - postgres', () => {
             },
         }
 
-        it('preserves id when it looks like a UUID', async () => {
+        it('preserves id when it is a valid UUID', async () => {
             const { queue, bulkCreateJobs } = createQueue()
 
             const invocation: any = {
@@ -58,7 +58,7 @@ describe('CyclotronJobQueue - postgres', () => {
             expect(jobsArg[0].id).toBe(invocation.id)
         })
 
-        it('omits id when it does NOT look like a UUID (string)', async () => {
+        it('omits id when it is NOT a valid UUID (string)', async () => {
             const { queue, bulkCreateJobs } = createQueue()
 
             const invocation: any = {
@@ -72,7 +72,7 @@ describe('CyclotronJobQueue - postgres', () => {
             expect(jobsArg[0].id).toBeUndefined()
         })
 
-        it('omits id when it does NOT look like a UUID (number)', async () => {
+        it('omits id when it is NOT a valid UUID (number)', async () => {
             const { queue, bulkCreateJobs } = createQueue()
 
             const invocation: any = {
