@@ -9,14 +9,13 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link } from 'lib/lemon-ui/Link'
 
-import { EventType, RecordingEventType } from '~/types'
-
+import { ErrorPropertyTabEvent } from '../EventPropertyTabs/EventPropertyTabs'
 import { ChainedStackTraces } from './StackTraces'
 import { errorPropertiesLogic } from './errorPropertiesLogic'
 import { ErrorEventId, ErrorEventProperties } from './types'
 import { concatValues } from './utils'
 
-export function idFrom(event: EventType | RecordingEventType): string {
+export function idFrom(event: ErrorPropertyTabEvent): string {
     if ('uuid' in event && event.uuid) {
         return event.uuid
     }

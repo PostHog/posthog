@@ -100,7 +100,7 @@ export const ErrorTrackingIssueScenePanelV2 = (): JSX.Element | null => {
                             {hasSimilarIssues && (
                                 <ButtonPrimitive menuItem>
                                     <IconSearch />
-                                    See similar issues
+                                    Merge similar issues
                                 </ButtonPrimitive>
                             )}
                         </ScenePanelLabel>

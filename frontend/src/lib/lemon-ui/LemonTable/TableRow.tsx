@@ -83,12 +83,12 @@ function TableRowRaw<T extends Record<string, any>>({
                             <LemonButton
                                 noPadding
                                 active={isRowExpanded}
-                                onClick={() => {
+                                onClick={(event) => {
                                     setIsRowExpanded(!isRowExpanded)
                                     if (isRowExpanded) {
-                                        expandable?.onRowCollapse?.(record, recordIndex)
+                                        expandable?.onRowCollapse?.(record, recordIndex, event)
                                     } else {
-                                        expandable?.onRowExpand?.(record, recordIndex)
+                                        expandable?.onRowExpand?.(record, recordIndex, event)
                                     }
                                 }}
                                 icon={isRowExpanded ? <IconCollapse /> : <IconExpand />}

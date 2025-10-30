@@ -33,7 +33,25 @@ import { Metadata } from '../../components/IssueMetadata'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { ErrorTrackingIssueScenePanelV2 } from './ScenePanel'
-import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { ErrorTrackingIssueSceneCategory, errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+
+const EXCEPTION_TABS = {
+    exceptions: { icon: <IconList />, label: 'Exceptions' },
+    breakdowns: { icon: <IconFilter />, label: 'Breakdowns' },
+    autofix: { icon: <IconRobot />, label: 'AI autofix' },
+    similar_issues: { icon: <IconSearch />, label: 'Similar issues' },
+}
+
+function exceptionTabLabel(category: ErrorTrackingIssueSceneCategory): string {
+    const { icon, label } = EXCEPTION_TABS[category]
+
+    return (
+        <>
+            {icon}
+            {label}
+        </>
+    )
+}
 
 export function V2Layout(): JSX.Element {
     const { issue, selectedEvent } = useValues(errorTrackingIssueSceneLogic)
@@ -169,13 +187,12 @@ const Breadcrumbs = (): JSX.Element => {
     const { setExceptionsCategory } = useActions(errorTrackingIssueSceneLogic)
 
     return (
-        <div className="flex items-center gap-x-1 py-1.5">
+        <div className="flex items-center gap-x-1">
             {isViewingException ? (
                 <>
                     <ButtonGroupPrimitive groupVariant="outline">
                         <ButtonPrimitive hasSideActionRight onClick={() => setExceptionsCategory('all')}>
-                            <IconList />
-                            Exceptions
+                            {exceptionTabLabel('exceptions')}
                         </ButtonPrimitive>
 
                         <CategoryDropdown />
@@ -196,19 +213,12 @@ const CategoryDropdown = (): JSX.Element => {
     const { category, isViewingException } = useValues(errorTrackingIssueSceneLogic)
     const { setCategory, setExceptionsCategory } = useActions(errorTrackingIssueSceneLogic)
 
-    const label = {
-        exceptions: 'Exceptions',
-        breakdowns: 'Breakdowns',
-        autofix: 'AI autofix',
-        similar_issues: 'Similar issues',
-    }[category]
-
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
                 <ButtonPrimitive iconOnly={isViewingException} isSideActionRight={isViewingException} variant="outline">
-                    {isViewingException ? null : label}
-                    <DropdownMenuOpenIndicator className="ml-0" />
+                    {!isViewingException && exceptionTabLabel(category)}
+                    <DropdownMenuOpenIndicator className="mx-1.5" />
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
 
@@ -224,8 +234,7 @@ const CategoryDropdown = (): JSX.Element => {
                                 }}
                                 active={category === 'exceptions'}
                             >
-                                <IconList />
-                                Exceptions
+                                {exceptionTabLabel('exceptions')}
                             </ButtonPrimitive>
                         </DropdownMenuItem>
                     )}
@@ -235,8 +244,7 @@ const CategoryDropdown = (): JSX.Element => {
                             onClick={() => setCategory('breakdowns')}
                             active={category === 'breakdowns'}
                         >
-                            <IconFilter />
-                            Breakdowns
+                            {exceptionTabLabel('breakdowns')}
                         </ButtonPrimitive>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
@@ -245,8 +253,7 @@ const CategoryDropdown = (): JSX.Element => {
                             onClick={() => setCategory('autofix')}
                             active={category === 'autofix'}
                         >
-                            <IconRobot />
-                            AI autofix
+                            {exceptionTabLabel('autofix')}
                         </ButtonPrimitive>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
@@ -255,8 +262,7 @@ const CategoryDropdown = (): JSX.Element => {
                             onClick={() => setCategory('similar_issues')}
                             active={category === 'similar_issues'}
                         >
-                            <IconSearch />
-                            Similar issues
+                            {exceptionTabLabel('similar_issues')}
                         </ButtonPrimitive>
                     </DropdownMenuItem>
                 </DropdownMenuGroup>

@@ -74,9 +74,9 @@ export interface ExpandableConfig<T extends Record<string, any>> {
      */
     rowExpandable?: (record: T, recordIndex: number) => boolean | number
     /** Called when row is expanded */
-    onRowExpand?: (record: T, recordIndex: number) => void
+    onRowExpand?: (record: T, recordIndex: number, event: React.MouseEvent<HTMLElement, MouseEvent>) => void
     /** Called when row is collapsed */
-    onRowCollapse?: (record: T, recordIndex: number) => void
+    onRowCollapse?: (record: T, recordIndex: number, event: React.MouseEvent<HTMLElement, MouseEvent>) => void
     /** Disable indentation */
     noIndent?: boolean
     /** Optionally hide the row expansion toggle */

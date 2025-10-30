@@ -1,5 +1,5 @@
 import { ErrorDisplay, idFrom } from 'lib/components/Errors/ErrorDisplay'
-import { EventPropertyTabs } from 'lib/components/EventPropertyTabs/EventPropertyTabs'
+import { ErrorPropertyTabEvent, EventPropertyTabs } from 'lib/components/EventPropertyTabs/EventPropertyTabs'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
@@ -8,13 +8,13 @@ import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 
 import { KNOWN_PROMOTED_PROPERTY_PARENTS } from '~/taxonomy/taxonomy'
-import { EventType, PropertyDefinitionType } from '~/types'
+import { PropertyDefinitionType } from '~/types'
 
 import { ConversationDisplay } from 'products/llm_analytics/frontend/ConversationDisplay/ConversationDisplay'
 import { EvaluationDisplay } from 'products/llm_analytics/frontend/ConversationDisplay/EvaluationDisplay'
 
 interface EventDetailsProps {
-    event: EventType
+    event: ErrorPropertyTabEvent
     tableProps?: Partial<LemonTableProps<Record<string, any>>>
 }
 

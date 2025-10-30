@@ -146,8 +146,11 @@ export type ErrorEventProperties = EventType['properties']
 export type ErrorEventId = NonNullable<EventType['uuid']>
 
 export type ErrorEventType = {
+    event: '$exception'
     uuid: ErrorEventId
     timestamp: string
+    distinct_id: string
     properties: ErrorEventProperties
     person: PersonType
+    elements?: never
 }
