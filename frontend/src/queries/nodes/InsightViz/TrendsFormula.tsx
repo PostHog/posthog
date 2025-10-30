@@ -110,7 +110,7 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
         setLocalValues(newValues)
 
         // Delegate to Kea action to handle business logic
-        removeFormulaNode(index, localValues)
+        removeFormulaNode(newValues)
     }
 
     return hasFormula ? (
