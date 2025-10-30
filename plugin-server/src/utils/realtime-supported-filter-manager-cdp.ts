@@ -103,6 +103,11 @@ export class RealtimeSupportedFilterManagerCDP {
                     return // Skip invalid entries
                 }
 
+                // Skip person property entries explicitly
+                if (bytecodeEntry.filter_type === 'person') {
+                    return
+                }
+
                 const conditionHash = bytecodeEntry.conditionHash
 
                 // Deduplicate: only add if we haven't seen this conditionHash for this team before
