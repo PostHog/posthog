@@ -1,5 +1,7 @@
 import csv
+import json
 import uuid
+import hashlib
 from collections import defaultdict
 from collections.abc import Iterator
 from datetime import datetime
@@ -39,6 +41,7 @@ from posthog.api.person import get_funnel_actor_class
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action, get_target_entity
+from posthog.cdp.filters import build_behavioral_event_expr
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import (
     INSIGHT_FUNNELS,
@@ -191,12 +194,6 @@ def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list
     Returns tuple of (bytecode, error, conditionHash)
     """
     try:
-        import json
-        import hashlib
-
-        from posthog.cdp.filters import build_behavioral_event_expr
-        from posthog.models.property.property import Property
-
         # Only treat behavioral as event matcher + optional event properties; unsupported values yield True expr
         if filter_data.get("type") == "behavioral":
             expr = build_behavioral_event_expr(filter_data, team)
