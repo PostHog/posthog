@@ -59,12 +59,13 @@ def get_sync_schedule(external_data_schema: "ExternalDataSchema", should_sync: b
 
     hour = 0
     minute = 0
+    sync_time_of_day: time | str | None = external_data_schema.sync_time_of_day
     # format 15:00:00 --> 3:00 PM UTC | default to midnight UTC
-    if external_data_schema.sync_time_of_day:
-        time_str = external_data_schema.sync_time_of_day
-        time = datetime.strptime(str(time_str), "%H:%M:%S").time()
-        hour = time.hour
-        minute = time.minute
+    if sync_time_of_day is not None:
+        time_str = sync_time_of_day
+        t = datetime.strptime(str(time_str), "%H:%M:%S").time()
+        hour = t.hour
+        minute = t.minute
     else:
         # Apply a one-time jitter based on the sync frequency to avoid all jobs syncing at the same time
         interval: timedelta | None = external_data_schema.sync_frequency_interval
