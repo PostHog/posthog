@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
-from products.workflows.backend.providers.ses import SESProvider
+from products.messaging.backend.providers.ses import SESProvider
 
 TEST_DOMAIN = "test.posthog.com"
 
@@ -28,9 +28,39 @@ class TestSESProvider(TestCase):
 
     def test_create_email_domain_success(self):
         provider = SESProvider()
-        provider.create_email_domain(TEST_DOMAIN, team_id=1)
 
-    @patch("products.workflows.backend.providers.ses.boto3.client")
+        # Mock the client on the provider instance
+        with (
+            patch.object(provider, "client") as mock_client,
+            patch.object(provider, "tenant_client") as mock_tenant_client,
+        ):
+            # Mock the verification attributes to return a success status
+            mock_client.get_identity_verification_attributes.return_value = {
+                "VerificationAttributes": {
+                    TEST_DOMAIN: {
+                        "VerificationStatus": "Success",
+                        "VerificationToken": "test-token-123",
+                    }
+                }
+            }
+
+            # Mock DKIM attributes to return a success status
+            mock_client.get_identity_dkim_attributes.return_value = {
+                "DkimAttributes": {TEST_DOMAIN: {"DkimVerificationStatus": "Success"}}
+            }
+
+            # Mock the domain verification and DKIM setup calls
+            mock_client.verify_domain_identity.return_value = {"VerificationToken": "test-token-123"}
+            mock_client.verify_domain_dkim.return_value = {"DkimTokens": ["token1", "token2", "token3"]}
+
+            # Mock tenant client methods
+            mock_tenant_client.create_tenant.return_value = {}
+            mock_tenant_client.get_caller_identity.return_value = {"Account": "123456789012"}
+            mock_tenant_client.create_tenant_resource_association.return_value = {}
+
+            provider.create_email_domain(TEST_DOMAIN, team_id=1)
+
+    @patch("products.messaging.backend.providers.ses.boto3.client")
     def test_create_email_domain_invalid_domain(self, mock_boto_client):
         with override_settings(
             SES_ACCESS_KEY_ID="test_access_key", SES_SECRET_ACCESS_KEY="test_secret_key", SES_REGION="us-east-1"
