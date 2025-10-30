@@ -1,4 +1,4 @@
-from abc import ABC, abstractmethod
+from abc import ABC
 from collections.abc import Sequence
 from typing import Generic
 from uuid import UUID
@@ -26,7 +26,7 @@ from ee.hogai.utils.types import (
     PartialStateType,
     StateType,
 )
-from ee.hogai.utils.types.composed import MaxNodeName
+from ee.hogai.utils.types.base import NodeEndAction, NodePath, NodeStartAction
 from ee.models import Conversation
 
 
@@ -34,16 +34,12 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
     _config: RunnableConfig | None = None
     _context_manager: AssistantContextManager | None = None
     _dispatcher: AssistantDispatcher | None = None
-    _parent_tool_call_id: str | None = None
+    _node_path: tuple[NodePath, ...]
 
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User, node_path: tuple[NodePath, ...] | None = None):
         self._team = team
         self._user = user
-
-    @property
-    @abstractmethod
-    def node_name(self) -> MaxNodeName:
-        raise NotImplementedError
+        self._node_path = node_path or ()
 
     async def __call__(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
         """
@@ -57,17 +53,24 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
         if isinstance(state, AssistantState) and state.root_tool_call_id:
             # NOTE: we set the parent tool call id as the root tool call id
             # This will be deprecated once all tools become MaxTools and are removed from the graph
-            self._parent_tool_call_id = state.root_tool_call_id
+            self.node_path.tool_call_id = state.root_tool_call_id
+
+        self.dispatcher.dispatch(NodeStartAction())
 
         thread_id = (config.get("configurable") or {}).get("thread_id")
         if thread_id and await self._is_conversation_cancelled(thread_id):
             raise GenerationCanceled
 
         try:
-            return await self.arun(state, config)
+            new_state = await self.arun(state, config)
         except NotImplementedError:
             pass
-        return await database_sync_to_async(self.run, thread_sensitive=False)(state, config)
+
+        new_state = await database_sync_to_async(self.run, thread_sensitive=False)(state, config)
+
+        self.dispatcher.dispatch(NodeEndAction(state=new_state))
+
+        return new_state
 
     def run(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
         """DEPRECATED. Use `arun` instead."""
@@ -107,10 +110,14 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
 
             writer = noop
 
-        self._dispatcher = AssistantDispatcher(
-            writer, node_name=self.node_name, parent_tool_call_id=self._parent_tool_call_id
-        )
+        self._dispatcher = AssistantDispatcher(writer, node_path=self._node_path)
         return self._dispatcher
+
+    @property
+    def node_path(self) -> NodePath:
+        if not self._node_path:
+            raise ValueError("Node path is empty")
+        return self._node_path[-1]
 
     async def _is_conversation_cancelled(self, conversation_id: UUID) -> bool:
         conversation = await self._aget_conversation(conversation_id)

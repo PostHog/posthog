@@ -1,5 +1,5 @@
 from collections.abc import Hashable
-from typing import Any, Generic, Literal, Optional, cast
+from typing import TYPE_CHECKING, Generic, Literal, Optional, cast
 
 from langgraph.graph.state import StateGraph
 
@@ -11,7 +11,14 @@ from ee.hogai.graph.billing.nodes import BillingNode
 from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
 from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
-from ee.hogai.utils.types import AssistantNodeName, AssistantState, StateType
+from ee.hogai.utils.types.base import (
+    AssistantNodeName,
+    AssistantState,
+    NodePath,
+    PartialAssistantState,
+    PartialStateType,
+    StateType,
+)
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from .dashboards.nodes import DashboardCreationNode
@@ -35,21 +42,26 @@ from .root.nodes import RootNode, RootNodeTools
 from .sql.nodes import SQLGeneratorNode, SQLGeneratorToolsNode
 from .trends.nodes import TrendsGeneratorNode, TrendsGeneratorToolsNode
 
+if TYPE_CHECKING:
+    from .base import BaseAssistantNode
+
 global_checkpointer = DjangoCheckpointer()
 
 
-class BaseAssistantGraph(Generic[StateType]):
+class BaseAssistantGraph(Generic[StateType, PartialStateType]):
     _team: Team
     _user: User
     _graph: StateGraph
-    _parent_tool_call_id: str | None
+    _node_path: tuple[NodePath, ...] | None
 
-    def __init__(self, team: Team, user: User, state_type: type[StateType], parent_tool_call_id: str | None = None):
+    def __init__(
+        self, team: Team, user: User, state_type: type[StateType], node_path: tuple[NodePath, ...] | None = None
+    ):
         self._team = team
         self._user = user
         self._graph = StateGraph(state_type)
         self._has_start_node = False
-        self._parent_tool_call_id = parent_tool_call_id
+        self._node_path = node_path
 
     def add_edge(self, from_node: MaxNodeName, to_node: MaxNodeName):
         if from_node == AssistantNodeName.START:
@@ -57,9 +69,7 @@ class BaseAssistantGraph(Generic[StateType]):
         self._graph.add_edge(from_node, to_node)
         return self
 
-    def add_node(self, node: MaxNodeName, action: Any):
-        if self._parent_tool_call_id:
-            action._parent_tool_call_id = self._parent_tool_call_id
+    def add_node(self, node: MaxNodeName, action: BaseAssistantNode[StateType, PartialStateType]):
         self._graph.add_node(node, action)
         return self
 
@@ -72,33 +82,24 @@ class BaseAssistantGraph(Generic[StateType]):
         )
         return compiled_graph
 
-    def add_title_generator(self, end_node: MaxNodeName = AssistantNodeName.END):
-        self._has_start_node = True
 
-        title_generator = TitleGeneratorNode(self._team, self._user)
-        self.add_node(AssistantNodeName.TITLE_GENERATOR, title_generator)
-        self._graph.add_edge(AssistantNodeName.START, AssistantNodeName.TITLE_GENERATOR)
-        self._graph.add_edge(AssistantNodeName.TITLE_GENERATOR, end_node)
-        return self
-
-
-class InsightsAssistantGraph(BaseAssistantGraph[AssistantState]):
-    def __init__(self, team: Team, user: User, tool_call_id: str | None = None):
-        super().__init__(team, user, AssistantState, tool_call_id)
+class InsightsAssistantGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
+    def __init__(self, team: Team, user: User, node_path: tuple[NodePath, ...] | None = None):
+        super().__init__(team, user, AssistantState, node_path)
 
     def add_rag_context(self):
         self._has_start_node = True
-        retriever = InsightRagContextNode(self._team, self._user)
+        retriever = InsightRagContextNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.INSIGHT_RAG_CONTEXT, retriever)
         self._graph.add_edge(AssistantNodeName.START, AssistantNodeName.INSIGHT_RAG_CONTEXT)
         self._graph.add_edge(AssistantNodeName.INSIGHT_RAG_CONTEXT, AssistantNodeName.QUERY_PLANNER)
         return self
 
     def add_trends_generator(self, next_node: AssistantNodeName = AssistantNodeName.QUERY_EXECUTOR):
-        trends_generator = TrendsGeneratorNode(self._team, self._user)
+        trends_generator = TrendsGeneratorNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.TRENDS_GENERATOR, trends_generator)
 
-        trends_generator_tools = TrendsGeneratorToolsNode(self._team, self._user)
+        trends_generator_tools = TrendsGeneratorToolsNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.TRENDS_GENERATOR_TOOLS, trends_generator_tools)
 
         self._graph.add_edge(AssistantNodeName.TRENDS_GENERATOR_TOOLS, AssistantNodeName.TRENDS_GENERATOR)
@@ -114,10 +115,10 @@ class InsightsAssistantGraph(BaseAssistantGraph[AssistantState]):
         return self
 
     def add_funnel_generator(self, next_node: AssistantNodeName = AssistantNodeName.QUERY_EXECUTOR):
-        funnel_generator = FunnelGeneratorNode(self._team, self._user)
+        funnel_generator = FunnelGeneratorNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.FUNNEL_GENERATOR, funnel_generator)
 
-        funnel_generator_tools = FunnelGeneratorToolsNode(self._team, self._user)
+        funnel_generator_tools = FunnelGeneratorToolsNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.FUNNEL_GENERATOR_TOOLS, funnel_generator_tools)
 
         self._graph.add_edge(AssistantNodeName.FUNNEL_GENERATOR_TOOLS, AssistantNodeName.FUNNEL_GENERATOR)
@@ -133,10 +134,10 @@ class InsightsAssistantGraph(BaseAssistantGraph[AssistantState]):
         return self
 
     def add_retention_generator(self, next_node: AssistantNodeName = AssistantNodeName.QUERY_EXECUTOR):
-        retention_generator = RetentionGeneratorNode(self._team, self._user)
+        retention_generator = RetentionGeneratorNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.RETENTION_GENERATOR, retention_generator)
 
-        retention_generator_tools = RetentionGeneratorToolsNode(self._team, self._user)
+        retention_generator_tools = RetentionGeneratorToolsNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.RETENTION_GENERATOR_TOOLS, retention_generator_tools)
 
         self._graph.add_edge(AssistantNodeName.RETENTION_GENERATOR_TOOLS, AssistantNodeName.RETENTION_GENERATOR)
@@ -157,11 +158,11 @@ class InsightsAssistantGraph(BaseAssistantGraph[AssistantState]):
             dict[Literal["trends", "funnel", "retention", "sql", "continue", "end"], AssistantNodeName]
         ] = None,
     ):
-        query_planner = QueryPlannerNode(self._team, self._user)
+        query_planner = QueryPlannerNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.QUERY_PLANNER, query_planner)
         self._graph.add_edge(AssistantNodeName.QUERY_PLANNER, AssistantNodeName.QUERY_PLANNER_TOOLS)
 
-        query_planner_tools = QueryPlannerToolsNode(self._team, self._user)
+        query_planner_tools = QueryPlannerToolsNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.QUERY_PLANNER_TOOLS, query_planner_tools)
         self._graph.add_conditional_edges(
             AssistantNodeName.QUERY_PLANNER_TOOLS,
@@ -180,10 +181,10 @@ class InsightsAssistantGraph(BaseAssistantGraph[AssistantState]):
         return self
 
     def add_sql_generator(self, next_node: AssistantNodeName = AssistantNodeName.QUERY_EXECUTOR):
-        sql_generator = SQLGeneratorNode(self._team, self._user)
+        sql_generator = SQLGeneratorNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.SQL_GENERATOR, sql_generator)
 
-        sql_generator_tools = SQLGeneratorToolsNode(self._team, self._user)
+        sql_generator_tools = SQLGeneratorToolsNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.SQL_GENERATOR_TOOLS, sql_generator_tools)
 
         self._graph.add_edge(AssistantNodeName.SQL_GENERATOR_TOOLS, AssistantNodeName.SQL_GENERATOR)
@@ -199,7 +200,7 @@ class InsightsAssistantGraph(BaseAssistantGraph[AssistantState]):
         return self
 
     def add_query_executor(self, next_node: AssistantNodeName = AssistantNodeName.END):
-        query_executor_node = QueryExecutorNode(self._team, self._user)
+        query_executor_node = QueryExecutorNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.QUERY_EXECUTOR, query_executor_node)
         self._graph.add_edge(AssistantNodeName.QUERY_EXECUTOR, next_node)
         return self
@@ -219,9 +220,18 @@ class InsightsAssistantGraph(BaseAssistantGraph[AssistantState]):
         return self.add_query_creation_flow().add_query_executor().compile(checkpointer=checkpointer)
 
 
-class AssistantGraph(BaseAssistantGraph[AssistantState]):
+class AssistantGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
     def __init__(self, team: Team, user: User):
         super().__init__(team, user, AssistantState)
+
+    def add_title_generator(self, end_node: MaxNodeName = AssistantNodeName.END):
+        self._has_start_node = True
+
+        title_generator = TitleGeneratorNode(self._team, self._user, self._node_path)
+        self.add_node(AssistantNodeName.TITLE_GENERATOR, title_generator)
+        self._graph.add_edge(AssistantNodeName.START, AssistantNodeName.TITLE_GENERATOR)
+        self._graph.add_edge(AssistantNodeName.TITLE_GENERATOR, end_node)
+        return self
 
     def add_root(
         self,
@@ -238,9 +248,9 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             "session_summarization": AssistantNodeName.SESSION_SUMMARIZATION,
             "create_dashboard": AssistantNodeName.DASHBOARD_CREATION,
         }
-        root_node = RootNode(self._team, self._user)
+        root_node = RootNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.ROOT, root_node)
-        root_node_tools = RootNodeTools(self._team, self._user)
+        root_node_tools = RootNodeTools(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.ROOT_TOOLS, root_node_tools)
         self._graph.add_edge(AssistantNodeName.ROOT, tools_node)
         self._graph.add_conditional_edges(
@@ -249,7 +259,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         return self
 
     def add_insights(self, next_node: AssistantNodeName = AssistantNodeName.ROOT):
-        insights_assistant_graph = InsightsAssistantGraph(self._team, self._user)
+        insights_assistant_graph = InsightsAssistantGraph(self._team, self._user, self._node_path)
         compiled_graph = insights_assistant_graph.compile_full_graph()
         self.add_node(AssistantNodeName.INSIGHTS_SUBGRAPH, compiled_graph)
         self._graph.add_edge(AssistantNodeName.INSIGHTS_SUBGRAPH, next_node)
@@ -261,12 +271,14 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
     ):
         self._has_start_node = True
 
-        memory_onboarding = MemoryOnboardingNode(self._team, self._user)
-        memory_initializer = MemoryInitializerNode(self._team, self._user)
-        memory_initializer_interrupt = MemoryInitializerInterruptNode(self._team, self._user)
-        memory_onboarding_enquiry = MemoryOnboardingEnquiryNode(self._team, self._user)
-        memory_onboarding_enquiry_interrupt = MemoryOnboardingEnquiryInterruptNode(self._team, self._user)
-        memory_onboarding_finalize = MemoryOnboardingFinalizeNode(self._team, self._user)
+        memory_onboarding = MemoryOnboardingNode(self._team, self._user, self._node_path)
+        memory_initializer = MemoryInitializerNode(self._team, self._user, self._node_path)
+        memory_initializer_interrupt = MemoryInitializerInterruptNode(self._team, self._user, self._node_path)
+        memory_onboarding_enquiry = MemoryOnboardingEnquiryNode(self._team, self._user, self._node_path)
+        memory_onboarding_enquiry_interrupt = MemoryOnboardingEnquiryInterruptNode(
+            self._team, self._user, self._node_path
+        )
+        memory_onboarding_finalize = MemoryOnboardingFinalizeNode(self._team, self._user, self._node_path)
 
         self.add_node(AssistantNodeName.MEMORY_ONBOARDING, memory_onboarding)
         self.add_node(AssistantNodeName.MEMORY_INITIALIZER, memory_initializer)
@@ -316,7 +328,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
     ):
         self._has_start_node = True
 
-        memory_collector = MemoryCollectorNode(self._team, self._user)
+        memory_collector = MemoryCollectorNode(self._team, self._user, self._node_path)
         self._graph.add_edge(AssistantNodeName.START, AssistantNodeName.MEMORY_COLLECTOR)
         self.add_node(AssistantNodeName.MEMORY_COLLECTOR, memory_collector)
         self._graph.add_conditional_edges(
@@ -327,7 +339,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         return self
 
     def add_memory_collector_tools(self):
-        memory_collector_tools = MemoryCollectorToolsNode(self._team, self._user)
+        memory_collector_tools = MemoryCollectorToolsNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.MEMORY_COLLECTOR_TOOLS, memory_collector_tools)
         self._graph.add_edge(AssistantNodeName.MEMORY_COLLECTOR_TOOLS, AssistantNodeName.MEMORY_COLLECTOR)
         return self
@@ -338,7 +350,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             "end": AssistantNodeName.END,
             "root": AssistantNodeName.ROOT,
         }
-        inkeep_docs_node = InkeepDocsNode(self._team, self._user)
+        inkeep_docs_node = InkeepDocsNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.INKEEP_DOCS, inkeep_docs_node)
         self._graph.add_conditional_edges(
             AssistantNodeName.INKEEP_DOCS,
@@ -348,7 +360,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         return self
 
     def add_billing(self):
-        billing_node = BillingNode(self._team, self._user)
+        billing_node = BillingNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.BILLING, billing_node)
         self._graph.add_edge(AssistantNodeName.BILLING, AssistantNodeName.ROOT)
         return self
@@ -359,7 +371,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             "root": AssistantNodeName.ROOT,
         }
 
-        insights_search_node = InsightSearchNode(self._team, self._user)
+        insights_search_node = InsightSearchNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.INSIGHTS_SEARCH, insights_search_node)
         self._graph.add_conditional_edges(
             AssistantNodeName.INSIGHTS_SEARCH,
@@ -369,14 +381,14 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         return self
 
     def add_session_summarization(self, end_node: AssistantNodeName = AssistantNodeName.END):
-        session_summarization_node = SessionSummarizationNode(self._team, self._user)
+        session_summarization_node = SessionSummarizationNode(self._team, self._user, self._node_path)
         self.add_node(AssistantNodeName.SESSION_SUMMARIZATION, session_summarization_node)
         self._graph.add_edge(AssistantNodeName.SESSION_SUMMARIZATION, AssistantNodeName.ROOT)
         return self
 
     def add_dashboard_creation(self, end_node: AssistantNodeName = AssistantNodeName.END):
         builder = self._graph
-        dashboard_creation_node = DashboardCreationNode(self._team, self._user)
+        dashboard_creation_node = DashboardCreationNode(self._team, self._user, self._node_path)
         builder.add_node(AssistantNodeName.DASHBOARD_CREATION, dashboard_creation_node)
         builder.add_edge(AssistantNodeName.DASHBOARD_CREATION, AssistantNodeName.ROOT)
         return self

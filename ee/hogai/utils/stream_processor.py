@@ -2,7 +2,6 @@ from typing import Protocol, cast
 
 import structlog
 from langchain_core.messages import AIMessageChunk
-from pydantic import BaseModel
 
 from posthog.schema import (
     AssistantGenerationStatusEvent,
@@ -17,7 +16,7 @@ from posthog.schema import (
 )
 
 from ee.hogai.utils.helpers import normalize_ai_message, should_output_assistant_message
-from ee.hogai.utils.state import is_message_update, is_value_update, merge_message_chunk, validate_value_update
+from ee.hogai.utils.state import is_message_update, merge_message_chunk
 from ee.hogai.utils.types.base import (
     AssistantDispatcherEvent,
     AssistantMessageUnion,
@@ -27,7 +26,7 @@ from ee.hogai.utils.types.base import (
     MessageChunkAction,
     NodeStartAction,
 )
-from ee.hogai.utils.types.composed import AssistantMaxPartialGraphState, MaxNodeName
+from ee.hogai.utils.types.composed import MaxNodeName
 
 logger = structlog.get_logger(__name__)
 
@@ -63,30 +62,23 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
     """Nodes that emit messages."""
     _streaming_nodes: set[MaxNodeName]
     """Nodes that produce streaming messages."""
-    _visualization_nodes: set[MaxNodeName]
-    """Nodes that produce visualization messages."""
     _tool_call_id_to_message: dict[str, AssistantMessage]
     """Maps tool call IDs to their parent messages for message chain tracking."""
 
     _chunks: AIMessageChunk
     """Tracks the current message chunk."""
 
-    def __init__(
-        self,
-        verbose_nodes: set[MaxNodeName],
-        streaming_nodes: set[MaxNodeName],
-        visualization_nodes: set[MaxNodeName],
-    ):
+    def __init__(self, verbose_nodes: set[MaxNodeName], streaming_nodes: set[MaxNodeName]):
         """
         Initialize the stream processor with node configuration.
 
         Args:
+            verbose_nodes: Nodes that produce messages
             streaming_nodes: Nodes that produce streaming messages
-            visualization_nodes: Nodes that produce visualization messages
         """
-        self._verbose_nodes = verbose_nodes
+        # If a node is streaming node, it should also be verbose.
+        self._verbose_nodes = verbose_nodes | streaming_nodes
         self._streaming_nodes = streaming_nodes
-        self._visualization_nodes = visualization_nodes
         self._tool_call_id_to_message = {}
         self._streamed_update_ids = set()
         self._chunks = AIMessageChunk(content="")
@@ -99,7 +91,7 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
         to specialized handlers based on action type and message characteristics.
         """
         action = event.action
-        node_name = event.node_name
+        node_name = event.node_path
 
         if isinstance(action, MessageChunkAction):
             return self._handle_message_stream(action.message, cast(MaxNodeName, node_name))
@@ -114,25 +106,12 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
             self._register_tool_calls(message)
             return self._handle_message(message, cast(MaxNodeName, node_name))
 
+        return None
+
     def process_langgraph_update(self, event: LangGraphUpdateEvent) -> list[AssistantResultUnion] | None:
         """
         Process a LangGraph update event.
         """
-        if is_value_update(event.update):
-            state_update = validate_value_update(event.update[1])
-            message_updates: list[AssistantResultUnion] = []
-            for node_name, node_val in state_update.items():
-                # If a node can't emit a message, skip it
-                if not isinstance(node_val, BaseModel) or node_name not in self._verbose_nodes:
-                    continue
-
-                for message in cast(AssistantMaxPartialGraphState, node_val).messages:
-                    if new_message := self.process(
-                        AssistantDispatcherEvent(action=MessageAction(message=message), node_name=node_name)
-                    ):
-                        message_updates.append(new_message)
-            return message_updates
-
         if is_message_update(event.update):
             # Convert the message chunk update to a dispatcher event to prepare for a bright future without LangGraph
             maybe_message_chunk, state = event.update[1]
@@ -217,14 +196,10 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
 
         These messages are returned as-is regardless of where in the nesting hierarchy they are.
         """
-        # Return visualization messages only if from visualization nodes
-        if isinstance(message, VisualizationMessage | MultiVisualizationMessage):
-            if node_name in self._visualization_nodes:
-                return message
-            return None
-
         # These message types are always returned as-is
-        if isinstance(message, NotebookUpdateMessage | FailureMessage):
+        if isinstance(message, VisualizationMessage | MultiVisualizationMessage) or isinstance(
+            message, NotebookUpdateMessage | FailureMessage
+        ):
             return message
 
         if isinstance(message, AssistantToolCallMessage):

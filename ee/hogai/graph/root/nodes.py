@@ -37,7 +37,7 @@ from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_mes
 from ee.hogai.utils.helpers import convert_tool_messages_to_dict, normalize_ai_message
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantNodeName, AssistantState, InsightQuery
-from ee.hogai.utils.types.base import PartialAssistantState, ReplaceMessages
+from ee.hogai.utils.types.base import NodePath, PartialAssistantState, ReplaceMessages
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
@@ -95,8 +95,8 @@ class RootNode(AssistantNode):
     Determines the thinking configuration for the model.
     """
 
-    def __init__(self, team: Team, user: User):
-        super().__init__(team, user)
+    def __init__(self, team: Team, user: User, node_path: tuple[NodePath, ...] | None = None):
+        super().__init__(team, user, node_path)
         self._window_manager = AnthropicConversationCompactionManager()
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
@@ -435,8 +435,24 @@ class RootNodeTools(AssistantNode):
             config=config,
             context_manager=self.context_manager,
         )
+        config["configurable"]["node_path"] = [
+            *config.get("configurable", {}).get("node_path", []),
+            {"tool_call_id": tool_call.id, "node_name": AssistantNodeName.ROOT_TOOLS},
+        ]
         try:
-            result = await tool_class.ainvoke(tool_call.model_dump(), config)
+            result = await tool_class.ainvoke(
+                tool_call.model_dump(),
+                {
+                    **config,
+                    "configurable": {
+                        **(config.get("configurable") or {}),
+                        "node_path": [
+                            *config.get("configurable", {}).get("node_path", []),
+                            {"tool_call_id": tool_call.id, "node_name": AssistantNodeName.ROOT_TOOLS},
+                        ],
+                    },
+                },
+            )
             if not isinstance(result, LangchainToolMessage):
                 raise ValueError(
                     f"Tool '{tool_call.name}' returned {type(result).__name__}, expected LangchainToolMessage"

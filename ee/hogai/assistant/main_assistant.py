@@ -33,24 +33,19 @@ STREAMING_NODES: set["MaxNodeName"] = {
     AssistantNodeName.DASHBOARD_CREATION,
 }
 
-VISUALIZATION_NODES: set["MaxNodeName"] = {
+
+VERBOSE_NODES: set["MaxNodeName"] = {
     AssistantNodeName.TRENDS_GENERATOR,
     AssistantNodeName.FUNNEL_GENERATOR,
     AssistantNodeName.RETENTION_GENERATOR,
     AssistantNodeName.SQL_GENERATOR,
     AssistantNodeName.INSIGHTS_SEARCH,
+    AssistantNodeName.QUERY_EXECUTOR,
+    AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
+    AssistantNodeName.ROOT_TOOLS,
+    TaxonomyNodeName.TOOLS_NODE,
+    TaxonomyNodeName.TASK_EXECUTOR,
 }
-
-VERBOSE_NODES: set["MaxNodeName"] = (
-    STREAMING_NODES
-    | VISUALIZATION_NODES
-    | {
-        AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
-        AssistantNodeName.ROOT_TOOLS,
-        TaxonomyNodeName.TOOLS_NODE,
-        TaxonomyNodeName.TASK_EXECUTOR,
-    }
-)
 
 
 class MainAssistant(BaseAssistant):
@@ -86,11 +81,7 @@ class MainAssistant(BaseAssistant):
             trace_id=trace_id,
             billing_context=billing_context,
             initial_state=initial_state,
-            stream_processor=AssistantStreamProcessor(
-                verbose_nodes=VERBOSE_NODES,
-                streaming_nodes=STREAMING_NODES,
-                visualization_nodes=VISUALIZATION_NODES,
-            ),
+            stream_processor=AssistantStreamProcessor(verbose_nodes=VERBOSE_NODES, streaming_nodes=STREAMING_NODES),
         )
 
     def get_initial_state(self) -> AssistantState:

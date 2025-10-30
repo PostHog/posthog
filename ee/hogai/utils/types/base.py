@@ -443,12 +443,22 @@ class NodeStartAction(BaseModel):
     type: Literal["NODE_START"] = "NODE_START"
 
 
-AssistantActionUnion = MessageAction | MessageChunkAction | NodeStartAction
+class NodeEndAction(Generic[PartialStateType], BaseModel):
+    type: Literal["NODE_END"] = "NODE_END"
+    state: PartialStateType
+
+
+AssistantActionUnion = MessageAction | MessageChunkAction | NodeStartAction | NodeEndAction
+
+
+class NodePath(BaseModel):
+    name: str
+    tool_call_id: str | None = None
 
 
 class AssistantDispatcherEvent(BaseModel):
     action: AssistantActionUnion = Field(discriminator="type")
-    node_name: str
+    node_path: tuple[NodePath, ...]
 
 
 class LangGraphUpdateEvent(BaseModel):

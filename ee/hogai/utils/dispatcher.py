@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from langgraph.types import StreamWriter
 
@@ -10,10 +10,8 @@ from ee.hogai.utils.types.base import (
     AssistantDispatcherEvent,
     AssistantMessageUnion,
     MessageAction,
+    NodePath,
 )
-
-if TYPE_CHECKING:
-    from ee.hogai.utils.types.composed import MaxNodeName
 
 
 class AssistantDispatcher:
@@ -25,12 +23,12 @@ class AssistantDispatcher:
     The dispatcher does NOT update state - it just emits actions to the stream.
     """
 
-    _parent_tool_call_id: str | None = None
+    _node_path: tuple[NodePath, ...]
 
     def __init__(
         self,
         writer: StreamWriter | Callable[[Any], None],
-        node_name: "MaxNodeName",
+        node_path: tuple[NodePath, ...],
         parent_tool_call_id: str | None = None,
     ):
         """
@@ -39,8 +37,8 @@ class AssistantDispatcher:
         Args:
             node_name: The name of the node dispatching actions (for attribution)
         """
-        self._node_name = node_name
         self._writer = writer
+        self._node_path = node_path
         self._parent_tool_call_id = parent_tool_call_id
 
     def dispatch(self, action: AssistantActionUnion) -> None:
@@ -55,7 +53,7 @@ class AssistantDispatcher:
             action: Action dict with "type" and "payload" keys
         """
         try:
-            self._writer(AssistantDispatcherEvent(action=action, node_name=self._node_name))
+            self._writer(AssistantDispatcherEvent(action=action, node_path=self._node_path))
         except Exception as e:
             # Log error but don't crash node execution
             # The dispatcher should be resilient to writer failures

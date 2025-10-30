@@ -130,7 +130,7 @@ IMPORTANT: DO NOT REMOVE ANY FIELDS FROM THE CURRENT INSIGHT DEFINITION. DO NOT 
                 AssistantToolCallMessage(
                     content=result.content,
                     ui_payload={self.get_name(): viz_message.answer.model_dump(exclude_none=True)},
-                    id=str(uuid4()),
+                    id=result.id,
                     tool_call_id=root_tool_call_id,
                 ),
             ]
