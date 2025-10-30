@@ -69,11 +69,13 @@ class TestCohortBytecodeScenarios(APIBaseTest):
                 "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11],
                 "filter_path": "properties.values[0].values[0]",
                 "conditionHash": "f9c616030a87e68f",
+                "filter_type": "behavioral",
             },
             {
                 "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11],
                 "filter_path": "properties.values[0].values[1]",
                 "conditionHash": "f9c616030a87e68f",
+                "filter_type": "behavioral",
             },
             {
                 "bytecode": [
@@ -92,6 +94,7 @@ class TestCohortBytecodeScenarios(APIBaseTest):
                 ],
                 "filter_path": "properties.values[0].values[2]",
                 "conditionHash": "623236814d537b73",
+                "filter_type": "person",
             },
         ]
 
@@ -143,11 +146,13 @@ class TestCohortBytecodeScenarios(APIBaseTest):
                 "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11],
                 "filter_path": "properties.values[0].values[0]",
                 "conditionHash": "f9c616030a87e68f",
+                "filter_type": "behavioral",
             },
             {
                 "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11],
                 "filter_path": "properties.values[0].values[1]",
                 "conditionHash": "f9c616030a87e68f",
+                "filter_type": "behavioral",
             },
             {
                 "bytecode": [
@@ -166,6 +171,7 @@ class TestCohortBytecodeScenarios(APIBaseTest):
                 ],
                 "filter_path": "properties.values[0].values[2]",
                 "conditionHash": "623236814d537b73",
+                "filter_type": "person",
             },
         ]
 
@@ -237,6 +243,7 @@ class TestCohortBytecodeScenarios(APIBaseTest):
                 "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11],
                 "filter_path": "properties.values[0].values[0]",
                 "conditionHash": "f9c616030a87e68f",
+                "filter_type": "behavioral",
             },
             {
                 "bytecode": [
@@ -256,6 +263,7 @@ class TestCohortBytecodeScenarios(APIBaseTest):
                 ],
                 "filter_path": "properties.values[2].values[0]",
                 "conditionHash": "42b1ae431d9f4a64",
+                "filter_type": "person",
             },
         ]
 
@@ -361,6 +369,7 @@ class TestCohortBytecodeScenarios(APIBaseTest):
                 ],
                 "filter_path": "properties.values[0].values[0]",
                 "conditionHash": "827d18e80726ed84",
+                "filter_type": "behavioral",
             }
         ]
 

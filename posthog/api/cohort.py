@@ -172,6 +172,7 @@ def _extract_bytecode_from_values_list(
                             "filter_path": current_path,
                             "bytecode": validated_value.bytecode,
                             "conditionHash": getattr(validated_value, "conditionHash", None),
+                            "filter_type": original_value.get("type"),
                         }
                     )
 
