@@ -534,7 +534,10 @@ async def test_redshift_export_workflow_handles_undefined_function_error(
                     )
 
     runs = await afetch_batch_export_runs(batch_export_id=redshift_batch_export.id)
-    assert len(runs) == 1
+    assert len(runs) == 2
+
+    failed_runs = [run for run in runs if run.status == "Failed"]
+    assert len(failed_runs) == 1
 
     run = runs[0]
     assert run.status == "Failed"
