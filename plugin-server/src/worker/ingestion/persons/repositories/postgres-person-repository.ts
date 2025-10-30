@@ -357,8 +357,6 @@ export class PostgresPersonRepository
             const distinctIdVersionStartIndex = columns.length + 1
             const distinctIdStartIndex = distinctIdVersionStartIndex + distinctIds.length
 
-            // Build the distinct IDs CTE with a single INSERT statement for all distinct IDs
-            // This is more efficient than multiple separate CTEs as it performs a single batched insert
             const distinctIdsCTE =
                 distinctIds.length > 0
                     ? `, distinct_ids AS (
@@ -392,14 +390,8 @@ export class PostgresPersonRepository
                 query,
                 [
                     ...personParams,
-                    ...distinctIds
-                        .slice()
-                        .reverse()
-                        .map(({ version }) => version),
-                    ...distinctIds
-                        .slice()
-                        .reverse()
-                        .map(({ distinctId }) => distinctId),
+                    ...distinctIds.map(({ version }) => version),
+                    ...distinctIds.map(({ distinctId }) => distinctId),
                 ],
                 'insertPerson',
                 'warn'

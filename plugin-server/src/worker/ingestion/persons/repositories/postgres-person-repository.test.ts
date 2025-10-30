@@ -246,15 +246,13 @@ describe('PostgresPersonRepository', () => {
             expect(kafkaMessages[1].topic).toBe('clickhouse_person_distinct_id_test')
             expect(kafkaMessages[2].topic).toBe('clickhouse_person_distinct_id_test')
 
-            // Verify distinct IDs were actually inserted into the database
             const distinctIds = await fetchDistinctIdValues(hub.db.postgres, person)
             expect(distinctIds).toHaveLength(2)
             expect(distinctIds).toEqual(expect.arrayContaining(['distinct-1', 'distinct-2']))
 
-            // Verify versions were set correctly
             const distinctIdRecords = await fetchDistinctIds(hub.db.postgres, person)
-            expect(distinctIdRecords.find((d) => d.distinct_id === 'distinct-1')?.version).toBe(0)
-            expect(distinctIdRecords.find((d) => d.distinct_id === 'distinct-2')?.version).toBe(1)
+            expect(distinctIdRecords.find((d) => d.distinct_id === 'distinct-1')?.version).toBe('0')
+            expect(distinctIdRecords.find((d) => d.distinct_id === 'distinct-2')?.version).toBe('1')
         })
 
         it('creates a person without distinct IDs', async () => {
