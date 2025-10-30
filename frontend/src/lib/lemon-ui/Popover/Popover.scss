@@ -2,8 +2,10 @@
     z-index: var(--z-popover);
     display: flex;
     flex-direction: row;
+    isolation: isolate;
     perspective: 80rem;
     perspective-origin: top;
+    transform: translateZ(0);
 
     h5 {
         margin: 0.25rem 0.5rem;
