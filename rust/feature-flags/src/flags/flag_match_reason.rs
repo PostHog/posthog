@@ -22,12 +22,12 @@ pub enum FeatureFlagMatchReason {
 impl FeatureFlagMatchReason {
     pub fn score(&self) -> i32 {
         match self {
-            FeatureFlagMatchReason::SuperConditionValue => 5,
-            FeatureFlagMatchReason::HoldoutConditionValue => 4,
-            FeatureFlagMatchReason::ConditionMatch => 3,
-            FeatureFlagMatchReason::NoGroupType => 2,
-            FeatureFlagMatchReason::OutOfRolloutBound => 1,
-            FeatureFlagMatchReason::NoConditionMatch => 0,
+            FeatureFlagMatchReason::SuperConditionValue => 6,
+            FeatureFlagMatchReason::HoldoutConditionValue => 5,
+            FeatureFlagMatchReason::ConditionMatch => 4,
+            FeatureFlagMatchReason::NoGroupType => 3,
+            FeatureFlagMatchReason::OutOfRolloutBound => 2,
+            FeatureFlagMatchReason::NoConditionMatch => 1,
             FeatureFlagMatchReason::FlagDisabled => 0,
         }
     }
@@ -70,12 +70,12 @@ mod tests {
     #[test]
     fn test_ordering() {
         let reasons = vec![
+            FeatureFlagMatchReason::FlagDisabled,
             FeatureFlagMatchReason::NoConditionMatch,
             FeatureFlagMatchReason::OutOfRolloutBound,
             FeatureFlagMatchReason::NoGroupType,
             FeatureFlagMatchReason::ConditionMatch,
             FeatureFlagMatchReason::SuperConditionValue,
-            FeatureFlagMatchReason::FlagDisabled,
         ];
 
         let mut sorted_reasons = reasons.clone();
