@@ -11,6 +11,7 @@ from posthog.schema import (
     ConversionGoalFilter3,
     DateRange,
     MarketingAnalyticsHelperForColumnNames,
+    NodeKind,
 )
 
 from posthog.hogql import ast
@@ -138,6 +139,28 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             conversion_goals = [self.query.draftConversionGoal, *conversion_goals]
 
         return conversion_goals
+
+    def _filter_invalid_conversion_goals(
+        self, conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]
+    ) -> list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]:
+        """
+        Filter out invalid conversion goals (e.g., those using "All Events").
+        Returns only valid conversion goals.
+        """
+        valid_goals = []
+        for goal in conversion_goals:
+            # Skip "All Events" goals
+            if goal.kind == NodeKind.EVENTS_NODE:
+                event_name = getattr(goal, "event", None)
+                if event_name is None or event_name == "":
+                    logger.info(
+                        "filtering_out_all_events_conversion_goal",
+                        goal_name=getattr(goal, "conversion_goal_name", "Unknown"),
+                    )
+                    continue
+            valid_goals.append(goal)
+
+        return valid_goals
 
     def _create_conversion_goal_processors(
         self, conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]
@@ -289,9 +312,14 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             # Build the union query using the factory
             union_query_string = self._factory(date_range=self.query_date_range).build_union_query(adapters)
 
-            # Get conversion goals and create processors
+            # Get conversion goals and filter out invalid ones
             conversion_goals = self._get_team_conversion_goals()
-            processors = self._create_conversion_goal_processors(conversion_goals) if conversion_goals else []
+            valid_conversion_goals = self._filter_invalid_conversion_goals(conversion_goals)
+
+            # Create processors only for valid conversion goals
+            processors = (
+                self._create_conversion_goal_processors(valid_conversion_goals) if valid_conversion_goals else []
+            )
 
             # Build the complete query with CTEs using AST
             return self._build_complete_query_ast(union_query_string, processors, self.query_date_range)
