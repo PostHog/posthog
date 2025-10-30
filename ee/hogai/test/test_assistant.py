@@ -1862,7 +1862,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 tool_calls=[
                     {
                         "id": "xyz",
-                        "name": "edit_current_insight",
+                        "name": "create_and_query_insight",
                         "args": {"query_description": "Foobar"},
                     }
                 ],
@@ -1905,7 +1905,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             is_new_conversation=True,
             message="Hello",
             mode=AssistantMode.ASSISTANT,
-            contextual_tools={"edit_current_insight": {"current_query": "query"}},
+            contextual_tools={"create_and_query_insight": {"current_query": "query"}},
         )
 
         expected_output = [
@@ -1917,7 +1917,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 AssistantToolCallMessage(
                     content="The results indicate a great future for you.",
                     tool_call_id="xyz",
-                    ui_payload={"edit_current_insight": query.model_dump(exclude_none=True)},
+                    ui_payload={"create_and_query_insight": query.model_dump(exclude_none=True)},
                 ),
             ),
             ("message", AssistantMessage(content="Everything is fine")),
@@ -1936,7 +1936,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 tool_calls=[
                     AssistantToolCall(
                         id="xyz",
-                        name="edit_current_insight",
+                        name="create_and_query_insight",
                         args={"query_description": "Foobar"},
                     )
                 ],
@@ -1945,7 +1945,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             AssistantToolCallMessage(
                 content="The results indicate a great future for you.",
                 tool_call_id="xyz",
-                ui_payload={"edit_current_insight": query.model_dump(exclude_none=True)},
+                ui_payload={"create_and_query_insight": query.model_dump(exclude_none=True)},
             ),
             AssistantMessage(content="Everything is fine"),
         ]

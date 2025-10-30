@@ -210,17 +210,10 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         ],
         toolMap: [
             (s) => [s.registeredToolMap, s.availableStaticTools],
-            (registeredToolMap, availableStaticTools) => {
-                if (registeredToolMap.edit_current_insight) {
-                    availableStaticTools = availableStaticTools.filter(
-                        (tool) => tool.identifier !== 'create_and_query_insight'
-                    )
-                }
-                return {
-                    ...Object.fromEntries(availableStaticTools.map((tool) => [tool.identifier, tool])),
-                    ...registeredToolMap,
-                }
-            },
+            (registeredToolMap, availableStaticTools) => ({
+                ...Object.fromEntries(availableStaticTools.map((tool) => [tool.identifier, tool])),
+                ...registeredToolMap,
+            }),
         ],
         tools: [(s) => [s.toolMap], (toolMap): ToolRegistration[] => Object.values(toolMap)],
         editInsightToolRegistered: [

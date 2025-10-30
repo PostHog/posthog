@@ -205,4 +205,4 @@ class CreateAndQueryInsightTool(MaxTool):
         """
         Determines if the tool is in editing mode.
         """
-        return AssistantTool.EDIT_CURRENT_INSIGHT.value in context_manager.get_contextual_tools()
+        return AssistantTool.CREATE_AND_QUERY_INSIGHT.value in context_manager.get_contextual_tools()

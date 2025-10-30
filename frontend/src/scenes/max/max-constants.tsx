@@ -160,14 +160,15 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         },
     },
     create_and_query_insight: {
-        name: 'Query data',
-        description: 'Query data by creating insights and SQL queries',
+        name: 'Edit the insight',
+        description: "Edit the insight you're viewing",
         icon: iconForType('product_analytics'),
+        product: Scene.Insight,
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
-                return 'Created an insight'
+                return 'Edited the insight you are viewing'
             }
-            return 'Creating an insight...'
+            return 'Editing the insight you are viewing...'
         },
     },
     search_session_recordings: {
@@ -325,18 +326,6 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
                 return 'Fixed SQL'
             }
             return 'Fixing SQL...'
-        },
-    },
-    edit_current_insight: {
-        name: 'Edit the insight',
-        description: "Edit the insight you're viewing",
-        icon: iconForType('product_analytics'),
-        product: Scene.Insight,
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Edited the insight you are viewing'
-            }
-            return 'Editing the insight you are viewing...'
         },
     },
     filter_revenue_analytics: {
