@@ -22,11 +22,8 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
     insert_into_internal_stage_activity,
 )
-from products.batch_exports.backend.tests.temporal.destinations.s3.utils import (
-    assert_clickhouse_records_in_s3,
-    assert_files_in_s3,
-    read_json_file_from_s3,
-)
+from products.batch_exports.backend.tests.temporal.destinations.s3.utils import assert_clickhouse_records_in_s3
+from products.batch_exports.backend.tests.temporal.utils.s3 import assert_files_in_s3, read_json_file_from_s3
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
