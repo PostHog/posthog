@@ -1,21 +1,16 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonDivider, Link, Spinner } from '@posthog/lemon-ui'
+import { IconSearch } from '@posthog/icons'
+import { Link, Spinner } from '@posthog/lemon-ui'
 
 import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import {
-    TabsPrimitive,
-    TabsPrimitiveContent,
-    TabsPrimitiveList,
-    TabsPrimitiveTrigger,
-} from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { ScenePanelDivider, ScenePanelLabel } from '~/layout/scenes/SceneLayout'
+import { ScenePanelActionsSection, ScenePanelDivider, ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 
 import { ExternalReferences } from '../../../components/ExternalReferences'
 import { IssueTasks } from '../../../components/IssueTasks'
@@ -96,31 +91,21 @@ export const ErrorTrackingIssueScenePanelV2 = (): JSX.Element | null => {
             />
             <IssueExternalReference />
 
-            <LemonDivider className="m-0" />
-
             {hasTasks || hasSimilarIssues ? (
-                <TabsPrimitive defaultValue={hasTasks ? 'tasks' : 'similar'}>
-                    <div className="flex justify-between items-center">
-                        <TabsPrimitiveList className="flex gap-x-4 mb-2 border-b w-full">
-                            {hasTasks && (
-                                <TabsPrimitiveTrigger value="tasks" className="pb-1">
-                                    Tasks
-                                </TabsPrimitiveTrigger>
-                            )}
+                <>
+                    <ScenePanelDivider />
+                    <ScenePanelActionsSection>
+                        <ScenePanelLabel title="Actions">
+                            {hasTasks && <IssueTasks />}
                             {hasSimilarIssues && (
-                                <TabsPrimitiveTrigger value="similar" className="pb-1">
-                                    Similar issues
-                                </TabsPrimitiveTrigger>
+                                <ButtonPrimitive menuItem>
+                                    <IconSearch />
+                                    See similar issues
+                                </ButtonPrimitive>
                             )}
-                        </TabsPrimitiveList>
-                    </div>
-                    <TabsPrimitiveContent value="tasks">
-                        <IssueTasks />
-                    </TabsPrimitiveContent>
-                    <TabsPrimitiveContent value="similar">
-                        <SimilarIssuesList />
-                    </TabsPrimitiveContent>
-                </TabsPrimitive>
+                        </ScenePanelLabel>
+                    </ScenePanelActionsSection>
+                </>
             ) : null}
         </div>
     ) : null

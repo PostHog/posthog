@@ -33,7 +33,7 @@ export interface ErrorTrackingIssueSceneLogicProps {
 }
 
 export type ErrorTrackingIssueStatus = ErrorTrackingIssue['status']
-export type ErrorTrackingIssueSceneCategory = 'exceptions' | 'breakdowns'
+export type ErrorTrackingIssueSceneCategory = 'exceptions' | 'breakdowns' | 'autofix' | 'similar_issues'
 export type ErrorTrackingIssueSceneExceptionsCategory = 'all' | 'exception'
 
 export const ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY = 'ErrorTrackingIssueScene'
@@ -288,6 +288,11 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             },
         ],
         issueId: [(_, p) => [p.id], (id: string) => id],
+
+        isViewingException: [
+            (s) => [s.category, s.exceptionsCategory],
+            (category, exceptionsCategory) => category === 'exceptions' && exceptionsCategory === 'exception',
+        ],
 
         firstSeen: [
             (s) => [s.issue],

@@ -3,12 +3,20 @@ import './ErrorTrackingIssueScene.scss'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconFilter, IconList, IconShare } from '@posthog/icons'
+import { IconChevronRight, IconFilter, IconList, IconSearch, IconShare } from '@posthog/icons'
 import { LemonBanner, LemonDivider } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconComment } from 'lib/lemon-ui/icons'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { IconComment, IconRobot } from 'lib/lemon-ui/icons'
+import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuGroup,
+    DropdownMenuItem,
+    DropdownMenuOpenIndicator,
+    DropdownMenuTrigger,
+} from 'lib/ui/DropdownMenu/DropdownMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
@@ -25,7 +33,7 @@ import { Metadata } from '../../components/IssueMetadata'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { ErrorTrackingIssueScenePanelV2 } from './ScenePanel'
-import { ErrorTrackingIssueSceneCategory, errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 
 export function V2Layout(): JSX.Element {
     const { issue, selectedEvent } = useValues(errorTrackingIssueSceneLogic)
@@ -49,7 +57,7 @@ export function V2Layout(): JSX.Element {
                 </LemonBanner>
             )}
 
-            <div className="ErrorTrackingIssue grid grid-cols-9 gap-6">
+            <div className="ErrorTrackingIssue grid grid-cols-10 gap-6">
                 <div className="col-span-3 flex flex-col min-h-0">
                     <SceneTitleSection
                         resourceType={{ type: 'issue' }}
@@ -90,7 +98,7 @@ export function V2Layout(): JSX.Element {
 
                     <ErrorTrackingIssueScenePanelV2 />
                 </div>
-                <div className="flex col-span-6 gap-y-1 flex-col">
+                <div className="flex col-span-7 gap-y-1 flex-col">
                     <Breadcrumbs />
                     <CategoryContent />
                 </div>
@@ -118,6 +126,10 @@ const CategoryContent = (): JSX.Element => {
             <BreakdownsSearchBar />
             <BreakdownsChart />
         </div>
+    ) : category === 'similar_issues' ? (
+        <div>Similar issues coming soon</div>
+    ) : category === 'autofix' ? (
+        <div>Autofix coming soon</div>
     ) : exceptionsCategory === 'exception' ? (
         <ExceptionCard
             issue={issue ?? undefined}
@@ -153,81 +165,102 @@ const CategoryContent = (): JSX.Element => {
 }
 
 const Breadcrumbs = (): JSX.Element => {
-    const { category, exceptionsCategory } = useValues(errorTrackingIssueSceneLogic)
-    const { setCategory, setExceptionsCategory } = useActions(errorTrackingIssueSceneLogic)
+    const { isViewingException } = useValues(errorTrackingIssueSceneLogic)
+    const { setExceptionsCategory } = useActions(errorTrackingIssueSceneLogic)
 
     return (
         <div className="flex items-center gap-x-1 py-1.5">
-            {category === 'exceptions' && exceptionsCategory === 'exception' ? (
-                <div className="flex gap-x-0.5">
-                    <CategoryButton
-                        active={false}
-                        iconOnly={false}
-                        category="exceptions"
-                        onClick={() => setExceptionsCategory('all')}
-                    />
-                    <CategoryButton active={false} category="breakdowns" onClick={() => setCategory('breakdowns')} />
-                </div>
-            ) : (
+            {isViewingException ? (
                 <>
-                    <CategoryButton
-                        category="exceptions"
-                        onClick={() => {
-                            setCategory('exceptions')
-                            setExceptionsCategory('all')
-                        }}
-                    />
-                    <CategoryButton category="breakdowns" onClick={() => setCategory('breakdowns')} />
-                </>
-            )}
-            {category === 'exceptions' && exceptionsCategory != 'all' ? (
-                <>
-                    <div>/</div>
+                    <ButtonGroupPrimitive groupVariant="outline">
+                        <ButtonPrimitive hasSideActionRight onClick={() => setExceptionsCategory('all')}>
+                            <IconList />
+                            Exceptions
+                        </ButtonPrimitive>
+
+                        <CategoryDropdown />
+                    </ButtonGroupPrimitive>
+                    <div>
+                        <IconChevronRight />
+                    </div>
                     <div className="text-sm">Exception</div>
                 </>
-            ) : null}
+            ) : (
+                <CategoryDropdown />
+            )}
         </div>
     )
 }
 
-const CategoryButton = ({
-    category,
-    active,
-    iconOnly,
-    onClick,
-}: {
-    category: ErrorTrackingIssueSceneCategory
-    active?: boolean
-    iconOnly?: boolean
-    onClick?: () => void
-}): JSX.Element => {
-    const { category: currentCategory } = useValues(errorTrackingIssueSceneLogic)
+const CategoryDropdown = (): JSX.Element => {
+    const { category, isViewingException } = useValues(errorTrackingIssueSceneLogic)
+    const { setCategory, setExceptionsCategory } = useActions(errorTrackingIssueSceneLogic)
 
-    const { icon, label } = {
-        exceptions: {
-            label: 'Exceptions',
-            icon: <IconList />,
-        },
-        breakdowns: {
-            label: 'Breakdowns',
-            icon: <IconFilter />,
-        },
+    const label = {
+        exceptions: 'Exceptions',
+        breakdowns: 'Breakdowns',
+        autofix: 'AI autofix',
+        similar_issues: 'Similar issues',
     }[category]
 
-    const localActive = active ?? category === currentCategory
-    const localIconOnly = iconOnly ?? !localActive
-
     return (
-        <ButtonPrimitive
-            size="sm"
-            iconOnly={localIconOnly}
-            variant="outline"
-            active={localActive}
-            onClick={onClick}
-            tooltip={localIconOnly ? label : undefined}
-        >
-            {icon}
-            {localIconOnly ? null : label}
-        </ButtonPrimitive>
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <ButtonPrimitive iconOnly={isViewingException} isSideActionRight={isViewingException} variant="outline">
+                    {isViewingException ? null : label}
+                    <DropdownMenuOpenIndicator className="ml-0" />
+                </ButtonPrimitive>
+            </DropdownMenuTrigger>
+
+            <DropdownMenuContent loop align="start">
+                <DropdownMenuGroup>
+                    {!isViewingException && (
+                        <DropdownMenuItem asChild>
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={() => {
+                                    setCategory('exceptions')
+                                    setExceptionsCategory('all')
+                                }}
+                                active={category === 'exceptions'}
+                            >
+                                <IconList />
+                                Exceptions
+                            </ButtonPrimitive>
+                        </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem asChild>
+                        <ButtonPrimitive
+                            menuItem
+                            onClick={() => setCategory('breakdowns')}
+                            active={category === 'breakdowns'}
+                        >
+                            <IconFilter />
+                            Breakdowns
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                        <ButtonPrimitive
+                            menuItem
+                            onClick={() => setCategory('autofix')}
+                            active={category === 'autofix'}
+                        >
+                            <IconRobot />
+                            AI autofix
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                        <ButtonPrimitive
+                            menuItem
+                            onClick={() => setCategory('similar_issues')}
+                            active={category === 'similar_issues'}
+                        >
+                            <IconSearch />
+                            Similar issues
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
+                </DropdownMenuGroup>
+            </DropdownMenuContent>
+        </DropdownMenu>
     )
 }
