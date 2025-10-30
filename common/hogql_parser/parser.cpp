@@ -1152,7 +1152,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!limit_expr_result) {
       throw ParsingError("Failed to parse limitExpr");
     }
-    
+
     PyObject* exprs = visitAsPyObject(ctx->columnExprList());
     if (!exprs) {
       Py_DECREF(limit_expr_result);
@@ -1161,7 +1161,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
     PyObject* n = NULL;
     PyObject* offset_value = NULL;
-    
+
     // Check if it's a tuple
     if (PyTuple_Check(limit_expr_result)) {
       if (PyTuple_Size(limit_expr_result) >= 2) {
@@ -1180,7 +1180,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       n = limit_expr_result;
       offset_value = Py_NewRef(Py_None);
     }
-    
+
     // Create the LimitByExpr node (transfers ownership of n, offset_value, and exprs)
     RETURN_NEW_AST_NODE("LimitByExpr", "{s:N,s:N,s:N}",
                        "n", n,
@@ -1212,7 +1212,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       Py_DECREF(second);
       throw PyInternalError();
     }
-    
+
     if (ctx->COMMA()) {
       // For "LIMIT a, b" syntax: a is offset, b is limit
       // PyTuple_SET_ITEM steals references, so we don't need to DECREF after
@@ -2014,7 +2014,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
 
     PyObject* ret = build_ast_node(
-      "Call", 
+      "Call",
       "{s:s,s:[O]}",  // s:[O] means "args" => [the single PyObject]
       "name", name.c_str(),
       "args", constant_count
@@ -2141,23 +2141,14 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       Py_DECREF(expr);
       throw;
     }
-    PyObject* negated = ctx->NOT() ? Py_True : Py_False;
-    Py_INCREF(negated);
-    PyObject* node = build_ast_node(
+    RETURN_NEW_AST_NODE(
         "BetweenExpr",
         "{s:N,s:N,s:N,s:O}",
         "expr", expr,
         "low", low,
         "high", high,
-        "negated", negated);
-    if (!node) {
-      Py_DECREF(negated);
-      Py_DECREF(high);
-      Py_DECREF(low);
-      Py_DECREF(expr);
-      throw PyInternalError();
-    }
-    return node;
+        "negated", ctx->NOT() ? Py_True : Py_False
+    );
   }
 
   VISIT(ColumnExprParens) { return visit(ctx->columnExpr()); }
