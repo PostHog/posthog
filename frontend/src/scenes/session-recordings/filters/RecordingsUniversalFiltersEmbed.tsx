@@ -478,37 +478,39 @@ export const RecordingsUniversalFiltersEmbed = ({
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-2 px-2 mt-2">
-                        <span className="font-medium">Quick add filters:</span>
-                        <QuickFilterButton
-                            filterKey="email"
-                            label="Email"
-                            propertyType={PropertyFilterType.Person}
-                            filters={filters}
-                            setFilters={setFilters}
-                        />
-                        <QuickFilterButton
-                            filterKey="$user_id"
-                            label="User ID"
-                            propertyType={PropertyFilterType.Person}
-                            filters={filters}
-                            setFilters={setFilters}
-                        />
-                        <QuickFilterButton
-                            filterKey="$pathname"
-                            label="Path name"
-                            propertyType={PropertyFilterType.Event}
-                            filters={filters}
-                            setFilters={setFilters}
-                        />
-                        <QuickFilterButton
-                            filterKey="$current_url"
-                            label="Current URL"
-                            propertyType={PropertyFilterType.Event}
-                            filters={filters}
-                            setFilters={setFilters}
-                        />
-                    </div>
+                    {featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_REDESIGN] && (
+                        <div className="flex items-center gap-2 px-2 mt-2">
+                            <span className="font-medium">Quick add filters:</span>
+                            <QuickFilterButton
+                                filterKey="email"
+                                label="Email"
+                                propertyType={PropertyFilterType.Person}
+                                filters={filters}
+                                setFilters={setFilters}
+                            />
+                            <QuickFilterButton
+                                filterKey="$user_id"
+                                label="User ID"
+                                propertyType={PropertyFilterType.Person}
+                                filters={filters}
+                                setFilters={setFilters}
+                            />
+                            <QuickFilterButton
+                                filterKey="$pathname"
+                                label="Path name"
+                                propertyType={PropertyFilterType.Event}
+                                filters={filters}
+                                setFilters={setFilters}
+                            />
+                            <QuickFilterButton
+                                filterKey="$current_url"
+                                label="Current URL"
+                                propertyType={PropertyFilterType.Event}
+                                filters={filters}
+                                setFilters={setFilters}
+                            />
+                        </div>
+                    )}
 
                     <div className="flex justify-between flex-wrap gap-2 px-2 mt-2">
                         <div className="flex flex-wrap gap-2 items-center">
