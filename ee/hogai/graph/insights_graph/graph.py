@@ -5,11 +5,11 @@ from posthog.models.user import User
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.base import BaseAssistantGraph
-from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 
 from ..funnels.nodes import FunnelGeneratorNode, FunnelGeneratorToolsNode
 from ..query_executor.nodes import QueryExecutorNode
+from ..query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
 from ..rag.nodes import InsightRagContextNode
 from ..retention.nodes import RetentionGeneratorNode, RetentionGeneratorToolsNode
 from ..sql.nodes import SQLGeneratorNode, SQLGeneratorToolsNode
@@ -17,8 +17,8 @@ from ..trends.nodes import TrendsGeneratorNode, TrendsGeneratorToolsNode
 
 
 class InsightsGraph(BaseAssistantGraph[AssistantState]):
-    def __init__(self, team: Team, user: User):
-        super().__init__(team, user, AssistantState)
+    def __init__(self, team: Team, user: User, tool_call_id: str | None = None):
+        super().__init__(team, user, AssistantState, tool_call_id)
 
     def add_rag_context(self):
         self._has_start_node = True

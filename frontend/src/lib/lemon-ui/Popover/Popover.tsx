@@ -140,13 +140,9 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
             ...(fallbackPlacements
                 ? [
                       flip({
-                          fallbackPlacements: [
-                              // Prioritize top placements when there might be space issues
-                              ...fallbackPlacements.filter((p) => p.startsWith('top')),
-                              ...fallbackPlacements.filter((p) => !p.startsWith('top')),
-                          ],
+                          fallbackPlacements,
                           fallbackStrategy: 'bestFit',
-                          padding: { bottom: 150 }, // Require at least 150px of space below to avoid flipping
+                          padding: 20,
                       }),
                   ]
                 : []),

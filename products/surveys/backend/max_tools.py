@@ -23,12 +23,12 @@ from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.tool import MaxTool
+from ee.hogai.tool import MaxTool, MaxToolArgs
 
 from .prompts import SURVEY_ANALYSIS_SYSTEM_PROMPT, SURVEY_CREATION_SYSTEM_PROMPT
 
 
-class SurveyCreatorArgs(BaseModel):
+class SurveyCreatorArgs(MaxToolArgs):
     instructions: str = Field(description="Natural language description of the survey to create")
 
 
@@ -44,16 +44,15 @@ def get_team_survey_config(team: Team) -> dict[str, Any]:
 class CreateSurveyTool(MaxTool):
     name: str = "create_survey"
     description: str = "Create and optionally launch a survey based on natural language instructions"
-    thinking_message: str = "Creating your survey"
 
     args_schema: type[BaseModel] = SurveyCreatorArgs
 
-    async def _create_survey_from_instructions(self, instructions: str) -> SurveyCreationSchema:
+    async def _create_survey_from_instructions(self, instructions: str, tool_call_id: str) -> SurveyCreationSchema:
         """
         Create a survey from natural language instructions.
         """
 
-        graph = FeatureFlagLookupGraph(team=self._team, user=self._user)
+        graph = FeatureFlagLookupGraph(team=self._team, user=self._user, tool_call_id=tool_call_id)
 
         graph_context = {
             "change": f"Create a survey based on these instructions: {instructions}",
@@ -76,7 +75,7 @@ class CreateSurveyTool(MaxTool):
             )
             return survey_creation_schema
 
-    async def _arun_impl(self, instructions: str) -> tuple[str, dict[str, Any]]:
+    async def _arun_impl(self, instructions: str, tool_call_id: str) -> tuple[str, dict[str, Any]]:
         """
         Generate survey configuration from natural language instructions.
         """
@@ -84,7 +83,7 @@ class CreateSurveyTool(MaxTool):
             user = self._user
             team = self._team
 
-            result = await self._create_survey_from_instructions(instructions)
+            result = await self._create_survey_from_instructions(instructions, tool_call_id)
 
             try:
                 if not result.questions:
@@ -287,10 +286,11 @@ class SurveyLookupToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyA
 class FeatureFlagLookupGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[SurveyCreationSchema]]):
     """Graph for feature flag lookup operations."""
 
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User, tool_call_id: str):
         super().__init__(
             team,
             user,
+            tool_call_id,
             loop_node_class=SurveyLoopNode,
             tools_node_class=SurveyLookupToolsNode,
             toolkit_class=SurveyToolkit,
@@ -340,7 +340,6 @@ class SurveyAnalysisTool(MaxTool):
     description: str = (
         "Analyze survey responses to extract themes, sentiment, and actionable insights from open-ended questions"
     )
-    thinking_message: str = "Analyzing your survey responses"
     context_prompt_template: str = (
         "You have access to a survey analysis tool that can analyze open-ended responses to identify themes, sentiment, and actionable insights. "
         "When users ask about analyzing survey responses, summarizing feedback, finding patterns in responses, or extracting insights from survey data, "

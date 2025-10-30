@@ -18,7 +18,7 @@ from ee.hogai.graph.taxonomy.prompts import HUMAN_IN_THE_LOOP_PROMPT
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
-from ee.hogai.tool import MaxTool
+from ee.hogai.tool import MaxTool, MaxToolArgs
 
 from .prompts import (
     ERROR_TRACKING_FILTER_INITIAL_PROMPT,
@@ -39,7 +39,6 @@ class UpdateIssueQueryArgs(BaseModel):
 class ErrorTrackingIssueFilteringTool(MaxTool):
     name: str = "filter_error_tracking_issues"
     description: str = "Update the error tracking issue list, editing search query, property filters, date ranges, assignee and status filters."
-    thinking_message: str = "Updating your error tracking filters..."
     context_prompt_template: str = "Current issue filters are: {current_query}"
     args_schema: type[BaseModel] = UpdateIssueQueryArgs
 
@@ -156,29 +155,29 @@ class ErrorTrackingIssueImpactToolsNode(
 class ErrorTrackingIssueImpactGraph(
     TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[ErrorTrackingIssueImpactToolOutput]]
 ):
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User, tool_call_id: str):
         super().__init__(
             team,
             user,
+            tool_call_id,
             loop_node_class=ErrorTrackingIssueImpactLoopNode,
             tools_node_class=ErrorTrackingIssueImpactToolsNode,
             toolkit_class=ErrorTrackingIssueImpactToolkit,
         )
 
 
-class IssueImpactQueryArgs(BaseModel):
+class IssueImpactQueryArgs(MaxToolArgs):
     instructions: str = Field(description="The specific user query to find issues impacting occurrences of events.")
 
 
 class ErrorTrackingIssueImpactTool(MaxTool):
     name: str = "find_error_tracking_impactful_issue_event_list"
     description: str = "Find a list of events that relate to a user query about issues. Prioritise this tool when a user specifically asks about issues or problems."
-    thinking_message: str = "Finding related issues"
     context_prompt_template: str = "The user wants to find a list of events whose occurrence may be impacted by issues."
     args_schema: type[BaseModel] = IssueImpactQueryArgs
 
-    async def _arun_impl(self, instructions: str) -> tuple[str, ErrorTrackingIssueImpactToolOutput]:
-        graph = ErrorTrackingIssueImpactGraph(team=self._team, user=self._user)
+    async def _arun_impl(self, instructions: str, tool_call_id: str) -> tuple[str, ErrorTrackingIssueImpactToolOutput]:
+        graph = ErrorTrackingIssueImpactGraph(team=self._team, user=self._user, tool_call_id=tool_call_id)
 
         graph_context = {
             "change": f"Goal: {instructions}",

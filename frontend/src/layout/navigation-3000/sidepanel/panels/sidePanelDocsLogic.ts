@@ -2,7 +2,11 @@ import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, prop
 import { router } from 'kea-router'
 import { RefObject } from 'react'
 
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { ProductKey } from '~/types'
 
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import type { sidePanelDocsLogicType } from './sidePanelDocsLogicType'
@@ -36,7 +40,12 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelDocsLogic']),
     props({} as SidePanelDocsLogicProps),
     connect(() => ({
-        actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel', 'setSidePanelOptions']],
+        actions: [
+            sidePanelStateLogic,
+            ['openSidePanel', 'closeSidePanel', 'setSidePanelOptions'],
+            teamLogic,
+            ['addProductIntent'],
+        ],
         values: [sceneLogic, ['sceneConfig'], sidePanelStateLogic, ['selectedTabOptions']],
     })),
 
@@ -132,6 +141,16 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
 
         updatePath: ({ path }) => {
             actions.setSidePanelOptions(path)
+
+            if (path && path.includes('/docs/llm-analytics')) {
+                actions.addProductIntent({
+                    product_type: ProductKey.LLM_ANALYTICS,
+                    intent_context: ProductIntentContext.LLM_ANALYTICS_DOCS_VIEWED,
+                    metadata: {
+                        docs_path: path,
+                    },
+                })
+            }
         },
     })),
 

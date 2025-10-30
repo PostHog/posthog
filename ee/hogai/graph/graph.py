@@ -30,7 +30,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         self._has_start_node = True
 
         title_generator = TitleGeneratorNode(self._team, self._user)
-        self._graph.add_node(AssistantNodeName.TITLE_GENERATOR, title_generator)
+        self.add_node(AssistantNodeName.TITLE_GENERATOR, title_generator)
         self._graph.add_edge(AssistantNodeName.START, AssistantNodeName.TITLE_GENERATOR)
         self._graph.add_edge(AssistantNodeName.TITLE_GENERATOR, end_node)
         return self

@@ -2,7 +2,8 @@
 Shared utilities for experiment-related Dagster schedules and sensors.
 """
 
-from datetime import time
+from datetime import datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from django.db import connection
 from django.db.models import Q
@@ -88,6 +89,7 @@ def schedule_experiment_metric_partitions(
                 deleted=False,
                 stats_config__timeseries=True,
                 start_date__isnull=False,
+                start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=90),
                 end_date__isnull=True,
                 team__in=Team.objects.filter(time_filter),
             ).values_list("id", flat=True)

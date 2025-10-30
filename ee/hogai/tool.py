@@ -9,10 +9,10 @@ import structlog
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, InjectedToolCallId
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from pydantic.json_schema import SkipJsonSchema
 
-from posthog.schema import AssistantContextualTool
+from posthog.schema import AssistantTool
 
 from posthog.models import Team, User
 
@@ -20,10 +20,9 @@ import products
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.mixins import AssistantContextMixin
-from ee.hogai.utils.types import AssistantState
-from ee.hogai.utils.types.base import AssistantMessageUnion
+from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantState
 
-CONTEXTUAL_TOOL_NAME_TO_TOOL: dict[AssistantContextualTool, type["MaxTool"]] = {}
+CONTEXTUAL_TOOL_NAME_TO_TOOL: dict[AssistantTool, type["MaxTool"]] = {}
 
 logger = structlog.get_logger(__name__)
 
@@ -44,7 +43,10 @@ def get_contextual_tool_class(tool_name: str) -> type["MaxTool"] | None:
     _import_max_tools()  # Ensure max_tools are imported
     from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 
-    return CONTEXTUAL_TOOL_NAME_TO_TOOL[AssistantContextualTool(tool_name)]
+    try:
+        return CONTEXTUAL_TOOL_NAME_TO_TOOL[AssistantTool(tool_name)]
+    except KeyError:
+        return None
 
 
 class ToolMessagesArtifact(BaseModel):
@@ -140,11 +142,6 @@ class MaxTool(AssistantContextMixin, BaseTool):
     # - it becomes the `ui_payload`
     response_format: Literal["content_and_artifact"] = "content_and_artifact"
 
-    thinking_message: str
-    """The message shown to let the user know this tool is being used. One sentence, no punctuation.
-    For example, "Updating filters"
-    """
-
     context_prompt_template: str = "No context provided for this tool."
     """The template for context associated with this tool, that will be injected into the root node's context messages.
     Use this if you need to strongly steer the root node in deciding _when_ and _whether_ to use the tool.
@@ -152,11 +149,10 @@ class MaxTool(AssistantContextMixin, BaseTool):
     For example, "The current filters the user is seeing are: {current_filters}."
     """
 
-    show_tool_call_message: bool = Field(description="Whether to show tool call messages.", default=True)
-
     _config: RunnableConfig
     _state: AssistantState
     _context_manager: AssistantContextManager
+    _tool_call_id: str
 
     # DEPRECATED: Use `_arun_impl` instead
     def _run_impl(self, *args, **kwargs) -> tuple[str, Any]:
@@ -200,14 +196,12 @@ class MaxTool(AssistantContextMixin, BaseTool):
         if not cls.__name__.endswith("Tool"):
             raise ValueError("The name of a MaxTool subclass must end with 'Tool', for clarity")
         try:
-            accepted_name = AssistantContextualTool(cls.name)
+            accepted_name = AssistantTool(cls.name)
         except ValueError:
             raise ValueError(
-                f"MaxTool name '{cls.name}' is not a recognized AssistantContextualTool value. Fix this name, or update AssistantContextualTool in schema-assistant-messages.ts and run `pnpm schema:build`"
+                f"MaxTool name '{cls.name}' is not a recognized AssistantTool value. Fix this name, or update AssistantTool in schema-assistant-messages.ts and run `pnpm schema:build`"
             )
         CONTEXTUAL_TOOL_NAME_TO_TOOL[accepted_name] = cls
-        if not getattr(cls, "thinking_message", None):
-            raise ValueError("You must set `thinking_message` on the tool, so that we can show the tool kicking off")
 
     def _run(self, *args, config: RunnableConfig, **kwargs):
         try:
@@ -241,13 +235,14 @@ class MaxTool(AssistantContextMixin, BaseTool):
         user: User,
         state: AssistantState | None = None,
         config: RunnableConfig | None = None,
+        context_manager: AssistantContextManager | None = None,
     ) -> Self:
         """
         Factory that creates a tool class.
 
         Override this factory to dynamically modify the tool name, description, args schema, etc.
         """
-        return cls(team=team, user=user, state=state, config=config)
+        return cls(team=team, user=user, state=state, config=config, context_manager=context_manager)
 
 
 class MaxSubtool(ABC):

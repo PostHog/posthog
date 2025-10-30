@@ -3,7 +3,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from posthog.schema import AssistantContextualTool, AssistantToolCallMessage, VisualizationMessage
+from posthog.schema import AssistantTool, AssistantToolCallMessage, VisualizationMessage
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.insights_graph.graph import InsightsGraph
@@ -28,7 +28,7 @@ Remember: do NOT retrieve data for the same query more than 3 times in a row.
 
 # Data schema
 
-The subagent will have access to the read_taxonomy tool. You can pass events, actions, properties, and property values to this tool by specifying the "Data schema" section.
+You can pass events, actions, properties, and property values to this tool by specifying the "Data schema" section.
 
 <example>
 User: Calculate onboarding completion rate for the last week.
@@ -195,7 +195,6 @@ class CreateAndQueryInsightTool(MaxTool):
                 ui_payload={self.get_name(): maybe_viz_message.answer.model_dump(exclude_none=True)},
                 id=str(uuid4()),
                 tool_call_id=tool_call_message.tool_call_id,
-                visible=self.show_tool_call_message,
             )
 
         return "", ToolMessagesArtifact(messages=[maybe_viz_message, tool_call_message])
@@ -205,4 +204,4 @@ class CreateAndQueryInsightTool(MaxTool):
         """
         Determines if the tool is in editing mode.
         """
-        return AssistantContextualTool.CREATE_AND_QUERY_INSIGHT.value in context_manager.get_contextual_tools()
+        return AssistantTool.EDIT_CURRENT_INSIGHT.value in context_manager.get_contextual_tools()

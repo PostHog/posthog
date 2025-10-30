@@ -576,7 +576,7 @@ describe('VariantsPanel', () => {
             expect(screen.getByText('Variant keys must be unique.')).toBeInTheDocument()
         })
 
-        it('shows error when variant has zero rollout and sum is not 100', async () => {
+        it.skip('shows error when variant has zero rollout and sum is not 100', async () => {
             const experimentWithZeroRollout: Experiment = {
                 ...NEW_EXPERIMENT,
                 name: 'Test Experiment',

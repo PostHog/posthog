@@ -1,6 +1,5 @@
 import datetime
 from contextlib import contextmanager
-from typing import cast
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -46,13 +45,13 @@ from ee.hogai.utils.types.base import AssistantMessageUnion
 
 
 @contextmanager
-def mock_contextual_tool(tool_instance):
-    """Context manager that patches get_contextual_tool_class with proper MaxTool structure"""
-    with patch("ee.hogai.tool.get_contextual_tool_class") as mock_get_tool:
-        mock_tool_class = AsyncMock()
-        mock_tool_class.create_tool_class = AsyncMock(return_value=tool_instance)
-        mock_get_tool.return_value = mock_tool_class
-        yield mock_get_tool
+def mock_contextual_tool(mock_tool):
+    """Helper to mock a contextual tool class with create_tool_class"""
+    mock_tool_class = MagicMock()
+    mock_tool_class.create_tool_class = AsyncMock(return_value=mock_tool)
+
+    with patch("ee.hogai.tool.get_contextual_tool_class", return_value=mock_tool_class):
+        yield
 
 
 class TestRootNode(ClickhouseTestMixin, BaseTest):
@@ -72,36 +71,6 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             assistant_message = next_state.messages[0]
             assert isinstance(assistant_message, AssistantMessage)
             self.assertEqual(assistant_message.content, "Why did the chicken cross the road? To get to the other side!")
-
-    async def test_node_handles_generation_without_new_message(self):
-        """Test that root node can continue generation without adding a new message (askMax(null) scenario)"""
-        with patch(
-            "ee.hogai.graph.root.nodes.RootNode._get_model",
-            return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content="Let me continue with the analysis...")]),
-        ):
-            node = RootNode(self.team, self.user)
-            # State with existing conversation but no new user message
-            state = AssistantState(
-                messages=[
-                    HumanMessage(content="Analyze trends"),
-                    AssistantMessage(
-                        content="Working on it",
-                        tool_calls=[
-                            AssistantToolCall(
-                                id="tool-123", name="create_and_query_insight", args={"query_description": "trends"}
-                            )
-                        ],
-                    ),
-                    AssistantToolCallMessage(content="Query completed", tool_call_id="tool-123"),
-                ]
-            )
-            next_state = await node.arun(state, {})
-            assert next_state is not None
-            self.assertEqual(len(next_state.messages), 1)
-            self.assertIsInstance(next_state.messages[0], AssistantMessage)
-            assistant_message = next_state.messages[0]
-            assert isinstance(assistant_message, AssistantMessage)
-            self.assertEqual(assistant_message.content, "Let me continue with the analysis...")
 
     @parameterized.expand(
         [
@@ -136,8 +105,8 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             next_state = await node.arun(state_1, {})
             self.assertIsInstance(next_state, PartialAssistantState)
             self.assertEqual(len(next_state.messages), 1)
+            self.assertIsInstance(next_state.messages[0], AssistantMessage)
             assistant_message = next_state.messages[0]
-            self.assertIsInstance(assistant_message, AssistantMessage)
             assert isinstance(assistant_message, AssistantMessage)
             self.assertEqual(assistant_message.content, content)
             self.assertIsNotNone(assistant_message.id)
@@ -354,8 +323,14 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 mock_tool_instance = MagicMock()
                 mock_tool_instance.name = "search_session_recordings"
 
+                # Create a mock tool class with async create_tool_class
+                mock_tool_class = MagicMock()
+                mock_tool_class.create_tool_class = AsyncMock(return_value=mock_tool_instance)
+
                 # We need to patch at the point where it's imported
-                with mock_contextual_tool(mock_tool_instance) as mock_get_tool:
+                with patch("ee.hogai.tool.get_contextual_tool_class") as mock_get_tool:
+                    mock_get_tool.return_value = mock_tool_class
+
                     # Verify that context_manager has the right tools
                     context_tools = node.context_manager.get_contextual_tools()
                     self.assertEqual(
@@ -908,9 +883,6 @@ class TestRootNodeTools(BaseTest):
         assert result is not None
         self.assertEqual(len(result.messages), 1)
         self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
-        self.assertFalse(
-            cast(AssistantToolCallMessage, result.messages[0]).visible
-        )  # This tool must not be visible by default
 
     async def test_navigate_tool_call_raises_node_interrupt(self):
         """Test that navigate tool calls raise NodeInterrupt to pause graph execution"""
@@ -945,7 +917,6 @@ class TestRootNodeTools(BaseTest):
             self.assertIsInstance(interrupt_data, AssistantToolCallMessage)
             self.assertEqual(interrupt_data.content, "XXX")
             self.assertEqual(interrupt_data.tool_call_id, "nav-123")
-            self.assertTrue(interrupt_data.visible)
             self.assertEqual(interrupt_data.ui_payload, {"navigate": {"page_key": "insights"}})
 
     async def test_arun_tool_returns_wrong_type_returns_error_message(self):
@@ -962,10 +933,10 @@ class TestRootNodeTools(BaseTest):
             root_tool_call_id="tool-123",
         )
 
-        mock_tool_instance = AsyncMock()
-        mock_tool_instance.ainvoke.return_value = "Wrong type"  # Should be LangchainToolMessage
+        mock_tool = AsyncMock()
+        mock_tool.ainvoke.return_value = "Wrong type"  # Should be LangchainToolMessage
 
-        with mock_contextual_tool(mock_tool_instance):
+        with mock_contextual_tool(mock_tool):
             result = await node.arun(state, {"configurable": {"contextual_tools": {"test_tool": {}}}})
 
             self.assertIsInstance(result, PartialAssistantState)

@@ -30,7 +30,18 @@ import products.endpoints.backend.api as endpoints
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
-from products.error_tracking.backend.api import error_tracking, git_provider_file_link_resolver
+from products.error_tracking.backend.api import (
+    ErrorTrackingAssignmentRuleViewSet,
+    ErrorTrackingExternalReferenceViewSet,
+    ErrorTrackingFingerprintViewSet,
+    ErrorTrackingGroupingRuleViewSet,
+    ErrorTrackingIssueViewSet,
+    ErrorTrackingReleaseViewSet,
+    ErrorTrackingStackFrameViewSet,
+    ErrorTrackingSuppressionRuleViewSet,
+    ErrorTrackingSymbolSetViewSet,
+    GitProviderFileLinksViewSet,
+)
 from products.llm_analytics.backend.api import (
     DatasetItemViewSet,
     DatasetViewSet,
@@ -674,70 +685,70 @@ projects_router.register(
 
 environments_router.register(
     r"error_tracking/releases",
-    error_tracking.ErrorTrackingReleaseViewSet,
+    ErrorTrackingReleaseViewSet,
     "project_error_tracking_release",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/symbol_sets",
-    error_tracking.ErrorTrackingSymbolSetViewSet,
+    ErrorTrackingSymbolSetViewSet,
     "project_error_tracking_symbol_set",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/assignment_rules",
-    error_tracking.ErrorTrackingAssignmentRuleViewSet,
+    ErrorTrackingAssignmentRuleViewSet,
     "project_error_tracking_assignment_rule",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/grouping_rules",
-    error_tracking.ErrorTrackingGroupingRuleViewSet,
+    ErrorTrackingGroupingRuleViewSet,
     "project_error_tracking_grouping_rule",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/suppression_rules",
-    error_tracking.ErrorTrackingSuppressionRuleViewSet,
+    ErrorTrackingSuppressionRuleViewSet,
     "project_error_tracking_suppression_rule",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/fingerprints",
-    error_tracking.ErrorTrackingFingerprintViewSet,
+    ErrorTrackingFingerprintViewSet,
     "project_error_tracking_fingerprint",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/issues",
-    error_tracking.ErrorTrackingIssueViewSet,
+    ErrorTrackingIssueViewSet,
     "project_error_tracking_issue",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/external_references",
-    error_tracking.ErrorTrackingExternalReferenceViewSet,
+    ErrorTrackingExternalReferenceViewSet,
     "project_error_tracking_external_references",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/stack_frames",
-    error_tracking.ErrorTrackingStackFrameViewSet,
+    ErrorTrackingStackFrameViewSet,
     "project_error_tracking_stack_frames",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/git-provider-file-links",
-    git_provider_file_link_resolver.GitProviderFileLinksViewSet,
+    GitProviderFileLinksViewSet,
     "project_error_tracking_git_provider_file_links",
     ["team_id"],
 )

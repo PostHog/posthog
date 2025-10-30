@@ -17,7 +17,6 @@ common-redis = { path = "../common/redis" }
 common-types = { path = "../common/types" }
 envconfig = { workspace = true }
 governor = { workspace = true }
-tower_governor = "0.4.2"
 limiters = { path = "../common/limiters" }
 metrics = { workspace = true }
 tokio = { workspace = true }

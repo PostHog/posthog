@@ -1,5 +1,7 @@
+import { LemonTagType } from '@posthog/lemon-ui'
+
 import { DataVisualizationNode, DatabaseSchemaField, NodeKind } from '~/queries/schema/schema-general'
-import { DataWarehouseSyncInterval, ExternalDataSourceSyncSchema } from '~/types'
+import { DataWarehouseSyncInterval, ExternalDataJobStatus, ExternalDataSourceSyncSchema } from '~/types'
 
 export const DATAWAREHOUSE_EDITOR_ITEM_ID = 'new-SQL'
 
@@ -97,4 +99,12 @@ export const SyncTypeLabelMap: Record<NonNullable<ExternalDataSourceSyncSchema['
     full_refresh: 'Full refresh',
     incremental: 'Incremental',
     append: 'Append only',
+}
+
+export const StatusTagSetting: Record<ExternalDataJobStatus, LemonTagType> = {
+    [ExternalDataJobStatus.Running]: 'primary',
+    [ExternalDataJobStatus.Completed]: 'success',
+    [ExternalDataJobStatus.Failed]: 'danger',
+    [ExternalDataJobStatus.BillingLimits]: 'danger',
+    [ExternalDataJobStatus.BillingLimitTooLow]: 'danger',
 }

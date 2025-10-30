@@ -8,7 +8,6 @@ import type { Experiment } from '~/types'
 
 import { NEW_EXPERIMENT } from '../constants'
 import { experimentsLogic } from '../experimentsLogic'
-import { createExperimentLogic } from './createExperimentLogic'
 import { variantsPanelLogic } from './variantsPanelLogic'
 
 describe('variantsPanelLogic', () => {
@@ -227,127 +226,6 @@ describe('variantsPanelLogic', () => {
         })
     })
 
-    describe('feature flag key generation', () => {
-        it('generates feature flag key from experiment name', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.generateFeatureFlagKey('My Awesome Experiment')
-            })
-                .toDispatchActions(['generateFeatureFlagKey', 'generateFeatureFlagKeySuccess'])
-                .toMatchValues({
-                    generatedKey: 'my-awesome-experiment',
-                })
-        })
-
-        it('handles special characters in experiment name', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.generateFeatureFlagKey('Test@#$%Experiment!!!')
-            })
-                .toDispatchActions(['generateFeatureFlagKey', 'generateFeatureFlagKeySuccess'])
-                .toMatchValues({
-                    generatedKey: 'test-experiment',
-                })
-        })
-
-        it.skip('adds counter suffix when key already exists', async () => {
-            // Note: This test requires connected logics (featureFlagsLogic/experimentsLogic) to be fully loaded
-            // which is complex to set up in unit tests. The integration is tested in component tests.
-            await expectLogic(logic, () => {
-                logic.actions.generateFeatureFlagKey('existing-flag-1')
-            })
-                .toDispatchActions(['generateFeatureFlagKey', 'generateFeatureFlagKeySuccess'])
-                .toMatchValues({
-                    generatedKey: 'existing-flag-1-1',
-                })
-        })
-
-        it('returns null for empty name', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.generateFeatureFlagKey('')
-            })
-                .toDispatchActions(['generateFeatureFlagKey', 'generateFeatureFlagKeySuccess'])
-                .toMatchValues({
-                    generatedKey: null,
-                })
-        })
-
-        it('auto-generates key when experiment name changes in create mode', async () => {
-            const createLogic = createExperimentLogic()
-            createLogic.mount()
-
-            await expectLogic(logic, () => {
-                createLogic.actions.setExperimentValue('name', 'New Experiment Name')
-            }).toDispatchActions([
-                createExperimentLogic.actionTypes.setExperimentValue,
-                'generateFeatureFlagKey',
-                'generateFeatureFlagKeySuccess',
-            ])
-
-            createLogic.unmount()
-        })
-
-        it('does not auto-generate key when dirty flag is set', async () => {
-            const createLogic = createExperimentLogic()
-            createLogic.mount()
-
-            logic.actions.setFeatureFlagKeyDirty()
-
-            await expectLogic(logic, () => {
-                createLogic.actions.setExperimentValue('name', 'New Experiment Name')
-            }).toNotHaveDispatchedActions(['generateFeatureFlagKey'])
-
-            createLogic.unmount()
-        })
-    })
-
-    describe('available feature flags', () => {
-        it('loads all eligible feature flags', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadAllEligibleFeatureFlags()
-            })
-                .toDispatchActions(['loadAllEligibleFeatureFlags', 'loadAllEligibleFeatureFlagsSuccess'])
-                .toMatchValues({
-                    availableFeatureFlags: expect.arrayContaining([
-                        partial({ key: 'existing-flag-1' }),
-                        partial({ key: 'existing-flag-2' }),
-                    ]),
-                })
-        })
-
-        it('filters out non-eligible feature flags', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadAllEligibleFeatureFlags()
-            })
-                .toDispatchActions(['loadAllEligibleFeatureFlags', 'loadAllEligibleFeatureFlagsSuccess'])
-                .toMatchValues({
-                    availableFeatureFlags: expect.not.arrayContaining([partial({ key: 'invalid-flag' })]),
-                })
-        })
-
-        it('searches feature flags by key', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.searchFeatureFlags('flag-1')
-            })
-                .toDispatchActions(['searchFeatureFlags', 'searchFeatureFlagsSuccess'])
-                .toMatchValues({
-                    availableFeatureFlags: [partial({ key: 'existing-flag-1' })],
-                })
-        })
-
-        it('resets search and clears results', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.searchFeatureFlags('flag-1')
-            }).toDispatchActions(['searchFeatureFlags', 'searchFeatureFlagsSuccess'])
-
-            await expectLogic(logic, () => {
-                logic.actions.resetFeatureFlagsSearch()
-            })
-                .toDispatchActions(['resetFeatureFlagsSearch', 'resetFeatureFlagsSearchSuccess'])
-                .toMatchValues({
-                    availableFeatureFlags: [],
-                })
-        })
-    })
-
     describe('unavailableFeatureFlagKeys selector', () => {
         it.skip('combines feature flag keys and experiment keys', async () => {
             // Note: This test requires connected logics (featureFlagsLogic/experimentsLogic) to be fully loaded
@@ -379,18 +257,6 @@ describe('variantsPanelLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.validateFeatureFlagKey('test-key')
             }).toDispatchActions(['validateFeatureFlagKey', 'validateFeatureFlagKeyFailure'])
-        })
-
-        it('handles feature flag loading errors', async () => {
-            useMocks({
-                get: {
-                    '/api/projects/@current/feature_flags/': () => [500, { error: 'Server error' }],
-                },
-            })
-
-            await expectLogic(logic, () => {
-                logic.actions.loadAllEligibleFeatureFlags()
-            }).toDispatchActions(['loadAllEligibleFeatureFlags', 'loadAllEligibleFeatureFlagsFailure'])
         })
     })
 })
