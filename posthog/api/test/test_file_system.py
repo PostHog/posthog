@@ -225,3 +225,36 @@ class TestFileSystemLogViewEndpoint(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         mock_logger.assert_not_called()
         assert FileSystemViewLog.objects.count() == 0
+
+    def test_log_view_endpoint_lists_entries(self) -> None:
+        FileSystemViewLog.objects.all().delete()
+
+        earlier = now() - timedelta(hours=1)
+        later = now()
+
+        FileSystemViewLog.objects.create(
+            team=self.team,
+            user=self.user,
+            type="scene",
+            ref="First",
+            viewed_at=earlier,
+        )
+        FileSystemViewLog.objects.create(
+            team=self.team,
+            user=self.user,
+            type="scene",
+            ref="Second",
+            viewed_at=later,
+        )
+        data: dict = {"type": "scene", "limit": 10}
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/file_system/log_view/",
+            data=data,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+
+        payload = response.json()
+        assert [entry["ref"] for entry in payload] == ["Second", "First"]
+        assert all(entry["type"] == "scene" for entry in payload)
+        assert all("viewed_at" in entry for entry in payload)

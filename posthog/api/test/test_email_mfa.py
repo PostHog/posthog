@@ -255,3 +255,38 @@ class TestEmailMFAAPI(APIBaseTest):
 
         # Email task should not have been called
         mock_send_email.assert_not_called()
+
+    @pytest.mark.disable_mock_email_mfa_verifier
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.tasks.email.send_email_mfa_link")
+    @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
+    def test_email_mfa_skipped_during_reauth(self, mock_is_email_available, mock_send_email, mock_feature_enabled):
+        # First, log in normally (triggers email MFA)
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        response_data = response.json()
+        self.assertEqual(response_data["code"], "email_mfa_required")
+
+        # Verify the first email was sent
+        self.assertEqual(mock_send_email.call_count, 1)
+        token = mock_send_email.call_args[0][1]
+
+        # Complete the email MFA verification to log in
+        response = self.client.post("/api/login/email-mfa/", {"email": self.user.email, "token": token})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # User is now logged in - verify
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # This covers the case where email MFA is enabled after users are already logged in
+        session = self.client.session
+        session.pop("two_factor_verified", None)
+        session.save()
+
+        # Now try to reauth while already logged in (should skip email MFA)
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Email should still only have been sent once (not a second time for reauth)
+        self.assertEqual(mock_send_email.call_count, 1)

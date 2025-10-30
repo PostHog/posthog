@@ -40,6 +40,9 @@ jobs:
                         - bin/check_uv_python_compatibility.py
                         # Schema changes need to trigger Python CI to validate schema.py is regenerated
                         - 'frontend/src/queries/schema.json'
+                        # hogli CLI changes need validation
+                        - 'common/hogli/**'
+                        - 'bin/**'
 
     code-quality:
         needs: changes
@@ -136,6 +139,16 @@ jobs:
               shell: bash
               run: |
                   npm run schema:build:python && git diff --exit-code
+
+            - name: Check hogli manifest completeness
+              shell: bash
+              run: |
+                  ./bin/hogli meta:check
+
+            - name: Run hogli tests
+              shell: bash
+              run: |
+                  pytest common/hogli/tests/ -v --cov=common/hogli --cov-report=term
 
             # - name: Check if "taxonomy.json/taxonomy.tsx" is up to date
             #   if: needs.changes.outputs.python == 'true'

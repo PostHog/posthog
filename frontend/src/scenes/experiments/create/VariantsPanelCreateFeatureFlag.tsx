@@ -18,7 +18,7 @@ import type { Experiment, MultivariateFlagVariant } from '~/types'
 import { percentageDistribution } from '../utils'
 import { variantsPanelLogic } from './variantsPanelLogic'
 
-const generateFeatureFlagKey = (name: string, unavailableFeatureFlagKeys?: Set<string>): string => {
+export const generateFeatureFlagKey = (name: string, unavailableFeatureFlagKeys?: Set<string>): string => {
     const baseKey = name
         .toLowerCase()
         .replace(/[^A-Za-z0-9-_]+/g, '-')
@@ -46,19 +46,18 @@ interface VariantsPanelCreateFeatureFlagProps {
             ensure_experience_continuity?: boolean
         }
     }) => void
+    disabled?: boolean
 }
 
 export const VariantsPanelCreateFeatureFlag = ({
     experiment,
     onChange,
+    disabled = false,
 }: VariantsPanelCreateFeatureFlagProps): JSX.Element => {
-    const {
-        featureFlagKeyDirty,
-        unavailableFeatureFlagKeys,
-        featureFlagKeyValidation,
-        featureFlagKeyValidationLoading,
-    } = useValues(variantsPanelLogic)
-    const { setFeatureFlagKeyDirty, validateFeatureFlagKey } = useActions(variantsPanelLogic)
+    const { featureFlagKeyValidation, featureFlagKeyValidationLoading } = useValues(
+        variantsPanelLogic({ experiment, disabled })
+    )
+    const { setFeatureFlagKeyDirty, validateFeatureFlagKey } = useActions(variantsPanelLogic({ experiment, disabled }))
 
     const variants = experiment.parameters?.feature_flag_variants || [
         { key: 'control', rollout_percentage: 50 },
@@ -76,16 +75,13 @@ export const VariantsPanelCreateFeatureFlag = ({
     const areVariantKeysValid = variants.every(({ key }) => key && key.trim().length > 0)
     const variantKeys = variants.map(({ key }) => key)
     const hasDuplicateKeys = variantKeys.length !== new Set(variantKeys).size
-    const hasZeroRolloutVariants =
-        variants.some(({ rollout_percentage }) => rollout_percentage === 0) && variantRolloutSum !== 100
 
     // Check if specific variant has an error
     const hasVariantError = (index: number): boolean => {
         const variant = variants[index]
         const isEmpty = !variant.key || variant.key.trim().length === 0
         const isDuplicate = variantKeys.filter((k) => k === variant.key).length > 1
-        const hasZeroRollout = variant.rollout_percentage === 0 && variantRolloutSum !== 100
-        return isEmpty || isDuplicate || hasZeroRollout
+        return isEmpty || isDuplicate
     }
 
     const updateVariant = (index: number, updates: Partial<MultivariateFlagVariant>): void => {
@@ -143,7 +139,7 @@ export const VariantsPanelCreateFeatureFlag = ({
         if (key) {
             validateFeatureFlagKey(key)
         }
-    }, 300)
+    }, 100)
 
     return (
         <div className="flex flex-col gap-4">
@@ -153,29 +149,26 @@ export const VariantsPanelCreateFeatureFlag = ({
                         id="experiment-feature-flag-key"
                         placeholder="examples: new-landing-page, betaFeature, ab_test_1"
                         value={experiment.feature_flag_key || ''}
-                        onChange={(value) => {
-                            /**
-                             * if the user changes the feature flag key, we need to set the dirty flag to true
-                             * so that we don't generate a new key automatically
-                             * TODO: clear dirty flag when the name is empty
-                             */
-                            setFeatureFlagKeyDirty()
-                            const normalizedValue = value.replace(/\s+/g, '-')
-                            onChange({
-                                feature_flag_key: normalizedValue,
-                            })
-                            debouncedValidateFeatureFlagKey(normalizedValue)
-                        }}
-                        onFocus={() => {
-                            if (experiment.name && !featureFlagKeyDirty) {
-                                onChange({
-                                    feature_flag_key: generateFeatureFlagKey(
-                                        experiment.name,
-                                        unavailableFeatureFlagKeys
-                                    ),
-                                })
-                            }
-                        }}
+                        onChange={
+                            disabled
+                                ? undefined
+                                : (value) => {
+                                      /**
+                                       * if the user changes the feature flag key, we need to set the dirty flag to true
+                                       * so that we don't generate a new key automatically
+                                       * TODO: clear dirty flag when the name is empty
+                                       */
+                                      setFeatureFlagKeyDirty()
+                                      const normalizedValue = value.replace(/\s+/g, '-')
+                                      onChange({
+                                          feature_flag_key: normalizedValue,
+                                      })
+                                      debouncedValidateFeatureFlagKey(normalizedValue)
+                                  }
+                        }
+                        disabledReason={
+                            disabled ? 'You cannot change the feature flag key when editing an experiment.' : undefined
+                        }
                         suffix={
                             featureFlagKeyValidationLoading ? (
                                 <Spinner size="small" />
@@ -206,12 +199,14 @@ export const VariantsPanelCreateFeatureFlag = ({
                         <div className="col-span-6">Description</div>
                         <div className="col-span-3 flex justify-between items-center gap-1">
                             <span>Rollout</span>
-                            <LemonButton
-                                onClick={() => distributeVariantsEqually()}
-                                tooltip="Normalize variant rollout percentages"
-                            >
-                                <IconBalance />
-                            </LemonButton>
+                            {!disabled && (
+                                <LemonButton
+                                    onClick={() => distributeVariantsEqually()}
+                                    tooltip="Normalize variant rollout percentages"
+                                >
+                                    <IconBalance />
+                                </LemonButton>
+                            )}
                         </div>
                     </div>
                     {variants.map((variant, index) => (
@@ -230,7 +225,11 @@ export const VariantsPanelCreateFeatureFlag = ({
                                 <LemonInput
                                     value={variant.key}
                                     disabledReason={
-                                        variant.key === 'control' ? 'Control variant cannot be changed' : null
+                                        disabled
+                                            ? 'Cannot edit feature flag in edit mode'
+                                            : variant.key === 'control'
+                                              ? 'Control variant cannot be changed'
+                                              : null
                                     }
                                     onChange={(value) => updateVariant(index, { key: value.replace(/\s+/g, '-') })}
                                     data-attr="experiment-variant-key"
@@ -247,6 +246,11 @@ export const VariantsPanelCreateFeatureFlag = ({
                                 <LemonInput
                                     value={variant.name || ''}
                                     onChange={(value) => updateVariant(index, { name: value })}
+                                    disabledReason={
+                                        disabled
+                                            ? 'You cannot change the variant name when editing an experiment.'
+                                            : undefined
+                                    }
                                     data-attr="experiment-variant-name"
                                     className="ph-ignore-input"
                                     placeholder="Description"
@@ -265,12 +269,17 @@ export const VariantsPanelCreateFeatureFlag = ({
                                                 : 0
                                         updateVariant(index, { rollout_percentage: valueInt })
                                     }}
+                                    disabledReason={
+                                        disabled
+                                            ? 'You cannot change the variant rollout percentage when editing an experiment.'
+                                            : undefined
+                                    }
                                     suffix={<span>%</span>}
                                     data-attr="experiment-variant-rollout-percentage-input"
                                 />
                             </div>
                             <div className="flex items-center justify-center">
-                                {variants.length > 2 && index > 0 && (
+                                {!disabled && variants.length > 2 && index > 0 && (
                                     <LemonButton
                                         icon={<IconTrash />}
                                         data-attr={`delete-prop-filter-${index}`}
@@ -293,10 +302,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                     {variants.length > 0 && hasDuplicateKeys && (
                         <p className="text-danger">Variant keys must be unique.</p>
                     )}
-                    {variants.length > 0 && hasZeroRolloutVariants && (
-                        <p className="text-danger">All variants must have a rollout percentage greater than 0.</p>
-                    )}
-                    {variants.length < MAX_EXPERIMENT_VARIANTS && (
+                    {!disabled && variants.length < MAX_EXPERIMENT_VARIANTS && (
                         <LemonButton type="secondary" onClick={addVariant} icon={<IconPlus />} center>
                             Add variant
                         </LemonButton>
@@ -317,6 +323,11 @@ export const VariantsPanelCreateFeatureFlag = ({
                     }}
                     fullWidth
                     checked={ensureExperienceContinuity}
+                    disabledReason={
+                        disabled
+                            ? 'You cannot change the persist flag across authentication steps when editing an experiment.'
+                            : undefined
+                    }
                 />
                 <div className="text-secondary text-sm pl-6 mt-2">
                     If your feature flag is evaluated for anonymous users, use this option to ensure the flag value

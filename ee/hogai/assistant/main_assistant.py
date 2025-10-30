@@ -2,8 +2,6 @@ from collections.abc import AsyncGenerator
 from typing import Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel
-
 from posthog.schema import (
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
@@ -24,7 +22,7 @@ from ee.hogai.graph import (
     TrendsGeneratorNode,
 )
 from ee.hogai.graph.base import BaseAssistantNode
-from ee.hogai.graph.taxonomy.types import TaxonomyNodeName
+from ee.hogai.graph.insights.nodes import InsightSearchNode
 from ee.hogai.utils.state import GraphValueUpdateTuple, validate_value_update
 from ee.hogai.utils.types import (
     AssistantMode,
@@ -33,6 +31,7 @@ from ee.hogai.utils.types import (
     AssistantState,
     PartialAssistantState,
 )
+from ee.hogai.utils.types.base import AssistantResultUnion
 from ee.hogai.utils.types.composed import MaxNodeName
 from ee.models import Conversation
 
@@ -79,6 +78,7 @@ class MainAssistant(BaseAssistant):
             AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
             AssistantNodeName.RETENTION_GENERATOR: RetentionGeneratorNode,
             AssistantNodeName.SQL_GENERATOR: SQLGeneratorNode,
+            AssistantNodeName.INSIGHTS_SEARCH: InsightSearchNode,
         }
 
     @property
@@ -90,30 +90,6 @@ class MainAssistant(BaseAssistant):
             AssistantNodeName.MEMORY_INITIALIZER,
             AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
             AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
-            TaxonomyNodeName.LOOP_NODE,
-            AssistantNodeName.SESSION_SUMMARIZATION,
-            AssistantNodeName.INSIGHTS_SEARCH,
-            AssistantNodeName.DASHBOARD_CREATION,
-        }
-
-    @property
-    def VERBOSE_NODES(self) -> set[MaxNodeName]:
-        return self.STREAMING_NODES | {
-            AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
-            AssistantNodeName.ROOT_TOOLS,
-            TaxonomyNodeName.TOOLS_NODE,
-            TaxonomyNodeName.TASK_EXECUTOR,
-        }
-
-    @property
-    def THINKING_NODES(self) -> set[MaxNodeName]:
-        return self.VISUALIZATION_NODES.keys() | {
-            AssistantNodeName.ROOT_TOOLS,
-            AssistantNodeName.QUERY_PLANNER,
-            AssistantNodeName.QUERY_EXECUTOR,
-            AssistantNodeName.MEMORY_INITIALIZER,
-            TaxonomyNodeName.LOOP_NODE,
-            AssistantNodeName.SESSION_SUMMARIZATION,
             AssistantNodeName.DASHBOARD_CREATION,
         }
 
@@ -167,12 +143,12 @@ class MainAssistant(BaseAssistant):
             },
         )
 
-    def _process_value_update(self, update: GraphValueUpdateTuple) -> list[BaseModel] | None:
+    async def _aprocess_value_update(self, update: GraphValueUpdateTuple) -> AssistantResultUnion | None:
         _, maybe_state_update = update
         state_update = validate_value_update(maybe_state_update)
         if intersected_nodes := state_update.keys() & self.VISUALIZATION_NODES.keys():
             node_name: MaxNodeName = intersected_nodes.pop()
             node_val = state_update[node_name]
             if isinstance(node_val, PartialAssistantState) and node_val.intermediate_steps:
-                return [AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)]
-        return super()._process_value_update(update)
+                return AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
+        return await super()._aprocess_value_update(update)

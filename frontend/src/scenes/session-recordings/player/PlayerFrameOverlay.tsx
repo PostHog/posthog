@@ -87,10 +87,18 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
     }
     if (pausedState) {
         content = endReached ? (
-            <IconRewindPlay className="text-6xl text-white" />
+            <LemonButton
+                icon={<IconRewindPlay className="text-6xl text-white" />}
+                aria-label="Rewind recording"
+                data-attr="replay-overlay-rewind"
+            />
         ) : (
             <div className="flex flex-col items-center justify-center">
-                <IconPlay className="text-6xl text-white" />
+                <LemonButton
+                    icon={<IconPlay className="text-6xl text-white" />}
+                    aria-label="Resume recording"
+                    data-attr="replay-overlay-resume"
+                />
                 {showActionsOnOverlay && <PlayerFrameOverlayActions />}
             </div>
         )
