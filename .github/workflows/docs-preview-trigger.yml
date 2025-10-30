@@ -44,7 +44,7 @@ jobs:
                     "gitSource": {
                       "type": "github",
                       "repoId": "260550412",
-                      "ref": "master"
+                      "ref": "feat/gatsby-remark-rewrite-relative-links"
                     },
                     "build": {
                       "env": {
