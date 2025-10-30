@@ -13,7 +13,13 @@ def CUSTOM_METRICS_VIEW(
     include_counters: bool = False, include_server_crash: bool = False, include_table_sizes: bool = False
 ) -> str:
     statement = """
-    CREATE OR REPLACE VIEW custom_metrics
+    CREATE OR REPLACE VIEW custom_metrics(
+         name String,
+         labels Map(String, String),
+         value Float64,
+         help String,
+         type String
+    )
     AS SELECT * REPLACE (toFloat64(value) as value)
     FROM custom_metrics_test
     UNION ALL
@@ -28,7 +34,7 @@ def CUSTOM_METRICS_VIEW(
     if include_server_crash:
         statement += "UNION ALL SELECT * REPLACE (toFloat64(value) as value) FROM custom_metrics_server_crash\n"
     if include_table_sizes:
-        statement += "UNION ALL SELECT * REPLACE (toFloat64(value) as value) FROM custom_metrics_table_sizes\n"
+        statement += "UNION ALL SELECT * FROM custom_metrics_table_sizes\n"
 
     return statement
 

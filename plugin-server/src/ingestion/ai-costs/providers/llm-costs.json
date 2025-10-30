@@ -1004,8 +1004,8 @@
                 "completion_token": 8.4e-7
             },
             "atlas-cloud-fp8": {
-                "prompt_token": 3.2e-7,
-                "completion_token": 0.00000115
+                "prompt_token": 2.7e-7,
+                "completion_token": 0.0000011
             },
             "baseten-fp8": {
                 "prompt_token": 7.7e-7,
@@ -1383,12 +1383,16 @@
         "model": "deepseek/deepseek-r1-distill-qwen-32b",
         "cost": {
             "default": {
-                "prompt_token": 2.9e-7,
-                "completion_token": 2.9e-7
+                "prompt_token": 2.7e-7,
+                "completion_token": 2.7e-7
             },
             "cloudflare": {
                 "prompt_token": 5e-7,
                 "completion_token": 0.00000488
+            },
+            "deepinfra-fp8": {
+                "prompt_token": 2.7e-7,
+                "completion_token": 2.7e-7
             },
             "nextbit-fp8": {
                 "prompt_token": 2.9e-7,
@@ -3019,6 +3023,35 @@
         }
     },
     {
+        "model": "minimax/minimax-m2",
+        "cost": {
+            "default": {
+                "prompt_token": 1.5e-7,
+                "completion_token": 4.5e-7
+            },
+            "atlas-cloud-fp8": {
+                "prompt_token": 2.8e-7,
+                "completion_token": 0.00000115
+            },
+            "chutes-fp8": {
+                "prompt_token": 1.5e-7,
+                "completion_token": 4.5e-7
+            },
+            "fireworks": {
+                "prompt_token": 3e-7,
+                "completion_token": 0.0000012
+            },
+            "novita-fp8": {
+                "prompt_token": 3e-7,
+                "completion_token": 0.0000012
+            },
+            "parasail-fp8": {
+                "prompt_token": 2.5e-7,
+                "completion_token": 0.000001
+            }
+        }
+    },
+    {
         "model": "minimax/minimax-m2:free",
         "cost": {
             "default": {
@@ -4012,6 +4045,19 @@
         }
     },
     {
+        "model": "nvidia/nemotron-nano-12b-v2-vl",
+        "cost": {
+            "default": {
+                "prompt_token": 2e-7,
+                "completion_token": 6e-7
+            },
+            "deepinfra-fp8": {
+                "prompt_token": 2e-7,
+                "completion_token": 6e-7
+            }
+        }
+    },
+    {
         "model": "nvidia/nemotron-nano-12b-v2-vl:free",
         "cost": {
             "default": {
@@ -4819,6 +4865,21 @@
         }
     },
     {
+        "model": "openai/gpt-oss-safeguard-20b",
+        "cost": {
+            "default": {
+                "prompt_token": 7.5e-8,
+                "completion_token": 3e-7,
+                "cache_read_token": 3.7e-8
+            },
+            "groq": {
+                "prompt_token": 7.5e-8,
+                "completion_token": 3e-7,
+                "cache_read_token": 3.7e-8
+            }
+        }
+    },
+    {
         "model": "openai/o1",
         "cost": {
             "default": {
@@ -5612,11 +5673,6 @@
             "chutes-bf16": {
                 "prompt_token": 6e-8,
                 "completion_token": 2.2e-7
-            },
-            "crusoe-bf16": {
-                "prompt_token": 1e-7,
-                "completion_token": 3e-7,
-                "cache_read_token": 5e-8
             },
             "deepinfra-fp8": {
                 "prompt_token": 8e-8,
@@ -6926,12 +6982,16 @@
                 "completion_token": 0.0000019,
                 "cache_read_token": 1.1e-7
             },
+            "fireworks": {
+                "prompt_token": 5.5e-7,
+                "completion_token": 0.0000021899999999999998
+            },
             "gmicloud-bf16": {
                 "prompt_token": 6e-7,
                 "completion_token": 0.000002
             },
             "mancer-fp8": {
-                "prompt_token": 5.5e-7,
+                "prompt_token": 5e-7,
                 "completion_token": 0.000002
             },
             "novita-bf16": {
