@@ -198,7 +198,12 @@ impl CapturedEvent {
             uuid: Some(self.uuid.to_string()),
             now: Some(self.now.clone()),
             force_disable_person_processing: None, // Only set when explicitly needed (e.g., overflow)
-            historical_migration: Some(self.historical_migration),
+            // Only include historical_migration if true; false is the default
+            historical_migration: if self.historical_migration {
+                Some(true)
+            } else {
+                None
+            },
         }
     }
 

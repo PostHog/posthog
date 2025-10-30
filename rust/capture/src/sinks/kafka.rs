@@ -647,7 +647,6 @@ mod tests {
         assert_eq!(parsed_headers.historical_migration, Some(true));
         assert_eq!(parsed_headers.now, Some("2023-01-01T12:00:00Z".to_string()));
 
-        // Test that historical_migration=false is set in headers for AnalyticsMain
         let headers_main = CapturedEventHeaders {
             token: Some("test_token".to_string()),
             distinct_id: Some("test_id".to_string()),
