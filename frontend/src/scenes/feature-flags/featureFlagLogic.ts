@@ -694,10 +694,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (isBeingDisabled) {
                 try {
                     const response = await api.create(
-                        `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}/check_can_disable/`,
+                        `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}/has_active_dependents/`,
                         {}
                     )
-                    if (response.dependent_flags && response.dependent_flags.length > 0) {
+                    if (response.has_active_dependents) {
                         dependentFlagsWarning = response.warning
                     }
                 } catch (error) {

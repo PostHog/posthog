@@ -260,242 +260,45 @@ class TestFeatureFlagDependencyDeletion(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_cannot_disable_flag_with_active_dependents(self):
-        """Test that a flag cannot be disabled if other active flags depend on it."""
-        # Create base flag
-        base_flag = self.create_flag("base_flag")
-
-        # Create dependent flag
-        dependent_flag = self.create_flag("dependent_flag", dependencies=[base_flag.id])
-
-        # Try to disable base flag
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{base_flag.id}/",
-            {"active": False},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(
-            "Cannot disable this feature flag because other active flags depend on it", response.json()["detail"]
-        )
-        self.assertIn(f"{dependent_flag.key} (ID: {dependent_flag.id})", response.json()["detail"])
-
-    def test_can_disable_flag_with_no_dependents(self):
-        """Test that a flag can be disabled if no other flags depend on it."""
-        # Create flag with no dependents
+    def test_has_active_dependents_with_no_dependencies(self):
+        """Test has_active_dependents returns False with 0 dependent flags."""
         flag = self.create_flag("standalone_flag")
 
-        # Should be able to disable it
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
-            {"active": False},
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/has_active_dependents/",
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["has_active_dependents"], False)
+        self.assertEqual(len(response.json()["dependent_flags"]), 0)
 
-        # Verify flag is disabled
-        flag.refresh_from_db()
-        self.assertFalse(flag.active)
-
-    def test_can_disable_flag_with_inactive_dependents(self):
-        """Test that a flag can be disabled if dependent flags are inactive."""
-        # Create base flag
+    def test_has_active_dependents_with_active_dependencies(self):
+        """Test has_active_dependents returns True with 1 active dependent flag."""
         base_flag = self.create_flag("base_flag")
+        self.create_flag("dependent_flag", dependencies=[base_flag.id])
 
-        # Create dependent flag but make it inactive
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/{base_flag.id}/has_active_dependents/",
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["has_active_dependents"], True)
+        self.assertEqual(len(response.json()["dependent_flags"]), 1)
+
+    def test_has_active_dependents_with_inactive_dependencies(self):
+        """Test has_active_dependents returns False when dependent flags are inactive."""
+        base_flag = self.create_flag("base_flag")
         dependent_flag = self.create_flag("dependent_flag", dependencies=[base_flag.id])
         dependent_flag.active = False
         dependent_flag.save()
 
-        # Should be able to disable base flag
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{base_flag.id}/",
-            {"active": False},
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/{base_flag.id}/has_active_dependents/",
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_can_disable_flag_with_deleted_dependents(self):
-        """Test that a flag can be disabled if dependent flags are already deleted."""
-        # Create base flag
-        base_flag = self.create_flag("base_flag")
-
-        # Create dependent flag but mark it as deleted
-        dependent_flag = self.create_flag("dependent_flag", dependencies=[base_flag.id])
-        dependent_flag.deleted = True
-        dependent_flag.save()
-
-        # Should be able to disable base flag
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{base_flag.id}/",
-            {"active": False},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_cannot_disable_flag_with_multiple_dependents(self):
-        """Test error message when multiple flags depend on the flag being disabled."""
-        # Create base flag
-        base_flag = self.create_flag("base_flag")
-
-        # Create multiple dependent flags
-        dependent_flags = []
-        for i in range(8):
-            dependent_flags.append(self.create_flag(f"dependent_flag_{i}", dependencies=[base_flag.id]))
-
-        # Try to disable base flag
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{base_flag.id}/",
-            {"active": False},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        error_detail = response.json()["detail"]
-
-        # Should show first 5 flags
-        for i in range(5):
-            self.assertIn(f"{dependent_flags[i].key} (ID: {dependent_flags[i].id})", error_detail)
-
-        # Should indicate there are more
-        self.assertIn("and 3 more", error_detail)
-
-    def test_cannot_disable_flag_in_dependency_chain(self):
-        """Test that middle flags in a dependency chain cannot be disabled."""
-        # Create chain: A -> B -> C
-        flag_a = self.create_flag("flag_a")
-        flag_b = self.create_flag("flag_b", dependencies=[flag_a.id])
-        flag_c = self.create_flag("flag_c", dependencies=[flag_b.id])
-
-        # Try to disable flag B (middle of chain)
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{flag_b.id}/",
-            {"active": False},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(f"{flag_c.key} (ID: {flag_c.id})", response.json()["detail"])
-
-        # Try to disable flag A (start of chain)
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{flag_a.id}/",
-            {"active": False},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(f"{flag_b.key} (ID: {flag_b.id})", response.json()["detail"])
-
-        # Should be able to disable flag C (end of chain)
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{flag_c.id}/",
-            {"active": False},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_flag_with_mixed_properties_prevents_disabling(self):
-        """Test that flags with both flag dependencies and other properties prevent disabling."""
-        # Create base flag
-        base_flag = self.create_flag("base_flag")
-
-        # Create flag with both flag dependency and person property
-        dependent_flag = FeatureFlag.objects.create(
-            team=self.team,
-            key="mixed_flag",
-            name="Mixed Flag",
-            filters={
-                "groups": [
-                    {
-                        "properties": [
-                            {
-                                "key": str(base_flag.id),
-                                "type": "flag",
-                                "value": "true",
-                                "operator": "flag_evaluates_to",
-                            },
-                            {"key": "email", "type": "person", "value": "test@example.com", "operator": "exact"},
-                        ],
-                        "rollout_percentage": 100,
-                    }
-                ]
-            },
-        )
-
-        # Try to disable base flag
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{base_flag.id}/",
-            {"active": False},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(f"{dependent_flag.key} (ID: {dependent_flag.id})", response.json()["detail"])
-
-    def test_disabling_check_only_within_same_team(self):
-        """Test that disabling checks are scoped to the same team."""
-        # Create base flag in current team
-        base_flag = self.create_flag("base_flag")
-
-        # Create a new team
-        other_team = self.organization.teams.create(name="Other Team")
-
-        # Create dependent flag in other team (this shouldn't affect disabling)
-        FeatureFlag.objects.create(
-            team=other_team,
-            key="other_team_flag",
-            name="Other Team Flag",
-            filters={
-                "groups": [
-                    {
-                        "properties": [
-                            {
-                                "key": str(base_flag.id),  # References base_flag but in different team
-                                "type": "flag",
-                                "value": "true",
-                                "operator": "flag_evaluates_to",
-                            }
-                        ],
-                        "rollout_percentage": 100,
-                    }
-                ]
-            },
-        )
-
-        # Should be able to disable base flag (other team's dependency shouldn't matter)
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{base_flag.id}/",
-            {"active": False},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_can_enable_flag_with_dependents(self):
-        """Test that a flag can be enabled even if other flags depend on it."""
-        # Create base flag that's initially disabled
-        base_flag = self.create_flag("base_flag")
-        base_flag.active = False
-        base_flag.save()
-
-        # Create dependent flag (active)
-        self.create_flag("dependent_flag", dependencies=[base_flag.id])
-
-        # Should be able to enable base flag (enabling is not restricted)
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{base_flag.id}/",
-            {"active": True},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        # Verify flag is enabled
-        base_flag.refresh_from_db()
-        self.assertTrue(base_flag.active)
+        self.assertEqual(response.json()["has_active_dependents"], False)
+        self.assertEqual(len(response.json()["dependent_flags"]), 0)

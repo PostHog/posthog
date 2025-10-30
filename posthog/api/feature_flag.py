@@ -1393,18 +1393,18 @@ class FeatureFlagViewSet(
         return Response({"success": True}, status=200)
 
     @action(methods=["POST"], detail=True)
-    def check_can_disable(self, request: request.Request, **kwargs):
-        """Check if disabling this flag will affect other active flags that depend on it."""
+    def has_active_dependents(self, request: request.Request, **kwargs):
+        """Check if this flag has other active flags that depend on it."""
         feature_flag: FeatureFlag = self.get_object()
-
-        if not feature_flag.active:
-            return Response({"can_disable": True, "dependent_flags": []}, status=200)
 
         # Use the serializer class method to find dependent flags
         serializer = self.serializer_class()
         dependent_flags = serializer._find_dependent_flags(feature_flag)
-        if not dependent_flags:
-            return Response({"can_disable": True, "dependent_flags": []}, status=200)
+
+        has_dependents = len(dependent_flags) > 0
+
+        if not has_dependents:
+            return Response({"has_active_dependents": False, "dependent_flags": []}, status=200)
 
         dependent_flag_data = [
             {
@@ -1417,7 +1417,7 @@ class FeatureFlagViewSet(
 
         return Response(
             {
-                "can_disable": True,
+                "has_active_dependents": True,
                 "dependent_flags": dependent_flag_data,
                 "warning": (
                     f"This feature flag is used by {len(dependent_flags)} other active "
