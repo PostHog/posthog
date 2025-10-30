@@ -196,14 +196,16 @@ def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list
 
         from posthog.models.property.property import Property
 
-        # Only treat basic behavioral as performed_event for bytecode; always strip to base event + explicit_datetime threshold
+        # Only treat basic behavioral as a simple event-name matcher for bytecode
         if filter_data.get("type") == "behavioral":
             v = filter_data.get("value")
             if v in {"performed_event", "performed_event_multiple"}:
-                event_dict = {k: filter_data[k] for k in ("key", "negation", "event_type") if k in filter_data}
-                event_dict["type"] = "behavioral"
-                event_dict["value"] = "performed_event"
-                property_obj = Property(**event_dict, bytecode_generation=True)
+                # Generate HogQL that matches on event name exactly, to align with plugin-server expectations
+                event_name = filter_data.get("key")
+                if not isinstance(event_name, str) or not event_name:
+                    return None, "Invalid event key for behavioral filter", None
+                hogql_dict = {"type": "hogql", "key": f"event = '{event_name}'"}
+                property_obj = Property(**hogql_dict)
             else:
                 # Do not generate bytecode for unsupported behavioral values
                 return None, "Unsupported behavioral filter for realtime bytecode", None
