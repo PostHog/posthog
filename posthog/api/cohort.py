@@ -459,7 +459,6 @@ class CohortSerializer(serializers.ModelSerializer):
             "count",
             "compiled_bytecode",
             "experiment_set",
-            "cohort_type",
         ]
 
     def validate_cohort_type(self, value):
