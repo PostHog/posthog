@@ -1,0 +1,8 @@
+{
+    "schema_version": 1761814678433,
+    "updated_at": "2025-10-30T08:57:58.433254+00:00",
+    "event_count": 40,
+    "output_paths": {
+        "typescript": "frontend/src/lib/posthog-typed.ts"
+    }
+}
