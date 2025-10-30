@@ -1,7 +1,7 @@
 import { useAsyncActions } from 'kea'
 import { useCallback } from 'react'
 
-import { LemonDialog, LemonInput, Link, lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonTextArea, Link, lemonToast } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -45,8 +45,8 @@ function createIssueCohortForm(issue: ErrorTrackingRelationalIssue, onSubmit: Is
         title: 'Create Cohort',
         shouldAwaitSubmit: true,
         initialValues: {
-            cohortName: `Impacted by "${issue.name}"`,
-            cohortDescription: `${issue.description ? issue.description.substring(0, 200) : undefined}`,
+            cohortName: `Impacted by Issue #${issue.id.substring(0, 8)}`,
+            cohortDescription: `${issue.name}: ${issue.description ? issue.description.substring(0, 200) : undefined}`,
         },
         content: (
             <div className="flex flex-col gap-y-2 w-[600px]">
@@ -54,7 +54,7 @@ function createIssueCohortForm(issue: ErrorTrackingRelationalIssue, onSubmit: Is
                     <LemonInput data-attr="cohort-name" placeholder="Cohort name" size="small" />
                 </LemonField>
                 <LemonField name="cohortDescription" label="Cohort Description">
-                    <LemonInput data-attr="cohort-description" placeholder="Cohort description" size="small" />
+                    <LemonTextArea data-attr="cohort-description" placeholder="Cohort description" />
                 </LemonField>
             </div>
         ),
