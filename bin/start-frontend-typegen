@@ -1,0 +1,5 @@
+#!/bin/bash
+set -e
+
+pnpm --filter=@posthog/frontend... install
+pnpm --filter=@posthog/frontend typegen:watch
