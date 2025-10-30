@@ -118,11 +118,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def _outer_select_query(self, inner_query: ast.SelectQuery) -> ast.SelectQuery | ast.SelectSetQuery:
         if self.breakdown.enabled and self._team_flag_fewer_array_ops():
-            total_count_for_breakdown = parse_expr(
-                "sum(count) OVER (PARTITION BY breakdown_value) AS total_count_for_breakdown"
-            )
-            inner_query.select.append(total_count_for_breakdown)
-
             if self.breakdown.is_multiple_breakdown:
                 breakdown_count = len(self.breakdown.field_exprs)
                 breakdown_other_expr = parse_expr(
@@ -138,16 +133,39 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
             return parse_select(
                 f"""
-                WITH (
-                    -- Breakdown values ranked by total count
+                WITH
+                (
+                    -- Raw per-day breakdown rows
+                    SELECT * FROM {{inner_query}}
+                ) AS breakdown_series,
+                (
+                    -- Aggregate totals per breakdown for ranking
                     SELECT
-                        *,
-                        {{breakdown_order}} AS ordering,
+                        breakdown_value,
+                        sum(count) AS total_count_for_breakdown,
+                        {{breakdown_order}} AS ordering
+                    FROM breakdown_series
+                    GROUP BY breakdown_value
+                ) AS totals_per_breakdown,
+                (
+                    -- Global rank applied to aggregated totals
+                    SELECT
+                        breakdown_value,
+                        ordering,
+                        total_count_for_breakdown,
                         row_number() OVER (
-                            PARTITION BY day_start
                             ORDER BY ordering ASC, total_count_for_breakdown DESC
                         ) AS breakdown_rank
-                    FROM {{inner_query}}
+                    FROM totals_per_breakdown
+                ) AS ranked_breakdown_totals,
+                (
+                    -- Attach ranks back to per-day rows
+                    SELECT
+                        breakdown_series.*,
+                        ranked_breakdown_totals.ordering,
+                        ranked_breakdown_totals.breakdown_rank
+                    FROM breakdown_series
+                    JOIN ranked_breakdown_totals ON ranked_breakdown_totals.breakdown_value = breakdown_series.breakdown_value
                 ) AS ranked_breakdown_values,
                 (
                     -- Top N breakdown values
