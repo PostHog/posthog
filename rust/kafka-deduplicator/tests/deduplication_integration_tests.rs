@@ -395,18 +395,40 @@ async fn test_basic_deduplication() -> Result<()> {
             duplicate_event.get("distinct_fields").is_some(),
             "Missing distinct_fields"
         );
-        assert!(duplicate_event.get("type").is_some(), "Missing type field");
+        assert!(
+            duplicate_event.get("dedup_type").is_some(),
+            "Missing dedup_type field"
+        );
         assert!(
             duplicate_event.get("is_confirmed").is_some(),
             "Missing is_confirmed"
         );
         assert!(duplicate_event.get("version").is_some(), "Missing version");
 
+        // Check new fields added for ClickHouse schema
+        assert!(
+            duplicate_event.get("distinct_id").is_some(),
+            "Missing distinct_id"
+        );
+        assert!(duplicate_event.get("event").is_some(), "Missing event");
+        assert!(
+            duplicate_event.get("source_uuid").is_some(),
+            "Missing source_uuid"
+        );
+        assert!(
+            duplicate_event.get("duplicate_uuid").is_some(),
+            "Missing duplicate_uuid"
+        );
+        assert!(
+            duplicate_event.get("inserted_at").is_some(),
+            "Missing inserted_at"
+        );
+
         // Verify type is timestamp (since we're sending same timestamp)
         let dedup_type = duplicate_event
-            .get("type")
+            .get("dedup_type")
             .and_then(|v| v.as_str())
-            .expect("type should be a string");
+            .expect("dedup_type should be a string");
         assert_eq!(
             dedup_type, "timestamp",
             "Expected timestamp deduplication type"
@@ -415,9 +437,9 @@ async fn test_basic_deduplication() -> Result<()> {
         // Verify these are confirmed duplicates with OnlyUuidDifferent reason
         let is_confirmed = duplicate_event
             .get("is_confirmed")
-            .and_then(|v| v.as_bool())
-            .expect("is_confirmed should be a boolean");
-        assert!(is_confirmed, "All duplicates should be confirmed");
+            .and_then(|v| v.as_u64())
+            .expect("is_confirmed should be a u64");
+        assert_eq!(is_confirmed, 1, "All duplicates should be confirmed");
 
         let reason = duplicate_event.get("reason").and_then(|v| v.as_str());
         assert_eq!(

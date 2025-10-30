@@ -6244,24 +6244,25 @@ dependencies = [
 
 [[package]]
 name = "redis"
-version = "0.23.3"
+version = "0.32.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f49cdc0bb3f412bf8e7d1bd90fe1d9eb10bc5c399ba90973c14662a27b3f8ba"
+checksum = "014cc767fefab6a3e798ca45112bccad9c6e0e218fbd49720042716c73cfef44"
 dependencies = [
- "async-trait",
  "bytes",
+ "cfg-if",
  "combine",
  "crc16",
- "futures",
+ "futures-sink",
  "futures-util",
  "itoa",
  "log",
+ "num-bigint",
  "percent-encoding",
  "pin-project-lite",
- "rand 0.8.5",
+ "rand 0.9.1",
  "ryu",
  "sha1_smol",
- "socket2 0.4.10",
+ "socket2 0.6.0",
  "tokio",
  "tokio-util",
  "url",

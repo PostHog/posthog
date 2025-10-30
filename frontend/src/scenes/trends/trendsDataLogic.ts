@@ -53,6 +53,7 @@ const POSSIBLY_FRACTIONAL_MATH_TYPES: Set<MathType> = new Set(
 )
 
 export const INTERVAL_TO_DEFAULT_MOVING_AVERAGE_PERIOD: Record<IntervalType, number> = {
+    second: 300,
     minute: 10,
     hour: 6,
     day: 7,
