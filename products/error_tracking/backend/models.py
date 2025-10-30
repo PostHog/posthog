@@ -88,6 +88,24 @@ class ErrorTrackingExternalReference(UUIDTModel):
         db_table = "posthog_errortrackingexternalreference"
 
 
+class ErrorTrackingIssueCohort(UUIDTModel):
+    issue = models.ForeignKey(
+        ErrorTrackingIssue,
+        on_delete=models.CASCADE,
+        related_name="cohorts",
+    )
+    cohort = models.ForeignKey(
+        "posthog.Cohort",
+        on_delete=models.CASCADE,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # Create a virtual one-to-one relationship constraint we can release later if needed
+        constraints = [models.UniqueConstraint(fields=["issue"], name="unique_cohort_for_issue")]
+        db_table = "posthog_errortrackingissuecohort"
+
+
 class ErrorTrackingIssueAssignment(UUIDTModel):
     issue = models.OneToOneField(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="assignment")
     user = models.ForeignKey("posthog.User", null=True, on_delete=models.CASCADE)
