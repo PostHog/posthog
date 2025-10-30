@@ -33,13 +33,6 @@ STREAMING_NODES: set["MaxNodeName"] = {
     AssistantNodeName.DASHBOARD_CREATION,
 }
 
-VERBOSE_NODES: set["MaxNodeName"] = STREAMING_NODES | {
-    AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
-    AssistantNodeName.ROOT_TOOLS,
-    TaxonomyNodeName.TOOLS_NODE,
-    TaxonomyNodeName.TASK_EXECUTOR,
-}
-
 VISUALIZATION_NODES: set["MaxNodeName"] = {
     AssistantNodeName.TRENDS_GENERATOR,
     AssistantNodeName.FUNNEL_GENERATOR,
@@ -47,6 +40,17 @@ VISUALIZATION_NODES: set["MaxNodeName"] = {
     AssistantNodeName.SQL_GENERATOR,
     AssistantNodeName.INSIGHTS_SEARCH,
 }
+
+VERBOSE_NODES: set["MaxNodeName"] = (
+    STREAMING_NODES
+    | VISUALIZATION_NODES
+    | {
+        AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
+        AssistantNodeName.ROOT_TOOLS,
+        TaxonomyNodeName.TOOLS_NODE,
+        TaxonomyNodeName.TASK_EXECUTOR,
+    }
+)
 
 
 class MainAssistant(BaseAssistant):
