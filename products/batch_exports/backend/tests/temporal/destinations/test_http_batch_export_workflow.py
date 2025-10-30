@@ -17,12 +17,13 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.batch_exports.service import BackfillDetails, BatchExportModel
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
 
 from products.batch_exports.backend.temporal.batch_exports import (
-    BackfillDetails,
     finish_batch_export_run,
     iter_records,
     start_batch_export_run,
@@ -36,7 +37,8 @@ from products.batch_exports.backend.temporal.destinations.http_batch_export impo
     http_default_fields,
     insert_into_http_activity,
 )
-from products.batch_exports.backend.tests.temporal.utils import mocked_start_batch_export_run
+from products.batch_exports.backend.temporal.spmc import compose_filters_clause
+from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -75,11 +77,20 @@ async def assert_clickhouse_records_in_mock_server(
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
     backfill_details: BackfillDetails | None = None,
+    filters: list[dict[str, str | list[str]]] | None = None,
 ):
     """Assert expected records are written to a MockServer instance."""
     posted_records = mock_server.records
 
     schema_column_names = [field["alias"] for field in http_default_fields()]
+
+    if filters is not None and len(filters) > 0:
+        filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
+            filters, team_id=team_id, values=None
+        )
+    else:
+        filters_str = ""
+        extra_query_parameters = None
 
     expected_records = []
     for records in iter_records(
@@ -90,8 +101,9 @@ async def assert_clickhouse_records_in_mock_server(
         exclude_events=exclude_events,
         include_events=include_events,
         fields=http_default_fields(),
-        extra_query_parameters=None,
+        extra_query_parameters=extra_query_parameters,
         backfill_details=backfill_details,
+        filters_str=filters_str,
     ):
         for record in records.select(schema_column_names).to_pylist():
             expected_record = {}
@@ -112,6 +124,10 @@ async def assert_clickhouse_records_in_mock_server(
                 expected_record["properties"]["$elements_chain"] = elements_chain
 
             expected_records.append(expected_record)
+
+    if not expected_records:
+        assert posted_records == []
+        return
 
     inserted_column_names = list(posted_records[0].keys()).sort()
     expected_column_names = list(expected_records[0].keys()).sort()
@@ -409,6 +425,169 @@ async def test_http_export_workflow(
         data_interval_end=data_interval_end,
         exclude_events=exclude_events,
     )
+
+
+@pytest.mark.parametrize(
+    "batch_export_model",
+    [
+        None,
+        BatchExportModel(name="events", schema=None),
+        BatchExportModel(
+            name="events",
+            schema=None,
+            filters=[
+                {"key": "$browser", "operator": "exact", "type": "event", "value": ["Chrome"]},
+                {"key": "$os", "operator": "exact", "type": "event", "value": ["Mac OS X"]},
+            ],
+        ),
+        # this filter should filter out all test events
+        BatchExportModel(
+            name="events",
+            schema=None,
+            filters=[
+                {"key": "$browser", "operator": "exact", "type": "event", "value": ["Chrome"]},
+                {"key": "$os", "operator": "exact", "type": "event", "value": ["Linux"]},
+            ],
+        ),
+        # None of the following are supported so we expect an error to be raised
+        BatchExportModel(name="persons", schema=None),
+        BatchExportModel(name="sessions", schema=None),
+        BatchExportModel(
+            name="a-custom-model",
+            schema={
+                "fields": [
+                    {"expression": "uuid", "alias": "uuid"},
+                    {"expression": "event", "alias": "my_event_name"},
+                    {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_0)s), '')", "alias": "browser"},
+                    {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_1)s), '')", "alias": "os"},
+                    {"expression": "nullIf(properties, '')", "alias": "all_properties"},
+                ],
+                "values": {"hogql_val_0": "$browser", "hogql_val_1": "$os"},
+            },
+        ),
+    ],
+)
+async def test_http_export_workflow_with_model(
+    clickhouse_client,
+    http_batch_export,
+    interval,
+    exclude_events,
+    ateam,
+    batch_export_model,
+):
+    """Test HTTP Export Workflow end-to-end by using a mock server.
+
+    This test is used to test the HTTP Export Workflow supports limited features of a batch export model:
+    - We only support the events model (this is the only model that makes sense for a migration)
+    - We only support filters on the event model (no custom schemas for example)
+    """
+    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    data_interval_start = data_interval_end - http_batch_export.interval_time_delta
+
+    await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=100,
+        count_outside_range=10,
+        count_other_team=10,
+        duplicate=True,
+        properties={"$browser": "Chrome", "$os": "Mac OS X"},
+        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
+    )
+
+    if exclude_events:
+        for event_name in exclude_events:
+            await generate_test_events_in_clickhouse(
+                client=clickhouse_client,
+                team_id=ateam.pk,
+                start_time=data_interval_start,
+                end_time=data_interval_end,
+                count=5,
+                count_outside_range=0,
+                count_other_team=0,
+                event_name=event_name,
+            )
+
+    workflow_id = str(uuid4())
+    inputs = HttpBatchExportInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(http_batch_export.id),
+        data_interval_end=data_interval_end.isoformat(),
+        interval=interval,
+        batch_export_model=batch_export_model,
+        **http_batch_export.destination.config,
+    )
+
+    expect_failure = False
+    if batch_export_model is not None:
+        if batch_export_model.name != "events":
+            expect_failure = True
+        if batch_export_model.schema is not None:
+            expect_failure = True
+
+    mock_server = MockServer()
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[HttpBatchExportWorkflow],
+            activities=[
+                start_batch_export_run,
+                insert_into_http_activity,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with (
+                aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m,
+                override_settings(BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2),
+            ):
+                m.post(TEST_URL, status=200, callback=mock_server.post, repeat=True)
+
+                if expect_failure:
+                    with pytest.raises(WorkflowFailureError):
+                        await activity_environment.client.execute_workflow(
+                            HttpBatchExportWorkflow.run,
+                            inputs,
+                            id=workflow_id,
+                            task_queue=settings.TEMPORAL_TASK_QUEUE,
+                            retry_policy=RetryPolicy(maximum_attempts=1),
+                            execution_timeout=dt.timedelta(seconds=10),
+                        )
+                else:
+                    await activity_environment.client.execute_workflow(
+                        HttpBatchExportWorkflow.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=settings.TEMPORAL_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                        execution_timeout=dt.timedelta(seconds=10),
+                    )
+
+    if expect_failure:
+        runs = await afetch_batch_export_runs(batch_export_id=http_batch_export.id)
+        assert len(runs) == 1
+        run = runs[0]
+        assert run.status == "FailedRetryable"
+        assert run.latest_error == "NotImplementedError: HTTP export only supports the events model"
+        assert run.records_completed is None
+    else:
+        runs = await afetch_batch_export_runs(batch_export_id=http_batch_export.id)
+        assert len(runs) == 1
+        run = runs[0]
+        assert run.status == "Completed"
+
+        await assert_clickhouse_records_in_mock_server(
+            mock_server=mock_server,
+            clickhouse_client=clickhouse_client,
+            team_id=ateam.pk,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            exclude_events=exclude_events,
+            filters=batch_export_model.filters if batch_export_model is not None else None,
+        )
 
 
 async def test_http_export_workflow_handles_insert_activity_errors(ateam, http_batch_export, interval):

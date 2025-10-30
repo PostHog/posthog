@@ -6,7 +6,7 @@
         "mobile-replay:schema:build:json": "pnpm mobile-replay:web:schema:build:json && pnpm mobile-replay:mobile:schema:build:json"
     },
     "dependencies": {
-        "posthog-js": "1.276.0"
+        "posthog-js": "1.282.0"
     },
     "devDependencies": {
         "ts-json-schema-generator": "^v2.4.0-next.6"

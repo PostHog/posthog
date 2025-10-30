@@ -30,6 +30,7 @@ class AnthropicConfig:
         "claude-3-7-sonnet-20250219",
         "claude-3-5-sonnet-20241022",
         "claude-3-5-haiku-20241022",
+        "claude-haiku-4-5-20251001",
     ]
 
     SUPPORTED_MODELS_WITH_CACHE_CONTROL: list[str] = [

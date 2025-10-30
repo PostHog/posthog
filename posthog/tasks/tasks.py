@@ -9,7 +9,7 @@ from django.utils import timezone
 import requests
 import posthoganalytics
 from celery import shared_task
-from prometheus_client import Gauge
+from prometheus_client import Counter, Gauge
 from redis import Redis
 from structlog import get_logger
 
@@ -26,6 +26,28 @@ from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue
 
 logger = get_logger(__name__)
+
+# Feature flag last_called_at sync metrics
+FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOCK_CONTENTION_COUNTER = Counter(
+    "posthog_feature_flag_last_called_at_sync_lock_contentions_total",
+    "Times feature flag last_called_at sync was skipped due to lock being held",
+)
+
+FEATURE_FLAG_LAST_CALLED_AT_SYNC_LIMIT_HIT_COUNTER = Counter(
+    "posthog_feature_flag_last_called_at_sync_limit_reached_total",
+    "Times the ClickHouse query result limit was reached during feature flag last_called_at sync",
+)
+
+
+COHORT_DELETION_MARK_FAILURE_COUNTER = Counter(
+    "posthog_cohort_deletion_mark_failure_total",
+    "Times cohort deletion mark failed",
+)
+
+COHORT_DELETION_RUN_FAILURE_COUNTER = Counter(
+    "posthog_cohort_deletion_run_failure_total",
+    "Times cohort deletion run failed",
+)
 
 
 @shared_task(ignore_result=True)
@@ -450,7 +472,6 @@ def clickhouse_mutation_count() -> None:
 @shared_task(ignore_result=True)
 def clickhouse_clear_removed_data() -> None:
     from posthog.models.async_deletion.delete_cohorts import AsyncCohortDeletion
-    from posthog.pagerduty.pd import create_incident
 
     cohort_runner = AsyncCohortDeletion()
 
@@ -458,13 +479,13 @@ def clickhouse_clear_removed_data() -> None:
         cohort_runner.mark_deletions_done()
     except Exception as e:
         logger.error("Failed to mark cohort deletions done", error=e, exc_info=True)
-        create_incident("Failed to mark cohort deletions done", "clickhouse_clear_removed_data", severity="error")
+        COHORT_DELETION_MARK_FAILURE_COUNTER.inc()
 
     try:
         cohort_runner.run()
     except Exception as e:
         logger.error("Failed to run cohort deletions", error=e, exc_info=True)
-        create_incident("Failed to run cohort deletions", "clickhouse_clear_removed_data", severity="error")
+        COHORT_DELETION_RUN_FAILURE_COUNTER.inc()
 
 
 @shared_task(ignore_result=True)
@@ -975,6 +996,7 @@ def sync_feature_flag_last_called() -> None:
     # Attempt to acquire lock
     if not cache.add(LOCK_KEY, "locked", timeout=LOCK_TIMEOUT):
         logger.info("Feature flag sync already running, skipping")
+        FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOCK_CONTENTION_COUNTER.inc()
         return
 
     start_time = timezone.now()
@@ -1037,6 +1059,31 @@ def sync_feature_flag_last_called() -> None:
         if not result:
             # Update checkpoint even if no results
             redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, current_sync_timestamp.isoformat())
+
+            # Emit metrics for no-results case
+            checkpoint_lag_seconds = 0.0  # No lag when checkpoint is set to current time
+            with pushed_metrics_registry("feature_flag_last_called_at_sync_completion") as registry:
+                Gauge(
+                    "posthog_feature_flag_last_called_at_sync_updated_count",
+                    "Number of feature flags updated in last sync",
+                    registry=registry,
+                ).set(0)
+                Gauge(
+                    "posthog_feature_flag_last_called_at_sync_events_processed",
+                    "Number of events processed in last sync",
+                    registry=registry,
+                ).set(0)
+                Gauge(
+                    "posthog_feature_flag_last_called_at_sync_clickhouse_results",
+                    "Number of results returned from ClickHouse query",
+                    registry=registry,
+                ).set(0)
+                Gauge(
+                    "posthog_feature_flag_last_called_at_sync_checkpoint_lag_seconds",
+                    "Seconds between checkpoint timestamp and current time",
+                    registry=registry,
+                ).set(checkpoint_lag_seconds)
+
             logger.info(
                 "Feature flag sync completed with no events",
                 duration_seconds=(timezone.now() - start_time).total_seconds(),
@@ -1048,6 +1095,10 @@ def sync_feature_flag_last_called() -> None:
 
         # Get latest timestamp for checkpoint, fallback to current if all None
         checkpoint_timestamp = max((row[2] for row in result if row[2]), default=current_sync_timestamp)
+        # Ensure timestamp is timezone-aware (ClickHouse returns naive datetimes)
+        checkpoint_timestamp = (
+            checkpoint_timestamp if checkpoint_timestamp.tzinfo else timezone.make_aware(checkpoint_timestamp)
+        )
 
         # Build lookup map of (team_id, key) -> timestamp from ClickHouse results
         flag_updates = {(row[0], row[1]): row[2] for row in result}
@@ -1092,12 +1143,42 @@ def sync_feature_flag_last_called() -> None:
         redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, checkpoint_timestamp.isoformat())
 
         duration = (timezone.now() - start_time).total_seconds()
+        processed_events = sum(row[3] for row in result)
+        clickhouse_results = len(result)
+
+        # Emit metrics for successful completion
+        checkpoint_lag_seconds = (timezone.now() - checkpoint_timestamp).total_seconds()
+        with pushed_metrics_registry("feature_flag_last_called_at_sync_completion") as registry:
+            Gauge(
+                "posthog_feature_flag_last_called_at_sync_updated_count",
+                "Number of feature flags updated in last sync",
+                registry=registry,
+            ).set(updated_count)
+            Gauge(
+                "posthog_feature_flag_last_called_at_sync_events_processed",
+                "Number of events processed in last sync",
+                registry=registry,
+            ).set(processed_events)
+            Gauge(
+                "posthog_feature_flag_last_called_at_sync_clickhouse_results",
+                "Number of results returned from ClickHouse query",
+                registry=registry,
+            ).set(clickhouse_results)
+            Gauge(
+                "posthog_feature_flag_last_called_at_sync_checkpoint_lag_seconds",
+                "Seconds between checkpoint timestamp and current time",
+                registry=registry,
+            ).set(checkpoint_lag_seconds)
+
+        # Track if we hit the ClickHouse result limit
+        if clickhouse_results >= settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT:
+            FEATURE_FLAG_LAST_CALLED_AT_SYNC_LIMIT_HIT_COUNTER.inc()
 
         logger.info(
             "Feature flag sync completed",
             updated_count=updated_count,
-            processed_events=sum(row[3] for row in result),
-            clickhouse_results=len(result),
+            processed_events=processed_events,
+            clickhouse_results=clickhouse_results,
             duration_seconds=duration,
         )
 

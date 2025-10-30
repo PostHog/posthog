@@ -21,12 +21,12 @@ from posthog.schema import (
 
 from posthog.hogql.ai import SCHEMA_MESSAGE
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database, serialize_database
+from posthog.hogql.database.database import Database
 
 from posthog.models.group_type_mapping import GroupTypeMapping
 
 from ee.hogai.graph.base import AssistantNode
-from ee.hogai.graph.mixins import TaxonomyReasoningNodeMixin
+from ee.hogai.graph.mixins import TaxonomyUpdateDispatcherNodeMixin
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import dereference_schema, format_events_yaml
@@ -56,7 +56,7 @@ from .toolkit import (
 )
 
 
-class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
+class QueryPlannerNode(TaxonomyUpdateDispatcherNodeMixin, AssistantNode):
     @property
     def node_name(self) -> MaxNodeName:
         return AssistantNodeName.QUERY_PLANNER
@@ -100,6 +100,7 @@ class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
         return retrieve_entity_properties_dynamic, retrieve_entity_property_values_dynamic
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        self.dispatch_update_message(state)
         conversation = self._construct_messages(state)
 
         chain = conversation | merge_message_runs() | self._get_model(state)
@@ -156,6 +157,10 @@ class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
             include=["reasoning.encrypted_content"],
             team=self._team,
             user=self._user,
+            # LangChain sometimes incorrectly handles reasoning items. They fixed it in the new output version.
+            # Ref: https://forum.langchain.com/t/langgraph-openai-responses-api-400-error-web-search-call-was-provided-without-its-required-reasoning-item/1740/2
+            output_version="responses/v1",
+            disable_streaming=True,
         ).bind_tools(
             [
                 retrieve_event_properties,
@@ -193,8 +198,8 @@ class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
         and continuation with intermediate steps.
         """
         # Initial conversation setup
-        database = create_hogql_database(team=self._team)
-        serialized_database = serialize_database(
+        database = Database.create_for(team=self._team)
+        serialized_database = database.serialize(
             HogQLContext(team=self._team, enable_select_queries=True, database=database)
         )
         hogql_schema_description = "\n\n".join(
@@ -203,7 +208,7 @@ class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
                 + "\n".join(f"- {field.name} ({field.type})" for field in table.fields.values())
                 for table_name, table in serialized_database.items()
                 # Only the most important core tables, plus all warehouse tables
-                if table_name in ["events", "groups", "persons"] or table_name in database.get_warehouse_tables()
+                if table_name in ["events", "groups", "persons"] or table_name in database.get_warehouse_table_names()
             )
         )
         conversation = ChatPromptTemplate(

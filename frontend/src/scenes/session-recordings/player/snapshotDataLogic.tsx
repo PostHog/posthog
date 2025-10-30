@@ -1,4 +1,4 @@
-import { actions, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -7,7 +7,7 @@ import '@posthog/rrweb-types'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import 'lib/dayjs'
-import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { SourceKey, keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 
@@ -23,7 +23,9 @@ import {
 
 import type { snapshotDataLogicType } from './snapshotDataLogicType'
 
-const DEFAULT_V2_POLLING_INTERVAL_MS = 10000
+const DEFAULT_V2_POLLING_INTERVAL_MS: number = 10000
+const MAX_V2_POLLING_INTERVAL_MS = 60000
+const POLLING_INACTIVITY_TIMEOUT_MS = 5 * MAX_V2_POLLING_INTERVAL_MS
 
 export interface SnapshotLogicProps {
     sessionRecordingId: SessionRecordingId
@@ -31,6 +33,8 @@ export interface SnapshotLogicProps {
     blobV2PollingDisabled?: boolean
     accessToken?: string
 }
+
+export const DEFAULT_LOADING_BUFFER = 15 * 60 * 1000
 
 export const snapshotDataLogic = kea<snapshotDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'snapshotLogic', key]),
@@ -47,12 +51,46 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         loadSnapshotsForSource: (sources: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[]) => ({
             sources,
         }),
+        loadUntilTimestamp: (targetBufferTimestampMillis: number | null) => ({ targetBufferTimestampMillis }),
+        maybeStartPolling: true,
+        startPolling: true,
+        stopPolling: true,
+        setPollingInterval: (intervalMs: number) => ({ intervalMs }),
+        resetPollingInterval: true,
     }),
     reducers(() => ({
         snapshotsBySourceSuccessCount: [
             0,
             {
                 loadSnapshotsForSourceSuccess: (state) => state + 1,
+            },
+        ],
+        targetTimestampToBufferMillis: [
+            null as number | null,
+            {
+                loadUntilTimestamp: (_, { targetBufferTimestampMillis }) => targetBufferTimestampMillis,
+            },
+        ],
+        loadingSources: [
+            [] as Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key' | 'start_timestamp' | 'end_timestamp'>[],
+            {
+                loadSnapshotsForSource: (_, { sources }) => sources,
+                loadSnapshotsForSourceSuccess: () => [],
+                loadSnapshotsForSourceFailure: () => [],
+            },
+        ],
+        pollingInterval: [
+            DEFAULT_V2_POLLING_INTERVAL_MS,
+            {
+                setPollingInterval: (_, { intervalMs }) => intervalMs,
+                resetPollingInterval: () => DEFAULT_V2_POLLING_INTERVAL_MS,
+            },
+        ],
+        isPolling: [
+            false,
+            {
+                startPolling: () => true,
+                stopPolling: () => false,
             },
         ],
     })),
@@ -70,10 +108,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         headers.Authorization = `Bearer ${props.accessToken}`
                     }
 
-                    const blob_v2 =
-                        values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY] || !!props.accessToken
-                    const blob_v2_lts =
-                        values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_LTS_REPLAY] || !!props.accessToken
+                    const blob_v2 = true
+                    const blob_v2_lts = true
                     const response = await api.recordings.listSnapshotSources(
                         props.sessionRecordingId,
                         {
@@ -187,8 +223,29 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             }
         },
 
-        loadSnapshotSourcesSuccess: () => {
-            // When we receive the list of sources, we can kick off the loading chain
+        loadSnapshotSourcesSuccess: ({ snapshotSources }) => {
+            const currentSourceKeys = snapshotSources
+                .map((s) => s.blob_key)
+                .filter(Boolean)
+                .sort()
+            const previousSourceKeys = cache.previousSourceKeys || []
+
+            const sourcesChanged =
+                currentSourceKeys.length !== previousSourceKeys.length ||
+                currentSourceKeys.some((key, i) => key !== previousSourceKeys[i])
+
+            cache.previousSourceKeys = currentSourceKeys
+
+            if (sourcesChanged) {
+                actions.resetPollingInterval()
+                cache.lastSourcesChangeTime = Date.now()
+                actions.stopPolling()
+            } else {
+                const currentInterval = values.pollingInterval
+                const newInterval = Math.min(currentInterval * 2, MAX_V2_POLLING_INTERVAL_MS)
+                actions.setPollingInterval(newInterval)
+            }
+
             actions.loadNextSnapshotSource()
         },
 
@@ -209,25 +266,63 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             actions.loadNextSnapshotSource()
         },
 
+        loadUntilTimestamp: ({ targetBufferTimestampMillis }) => {
+            // load until timestmap changes frequently we want to be careful not to load if we already are
+            if (
+                targetBufferTimestampMillis === cache.lastTargetTimestamp ||
+                values.snapshotSourcesLoading ||
+                values.snapshotsForSourceLoading
+            ) {
+                return
+            }
+            cache.lastTargetTimestamp = targetBufferTimestampMillis
+            actions.loadNextSnapshotSource()
+        },
+
+        maybeStartPolling: () => {
+            if (props.blobV2PollingDisabled || !values.allSourcesLoaded || values.isPolling || document.hidden) {
+                return
+            }
+
+            const lastChangeTime = cache.lastSourcesChangeTime || Date.now()
+            const timeSinceLastChange = Date.now() - lastChangeTime
+
+            if (timeSinceLastChange >= POLLING_INACTIVITY_TIMEOUT_MS) {
+                return
+            }
+
+            actions.startPolling()
+            actions.loadSnapshotSources(values.pollingInterval)
+        },
+
         loadNextSnapshotSource: () => {
             // yes this is ugly duplication, but we're going to deprecate v1 and I want it to be clear which is which
             if (values.snapshotSources?.some((s) => s.source === SnapshotSourceType.blob_v2)) {
-                const nextSourcesToLoad =
-                    values.snapshotSources?.filter((s) => {
-                        const sourceKey = keyForSource(s)
-                        return (
-                            !cache.snapshotsBySource?.[sourceKey]?.sourceLoaded && s.source !== SnapshotSourceType.file
-                        )
-                    }) || []
+                const nextSourcesToLoad = values.snapshotSources.filter((s) => {
+                    if (s.source === SnapshotSourceType.file) {
+                        return false
+                    }
+                    const sourceKey = keyForSource(s)
+                    if (cache.snapshotsBySource?.[sourceKey]?.sourceLoaded) {
+                        return false
+                    }
+                    // Load sources that have timestamps <= target, once a target is set
+                    if (s.start_timestamp && values.targetTimestampToBufferMillis) {
+                        const sourceStartTime = new Date(s.start_timestamp).getTime()
+                        return sourceStartTime <= values.targetTimestampToBufferMillis
+                    }
 
+                    return true
+                })
+
+                // Load up to 10 sources at once
                 if (nextSourcesToLoad.length > 0) {
-                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 15))
+                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 10))
                 }
 
-                if (!props.blobV2PollingDisabled) {
-                    actions.loadSnapshotSources(DEFAULT_V2_POLLING_INTERVAL_MS)
-                }
+                actions.maybeStartPolling()
             } else {
+                // V1 behavior unchanged
                 const nextSourceToLoad = values.snapshotSources?.find((s) => {
                     const sourceKey = keyForSource(s)
                     return !cache.snapshotsBySource?.[sourceKey]?.sourceLoaded && s.source !== SnapshotSourceType.file
@@ -241,21 +336,14 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
     })),
     selectors(({ cache }) => ({
         snapshotsLoading: [
-            (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading, s.featureFlags, s.snapshotsBySources],
+            (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading, s.snapshotsBySources],
             (
                 snapshotSourcesLoading: boolean,
                 snapshotsForSourceLoading: boolean,
-                featureFlags: FeatureFlagsSet,
                 snapshotsBySources: Record<string, RecordingSnapshot[]>
             ): boolean => {
                 const snapshots = Object.values(snapshotsBySources).flat()
-                // For v2 recordings, only show loading if we have no snapshots AND we're actually loading something.
-                if (featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY]) {
-                    return snapshots?.length === 0 && (snapshotSourcesLoading || snapshotsForSourceLoading)
-                }
-
-                // Default behavior for non-v2 recordings
-                return snapshotSourcesLoading || snapshotsForSourceLoading
+                return snapshots?.length === 0 && (snapshotSourcesLoading || snapshotsForSourceLoading)
             },
         ],
 
@@ -273,8 +361,48 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 return cache.snapshotsBySource
             },
         ],
+
+        isLoadingSnapshots: [
+            (s) => [s.loadingSources],
+            (loadingSources): boolean => {
+                return loadingSources.length > 0
+            },
+        ],
+
+        allSourcesLoaded: [
+            (s) => [s.snapshotSources, s.snapshotsBySourceSuccessCount],
+            (snapshotSources): boolean => {
+                if (!snapshotSources || snapshotSources.length === 0) {
+                    return false
+                }
+                return snapshotSources.every((source) => {
+                    const sourceKey = keyForSource(source)
+                    return cache.snapshotsBySource?.[sourceKey]?.sourceLoaded
+                })
+            },
+        ],
     })),
+    afterMount(({ actions, cache }) => {
+        cache.disposables.add(() => {
+            const handleVisibilityChange = (): void => {
+                if (document.hidden) {
+                    actions.stopPolling()
+                } else {
+                    actions.maybeStartPolling()
+                }
+            }
+
+            document.addEventListener('visibilitychange', handleVisibilityChange)
+
+            return () => {
+                document.removeEventListener('visibilitychange', handleVisibilityChange)
+            }
+        }, 'visibilityChangeHandler')
+    }),
     beforeUnmount(({ cache }) => {
         cache.snapshotsBySource = undefined
+        cache.previousSourceKeys = undefined
+        cache.lastSourcesChangeTime = undefined
+        cache.lastTargetTimestamp = undefined
     }),
 ])

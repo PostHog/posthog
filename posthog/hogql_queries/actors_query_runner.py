@@ -16,7 +16,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr, parse_order_expr
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property import has_aggregation
 from posthog.hogql.resolver_utils import extract_select_queries
 
@@ -382,7 +382,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                     select_query.select.append(ast.Field(chain=[source_distinct_id_column]))
 
                 try:
-                    print_ast(
+                    prepare_and_print_ast(
                         select_query,
                         context=HogQLContext(
                             team=self.team,

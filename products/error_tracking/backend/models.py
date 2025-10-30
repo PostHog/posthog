@@ -15,8 +15,6 @@ from posthog.storage import object_storage
 
 from products.error_tracking.backend.sql import INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES
 
-# === From error_tracking/error_tracking.py ===
-
 
 class ErrorTrackingIssueManager(models.Manager):
     def with_first_seen(self):
@@ -88,6 +86,24 @@ class ErrorTrackingExternalReference(UUIDTModel):
 
     class Meta:
         db_table = "posthog_errortrackingexternalreference"
+
+
+class ErrorTrackingIssueCohort(UUIDTModel):
+    issue = models.ForeignKey(
+        ErrorTrackingIssue,
+        on_delete=models.CASCADE,
+        related_name="cohorts",
+    )
+    cohort = models.ForeignKey(
+        "posthog.Cohort",
+        on_delete=models.CASCADE,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # Create a virtual one-to-one relationship constraint we can release later if needed
+        constraints = [models.UniqueConstraint(fields=["issue"], name="unique_cohort_for_issue")]
+        db_table = "posthog_errortrackingissuecohort"
 
 
 class ErrorTrackingIssueAssignment(UUIDTModel):

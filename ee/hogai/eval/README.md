@@ -4,11 +4,11 @@ We use AI evaluations (evals) to test our AI outputs against a curated set of in
 
 ![Greg Brockman on evals](https://res.cloudinary.com/dwxrm0iul/image/upload/v1731538464/tweet-1733553161884127435_2_cpectu.png)
 
-We currently use [Braintrust](https://braintrust.dev) as our evaluation platform. Braintrust tracks evaluation results, including LLM traces - which helps both track performance, and dig into any issues on a case-by-case basis. To access Braintrust and/or get an API key for it, ask #team-max-ai.
+We currently use [Braintrust](https://braintrust.dev) as our evaluation platform. Braintrust tracks evaluation results, including LLM traces - which helps both track performance, and dig into any issues on a case-by-case basis. To access Braintrust and/or get an API key for it, ask #team-posthog-ai.
 
 ## CI evals
 
-1. Export environment variable `BRAINTRUST_API_KEY` (ask #team-max-ai).
+1. Export environment variable `BRAINTRUST_API_KEY` (ask #team-posthog-ai).
 2. Run all evals with:
 
     ```bash

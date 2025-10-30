@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -34,10 +34,14 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         """Process the state and return documentation search results."""
+        self.dispatcher.message(AssistantMessage(content="Checking PostHog documentation...", id=str(uuid4())))
         messages = self._construct_messages(
             state.messages, state.root_conversation_start_id, state.root_tool_calls_count
         )
         message: LangchainAIMessage = await self._get_model().ainvoke(messages, config)
+        # NOTE: This is a hacky way to send these messages as part of the root tool call
+        # Can't think of a better interface for this at the moment.
+        self.dispatcher.set_as_root()
         return PartialAssistantState(
             messages=[
                 AssistantToolCallMessage(
@@ -108,7 +112,7 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
     def _convert_to_langchain_messages(
         self,
         conversation_window: Sequence[AssistantMessageUnion],
-        tool_result_messages: dict[str, AssistantToolCallMessage],
+        tool_result_messages: Mapping[str, AssistantToolCallMessage],
     ) -> list[BaseMessage]:
         # Original node has Anthropic messages, but Inkeep expects OpenAI messages
         return convert_to_openai_messages(conversation_window, tool_result_messages)

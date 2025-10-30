@@ -118,3 +118,7 @@ bin/mprocs*.local.yaml
 
 # Debug output of our session summaries product
 .session-summaries
+
+# Claude Code review outputs
+CODE_REVIEW.md
+CODE_DEBUGGING_SESSION.md

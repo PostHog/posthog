@@ -236,10 +236,10 @@ return fibonacci(6);"""
 
         self.assertEqual(
             to_js_expr("(select b.* from b join a on a.id = b.id)"),
-            '{"__hx_ast": "SelectQuery", "select": [{"__hx_ast": "Field", "chain": ["b", "*"]}], "select_from": {"__hx_ast": "JoinExpr", '
-            '"table": {"__hx_ast": "Field", "chain": ["b"]}, "next_join": {"__hx_ast": "JoinExpr", "join_type": "JOIN", "table": '
-            '{"__hx_ast": "Field", "chain": ["a"]}, "constraint": {"__hx_ast": "JoinConstraint", "expr": {"__hx_ast": "CompareOperation", '
-            '"left": {"__hx_ast": "Field", "chain": ["a", "id"]}, "right": {"__hx_ast": "Field", "chain": ["b", "id"]}, "op": "=="}, '
+            '{"__hx_ast": "SelectQuery", "select": [{"__hx_ast": "Field", "chain": ["b", "*"], "from_asterisk": false}], "select_from": {"__hx_ast": "JoinExpr", '
+            '"table": {"__hx_ast": "Field", "chain": ["b"], "from_asterisk": false}, "next_join": {"__hx_ast": "JoinExpr", "join_type": "JOIN", "table": '
+            '{"__hx_ast": "Field", "chain": ["a"], "from_asterisk": false}, "constraint": {"__hx_ast": "JoinConstraint", "expr": {"__hx_ast": "CompareOperation", '
+            '"left": {"__hx_ast": "Field", "chain": ["a", "id"], "from_asterisk": false}, "right": {"__hx_ast": "Field", "chain": ["b", "id"], "from_asterisk": false}, "op": "=="}, '
             '"constraint_type": "ON"}}}}',
         )
 

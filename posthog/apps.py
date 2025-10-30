@@ -26,7 +26,11 @@ class PostHogConfig(AppConfig):
         posthoganalytics.poll_interval = 90
         posthoganalytics.enable_exception_autocapture = True
         posthoganalytics.log_captured_exceptions = True
-        posthoganalytics.super_properties = {"region": get_instance_region()}
+        posthoganalytics.super_properties = {
+            "region": get_instance_region(),
+            "service": settings.OTEL_SERVICE_NAME,
+            "environment": os.getenv("SENTRY_ENVIRONMENT"),
+        }
 
         if settings.E2E_TESTING:
             posthoganalytics.api_key = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"

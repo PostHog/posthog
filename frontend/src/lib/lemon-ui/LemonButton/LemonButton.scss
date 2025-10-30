@@ -71,11 +71,6 @@
     --lemon-button-icon-opacity: 0.8;
     --lemon-button-color: var(--text-3000);
 
-    // column-gap: 4px;
-    // flex-direction: row;
-    // justify-content: flex-start;
-    position: relative;
-
     // Make sure we override .Link's styles where needed, e.g. padding
     display: flex;
     flex-shrink: 0;
