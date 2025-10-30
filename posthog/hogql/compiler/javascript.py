@@ -242,16 +242,15 @@ class JavaScriptCompiler(Visitor):
         self._start_scope()
         temp_var = f"__between_temp__"
         self._declare_local(temp_var)
+        temp_var_sanitized = _sanitize_identifier(temp_var)
         val = self.visit(node.expr)
         low = self.visit(node.low)
         high = self.visit(node.high)
-        temp_var_sanitized = _sanitize_identifier(temp_var)
         if node.negated:
-            code = f"(({temp_var_sanitized} = {val}), ({temp_var_sanitized} < {low} || {temp_var_sanitized} > {high}))"
+            comparison = f"{temp_var_sanitized} < {low} || {temp_var_sanitized} > {high}"
         else:
-            code = (
-                f"(({temp_var_sanitized} = {val}), ({temp_var_sanitized} >= {low} && {temp_var_sanitized} <= {high}))"
-            )
+            comparison = f"{temp_var_sanitized} >= {low} && {temp_var_sanitized} <= {high}"
+        code = f"(() => {{ const {temp_var_sanitized} = {val}; return {comparison}; }})()"
         self._end_scope()
         return f"!!{code}"
 

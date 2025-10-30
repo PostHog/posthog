@@ -203,7 +203,9 @@ class BytecodeCompiler(Visitor):
         expr_local = self._declare_local("__H_between_expr_H__")
 
         response: list[Any] = []
+        response.append(Operation.NULL)
         response.extend(self.visit(node.expr))
+        response.extend([Operation.SET_LOCAL, expr_local])
 
         if node.negated:
             # expr < low
