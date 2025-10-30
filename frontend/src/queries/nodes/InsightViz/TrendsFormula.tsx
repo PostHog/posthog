@@ -108,8 +108,6 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
     const removeFormula = (index: number): void => {
         const newValues = localValues.filter((_, i) => i !== index)
         setLocalValues(newValues)
-
-        // Delegate to Kea action to handle business logic
         removeFormulaNode(newValues)
     }
 

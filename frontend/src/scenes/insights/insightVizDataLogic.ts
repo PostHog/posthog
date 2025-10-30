@@ -615,13 +615,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             }
         },
         removeFormulaNode: ({ formulas }) => {
-            // If no formulas remain, turn off formula mode
             if (formulas.length === 0) {
                 actions.toggleFormulaMode()
                 return
             }
 
-            // Otherwise, update with the remaining formulas
             const filledFormulas = formulas.filter((v) => v.formula.trim() !== '')
             if (filledFormulas.length > 0) {
                 actions.updateInsightFilter({
