@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0891_file_system_view_log"),
+        ("posthog", "0893_add_ingestion_lane_fields_to_event_ingestion_restriction"),
     ]
 
     operations = [
