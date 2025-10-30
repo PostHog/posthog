@@ -23,6 +23,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { notebookLogicType } from '../Notebook/notebookLogicType'
 import { NotebookListItemType, NotebookTarget } from '../types'
+import { NOTEBOOK_DROPDOWN_LIMIT } from './notebookSelectButtonLogic'
 
 export type NotebookSelectProps = NotebookSelectButtonLogicProps & {
     newNotebookTitle?: string
@@ -249,6 +250,12 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
                                 openAndAddToNotebook(notebookShortId, false)
                             }}
                         />
+                        {(notebooksContainingResource.length >= NOTEBOOK_DROPDOWN_LIMIT ||
+                            notebooksNotContainingResource.length >= NOTEBOOK_DROPDOWN_LIMIT) && (
+                            <div className="text-xs text-muted-alt px-2 py-1 border-t">
+                                Showing first {NOTEBOOK_DROPDOWN_LIMIT} results. Use search to narrow down.
+                            </div>
+                        )}
                     </>
                 )}
             </div>

@@ -6,6 +6,8 @@ import api from 'lib/api'
 import { NotebookListItemType, NotebookNodeResource, NotebookNodeType } from '../types'
 import type { notebookSelectButtonLogicType } from './notebookSelectButtonLogicType'
 
+export const NOTEBOOK_DROPDOWN_LIMIT = 50
+
 export interface NotebookSelectButtonLogicProps {
     /**
      * Is a resource is provided it will be checke and added to the notebook when opened
@@ -70,9 +72,8 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
                         search: values.searchQuery || undefined,
                         created_by: values.createdBy || undefined,
                         order: '-last_modified_at',
-                        limit: 50,
+                        limit: NOTEBOOK_DROPDOWN_LIMIT,
                     })
-                    // TODO for simplicity we'll assume the results will fit into one page
                     return response.results
                 },
             },
@@ -103,9 +104,8 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
                         search: values.searchQuery || undefined,
                         created_by: values.createdBy || undefined,
                         order: '-last_modified_at',
-                        limit: 50,
+                        limit: NOTEBOOK_DROPDOWN_LIMIT,
                     })
-                    // TODO for simplicity we'll assume the results will fit into one page
                     return response.results
                 },
             },
