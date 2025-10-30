@@ -1034,9 +1034,12 @@ describe('IngestionConsumer', () => {
     describe('transformations', () => {
         let transformationFunction: HogFunctionType
         const TRANSFORMATION_TEST_TIMEOUT = 30000
+        let compiledGeoipBytecode: any
 
-        beforeAll(() => {
+        beforeAll(async () => {
             jest.setTimeout(TRANSFORMATION_TEST_TIMEOUT)
+            // Compile once to avoid per-test overhead
+            compiledGeoipBytecode = await compileHog(geoipTemplate.code)
         })
 
         afterAll(() => {
@@ -1056,11 +1059,10 @@ describe('IngestionConsumer', () => {
 
         beforeEach(async () => {
             // Create a transformation function using the geoip template as an example
-            const hogByteCode = await compileHog(geoipTemplate.code)
             transformationFunction = await insertHogFunction({
                 name: 'GeoIP Transformation',
                 hog: geoipTemplate.code,
-                bytecode: hogByteCode,
+                bytecode: compiledGeoipBytecode,
             })
 
             ingester = await createIngestionConsumer(hub)
