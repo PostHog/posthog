@@ -3,6 +3,7 @@ from uuid import UUID
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
+from django.utils import timezone
 
 from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
@@ -20,6 +21,15 @@ class ErrorTrackingIssueManager(models.Manager):
     def with_first_seen(self):
         return self.annotate(first_seen=models.Min("fingerprints__first_seen"))
 
+    def update(self, **kwargs):
+        # This isn't perfect - if the status was set to what it used to be,
+        # this will still update the last_status_set timestamp, but it's
+        # good enough. We should consider denormalising this field in the
+        # future, I think.
+        if "status" in kwargs:
+            kwargs["last_status_set"] = timezone.now()
+        return super().update(**kwargs)
+
 
 class ErrorTrackingIssue(UUIDTModel):
     class Status(models.TextChoices):
@@ -34,11 +44,28 @@ class ErrorTrackingIssue(UUIDTModel):
     status = models.TextField(choices=Status.choices, default=Status.ACTIVE, null=False)
     name = models.TextField(null=True, blank=True)
     description = models.TextField(null=True, blank=True)
+    updated_at = models.DateTimeField(null=True, auto_now=True)
+    last_status_set = models.DateTimeField(null=True)
 
     objects = ErrorTrackingIssueManager()
 
     class Meta:
         db_table = "posthog_errortrackingissue"
+
+    def save(self, *args, **kwargs):
+        if not self.pk:  # new instance
+            if self.last_status_set is None:
+                self.last_status_set = timezone.now()
+        else:
+            # Check if status changed by comparing with DB
+            try:
+                old_instance = ErrorTrackingIssue.objects.get(pk=self.pk)
+                if old_instance.status != self.status:
+                    self.last_status_set = timezone.now()
+            except ErrorTrackingIssue.DoesNotExist:
+                pass
+
+        super().save(*args, **kwargs)
 
     def merge(self, issue_ids: list[str]) -> None:
         fingerprints = resolve_fingerprints_for_issues(team_id=self.team.pk, issue_ids=issue_ids)
@@ -49,6 +76,8 @@ class ErrorTrackingIssue(UUIDTModel):
             )
             ErrorTrackingIssue.objects.filter(team=self.team, id__in=issue_ids).delete()
             update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
+
+        self.save(update_fields=["updated_at"])
 
     def split(self, fingerprints: list[str], exclusive: bool) -> None:
         overrides: list[ErrorTrackingIssueFingerprintV2] = []
@@ -64,6 +93,7 @@ class ErrorTrackingIssue(UUIDTModel):
                 )
 
         update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
+        self.save(update_fields=["updated_at"])
 
 
 class ErrorTrackingExternalReference(UUIDTModel):
