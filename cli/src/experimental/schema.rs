@@ -102,7 +102,7 @@ fn determine_output_path(language: &str, output_override: Option<String>) -> Res
 
     // Prompt user for output path
     let default_filename = default_output_path(language);
-    let help_message = format!("Your app will import PostHog from this file, so it should be accessible throughout your codebase (e.g., src/lib/, app/lib/, or your project root). Current directory: {}", current_dir);
+    let help_message = format!("Your app will import PostHog from this file, so it should be accessible throughout your codebase (e.g., src/lib/, app/lib/, or your project root). This path will be saved in posthog.json and can be changed later. Current directory: {}", current_dir);
 
     let path = Text::new(&format!("Where should we save the {} typed PostHog module?", language_display_name(language)))
         .with_default(&default_filename)
