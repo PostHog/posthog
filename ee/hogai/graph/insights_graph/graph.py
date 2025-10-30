@@ -16,8 +16,8 @@ from ..sql.nodes import SQLGeneratorNode, SQLGeneratorToolsNode
 from ..trends.nodes import TrendsGeneratorNode, TrendsGeneratorToolsNode
 
 
-class InsightsAssistantGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
-    def __init__(self, team: Team, user: User, node_path: tuple[NodePath, ...] | None = None):
+class InsightsGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
+    def __init__(self, team: Team, user: User, node_path: tuple[NodePath, ...]):
         super().__init__(team, user, AssistantState, node_path)
 
     def add_rag_context(self):

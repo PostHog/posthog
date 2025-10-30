@@ -452,17 +452,19 @@ AssistantActionUnion = MessageAction | MessageChunkAction | NodeStartAction | No
 
 class NodePath(BaseModel):
     name: str
+    message_id: str | None = None
     tool_call_id: str | None = None
 
 
 class AssistantDispatcherEvent(BaseModel):
     action: AssistantActionUnion = Field(discriminator="type")
-    node_path: tuple[NodePath, ...]
+    node_path: tuple[NodePath, ...] | None = None
+    node_name: str
+    node_run_id: str
 
 
 class LangGraphUpdateEvent(BaseModel):
     update: Any
-    node_name: str
 
 
 class TodoItem(BaseModel):

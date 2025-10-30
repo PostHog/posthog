@@ -21,9 +21,12 @@ from ee.hogai.utils.types.base import (
     AssistantDispatcherEvent,
     AssistantMessageUnion,
     AssistantResultUnion,
+    BaseStateWithMessages,
     LangGraphUpdateEvent,
     MessageAction,
     MessageChunkAction,
+    NodeEndAction,
+    NodePath,
     NodeStartAction,
 )
 from ee.hogai.utils.types.composed import MaxNodeName
@@ -37,7 +40,7 @@ class AssistantStreamProcessorProtocol(Protocol):
     _streamed_update_ids: set[str]
     """Tracks the IDs of messages that have been streamed."""
 
-    def process(self, event: AssistantDispatcherEvent) -> AssistantResultUnion | None:
+    def process(self, event: AssistantDispatcherEvent) -> list[AssistantResultUnion] | None:
         """Process a dispatcher event and return a result or None."""
         ...
 
@@ -64,8 +67,7 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
     """Nodes that produce streaming messages."""
     _tool_call_id_to_message: dict[str, AssistantMessage]
     """Maps tool call IDs to their parent messages for message chain tracking."""
-
-    _chunks: AIMessageChunk
+    _chunks: dict[str, AIMessageChunk]
     """Tracks the current message chunk."""
 
     def __init__(self, verbose_nodes: set[MaxNodeName], streaming_nodes: set[MaxNodeName]):
@@ -81,9 +83,9 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
         self._streaming_nodes = streaming_nodes
         self._tool_call_id_to_message = {}
         self._streamed_update_ids = set()
-        self._chunks = AIMessageChunk(content="")
+        self._chunks = {}
 
-    def process(self, event: AssistantDispatcherEvent) -> AssistantResultUnion | None:
+    def process(self, event: AssistantDispatcherEvent) -> list[AssistantResultUnion] | None:
         """
         Reduce streamed actions to client messages.
 
@@ -93,18 +95,24 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
         action = event.action
         node_name = event.node_path
 
-        if isinstance(action, MessageChunkAction):
-            return self._handle_message_stream(action.message, cast(MaxNodeName, node_name))
-
         if isinstance(action, NodeStartAction):
-            return AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK)
+            self._chunks[event.node_run_id] = AIMessageChunk(content="")
+            return [AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK)]
+
+        if isinstance(action, NodeEndAction):
+            if event.node_run_id in self._chunks:
+                del self._chunks[event.node_run_id]
+            return self._handle_node_end(event, action)
+
+        if isinstance(action, MessageChunkAction) and (
+            result := self._handle_message_stream(action.message, cast(MaxNodeName, node_name), event.node_run_id)
+        ):
+            return [result]
 
         if isinstance(action, MessageAction):
             message = action.message
-
-            # Register any tool calls for later parent chain lookups
-            self._register_tool_calls(message)
-            return self._handle_message(message, cast(MaxNodeName, node_name))
+            if result := self._handle_message(event, message):
+                return [result]
 
         return None
 
@@ -118,75 +126,62 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
             if not isinstance(maybe_message_chunk, AIMessageChunk):
                 return None
             action = AssistantDispatcherEvent(
-                action=MessageChunkAction(message=maybe_message_chunk), node_name=state["langgraph_node"]
+                action=MessageChunkAction(message=maybe_message_chunk),
+                node_name=state["langgraph_node"],
+                node_run_id=state["checkpoint_ns"],
             )
-            processed_update = self.process(action)
-            return [processed_update] if processed_update else None
+            return self.process(action)
 
         return None
 
-    def _find_parent_ids(self, message: AssistantMessage) -> tuple[str | None, str | None]:
-        """
-        Walk up the message chain to find the root parent's message_id and tool_call_id.
+    def _handle_message(
+        self, action: AssistantDispatcherEvent, message: AssistantMessageUnion
+    ) -> AssistantResultUnion | None:
+        node_name = cast(MaxNodeName, action.node_name)
 
-        Returns (root_message_id, root_tool_call_id) for the root message in the chain.
-        Includes cycle detection and max depth protection.
-        """
-        root_tool_call_id = message.parent_tool_call_id
-        if root_tool_call_id is None:
-            return message.id, None
+        # Set the parent tool call id on the message if it's required,
+        # so the frontend can properly display the message chain.
+        message = self._set_message_parent_id(message, action.node_path)
 
-        root_message_id = None
-        visited: set[str] = set()
+        # Root messages (no parent)
+        if message.parent_tool_call_id is None:
+            # Messages with existing IDs must be deduplicated.
+            # Messages WITHOUT IDs must be streamed because they're progressive.
+            if hasattr(message, "id") and message.id is not None:
+                if message.id in self._streamed_update_ids:
+                    return None
+                self._streamed_update_ids.add(message.id)
 
-        while root_tool_call_id is not None:
-            if root_tool_call_id in visited:
-                # Cycle detected, we skip this message
-                return None, None
-
-            visited.add(root_tool_call_id)
-            parent_message = self._tool_call_id_to_message.get(root_tool_call_id)
-            if parent_message is None:
-                # The parent message is not registered, we skip this message as it could come
-                # from a sub-nested graph invoked directly by a contextual tool.
-                return None, None
-
-            next_parent_tool_call_id = parent_message.parent_tool_call_id
-            root_message_id = parent_message.id
-            if next_parent_tool_call_id is None:
-                return root_message_id, root_tool_call_id
-            root_tool_call_id = next_parent_tool_call_id
-        raise ValueError("Should not reach here")
-
-    def _register_tool_calls(self, message: AssistantMessageUnion) -> None:
-        """Register any tool calls in the message for later lookup."""
-        if isinstance(message, AssistantMessage) and message.tool_calls is not None:
-            for tool_call in message.tool_calls:
-                self._tool_call_id_to_message[tool_call.id] = message
+            return self._handle_root_message(message, node_name)
+        # AssistantMessage with parent creates AssistantUpdateEvent
+        elif isinstance(message, AssistantMessage):
+            return self._handle_assistant_message_with_parent(action, message)
+        # Other message types with parents (viz, notebook, failure, tool call)
+        return self._handle_special_child_message(message, node_name)
 
     def _handle_root_message(
         self, message: AssistantMessageUnion, node_name: MaxNodeName
     ) -> AssistantMessageUnion | None:
         """Handle messages with no parent (root messages)."""
-        if not should_output_assistant_message(message):
+        if node_name not in self._verbose_nodes or not should_output_assistant_message(message):
             return None
         return message
 
-    def _handle_assistant_message_with_parent(self, message: AssistantMessage) -> AssistantUpdateEvent | None:
+    def _handle_assistant_message_with_parent(
+        self, event: AssistantDispatcherEvent, message: AssistantMessage
+    ) -> AssistantUpdateEvent | None:
         """Handle AssistantMessage that has a parent, creating an AssistantUpdateEvent."""
-        parent_id, parent_tool_call_id = self._find_parent_ids(message)
-
-        if parent_tool_call_id is None or parent_id is None:
+        if not event.node_path or not message.content:
             return None
 
-        if message.content == "":
+        last_path = event.node_path[-1]
+        message_id = last_path.message_id
+        tool_call_id = last_path.tool_call_id
+
+        if not message_id or not tool_call_id:
             return None
 
-        return AssistantUpdateEvent(
-            id=parent_id,
-            tool_call_id=parent_tool_call_id,
-            content=message.content,
-        )
+        return AssistantUpdateEvent(id=message_id, tool_call_id=tool_call_id, content=message.content)
 
     def _handle_special_child_message(
         self, message: AssistantMessageUnion, node_name: MaxNodeName
@@ -209,26 +204,9 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
         # Should not reach here
         raise ValueError(f"Unhandled special message type: {type(message).__name__}")
 
-    def _handle_message(self, message: AssistantMessageUnion, node_name: MaxNodeName) -> AssistantResultUnion | None:
-        # Messages with existing IDs must be deduplicated.
-        # Messages WITHOUT IDs must be streamed because they're progressive.
-        if hasattr(message, "id") and message.id is not None:
-            if message.id in self._streamed_update_ids:
-                return None
-            self._streamed_update_ids.add(message.id)
-
-        # Root messages (no parent) are filtered by VERBOSE_NODES
-        if message.parent_tool_call_id is None:
-            return self._handle_root_message(message, node_name)
-
-        # AssistantMessage with parent creates AssistantUpdateEvent
-        if isinstance(message, AssistantMessage):
-            return self._handle_assistant_message_with_parent(message)
-        else:
-            # Other message types with parents (viz, notebook, failure, tool call)
-            return self._handle_special_child_message(message, node_name)
-
-    def _handle_message_stream(self, message: AIMessageChunk, node_name: MaxNodeName) -> AssistantResultUnion | None:
+    def _handle_message_stream(
+        self, message: AIMessageChunk, node_name: MaxNodeName, run_id: str
+    ) -> AssistantResultUnion | None:
         """
         Process LLM chunks from "messages" stream mode.
 
@@ -237,9 +215,58 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
         """
         if node_name not in self._streaming_nodes:
             return None
+        if run_id not in self._chunks:
+            self._chunks[run_id] = AIMessageChunk(content="")
 
         # Merge message chunks
-        self._chunks = merge_message_chunk(self._chunks, message)
+        self._chunks[run_id] = merge_message_chunk(self._chunks[run_id], message)
 
         # Stream ephemeral message (no ID = not persisted)
-        return normalize_ai_message(self._chunks)
+        return normalize_ai_message(self._chunks[run_id])
+
+    def _handle_node_end(
+        self, event: AssistantDispatcherEvent, action: NodeEndAction
+    ) -> list[AssistantResultUnion] | None:
+        if not isinstance(action.state, BaseStateWithMessages):
+            return None
+        results: list[AssistantResultUnion] = []
+        for message in action.state.messages:
+            if new_event := self.process(
+                AssistantDispatcherEvent(
+                    action=MessageAction(message=message),
+                    node_name=event.node_name,
+                    node_run_id=event.node_run_id,
+                    node_path=event.node_path,
+                )
+            ):
+                results.extend(new_event)
+        return results
+
+    def _set_message_parent_id(
+        self, message: AssistantMessageUnion, node_path: tuple[NodePath, ...] | None = None
+    ) -> AssistantMessageUnion:
+        """Associate a message with the parent tool call."""
+        # No path – stream all messages.
+        if not node_path:
+            return message
+
+        parent_tool_call_id = node_path[-1].tool_call_id
+
+        # If the dispatcher is initialized with a parent tool call id, set the parent tool call id on the message
+        # This is to ensure that the message is associated with the correct tool call
+        # Don't set parent_tool_call_id on:
+        # 1. AssistantToolCallMessage with the same tool_call_id (to avoid self-reference)
+        # 2. AssistantMessage with tool_calls containing the same ID (to avoid cycles)
+        should_skip = False
+        if isinstance(message, AssistantToolCallMessage) and parent_tool_call_id == message.tool_call_id:
+            should_skip = True
+        elif isinstance(message, AssistantMessage) and message.tool_calls:
+            # Check if any tool call has the same ID as the parent
+            for tool_call in message.tool_calls:
+                if tool_call.id == parent_tool_call_id:
+                    should_skip = True
+                    break
+        if not should_skip:
+            message.parent_tool_call_id = parent_tool_call_id
+
+        return message

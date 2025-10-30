@@ -1,12 +1,11 @@
 from abc import ABC
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Generic
+from typing import Generic
 from uuid import UUID
 
 from django.conf import settings
 
 from langchain_core.runnables import RunnableConfig
-from langgraph.config import get_stream_writer
 
 from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage
 
@@ -15,7 +14,7 @@ from posthog.sync import database_sync_to_async
 
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.graph.mixins import AssistantContextMixin
-from ee.hogai.utils.dispatcher import AssistantDispatcher
+from ee.hogai.utils.dispatcher import AssistantDispatcher, create_dispatcher_from_config
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import find_start_message
 from ee.hogai.utils.types.base import (
@@ -29,9 +28,6 @@ from ee.hogai.utils.types.base import (
     StateType,
 )
 from ee.models import Conversation
-
-if TYPE_CHECKING:
-    pass
 
 
 class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMixin, ABC):
@@ -54,11 +50,6 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
         self._dispatcher = None
         self._config = config
 
-        if isinstance(state, AssistantState) and state.root_tool_call_id:
-            # NOTE: we set the parent tool call id as the root tool call id
-            # This will be deprecated once all tools become MaxTools and are removed from the graph
-            self.node_path.tool_call_id = state.root_tool_call_id
-
         self.dispatcher.dispatch(NodeStartAction())
 
         thread_id = (config.get("configurable") or {}).get("thread_id")
@@ -68,9 +59,7 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
         try:
             new_state = await self.arun(state, config)
         except NotImplementedError:
-            pass
-
-        new_state = await database_sync_to_async(self.run, thread_sensitive=False)(state, config)
+            new_state = await database_sync_to_async(self.run, thread_sensitive=False)(state, config)
 
         self.dispatcher.dispatch(NodeEndAction(state=new_state))
 
@@ -102,26 +91,12 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
         """Create a dispatcher for this node"""
         if self._dispatcher:
             return self._dispatcher
-
-        # Set writer from LangGraph context
-        try:
-            writer = get_stream_writer()
-        except RuntimeError:
-            # Not in streaming context (e.g., testing)
-            # Use noop writer
-            def noop(*_args, **_kwargs):
-                pass
-
-            writer = noop
-
-        self._dispatcher = AssistantDispatcher(writer, node_path=self._node_path)
+        self._dispatcher = create_dispatcher_from_config(self._config or {}, self._node_path)
         return self._dispatcher
 
     @property
-    def node_path(self) -> NodePath:
-        if not self._node_path:
-            raise ValueError("Node path is empty")
-        return self._node_path[-1]
+    def node_path(self) -> tuple[NodePath, ...]:
+        return self._node_path
 
     async def _is_conversation_cancelled(self, conversation_id: UUID) -> bool:
         conversation = await self._aget_conversation(conversation_id)

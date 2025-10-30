@@ -7,10 +7,11 @@ from posthog.models import Team, User
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.utils.types.base import AssistantNodeName, NodePath, PartialStateType, StateType
 
+from .node import BaseAssistantNode
+
 if TYPE_CHECKING:
     from ee.hogai.utils.types.composed import MaxNodeName
 
-    from .node import BaseAssistantNode
 
 # Base checkpointer for all graphs
 global_checkpointer = DjangoCheckpointer()
@@ -20,24 +21,22 @@ class BaseAssistantGraph(Generic[StateType, PartialStateType]):
     _team: Team
     _user: User
     _graph: StateGraph
-    _node_path: tuple[NodePath, ...] | None
+    _node_path: tuple[NodePath, ...]
 
-    def __init__(
-        self, team: Team, user: User, state_type: type[StateType], node_path: tuple[NodePath, ...] | None = None
-    ):
+    def __init__(self, team: Team, user: User, state_type: type[StateType], node_path: tuple[NodePath, ...]):
         self._team = team
         self._user = user
         self._graph = StateGraph(state_type)
         self._has_start_node = False
         self._node_path = node_path
 
-    def add_edge(self, from_node: MaxNodeName, to_node: MaxNodeName):
+    def add_edge(self, from_node: "MaxNodeName", to_node: "MaxNodeName"):
         if from_node == AssistantNodeName.START:
             self._has_start_node = True
         self._graph.add_edge(from_node, to_node)
         return self
 
-    def add_node(self, node: MaxNodeName, action: BaseAssistantNode[StateType, PartialStateType]):
+    def add_node(self, node: "MaxNodeName", action: BaseAssistantNode[StateType, PartialStateType]):
         self._graph.add_node(node, action)
         return self
 

@@ -158,7 +158,7 @@ class BaseAssistant(ABC):
         state = await self._init_or_update_state()
         config = self._get_config()
 
-        stream_mode: list[StreamMode] = ["values", "updates", "custom"]
+        stream_mode: list[StreamMode] = ["values", "custom"]
         if stream_message_chunks:
             stream_mode.append("messages")
 
@@ -309,7 +309,7 @@ class BaseAssistant(ABC):
             if updates := self._stream_processor.process_langgraph_update(LangGraphUpdateEvent(update=update)):
                 return updates
         elif new_message := self._stream_processor.process(update):
-            return [new_message]
+            return new_message
 
         return None
 

@@ -19,7 +19,7 @@ import products
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.mixins import AssistantContextMixin
-from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantState
+from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantState, NodePath
 
 CONTEXTUAL_TOOL_NAME_TO_TOOL: dict[AssistantTool, type["MaxTool"]] = {}
 
@@ -73,7 +73,7 @@ class MaxTool(AssistantContextMixin, BaseTool):
     _config: RunnableConfig
     _state: AssistantState
     _context_manager: AssistantContextManager
-    _tool_call_id: str
+    _node_path: tuple[NodePath, ...]
 
     # DEPRECATED: Use `_arun_impl` instead
     def _run_impl(self, *args, **kwargs) -> tuple[str, Any]:
@@ -89,6 +89,7 @@ class MaxTool(AssistantContextMixin, BaseTool):
         *,
         team: Team,
         user: User,
+        node_path: tuple[NodePath, ...] | None = None,
         state: AssistantState | None = None,
         config: RunnableConfig | None = None,
         name: str | None = None,
@@ -108,6 +109,7 @@ class MaxTool(AssistantContextMixin, BaseTool):
         super().__init__(**tool_kwargs, **kwargs)
         self._team = team
         self._user = user
+        self._node_path = node_path or ()
         self._state = state if state else AssistantState(messages=[])
         self._config = config if config else RunnableConfig(configurable={})
         self._context_manager = context_manager or AssistantContextManager(team, user, self._config)
@@ -142,6 +144,15 @@ class MaxTool(AssistantContextMixin, BaseTool):
     def context(self) -> dict:
         return self._context_manager.get_contextual_tools().get(self.get_name(), {})
 
+    @property
+    def tool_call_id(self) -> str:
+        if not self._node_path:
+            raise ValueError("Node path is empty")
+        tool_call_id = self._node_path[-1].tool_call_id
+        if tool_call_id is None:
+            raise ValueError("Tool call id is not set")
+        return tool_call_id
+
     def format_context_prompt_injection(self, context: dict[str, Any]) -> str:
         formatted_context = {
             key: (json.dumps(value) if isinstance(value, dict | list) else value) for key, value in context.items()
@@ -154,6 +165,7 @@ class MaxTool(AssistantContextMixin, BaseTool):
         *,
         team: Team,
         user: User,
+        node_path: tuple[NodePath, ...] | None = None,
         state: AssistantState | None = None,
         config: RunnableConfig | None = None,
         context_manager: AssistantContextManager | None = None,
@@ -163,7 +175,9 @@ class MaxTool(AssistantContextMixin, BaseTool):
 
         Override this factory to dynamically modify the tool name, description, args schema, etc.
         """
-        return cls(team=team, user=user, state=state, config=config, context_manager=context_manager)
+        return cls(
+            team=team, user=user, node_path=node_path, state=state, config=config, context_manager=context_manager
+        )
 
 
 class MaxSubtool(ABC):
