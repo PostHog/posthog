@@ -351,6 +351,7 @@ class InsightSerializer(InsightBasicSerializer):
     types = serializers.SerializerMethodField()
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     alerts = serializers.SerializerMethodField(read_only=True)
+    data_warehouse_sync_status = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Insight
@@ -392,6 +393,7 @@ class InsightSerializer(InsightBasicSerializer):
             "_create_in_folder",
             "alerts",
             "last_viewed_at",
+            "data_warehouse_sync_status",
         ]
         read_only_fields = (
             "created_at",
@@ -649,6 +651,109 @@ class InsightSerializer(InsightBasicSerializer):
         from posthog.api.alert import AlertSerializer
 
         return AlertSerializer(alerts, many=True, context=self.context).data
+
+    def get_data_warehouse_sync_status(self, insight: Insight):
+        """
+        Check if the insight uses data warehouse tables with sync issues.
+        Uses the database from context to avoid N+1 queries.
+        """
+        from posthog.schema import DatabaseSchemaDataWarehouseTable
+
+        from posthog.hogql.context import HogQLContext
+        from posthog.hogql.database.database import Database
+
+        query = insight.query
+        if not query or not isinstance(query, dict):
+            return None
+
+        # Extract data warehouse table names from the query
+        table_names = self._extract_data_warehouse_tables(query)
+        if not table_names:
+            return None
+
+        # Get database from context (should be passed in to avoid N+1 queries)
+        database = self.context.get("database")
+        if not database:
+            # Create database if not in context (fallback, should be passed in)
+            database = Database.create_for(team_id=insight.team_id)
+
+        # Get serialized schema with all metadata
+        try:
+            context = HogQLContext(team_id=insight.team_id, database=database)
+            schema_tables = database.serialize(context, include_only=table_names)
+        except Exception:
+            return None
+
+        # Check each table for sync issues using database metadata
+        tables_with_issues = []
+        for table_name in table_names:
+            try:
+                table_schema = schema_tables.get(table_name)
+                if not table_schema or not isinstance(table_schema, DatabaseSchemaDataWarehouseTable):
+                    continue
+
+                # Get schema metadata (contains sync status)
+                schema = table_schema.schema_
+                if not schema:
+                    continue
+
+                # Check sync status from schema metadata
+                if not schema.should_sync:
+                    tables_with_issues.append(
+                        {
+                            "table_name": table_name,
+                            "status": "disabled",
+                            "message": f"Sync for table '{table_name}' is disabled",
+                            "schema_id": schema.id,
+                        }
+                    )
+                elif schema.status == "Failed":
+                    tables_with_issues.append(
+                        {
+                            "table_name": table_name,
+                            "status": "failed",
+                            "message": f"Sync for table '{table_name}' has failed",
+                            "error": schema.latest_error,
+                            "schema_id": schema.id,
+                        }
+                    )
+                elif schema.status == "Paused":
+                    tables_with_issues.append(
+                        {
+                            "table_name": table_name,
+                            "status": "paused",
+                            "message": f"Sync for table '{table_name}' is paused",
+                            "schema_id": schema.id,
+                        }
+                    )
+
+            except Exception:
+                # Silently ignore errors to avoid breaking insight rendering
+                continue
+
+        return tables_with_issues if tables_with_issues else None
+
+    def _extract_data_warehouse_tables(self, query: dict) -> set[str]:
+        """
+        Recursively extract DataWarehouseNode table names from a query.
+        """
+        table_names = set()
+
+        # Handle InsightVizNode
+        if query.get("kind") == "InsightVizNode":
+            source = query.get("source")
+            if source:
+                table_names.update(self._extract_data_warehouse_tables(source))
+
+        # Handle queries with series (TrendsQuery, FunnelsQuery, etc.)
+        series = query.get("series", [])
+        for node in series:
+            if isinstance(node, dict) and node.get("kind") == "DataWarehouseNode":
+                table_name = node.get("table_name")
+                if table_name:
+                    table_names.add(table_name)
+
+        return table_names
 
     def get_effective_restriction_level(self, insight: Insight) -> Dashboard.RestrictionLevel:
         if self.context.get("is_shared"):

@@ -254,7 +254,7 @@ function InsightCardInternal(
                             placement={placement}
                         />
                         <div className="InsightCard__viz">
-                            <DataWarehouseSyncNotice query={insight.query} />
+                            <DataWarehouseSyncNotice syncStatus={insight.data_warehouse_sync_status} />
                             {BlockingEmptyState ? (
                                 BlockingEmptyState
                             ) : (

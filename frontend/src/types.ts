@@ -2136,6 +2136,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     alerts?: AlertType[]
     query?: Node | null
     query_status?: QueryStatus
+    data_warehouse_sync_status?: DataWarehouseSyncStatus[] | null
     /** Only used when creating objects */
     _create_in_folder?: string | null
 }
