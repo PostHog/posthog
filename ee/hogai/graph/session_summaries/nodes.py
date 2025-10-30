@@ -35,7 +35,7 @@ from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.session_summaries.constants import (
     GROUP_SUMMARIES_MIN_SESSIONS,
     MAX_SESSIONS_TO_SUMMARIZE,
-    SESSION_SUMMARIES_STREAMING_MODEL,
+    SESSION_SUMMARIES_SYNC_MODEL,
 )
 from ee.hogai.session_summaries.session.stringify import SingleSessionSummaryStringifier
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
@@ -433,7 +433,7 @@ class _SessionSummarizer:
                 session_id=session_id,
                 user_id=self._node._user.id,
                 team=self._node._team,
-                model_to_use=SESSION_SUMMARIES_STREAMING_MODEL,
+                model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
                 video_validation_enabled=video_validation_enabled,
             )
             completed += 1
