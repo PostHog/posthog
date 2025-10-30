@@ -23,6 +23,8 @@ jobs:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
             - uses: actions/checkout@v4
+              with:
+                  clean: false
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
               with:
@@ -56,6 +58,7 @@ jobs:
               with:
                   sparse-checkout: 'rust/'
                   sparse-checkout-cone-mode: false
+                  clean: false
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
@@ -242,6 +245,7 @@ jobs:
               with:
                   sparse-checkout: 'rust/'
                   sparse-checkout-cone-mode: false
+                  clean: false
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
@@ -289,6 +293,7 @@ jobs:
               with:
                   sparse-checkout: 'rust/'
                   sparse-checkout-cone-mode: false
+                  clean: false
 
             - name: Install cargo-binstall
               if: needs.changes.outputs.rust == 'true'

@@ -32,6 +32,8 @@ jobs:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
             - uses: actions/checkout@v4
+              with:
+                  clean: false
 
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
@@ -55,6 +57,8 @@ jobs:
         runs-on: depot-ubuntu-24.04-4
         steps:
             - uses: actions/checkout@v4
+              with:
+                  clean: false
 
             - name: Install pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
@@ -83,6 +87,8 @@ jobs:
         runs-on: depot-ubuntu-24.04-4
         steps:
             - uses: actions/checkout@v4
+              with:
+                  clean: false
 
             - name: Install pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
