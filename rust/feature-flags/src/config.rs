@@ -388,6 +388,16 @@ pub struct Config {
     // Set higher than token bucket rate to account for multiple users behind same IP
     #[envconfig(from = "FLAGS_IP_REPLENISH_RATE", default = "50.0")]
     pub flags_ip_replenish_rate: f64,
+
+    // Log-only mode for rate limiting (defaults to true for safe rollout)
+    // When true, rate limits are checked and violations logged, but requests are not blocked
+    // This allows gathering metrics to tune limits before enforcing them
+    #[envconfig(from = "FLAGS_RATE_LIMIT_LOG_ONLY", default = "true")]
+    pub flags_rate_limit_log_only: FlexBool,
+
+    // Log-only mode for IP-based rate limiting (defaults to true for safe rollout)
+    #[envconfig(from = "FLAGS_IP_RATE_LIMIT_LOG_ONLY", default = "true")]
+    pub flags_ip_rate_limit_log_only: FlexBool,
 }
 
 impl Config {
@@ -454,6 +464,8 @@ impl Config {
             flags_ip_rate_limit_enabled: FlexBool(false),
             flags_ip_burst_size: 500,
             flags_ip_replenish_rate: 100.0,
+            flags_rate_limit_log_only: FlexBool(true),
+            flags_ip_rate_limit_log_only: FlexBool(true),
         }
     }
 

@@ -50,7 +50,11 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue
 from products.batch_exports.backend.tests.temporal.utils.records import get_record_batch_from_queue
-from products.batch_exports.backend.tests.temporal.utils.s3 import read_parquet_from_s3, read_s3_data_as_json
+from products.batch_exports.backend.tests.temporal.utils.s3 import (
+    delete_all_from_s3,
+    read_parquet_from_s3,
+    read_s3_data_as_json,
+)
 from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
@@ -133,16 +137,6 @@ def file_format(request) -> str:
         return request.param
     except AttributeError:
         return f"JSONLines"
-
-
-async def delete_all_from_s3(minio_client, bucket_name: str, key_prefix: str):
-    """Delete all objects in bucket_name under key_prefix."""
-    response = await minio_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
-
-    if "Contents" in response:
-        for obj in response["Contents"]:
-            if "Key" in obj:
-                await minio_client.delete_object(Bucket=bucket_name, Key=obj["Key"])
 
 
 @pytest.fixture

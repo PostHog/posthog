@@ -83,7 +83,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             sceneLogic,
             ['activeSceneId'],
         ],
-        actions: [tagsModel, ['loadTags']],
+        actions: [tagsModel, ['loadTags'], teamLogic, ['addProductIntent']],
         logic: [eventUsageLogic, dashboardsModel],
     })),
 

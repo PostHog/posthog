@@ -4025,19 +4025,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pdpyras"
-version = "5.4.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "requests" },
-    { name = "urllib3" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/1f/36/ced3d9fa692dfeab2fb9ac8cfa6ac44dd725417f6b71ee37f7964d1e6c4d/pdpyras-5.4.1.tar.gz", hash = "sha256:36021aff5979a79f1d87edc95e0c46e98ce8549292bc0cab3d9f33501795703b", size = 26201, upload-time = "2025-06-03T21:41:17.158Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f5/c4/a498be81c426eb0de3d34c3572f2f56b17083eeb40411b17bc63691f5a6d/pdpyras-5.4.1-py2.py3-none-any.whl", hash = "sha256:e16020cf57e4c916ab3dace7c7dffe21a2e7059ab7411ce3ddf1e620c54e9c89", size = 24927, upload-time = "2025-06-03T21:41:16.166Z" },
-]
-
-[[package]]
 name = "pendulum"
 version = "3.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -4282,7 +4269,6 @@ dependencies = [
     { name = "orjson" },
     { name = "pandas" },
     { name = "paramiko" },
-    { name = "pdpyras" },
     { name = "phonenumberslite" },
     { name = "pillow" },
     { name = "playwright" },
@@ -4523,7 +4509,6 @@ requires-dist = [
     { name = "orjson", specifier = "==3.10.15" },
     { name = "pandas", specifier = "~=2.2.2" },
     { name = "paramiko", specifier = "==3.4.0" },
-    { name = "pdpyras", specifier = "==5.4.1" },
     { name = "phonenumberslite", specifier = "==8.13.6" },
     { name = "pillow", specifier = "==10.2.0" },
     { name = "playwright", specifier = ">=1.54.0" },

@@ -9,6 +9,7 @@ from django.db import models
 from django.db.models import Q
 
 import chdb
+import structlog
 
 from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
 
@@ -162,6 +163,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         except:
             return False
 
+    def _is_suppressed_chdb_error(self, err: Exception) -> bool:
+        return isinstance(err, RuntimeError) and "unsupported deltalake type: timestamp_ntz" in str(err).lower()
+
     def get_columns(
         self,
         safe_expose_ch_error: bool = True,
@@ -178,6 +182,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             context=placeholder_context,
             table_size_mib=self.size_in_s3_mib,
         )
+        logger = structlog.get_logger(__name__)
         try:
             # chdb hangs in CI during tests
             if TEST:
@@ -193,7 +198,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             reader = csv.reader(StringIO(str(chdb_result)))
             result = [tuple(row) for row in reader]
         except Exception as chdb_error:
-            capture_exception(chdb_error)
+            if self._is_suppressed_chdb_error(chdb_error):
+                logger.debug(chdb_error)
+            else:
+                capture_exception(chdb_error)
 
             tag_queries(team_id=self.team.pk, table_id=self.id, warehouse_query=True)
 
