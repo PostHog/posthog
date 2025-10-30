@@ -8,6 +8,8 @@ from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 
 
 class DummyToolkit(TaxonomyAgentToolkit):
+    _parent_tool_call_id: str | None = None
+
     def get_tools(self):
         return self._get_default_tools()
 

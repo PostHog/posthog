@@ -17,7 +17,7 @@ from ee.hogai.utils.tests import FakeChatOpenAI
 class TestSearchToolDocumentation(BaseTest):
     def setUp(self):
         super().setUp()
-        self.tool = SearchTool(team=self.team, user=self.user)
+        self.tool = SearchTool(team=self.team, user=self.user, tool_call_id="test-tool-call-id")
 
     @override_settings(INKEEP_API_KEY="test-inkeep-key")
     @patch("ee.hogai.graph.root.tools.search.ChatOpenAI")

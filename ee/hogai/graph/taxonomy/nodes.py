@@ -24,7 +24,7 @@ from ee.hogai.utils.helpers import format_events_yaml
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from ..base import BaseAssistantNode
-from ..mixins import StateClassMixin, TaxonomyReasoningNodeMixin
+from ..mixins import StateClassMixin, TaxonomyUpdateDispatcherNodeMixin
 from .prompts import (
     HUMAN_IN_THE_LOOP_PROMPT,
     ITERATION_LIMIT_PROMPT,
@@ -40,11 +40,26 @@ TaxonomyPartialStateType = TypeVar("TaxonomyPartialStateType", bound=TaxonomyAge
 TaxonomyNodeBound = BaseAssistantNode[TaxonomyStateType, TaxonomyPartialStateType]
 
 
+class ParentToolCallIdMixin(BaseAssistantNode[TaxonomyStateType, TaxonomyPartialStateType]):
+    _parent_tool_call_id: str | None = None
+    _toolkit: TaxonomyAgentToolkit
+
+    async def __call__(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType | None:
+        """
+        Run the assistant node and handle cancelled conversation before the node is run.
+        """
+        if self._parent_tool_call_id:
+            self._toolkit._parent_tool_call_id = self._parent_tool_call_id
+
+        return await super().__call__(state, config)
+
+
 class TaxonomyAgentNode(
     Generic[TaxonomyStateType, TaxonomyPartialStateType],
-    TaxonomyReasoningNodeMixin,
-    TaxonomyNodeBound,
     StateClassMixin,
+    TaxonomyUpdateDispatcherNodeMixin,
+    ParentToolCallIdMixin,
+    TaxonomyNodeBound,
     ABC,
 ):
     """Base node for taxonomy agents."""
@@ -74,7 +89,7 @@ class TaxonomyAgentNode(
 
     def _get_model(self, state: TaxonomyStateType):
         return MaxChatOpenAI(
-            model="gpt-4.1", streaming=False, temperature=0.3, user=self._user, team=self._team
+            model="gpt-4.1", streaming=False, temperature=0.3, user=self._user, team=self._team, disable_streaming=True
         ).bind_tools(
             self._toolkit.get_tools(),
             tool_choice="required",
@@ -112,6 +127,7 @@ class TaxonomyAgentNode(
 
     def run(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
         """Process the state and return filtering options."""
+        self.dispatch_update_message(state)
         progress_messages = state.tool_progress_messages or []
         full_conversation = self._construct_messages(state)
 
@@ -154,7 +170,11 @@ class TaxonomyAgentNode(
 
 
 class TaxonomyAgentToolsNode(
-    Generic[TaxonomyStateType, TaxonomyPartialStateType], TaxonomyReasoningNodeMixin, TaxonomyNodeBound, StateClassMixin
+    Generic[TaxonomyStateType, TaxonomyPartialStateType],
+    StateClassMixin,
+    TaxonomyUpdateDispatcherNodeMixin,
+    ParentToolCallIdMixin,
+    TaxonomyNodeBound,
 ):
     """Base tools node for taxonomy agents."""
 
@@ -219,10 +239,7 @@ class TaxonomyAgentToolsNode(
         if state.iteration_count is not None and state.iteration_count >= self.MAX_ITERATIONS:
             return self._get_reset_state(ITERATION_LIMIT_PROMPT, "max_iterations", state)
 
-        # Taxonomy is a separate graph, so it dispatches its own messages
-        reasoning_message = await self.get_reasoning_message(state)
-        if reasoning_message:
-            await self._write_message(reasoning_message)
+        self.dispatch_update_message(state)
 
         tool_results = await self._toolkit.handle_tools(tools_metadata)
 

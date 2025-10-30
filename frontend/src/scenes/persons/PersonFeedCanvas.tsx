@@ -51,7 +51,7 @@ const PersonFeedCanvas = ({ person }: PersonFeedCanvasProps): JSX.Element => {
                                     type: 'ph-person-properties',
                                     attrs: { id, distinctId, nodeId: uuid() },
                                 },
-                                { type: 'ph-related-group', attrs: { id, nodeId: uuid(), type: 'groups' } },
+                                { type: 'ph-related-groups', attrs: { id, nodeId: uuid(), type: 'group' } },
                             ],
                         },
                     },
