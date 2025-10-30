@@ -199,7 +199,7 @@ export function Login(): JSX.Element {
                             <LemonButton
                                 type="primary"
                                 status="alt"
-                                htmlType="submit"
+                                htmlType={isPasswordHidden ? 'button' : 'submit'}
                                 data-attr="password-login"
                                 fullWidth
                                 center
