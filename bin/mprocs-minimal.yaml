@@ -13,7 +13,7 @@ procs:
         shell: 'bin/check_postgres_up && bin/check_kafka_clickhouse_up && SESSION_RECORDING_V2_METADATA_SWITCHOVER=1970-01-01 ./bin/plugin-server --no-restart-loop'
 
     frontend-vite:
-        shell: 'SKIP_TYPEGEN="exit 0" ./bin/start-frontend'
+        shell: 'SKIP_TYPEGEN=1 ./bin/start-frontend'
 
     frontend-typegen:
         shell: './bin/start-frontend-typegen'
