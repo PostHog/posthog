@@ -35,6 +35,7 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
         aggregationGroupTypeIndex,
         shouldShowMeanPerBreakdown,
         showTrendLines,
+        xAxisLabels,
     } = useValues(retentionGraphLogic(insightProps))
     const { openModal } = useActions(retentionModalLogic(insightProps))
 
@@ -51,7 +52,7 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
             data-attr="trend-line-graph"
             type={displayTypeToGraphType(retentionFilter?.display || ChartDisplayType.ActionsLineGraph)}
             datasets={filteredTrendSeries as GraphDataset[]}
-            labels={(filteredTrendSeries[0] && filteredTrendSeries[0].labels) || []}
+            labels={xAxisLabels}
             isInProgress={incompletenessOffsetFromEnd < 0}
             inSharedMode={!!inSharedMode}
             showPersonsModal={false}
