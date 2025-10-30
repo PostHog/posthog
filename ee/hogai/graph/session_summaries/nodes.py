@@ -189,14 +189,13 @@ class _SessionSearch:
         tool = await SearchSessionRecordingsTool.create_tool_class(
             team=self._node._team,
             user=self._node._user,
-            tool_call_id=self._node._parent_tool_call_id or "",
             state=state,
             config=config,
             context_manager=self._node.context_manager,
         )
         try:
             # Call the tool's graph directly to use the same implementation as in the tool (avoid duplication)
-            result = await tool._invoke_graph(change=filter_query)
+            result = await tool._invoke_graph(change=filter_query, tool_call_id=self._node._parent_tool_call_id or "")
             if not result.get("output"):
                 self._node._log_failure(
                     f"SearchSessionRecordingsTool returned no output for session summarization (query: {filter_query})",

@@ -3,27 +3,23 @@ from collections.abc import Awaitable, Mapping, Sequence
 from typing import TYPE_CHECKING, Literal, TypeVar, Union
 from uuid import uuid4
 
+import structlog
 import posthoganalytics
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     BaseMessage,
     HumanMessage as LangchainHumanMessage,
+    ToolCall,
     ToolMessage as LangchainToolMessage,
 )
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import NodeInterrupt
+from langgraph.types import Send
 from posthoganalytics import capture_exception
 from pydantic import BaseModel
 
-from posthog.schema import (
-    AssistantMessage,
-    AssistantTool,
-    AssistantToolCallMessage,
-    ContextMessage,
-    FailureMessage,
-    HumanMessage,
-)
+from posthog.schema import AssistantMessage, AssistantToolCallMessage, ContextMessage, FailureMessage, HumanMessage
 
 from posthog.models import Team, User
 
@@ -36,8 +32,14 @@ from ee.hogai.tool import ToolMessagesArtifact
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages
 from ee.hogai.utils.helpers import convert_tool_messages_to_dict, normalize_ai_message
 from ee.hogai.utils.prompt import format_prompt_string
-from ee.hogai.utils.types import AssistantMessageUnion, AssistantNodeName, AssistantState, InsightQuery
-from ee.hogai.utils.types.base import NodePath, PartialAssistantState, ReplaceMessages
+from ee.hogai.utils.types.base import (
+    AssistantMessageUnion,
+    AssistantNodeName,
+    AssistantState,
+    NodePath,
+    PartialAssistantState,
+    ReplaceMessages,
+)
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
@@ -51,13 +53,13 @@ from .prompts import (
     ROOT_TOOL_DOES_NOT_EXIST,
 )
 from .tools import (
+    CreateAndQueryInsightTool,
+    CreateDashboardTool,
     ReadDataTool,
     ReadTaxonomyTool,
     SearchTool,
+    SessionSummarizationTool,
     TodoWriteTool,
-    create_and_query_insight,
-    create_dashboard,
-    session_summarization,
 )
 
 if TYPE_CHECKING:
@@ -67,13 +69,9 @@ SLASH_COMMAND_INIT = "/init"
 SLASH_COMMAND_REMEMBER = "/remember"
 
 RouteName = Literal[
-    "insights",
     "root",
     "end",
-    "search_documentation",
     "memory_onboarding",
-    "insights_search",
-    "billing",
     "session_summarization",
     "create_dashboard",
 ]
@@ -83,6 +81,8 @@ RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantT
 T = TypeVar("T", RootMessageUnion, BaseMessage)
 
 RootTool = Union[type[BaseModel], "MaxTool"]
+
+logger = structlog.get_logger(__name__)
 
 
 class RootNode(AssistantNode):
@@ -168,11 +168,24 @@ class RootNode(AssistantNode):
         if messages_to_replace:
             new_messages = ReplaceMessages([*messages_to_replace, assistant_message])
 
+        # Set new tool call count
+        tool_call_count = (state.root_tool_calls_count or 0) + 1 if assistant_message.tool_calls else None
+
         return PartialAssistantState(
             messages=new_messages,
+            root_tool_calls_count=tool_call_count,
             root_conversation_start_id=window_id,
             start_id=start_id,
         )
+
+    def router(self, state: AssistantState):
+        last_message = state.messages[-1]
+        if not isinstance(last_message, AssistantMessage) or not last_message.tool_calls:
+            return AssistantNodeName.END
+        return [
+            Send(AssistantNodeName.ROOT_TOOLS, state.model_copy(update={"root_tool_call_id": tool_call.id}))
+            for tool_call in last_message.tool_calls
+        ]
 
     @property
     def node_name(self) -> MaxNodeName:
@@ -226,11 +239,35 @@ class RootNode(AssistantNode):
         if self._is_hard_limit_reached(state.root_tool_calls_count):
             return base_model
 
-        return base_model.bind_tools(tools, parallel_tool_calls=False)
+        return base_model.bind_tools(tools, parallel_tool_calls=True)
 
     async def _get_tools(self, state: AssistantState, config: RunnableConfig) -> list[RootTool]:
         from ee.hogai.tool import get_contextual_tool_class
 
+        # Static toolkit
+        default_tools: list[type[MaxTool]] = [
+            ReadTaxonomyTool,
+            ReadDataTool,
+            SearchTool,
+            TodoWriteTool,
+        ]
+
+        # The contextual insights tool overrides the static tool. Only inject if it's injected.
+        if not CreateAndQueryInsightTool.is_editing_mode(self.context_manager):
+            default_tools.append(CreateAndQueryInsightTool)
+
+        # Add session summarization tool if enabled
+        if self._has_session_summarization_feature_flag():
+            default_tools.append(SessionSummarizationTool)
+
+        # Add other lower-priority tools
+        default_tools.extend(
+            [
+                CreateDashboardTool,
+            ]
+        )
+
+        # Processed tools
         available_tools: list[RootTool] = []
 
         # Initialize the static toolkit
@@ -238,37 +275,14 @@ class RootNode(AssistantNode):
         # This is just to bound the tools to the model
         dynamic_tools = (
             tool_class.create_tool_class(
-                team=self._team,
-                user=self._user,
-                tool_call_id="",
-                state=state,
-                config=config,
-                context_manager=self.context_manager,
+                team=self._team, user=self._user, state=state, config=config, context_manager=self.context_manager
             )
-            for tool_class in (
-                ReadTaxonomyTool,
-                ReadDataTool,
-                SearchTool,
-                TodoWriteTool,
-            )
+            for tool_class in default_tools
         )
         available_tools.extend(await asyncio.gather(*dynamic_tools))
 
-        # Insights tool
-        tool_names = self.context_manager.get_contextual_tools().keys()
-        is_editing_insight = AssistantTool.EDIT_CURRENT_INSIGHT in tool_names
-        if not is_editing_insight:
-            # This is the default tool, which can be overriden by the MaxTool based tool with the same name
-            available_tools.append(create_and_query_insight)
-
-        # Check if session summarization is enabled for the user
-        if self._has_session_summarization_feature_flag():
-            available_tools.append(session_summarization)
-
-        # Dashboard creation tool
-        available_tools.append(create_dashboard)
-
         # Inject contextual tools
+        tool_names = self.context_manager.get_contextual_tools().keys()
         awaited_contextual_tools: list[Awaitable[RootTool]] = []
         for tool_name in tool_names:
             ContextualMaxToolClass = get_contextual_tool_class(tool_name)
@@ -278,7 +292,6 @@ class RootNode(AssistantNode):
                 ContextualMaxToolClass.create_tool_class(
                     team=self._team,
                     user=self._user,
-                    tool_call_id="",
                     state=state,
                     config=config,
                     context_manager=self.context_manager,
@@ -366,51 +379,23 @@ class RootNodeTools(AssistantNode):
     def node_name(self) -> MaxNodeName:
         return AssistantNodeName.ROOT_TOOLS
 
-    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         last_message = state.messages[-1]
-        if not isinstance(last_message, AssistantMessage) or not last_message.tool_calls:
-            # Reset tools.
-            return PartialAssistantState(root_tool_calls_count=0)
 
-        tool_call_count = state.root_tool_calls_count or 0
+        reset_state = PartialAssistantState(root_tool_call_id=None)
+        # Should never happen, but just in case.
+        if not isinstance(last_message, AssistantMessage) or not state.root_tool_call_id:
+            return reset_state
 
-        tools_calls = last_message.tool_calls
-        if len(tools_calls) != 1:
-            raise ValueError("Expected exactly one tool call.")
-
-        tool_names = self.context_manager.get_contextual_tools().keys()
-        is_editing_insight = AssistantTool.EDIT_CURRENT_INSIGHT in tool_names
-        tool_call = tools_calls[0]
+        # Find the current tool call in the last message.
+        tool_call = next(
+            (tool_call for tool_call in last_message.tool_calls or [] if tool_call.id == state.root_tool_call_id), None
+        )
+        if not tool_call:
+            return reset_state
 
         from ee.hogai.tool import get_contextual_tool_class
 
-        if tool_call.name == "create_and_query_insight" and not is_editing_insight:
-            return PartialAssistantState(
-                root_tool_call_id=tool_call.id,
-                root_tool_insight_plan=tool_call.args["query_description"],
-                root_tool_calls_count=tool_call_count + 1,
-            )
-        if tool_call.name == "session_summarization":
-            return PartialAssistantState(
-                root_tool_call_id=tool_call.id,
-                session_summarization_query=tool_call.args["session_summarization_query"],
-                # Safety net in case the argument is missing to avoid raising exceptions internally
-                should_use_current_filters=tool_call.args.get("should_use_current_filters", False),
-                summary_title=tool_call.args.get("summary_title"),
-                root_tool_calls_count=tool_call_count + 1,
-            )
-        if tool_call.name == "create_dashboard":
-            raw_queries = tool_call.args["search_insights_queries"]
-            search_insights_queries = [InsightQuery.model_validate(query) for query in raw_queries]
-
-            return PartialAssistantState(
-                root_tool_call_id=tool_call.id,
-                dashboard_name=tool_call.args.get("dashboard_name"),
-                search_insights_queries=search_insights_queries,
-                root_tool_calls_count=tool_call_count + 1,
-            )
-
-        # MaxTool flow
         ToolClass = get_contextual_tool_class(tool_call.name)
 
         # If the tool doesn't exist, return the message to the agent
@@ -423,41 +408,27 @@ class RootNodeTools(AssistantNode):
                         tool_call_id=tool_call.id,
                     )
                 ],
-                root_tool_calls_count=tool_call_count + 1,
             )
 
         # Initialize the tool and process it
         tool_class = await ToolClass.create_tool_class(
             team=self._team,
             user=self._user,
-            tool_call_id=tool_call.id,
             state=state,
             config=config,
             context_manager=self.context_manager,
         )
-        config["configurable"]["node_path"] = [
-            *config.get("configurable", {}).get("node_path", []),
-            {"tool_call_id": tool_call.id, "node_name": AssistantNodeName.ROOT_TOOLS},
-        ]
+
         try:
             result = await tool_class.ainvoke(
-                tool_call.model_dump(),
-                {
-                    **config,
-                    "configurable": {
-                        **(config.get("configurable") or {}),
-                        "node_path": [
-                            *config.get("configurable", {}).get("node_path", []),
-                            {"tool_call_id": tool_call.id, "node_name": AssistantNodeName.ROOT_TOOLS},
-                        ],
-                    },
-                },
+                ToolCall(type="tool_call", name=tool_call.name, args=tool_call.args, id=tool_call.id), config=config
             )
             if not isinstance(result, LangchainToolMessage):
                 raise ValueError(
                     f"Tool '{tool_call.name}' returned {type(result).__name__}, expected LangchainToolMessage"
                 )
         except Exception as e:
+            logger.exception("Error calling tool", extra={"tool_name": tool_call.name, "error": str(e)})
             capture_exception(
                 e, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
             )
@@ -469,38 +440,11 @@ class RootNodeTools(AssistantNode):
                         tool_call_id=tool_call.id,
                     )
                 ],
-                root_tool_calls_count=tool_call_count + 1,
             )
 
         if isinstance(result.artifact, ToolMessagesArtifact):
             return PartialAssistantState(
                 messages=result.artifact.messages,
-                root_tool_calls_count=tool_call_count + 1,
-            )
-
-        # Handle the basic toolkit
-        if result.name == "search" and isinstance(result.artifact, dict):
-            match result.artifact.get("kind"):
-                case "insights":
-                    return PartialAssistantState(
-                        root_tool_call_id=tool_call.id,
-                        search_insights_query=result.artifact.get("query"),
-                        root_tool_calls_count=tool_call_count + 1,
-                    )
-                case "docs":
-                    return PartialAssistantState(
-                        root_tool_call_id=tool_call.id,
-                        root_tool_calls_count=tool_call_count + 1,
-                    )
-
-        if (
-            result.name == "read_data"
-            and isinstance(result.artifact, dict)
-            and result.artifact.get("kind") == "billing_info"
-        ):
-            return PartialAssistantState(
-                root_tool_call_id=tool_call.id,
-                root_tool_calls_count=tool_call_count + 1,
             )
 
         # If this is a navigation tool call, pause the graph execution
@@ -527,29 +471,10 @@ class RootNodeTools(AssistantNode):
 
         return PartialAssistantState(
             messages=[tool_message],
-            root_tool_calls_count=tool_call_count + 1,
         )
 
     def router(self, state: AssistantState) -> RouteName:
         last_message = state.messages[-1]
-
         if isinstance(last_message, AssistantToolCallMessage):
             return "root"  # Let the root either proceed or finish, since it now can see the tool call result
-        if isinstance(last_message, AssistantMessage) and state.root_tool_call_id:
-            tool_calls = getattr(last_message, "tool_calls", None)
-            if tool_calls and len(tool_calls) > 0:
-                tool_call = tool_calls[0]
-                tool_call_name = tool_call.name
-                if tool_call_name == "read_data" and tool_call.args.get("kind") == "billing_info":
-                    return "billing"
-                if tool_call_name == "create_dashboard":
-                    return "create_dashboard"
-            if state.root_tool_insight_plan:
-                return "insights"
-            elif state.search_insights_query:
-                return "insights_search"
-            elif state.session_summarization_query:
-                return "session_summarization"
-            else:
-                return "search_documentation"
         return "end"

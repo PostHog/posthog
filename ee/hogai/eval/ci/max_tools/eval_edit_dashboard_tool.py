@@ -13,17 +13,8 @@ from ee.hogai.eval.scorers import SemanticSimilarity
 from ee.models.assistant import Conversation
 
 
-@pytest.fixture(autouse=True)
-def mock_kafka_producer():
-    """Mock Kafka producer to prevent Kafka errors in tests."""
-    with patch("posthog.kafka_client.client._KafkaProducer.produce") as mock_produce:
-        mock_future = MagicMock()
-        mock_produce.return_value = mock_future
-        yield
-
-
 @pytest.mark.django_db
-@patch("ee.hogai.graph.base.get_stream_writer", return_value=MagicMock())
+@patch("ee.hogai.graph.base.node.get_stream_writer", return_value=MagicMock())
 async def eval_insights_addition(patch_get_stream_writer, pytestconfig, demo_org_team_user):
     """Test that adding insights to dashboard executes correctly."""
 

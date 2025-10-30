@@ -18,7 +18,7 @@ from ee.hogai.graph.taxonomy.prompts import HUMAN_IN_THE_LOOP_PROMPT
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
-from ee.hogai.tool import MaxTool
+from ee.hogai.tool import MaxTool, MaxToolArgs
 
 from .prompts import (
     ERROR_TRACKING_FILTER_INITIAL_PROMPT,
@@ -166,7 +166,7 @@ class ErrorTrackingIssueImpactGraph(
         )
 
 
-class IssueImpactQueryArgs(BaseModel):
+class IssueImpactQueryArgs(MaxToolArgs):
     instructions: str = Field(description="The specific user query to find issues impacting occurrences of events.")
 
 
@@ -176,8 +176,8 @@ class ErrorTrackingIssueImpactTool(MaxTool):
     context_prompt_template: str = "The user wants to find a list of events whose occurrence may be impacted by issues."
     args_schema: type[BaseModel] = IssueImpactQueryArgs
 
-    async def _arun_impl(self, instructions: str) -> tuple[str, ErrorTrackingIssueImpactToolOutput]:
-        graph = ErrorTrackingIssueImpactGraph(team=self._team, user=self._user, tool_call_id=self._tool_call_id)
+    async def _arun_impl(self, instructions: str, tool_call_id: str) -> tuple[str, ErrorTrackingIssueImpactToolOutput]:
+        graph = ErrorTrackingIssueImpactGraph(team=self._team, user=self._user, tool_call_id=tool_call_id)
 
         graph_context = {
             "change": f"Goal: {instructions}",

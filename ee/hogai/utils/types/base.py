@@ -299,7 +299,7 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The ID of the message to start from to keep the message window short enough.
     """
-    root_tool_call_id: Optional[str] = Field(default=None)
+    root_tool_call_id: Annotated[Optional[str], replace] = Field(default=None)
     """
     The ID of the tool call from the root node.
     """
@@ -311,7 +311,7 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The type of insight to generate.
     """
-    root_tool_calls_count: Optional[int] = Field(default=None)
+    root_tool_calls_count: Annotated[Optional[int], replace] = Field(default=None)
     """
     Tracks the number of tool calls made by the root node to terminate the loop.
     """
@@ -399,7 +399,6 @@ class AssistantNodeName(StrEnum):
     MEMORY_COLLECTOR_TOOLS = "memory_collector_tools"
     INKEEP_DOCS = "inkeep_docs"
     INSIGHT_RAG_CONTEXT = "insight_rag_context"
-    INSIGHTS_SUBGRAPH = "insights_subgraph"
     TITLE_GENERATOR = "title_generator"
     INSIGHTS_SEARCH = "insights_search"
     SESSION_SUMMARIZATION = "session_summarization"
@@ -463,3 +462,11 @@ class AssistantDispatcherEvent(BaseModel):
 
 class LangGraphUpdateEvent(BaseModel):
     update: Any
+    node_name: str
+
+
+class TodoItem(BaseModel):
+    content: str = Field(..., min_length=1)
+    status: Literal["pending", "in_progress", "completed"]
+    id: str
+    priority: Literal["low", "medium", "high"]

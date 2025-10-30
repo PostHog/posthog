@@ -4,7 +4,7 @@ import inspect
 import warnings
 from datetime import timedelta
 from functools import wraps
-from typing import Literal, Optional, TypedDict
+from typing import TYPE_CHECKING, Optional, TypedDict
 from uuid import uuid4
 
 from django.db.models import Max
@@ -28,17 +28,18 @@ from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 from ee.hogai.utils.helpers import build_insight_url
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantNodeName
-from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
-    EMPTY_DATABASE_ERROR_MESSAGE,
     ITERATIVE_SEARCH_SYSTEM_PROMPT,
     ITERATIVE_SEARCH_USER_PROMPT,
     NO_INSIGHTS_FOUND_MESSAGE,
     PAGINATION_INSTRUCTIONS_TEMPLATE,
-    SEARCH_ERROR_INSTRUCTIONS,
     TOOL_BASED_EVALUATION_SYSTEM_PROMPT,
 )
+
+if TYPE_CHECKING:
+    from ee.hogai.utils.types.composed import MaxNodeName
+
 
 logger = structlog.get_logger(__name__)
 # Silence Pydantic serializer warnings for creation of VisualizationMessage/Query execution
@@ -105,6 +106,10 @@ class InsightDict(TypedDict):
     short_id: str
 
 
+class NoInsightsException(Exception):
+    """Exception indicating that the insight search cannot be done because the user does not have any insights."""
+
+
 class InsightSearchNode(AssistantNode):
     PAGE_SIZE = 500
     MAX_SEARCH_ITERATIONS = 6
@@ -114,7 +119,7 @@ class InsightSearchNode(AssistantNode):
     MAX_SERIES_TO_PROCESS = 3
 
     @property
-    def node_name(self) -> MaxNodeName:
+    def node_name(self) -> "MaxNodeName":
         return AssistantNodeName.INSIGHTS_SEARCH
 
     def __init__(self, *args, **kwargs):
@@ -132,6 +137,32 @@ class InsightSearchNode(AssistantNode):
         self._cutoff_date_for_insights_in_days = self.INSIGHTS_CUTOFF_DAYS
         self._query_cache = {}
         self._insight_id_cache = {}
+
+    @timing_logger("InsightSearchNode.arun")
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+        self._dispatch_update_message("Searching for insights")
+        search_query = state.search_insights_query
+        self._current_iteration = 0
+
+        total_count = await self._get_total_insights_count()
+        if total_count == 0:
+            raise NoInsightsException
+
+        selected_insights = await self._search_insights_iteratively(search_query or "")
+        logger.warning(
+            f"{TIMING_LOG_PREFIX} search_insights_iteratively returned {len(selected_insights)} insights: {selected_insights}"
+        )
+
+        if selected_insights:
+            self._dispatch_update_message(f"Evaluating {len(selected_insights)} insights to find the best match")
+        else:
+            self._dispatch_update_message("No existing insights found, creating a new one")
+
+        evaluation_result = await self._evaluate_insights_with_tools(
+            selected_insights, search_query or "", max_selections=1
+        )
+
+        return self._handle_evaluation_result(evaluation_result, state)
 
     def _dispatch_update_message(self, content: str) -> None:
         """Dispatch an update message to the assistant."""
@@ -185,36 +216,6 @@ class InsightSearchNode(AssistantNode):
 
         return [select_insight, reject_all_insights]
 
-    @timing_logger("InsightSearchNode.arun")
-    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
-        self._dispatch_update_message("Searching for insights")
-        search_query = state.search_insights_query
-        try:
-            self._current_iteration = 0
-
-            total_count = await self._get_total_insights_count()
-            if total_count == 0:
-                return self._handle_empty_database(state)
-
-            selected_insights = await self._search_insights_iteratively(search_query or "")
-            logger.warning(
-                f"{TIMING_LOG_PREFIX} search_insights_iteratively returned {len(selected_insights)} insights: {selected_insights}"
-            )
-
-            if selected_insights:
-                self._dispatch_update_message(f"Evaluating {len(selected_insights)} insights to find the best match")
-            else:
-                self._dispatch_update_message("No existing insights found, creating a new one")
-
-            evaluation_result = await self._evaluate_insights_with_tools(
-                selected_insights, search_query or "", max_selections=1
-            )
-
-            return self._handle_evaluation_result(evaluation_result, state)
-
-        except Exception as e:
-            return self._handle_search_error(e, state)
-
     @timing_logger("InsightSearchNode._get_insights_queryset")
     def _get_insights_queryset(self):
         """Get Insight objects with latest view time annotated and cutoff date."""
@@ -235,10 +236,6 @@ class InsightSearchNode(AssistantNode):
             self._total_insights_count = await self._get_insights_queryset().acount()
         return self._total_insights_count
 
-    def _handle_empty_database(self, state: AssistantState) -> PartialAssistantState:
-        """Handle the case when no insights exist in the database. (Rare edge-case but still possible)"""
-        return self._create_error_response(EMPTY_DATABASE_ERROR_MESSAGE, state.root_tool_call_id)
-
     def _handle_evaluation_result(self, evaluation_result: dict, state: AssistantState) -> PartialAssistantState:
         """Process the evaluation result and return appropriate response."""
         if evaluation_result["should_use_existing"]:
@@ -256,12 +253,12 @@ class InsightSearchNode(AssistantNode):
 
         return PartialAssistantState(
             messages=[
+                *evaluation_result["visualization_messages"],
                 AssistantToolCallMessage(
                     content=formatted_content,
                     tool_call_id=state.root_tool_call_id or "unknown",
                     id=str(uuid4()),
                 ),
-                *evaluation_result["visualization_messages"],
             ],
             selected_insight_ids=evaluation_result["selected_insights"],
             search_insights_query=None,
@@ -282,16 +279,6 @@ class InsightSearchNode(AssistantNode):
             root_tool_insight_plan=search_query,
             search_insights_query=None,
             selected_insight_ids=None,
-        )
-
-    @timing_logger("InsightSearchNode._handle_search_error")
-    def _handle_search_error(self, e: Exception, state: AssistantState) -> PartialAssistantState:
-        """Handle exceptions during search process."""
-        capture_exception(e)
-        logger.error(f"{TIMING_LOG_PREFIX} Error in InsightSearchNode: {e}", exc_info=True)
-        return self._create_error_response(
-            SEARCH_ERROR_INSTRUCTIONS,
-            state.root_tool_call_id,
         )
 
     def _format_insight_for_display(self, insight: InsightDict) -> str:
@@ -879,9 +866,6 @@ class InsightSearchNode(AssistantNode):
             "explanation": self._rejection_reason or "No suitable insights found.",
             "visualization_messages": [],
         }
-
-    def router(self, state: AssistantState) -> Literal["root"]:
-        return "root"
 
     @property
     def _model(self):

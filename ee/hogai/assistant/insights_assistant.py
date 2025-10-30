@@ -7,7 +7,7 @@ from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext, Vi
 from posthog.models import Team, User
 
 from ee.hogai.assistant.base import BaseAssistant
-from ee.hogai.graph.graph import InsightsAssistantGraph
+from ee.hogai.graph.insights_graph.graph import InsightsGraph
 from ee.hogai.graph.taxonomy.types import TaxonomyNodeName
 from ee.hogai.utils.stream_processor import AssistantStreamProcessor
 from ee.hogai.utils.types import (
@@ -58,7 +58,7 @@ class InsightsAssistant(BaseAssistant):
             conversation,
             new_message=new_message,
             user=user,
-            graph=InsightsAssistantGraph(team, user).compile_full_graph(),
+            graph=InsightsGraph(team, user).compile_full_graph(),
             state_type=AssistantState,
             partial_state_type=PartialAssistantState,
             mode=AssistantMode.INSIGHTS_TOOL,

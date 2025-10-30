@@ -82,7 +82,7 @@ class TestDispatcherIntegration(BaseTest):
             dispatched_actions.append(update)
 
         # Mock get_stream_writer to return our test writer
-        with patch("ee.hogai.graph.base.get_stream_writer", return_value=capture_write):
+        with patch("ee.hogai.graph.base.graph.get_stream_writer", return_value=capture_write):
             # Call the node (not arun) to trigger __call__ which handles dispatching
             await node(state, config)
 
@@ -117,14 +117,14 @@ class TestDispatcherIntegration(BaseTest):
             if isinstance(update, AssistantDispatcherEvent):
                 dispatched_actions.append(update.action)
 
-        with patch("ee.hogai.graph.base.get_stream_writer", return_value=capture_write):
+        with patch("ee.hogai.graph.base.graph.get_stream_writer", return_value=capture_write):
             await node(state, config)
 
         # Should have at least one NODE_START action
         node_start_actions = [action for action in dispatched_actions if isinstance(action, NodeStartAction)]
         self.assertGreater(len(node_start_actions), 0)
 
-    @patch("ee.hogai.graph.base.get_stream_writer")
+    @patch("ee.hogai.graph.base.graph.get_stream_writer")
     async def test_parent_tool_call_id_propagation(self, mock_get_stream_writer):
         """Test that parent_tool_call_id is propagated to dispatched messages."""
         parent_tool_call_id = str(uuid.uuid4())
@@ -162,7 +162,7 @@ class TestDispatcherIntegration(BaseTest):
             if msg.parent_tool_call_id:
                 self.assertEqual(msg.parent_tool_call_id, parent_tool_call_id)
 
-    @patch("ee.hogai.graph.base.get_stream_writer")
+    @patch("ee.hogai.graph.base.graph.get_stream_writer")
     async def test_dispatcher_error_handling(self, mock_get_stream_writer):
         """Test that errors in dispatcher don't crash node execution."""
 
@@ -219,7 +219,7 @@ class TestDispatcherIntegration(BaseTest):
             if isinstance(update, AssistantDispatcherEvent) and isinstance(update.action, MessageAction):
                 dispatched_messages.append(update.action.message)
 
-        with patch("ee.hogai.graph.base.get_stream_writer", return_value=capture_write):
+        with patch("ee.hogai.graph.base.graph.get_stream_writer", return_value=capture_write):
             await node(state, config)
 
         # Should have dispatched the messages from PartialState (and NODE_START)

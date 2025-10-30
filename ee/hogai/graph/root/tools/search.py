@@ -1,17 +1,19 @@
-from typing import Any, Literal
+from typing import Literal
 
 from django.conf import settings
 
 import posthoganalytics
 from langchain_core.output_parsers import SimpleJsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnableLambda
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
-from posthog.models import Team, User
-
-from ee.hogai.graph.root.tools.full_text_search.tool import EntitySearchToolkit, FTSKind
-from ee.hogai.tool import MaxTool
+from ee.hogai.graph.insights.nodes import InsightSearchNode, NoInsightsException
+from ee.hogai.graph.root.tools.full_text_search.tool import EntitySearchTool, FTSKind
+from ee.hogai.tool import MaxSubtool, MaxTool, MaxToolArgs, ToolMessagesArtifact
+from ee.hogai.utils.prompt import format_prompt_string
+from ee.hogai.utils.types.base import AssistantState, PartialAssistantState
 
 SEARCH_TOOL_PROMPT = """
 Use this tool to search docs, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, error tracking issues, and surveys in PostHog.
@@ -57,41 +59,16 @@ If you want to search for all entities, you should use `all`.
 
 """.strip()
 
-DOCS_SEARCH_RESULTS_TEMPLATE = """Found {count} relevant documentation page(s):
-
-{docs}
-<system_reminder>
-Use retrieved documentation to answer the user's question if it is relevant to the user's query.
-Format the response using Markdown and reference the documentation using hyperlinks.
-Every link to docs clearly explicitly be labeled, for example as "(see docs)".
-</system_reminder>
+INVALID_ENTITY_KIND_PROMPT = """
+Invalid entity kind: {{{kind}}}. Please provide a valid entity kind for the tool.
 """.strip()
-
-DOCS_SEARCH_NO_RESULTS_TEMPLATE = """
-No documentation found.
-
-<system_reminder>
-Do not answer the user's question if you did not find any documentation. Try rewriting the query.
-If after a couple of attempts you still do not find any documentation, suggest the user navigate to the documentation page, which is available at `https://posthog.com/docs`.
-</system_reminder>
-""".strip()
-
-DOC_ITEM_TEMPLATE = """
-# {title}
-URL: {url}
-
-{text}
-""".strip()
-
-
-FTS_SEARCH_FEATURE_FLAG = "hogai-insights-fts-search"
 
 ENTITIES = [f"{entity}" for entity in FTSKind if entity != FTSKind.INSIGHTS]
 
 SearchKind = Literal["insights", "docs", *ENTITIES]  # type: ignore
 
 
-class SearchToolArgs(BaseModel):
+class SearchToolArgs(MaxToolArgs):
     kind: SearchKind = Field(description="Select the entity you want to find")
     query: str = Field(
         description="Describe what you want to find. Include as much details from the context as possible."
@@ -126,50 +103,88 @@ class SearchTool(MaxTool):
     context_prompt_template: str = "Searches documentation, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, error tracking issues, and surveys in PostHog"
     args_schema: type[BaseModel] = SearchToolArgs
 
-    @staticmethod
-    def _get_fts_entities(include_insight_fts: bool) -> list[str]:
-        if not include_insight_fts:
-            entities = [e for e in FTSKind if e != FTSKind.INSIGHTS]
-        else:
-            entities = list(FTSKind)
-        return [*entities, FTSKind.ALL]
-
-    async def _arun_impl(self, kind: SearchKind, query: str) -> tuple[str, dict[str, Any] | None]:
+    async def _arun_impl(self, kind: str, query: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
         if kind == "docs":
             if not settings.INKEEP_API_KEY:
                 return "This tool is not available in this environment.", None
-            if self._has_docs_search_feature_flag():
-                return await self._search_docs(query), None
+            docs_tool = InkeepDocsSearchTool(self._team, self._user, self._state, self._context_manager)
+            return await docs_tool.execute(query, tool_call_id)
 
-        fts_entities = SearchTool._get_fts_entities(SearchTool._has_fts_search_feature_flag(self._user, self._team))
+        if kind == "insights" and not self._has_insights_fts_search_feature_flag():
+            insights_tool = InsightSearchTool(self._team, self._user, self._state, self._context_manager)
+            return await insights_tool.execute(query, tool_call_id)
 
-        if kind in fts_entities:
-            entity_search_toolkit = EntitySearchToolkit(self._team, self._user)
-            response = await entity_search_toolkit.execute(query, FTSKind(kind))
-            return response, None
-        # Used for routing
-        return "Search tool executed", SearchToolArgs(kind=kind, query=query).model_dump()
+        if kind not in self._fts_entities:
+            return format_prompt_string(INVALID_ENTITY_KIND_PROMPT, kind=kind), None
 
-    def _has_docs_search_feature_flag(self) -> bool:
+        entity_search_toolkit = EntitySearchTool(self._team, self._user, self._state, self._context_manager)
+        response = await entity_search_toolkit.execute(query, FTSKind(kind))
+        return response, None
+
+    @property
+    def _fts_entities(self) -> list[str]:
+        entities = list(FTSKind)
+        return [*entities, FTSKind.ALL]
+
+    def _has_insights_fts_search_feature_flag(self) -> bool:
         return posthoganalytics.feature_enabled(
-            "max-inkeep-rag-docs-search",
+            "hogai-insights-fts-search",
             str(self._user.distinct_id),
             groups={"organization": str(self._team.organization_id)},
             group_properties={"organization": {"id": str(self._team.organization_id)}},
             send_feature_flag_events=False,
         )
 
-    @staticmethod
-    def _has_fts_search_feature_flag(user: User, team: Team) -> bool:
-        return posthoganalytics.feature_enabled(
-            FTS_SEARCH_FEATURE_FLAG,
-            str(user.distinct_id),
-            groups={"organization": str(team.organization_id)},
-            group_properties={"organization": {"id": str(team.organization_id)}},
-            send_feature_flag_events=False,
-        )
 
-    async def _search_docs(self, query: str) -> str:
+DOCS_SEARCH_RESULTS_TEMPLATE = """Found {count} relevant documentation page(s):
+
+{docs}
+<system_reminder>
+Use retrieved documentation to answer the user's question if it is relevant to the user's query.
+Format the response using Markdown and reference the documentation using hyperlinks.
+Every link to docs clearly explicitly be labeled, for example as "(see docs)".
+</system_reminder>
+""".strip()
+
+DOCS_SEARCH_NO_RESULTS_TEMPLATE = """
+No documentation found.
+
+<system_reminder>
+Do not answer the user's question if you did not find any documentation. Try rewriting the query.
+If after a couple of attempts you still do not find any documentation, suggest the user navigate to the documentation page, which is available at `https://posthog.com/docs`.
+</system_reminder>
+""".strip()
+
+DOC_ITEM_TEMPLATE = """
+# {title}
+URL: {url}
+
+{text}
+""".strip()
+
+
+class InkeepDocsSearchTool(MaxSubtool):
+    async def execute(self, query: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
+        if self._has_rag_docs_search_feature_flag():
+            return await self._search_using_rag_endpoint(query, tool_call_id)
+        else:
+            return await self._search_using_node(query, tool_call_id)
+
+    async def _search_using_node(self, query: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
+        # Avoid circular import
+        from ee.hogai.graph.inkeep_docs.nodes import InkeepDocsNode
+
+        # Init the graph
+        node = InkeepDocsNode(self._team, self._user)
+        chain: RunnableLambda[AssistantState, PartialAssistantState | None] = RunnableLambda(node)
+        copied_state = self._state.model_copy(deep=True, update={"root_tool_call_id": tool_call_id})
+        result = await chain.ainvoke(copied_state)
+        assert result is not None
+        return "", ToolMessagesArtifact(messages=result.messages)
+
+    async def _search_using_rag_endpoint(
+        self, query: str, tool_call_id: str
+    ) -> tuple[str, ToolMessagesArtifact | None]:
         model = ChatOpenAI(
             model="inkeep-rag",
             base_url="https://api.inkeep.com/v1/",
@@ -184,7 +199,7 @@ class SearchTool(MaxTool):
         rag_context_raw = await chain.ainvoke({"query": query})
 
         if not rag_context_raw or not rag_context_raw.get("content"):
-            return DOCS_SEARCH_NO_RESULTS_TEMPLATE
+            return DOCS_SEARCH_NO_RESULTS_TEMPLATE, None
 
         rag_context = InkeepResponse.model_validate(rag_context_raw)
 
@@ -197,7 +212,35 @@ class SearchTool(MaxTool):
             docs.append(DOC_ITEM_TEMPLATE.format(title=doc.title, url=doc.url, text=text))
 
         if not docs:
-            return DOCS_SEARCH_NO_RESULTS_TEMPLATE
+            return DOCS_SEARCH_NO_RESULTS_TEMPLATE, None
 
         formatted_docs = "\n\n---\n\n".join(docs)
-        return DOCS_SEARCH_RESULTS_TEMPLATE.format(count=len(docs), docs=formatted_docs)
+        return DOCS_SEARCH_RESULTS_TEMPLATE.format(count=len(docs), docs=formatted_docs), None
+
+    def _has_rag_docs_search_feature_flag(self) -> bool:
+        return posthoganalytics.feature_enabled(
+            "max-inkeep-rag-docs-search",
+            str(self._user.distinct_id),
+            groups={"organization": str(self._team.organization_id)},
+            group_properties={"organization": {"id": str(self._team.organization_id)}},
+            send_feature_flag_events=False,
+        )
+
+
+EMPTY_DATABASE_ERROR_MESSAGE = """
+The user doesn't have any insights created yet.
+""".strip()
+
+
+class InsightSearchTool(MaxSubtool):
+    async def execute(self, query: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
+        try:
+            node = InsightSearchNode(self._team, self._user)
+            copied_state = self._state.model_copy(
+                deep=True, update={"search_insights_query": query, "root_tool_call_id": tool_call_id}
+            )
+            chain: RunnableLambda[AssistantState, PartialAssistantState | None] = RunnableLambda(node)
+            result = await chain.ainvoke(copied_state)
+            return "", ToolMessagesArtifact(messages=result.messages) if result else None
+        except NoInsightsException:
+            return EMPTY_DATABASE_ERROR_MESSAGE, None

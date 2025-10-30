@@ -14,7 +14,7 @@ from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsN
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.tools import base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
-from ee.hogai.tool import MaxTool
+from ee.hogai.tool import MaxTool, MaxToolArgs
 from ee.hogai.utils.types.base import AssistantNodeName
 from ee.hogai.utils.types.composed import MaxNodeName
 
@@ -101,7 +101,7 @@ class SessionReplayFilterOptionsGraph(
         )
 
 
-class SearchSessionRecordingsArgs(BaseModel):
+class SearchSessionRecordingsArgs(MaxToolArgs):
     change: str = Field(
         description=(
             "The specific change to be made to recordings filters, briefly described. "
@@ -126,12 +126,12 @@ class SearchSessionRecordingsTool(MaxTool):
     context_prompt_template: str = "Current recordings filters are: {current_filters}"
     args_schema: type[BaseModel] = SearchSessionRecordingsArgs
 
-    async def _invoke_graph(self, change: str) -> dict[str, Any] | Any:
+    async def _invoke_graph(self, change: str, tool_call_id: str) -> dict[str, Any] | Any:
         """
         Reusable method to call graph to avoid code/prompt duplication and enable
         different processing of the results, based on the place the tool is used.
         """
-        graph = SessionReplayFilterOptionsGraph(team=self._team, user=self._user, tool_call_id=self._tool_call_id)
+        graph = SessionReplayFilterOptionsGraph(team=self._team, user=self._user, tool_call_id=tool_call_id)
         pretty_filters = json.dumps(self.context.get("current_filters", {}), indent=2)
         user_prompt = USER_FILTER_OPTIONS_PROMPT.format(change=change, current_filters=pretty_filters)
         graph_context = {
@@ -143,8 +143,8 @@ class SearchSessionRecordingsTool(MaxTool):
         result = await graph.compile_full_graph().ainvoke(graph_context)
         return result
 
-    async def _arun_impl(self, change: str) -> tuple[str, MaxRecordingUniversalFilters]:
-        result = await self._invoke_graph(change)
+    async def _arun_impl(self, change: str, tool_call_id: str) -> tuple[str, MaxRecordingUniversalFilters]:
+        result = await self._invoke_graph(change, tool_call_id)
         if type(result["output"]) is not MaxRecordingUniversalFilters:
             content = result["intermediate_steps"][-1][0].tool_input
             filters = MaxRecordingUniversalFilters.model_validate(self.context.get("current_filters", {}))

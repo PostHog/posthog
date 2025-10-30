@@ -86,7 +86,7 @@ class TestSurveyCreatorTool(BaseTest):
         mock_create_survey.return_value = mock_output
 
         # Run the method
-        content, artifact = await tool._arun_impl("Create a test survey")
+        content, artifact = await tool._arun_impl("Create a test survey", "id")
 
         # Verify success response
         assert "✅ Survey" in content
@@ -123,7 +123,7 @@ class TestSurveyCreatorTool(BaseTest):
         mock_create_survey.return_value = mock_output
 
         # Run the method
-        content, artifact = await tool._arun_impl("Create a survey")
+        content, artifact = await tool._arun_impl("Create a survey", "id")
 
         # Verify error response
         assert "❌ Survey must have at least one question" in content
@@ -156,7 +156,7 @@ class TestSurveyCreatorTool(BaseTest):
         mock_create_survey.return_value = mock_output
 
         # Run the method
-        content, artifact = await tool._arun_impl("Create and launch a survey")
+        content, artifact = await tool._arun_impl("Create and launch a survey", "id")
 
         # Verify success response with launch message
         assert "✅ Survey" in content
@@ -203,7 +203,7 @@ class TestSurveyCreatorTool(BaseTest):
         mock_create_survey.return_value = mock_output
 
         # Run the method
-        content, artifact = await tool._arun_impl("Create a survey for users with test-feature flag")
+        content, artifact = await tool._arun_impl("Create a survey for users with test-feature flag", "id")
 
         # Verify success response
         assert "✅ Survey" in content
@@ -260,7 +260,9 @@ class TestSurveyCreatorTool(BaseTest):
         mock_create_survey.return_value = mock_output
 
         # Run the method
-        content, artifact = await tool._arun_impl("Create a survey for users in control variant of ab-test-feature")
+        content, artifact = await tool._arun_impl(
+            "Create a survey for users in control variant of ab-test-feature", "id"
+        )
 
         # Verify success response
         assert "✅ Survey" in content
@@ -318,7 +320,9 @@ class TestSurveyCreatorTool(BaseTest):
         mock_create_survey.return_value = mock_output
 
         # Run the method
-        content, artifact = await tool._arun_impl("Create a survey for all users with multivariate-feature enabled")
+        content, artifact = await tool._arun_impl(
+            "Create a survey for all users with multivariate-feature enabled", "id"
+        )
 
         # Verify success response
         assert "✅ Survey" in content
@@ -860,7 +864,7 @@ class TestSurveyAnalysisTool(BaseTest):
         context = {"survey_id": str(survey.id), "survey_name": "Test Survey", "formatted_responses": []}
         tool = self._setup_tool_with_context(context)
 
-        user_message, artifact = await tool._arun_impl()
+        user_message, artifact = await tool._arun_impl("id")
 
         assert "no open-ended responses" in user_message.lower() or "no survey data provided" in user_message.lower()
         # When there are no responses, the implementation might return different artifact structures
@@ -942,7 +946,7 @@ class TestSurveyAnalysisTool(BaseTest):
         }
         tool = self._setup_tool_with_context(context)
 
-        user_message, artifact = await tool._arun_impl()
+        user_message, artifact = await tool._arun_impl("id")
 
         # Verify user message contains formatted analysis
         assert "Survey Analysis" in user_message
@@ -997,7 +1001,7 @@ class TestSurveyAnalysisTool(BaseTest):
         }
         tool = self._setup_tool_with_context(context)
 
-        user_message, artifact = await tool._arun_impl()
+        user_message, artifact = await tool._arun_impl("id")
 
         # Should handle error gracefully - check if it's handled in analysis or formatted
         has_error_in_message = "❌ Failed to analyze survey responses" in user_message

@@ -1,18 +1,18 @@
-from typing import Any, Literal, Optional, cast
+from typing import Literal, Optional
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.graph.base import BaseAssistantGraph
 from ee.hogai.graph.deep_research.notebook.nodes import DeepResearchNotebookPlanningNode
 from ee.hogai.graph.deep_research.onboarding.nodes import DeepResearchOnboardingNode
 from ee.hogai.graph.deep_research.planner.nodes import DeepResearchPlannerNode, DeepResearchPlannerToolsNode
 from ee.hogai.graph.deep_research.report.nodes import DeepResearchReportNode
 from ee.hogai.graph.deep_research.task_executor.nodes import DeepResearchTaskExecutorNode
 from ee.hogai.graph.deep_research.types import DeepResearchNodeName, DeepResearchState, PartialDeepResearchState
-from ee.hogai.graph.graph import BaseAssistantGraph
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
-from ee.hogai.utils.types.base import AssistantNodeName, NodePath
+from ee.hogai.utils.types.base import NodePath
 
 
 class DeepResearchAssistantGraph(BaseAssistantGraph[DeepResearchState, PartialDeepResearchState]):
@@ -86,9 +86,9 @@ class DeepResearchAssistantGraph(BaseAssistantGraph[DeepResearchState, PartialDe
         self._has_start_node = True
 
         title_generator = TitleGeneratorNode(self._team, self._user, self._node_path)
-        self.add_node(AssistantNodeName.TITLE_GENERATOR, cast(Any, title_generator))
-        self._graph.add_edge(AssistantNodeName.START, AssistantNodeName.TITLE_GENERATOR)
-        self._graph.add_edge(AssistantNodeName.TITLE_GENERATOR, end_node)
+        self._graph.add_node(DeepResearchNodeName.TITLE_GENERATOR, title_generator)
+        self._graph.add_edge(DeepResearchNodeName.START, DeepResearchNodeName.TITLE_GENERATOR)
+        self._graph.add_edge(DeepResearchNodeName.TITLE_GENERATOR, end_node)
         return self
 
     def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):

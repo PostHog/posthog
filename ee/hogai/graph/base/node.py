@@ -1,6 +1,6 @@
 from abc import ABC
 from collections.abc import Sequence
-from typing import Generic
+from typing import TYPE_CHECKING, Generic
 from uuid import UUID
 
 from django.conf import settings
@@ -10,8 +10,7 @@ from langgraph.config import get_stream_writer
 
 from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage
 
-from posthog.models import Team
-from posthog.models.user import User
+from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.context import AssistantContextManager
@@ -19,15 +18,20 @@ from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.utils.dispatcher import AssistantDispatcher
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import find_start_message
-from ee.hogai.utils.types import (
+from ee.hogai.utils.types.base import (
     AssistantMessageUnion,
     AssistantState,
+    NodeEndAction,
+    NodePath,
+    NodeStartAction,
     PartialAssistantState,
     PartialStateType,
     StateType,
 )
-from ee.hogai.utils.types.base import NodeEndAction, NodePath, NodeStartAction
 from ee.models import Conversation
+
+if TYPE_CHECKING:
+    pass
 
 
 class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMixin, ABC):

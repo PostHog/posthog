@@ -5,8 +5,10 @@ from django.conf import settings
 
 from parameterized import parameterized
 
-from ee.hogai.graph.root.tools.full_text_search.tool import ENTITY_MAP, EntitySearchToolkit, FTSKind
+from ee.hogai.context import AssistantContextManager
+from ee.hogai.graph.root.tools.full_text_search.tool import ENTITY_MAP, EntitySearchTool, FTSKind
 from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
+from ee.hogai.utils.types.base import AssistantState
 
 
 class TestEntitySearchToolkit(BaseTest):
@@ -18,7 +20,9 @@ class TestEntitySearchToolkit(BaseTest):
         self.team.organization = Mock()
         self.team.organization.id = 789
         self.user = Mock()
-        self.toolkit = EntitySearchToolkit(self.team, self.user)
+        self.toolkit = EntitySearchTool(
+            self.team, self.user, AssistantState(), AssistantContextManager(self.team, self.user)
+        )
 
     @parameterized.expand(
         [
