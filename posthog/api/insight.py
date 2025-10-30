@@ -737,10 +737,9 @@ class InsightSerializer(InsightBasicSerializer):
         """
         Recursively extract DataWarehouseNode table names from a query.
         """
-        from posthog.hogql import ast
         from posthog.hogql.database.database import Database
+        from posthog.hogql.metadata import get_table_names
         from posthog.hogql.parser import parse_select
-        from posthog.hogql.visitor import TraversingVisitor
 
         table_names = set()
 
@@ -758,31 +757,20 @@ class InsightSerializer(InsightBasicSerializer):
                     # Parse the HogQL query
                     parsed = parse_select(query_str)
 
+                    # Get all table names from the query (handles dot notation like stripe.charge)
+                    all_table_names = get_table_names(parsed)
+
                     # Get database to check which tables are data warehouse tables
                     database = self.context.get("database")
                     if not database:
                         database = Database.create_for(team_id=self.context.get("team_id"))
 
-                    # Create a visitor to collect table names from Field nodes
-                    class TableCollector(TraversingVisitor):
-                        def __init__(self):
-                            self.tables = set()
+                    warehouse_table_names = set(database.get_warehouse_table_names())
 
-                        def visit_field(self, node: ast.Field):
-                            # Field nodes have a chain like ['table_name', 'column_name']
-                            # The first element might be a table name
-                            if node.chain and len(node.chain) > 0:
-                                first_chain = node.chain[0]
-                                # Check if this is a data warehouse table
-                                if isinstance(first_chain, str) and database.has_table(first_chain):
-                                    # Check if it's a warehouse table
-                                    if first_chain in database.get_warehouse_table_names():
-                                        self.tables.add(first_chain)
-                            super().visit_field(node)
-
-                    collector = TableCollector()
-                    collector.visit(parsed)
-                    table_names.update(collector.tables)
+                    # Filter to only data warehouse tables
+                    for table_name in all_table_names:
+                        if table_name in warehouse_table_names:
+                            table_names.add(table_name)
 
                 except Exception:
                     # If parsing fails, silently ignore
