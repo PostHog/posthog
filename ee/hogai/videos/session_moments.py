@@ -8,6 +8,9 @@ from math import ceil
 from django.utils.timezone import now
 
 import structlog
+from google.genai import Client
+from google.genai.errors import APIError
+from google.genai.types import Blob, Content, Part, VideoMetadata
 from pymediainfo import MediaInfo
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
@@ -63,6 +66,7 @@ class SessionMomentsLLMAnalyzer:
         self.team_id = team_id
         self.user = user
         self.trace_id = trace_id
+        self._provider = GeminiVideoUnderstandingProvider(model_id=DEFAULT_VIDEO_UNDERSTANDING_MODEL)
 
     async def analyze(
         self, moments_input: list[SessionMomentInput], expires_after_days: int, failed_moments_min_ratio: float
@@ -233,8 +237,7 @@ class SessionMomentsLLMAnalyzer:
             total_video_duration = self._get_webm_duration(video_bytes=video_bytes)
             start_offset_s = total_video_duration - VALIDATION_VIDEO_DURATION if total_video_duration else None
             # Analyze the video with LLM
-            provider = GeminiProvider(model_id=DEFAULT_VIDEO_UNDERSTANDING_MODEL)
-            content = await provider.understand_video(
+            content = await self._provider.understand_video(
                 video_bytes=video_bytes,
                 mime_type=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
                 prompt=prompt,
@@ -297,3 +300,81 @@ class SessionMomentsLLMAnalyzer:
             results.append(output)
         # No additional check for how many moments were analyzed as they can be limited by video size
         return results
+
+
+class GeminiVideoUnderstandingProvider:
+    """Interface for Gemini video understanding"""
+
+    # https://ai.google.dev/gemini-api/docs/video-understanding#supported-formats
+    SUPPORTED_VIDEO_MIME_TYPES: list[str] = [
+        "video/x-flv",
+        "video/quicktime",
+        "video/mpeg",
+        "video/mpegs",
+        "video/mpg",
+        "video/mp4",
+        "video/webm",
+        "video/wmv",
+        "video/3gpp",
+    ]
+
+    VIDEO_MAX_SIZE_BYTES = 20 * 1024 * 1024  # 20MB
+
+    def __init__(self, model_id: str):
+        self.model_id = model_id
+        # Using PostHog Gemini provider to avoid logic duplication
+        self._base_provider = GeminiProvider(model_id=model_id)
+        # Using default Gemini client as workaround, as PostHog wrapper doesn't support async yet
+        self.client = Client(api_key=self._base_provider.get_api_key())
+
+    async def understand_video(
+        self,
+        video_bytes: bytes,
+        mime_type: str,
+        prompt: str,
+        start_offset_s: int | None = None,
+        end_offset_s: int | None = None,
+        trace_id: str | None = None,
+    ) -> str | None:
+        """
+        Understand a video and return a summary using the provided prompt
+        https://ai.google.dev/gemini-api/docs/video-understanding
+        """
+        self._base_provider.validate_model(self.model_id)
+        if mime_type not in self.SUPPORTED_VIDEO_MIME_TYPES:
+            logger.exception(
+                f"Video bytes for understanding video are not in a supported MIME type (trace_id:{trace_id}): {mime_type}"
+            )
+            return None
+        if not len(video_bytes):
+            logger.exception(f"Video bytes for understanding video are empty (trace_id: {trace_id})")
+            return None
+        if len(video_bytes) > self.VIDEO_MAX_SIZE_BYTES:
+            logger.exception(f"Video bytes for understanding video are too large (trace_id: {trace_id})")
+            return None
+        try:
+            video_part_config: dict[str, str | Blob | VideoMetadata] = {
+                "inline_data": Blob(data=video_bytes, mime_type=mime_type)
+            }
+            video_metadata_config = {}
+            if start_offset_s:
+                video_metadata_config["start_offset"] = f"{start_offset_s}s"
+            if end_offset_s:
+                video_metadata_config["end_offset"] = f"{end_offset_s}s"
+            if video_metadata_config:
+                video_part_config["video_metadata"] = VideoMetadata(**video_metadata_config)
+            video_part = Part(**video_part_config)
+            prompt_part = Part(text=prompt)
+            contents = Content(parts=[video_part, prompt_part])
+            response = await self.client.aio.models.generate_content(
+                model=self.model_id,
+                contents=contents,
+                # TODO: Add trace ID, when PostHog wrapper supports async
+            )
+            return response.text
+        except APIError as e:
+            logger.exception(f"Gemini API error while understanding video (trace_id: {trace_id}): {e}")
+            return None
+        except Exception as e:
+            logger.exception(f"Unexpected error while understanding video (trace_id: {trace_id}): {e}")
+            return None
