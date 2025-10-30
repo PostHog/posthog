@@ -748,19 +748,6 @@ class FeatureFlagSerializer(
         # We manage evaluation tags via _attempt_set_evaluation_tags below
         validated_data.pop("evaluation_tags", None)
 
-        # Check if flag is being disabled (active changing from True to False)
-        if "active" in validated_data and validated_data["active"] is False and instance.active:
-            # Check for other active flags that depend on this flag
-            dependent_flags = self._find_dependent_flags(instance)
-            if dependent_flags:
-                dependent_flag_names = [f"{flag.key} (ID: {flag.id})" for flag in dependent_flags[:5]]
-                if len(dependent_flags) > 5:
-                    dependent_flag_names.append(f"and {len(dependent_flags) - 5} more")
-                raise exceptions.ValidationError(
-                    f"Cannot disable this feature flag because other active flags depend on it: {', '.join(dependent_flag_names)}. "
-                    f"Please update or disable the dependent flags first."
-                )
-
         if "deleted" in validated_data and validated_data["deleted"] is True:
             # Check for linked early access features
             if instance.features.count() > 0:
@@ -911,11 +898,11 @@ class FeatureFlagSerializer(
             and validated_data[field] != getattr(current_instance, field)
         ]
 
-    def _find_dependent_flags(self, flag_to_delete: FeatureFlag) -> list[FeatureFlag]:
+    def _find_dependent_flags(self, flag_to_check: FeatureFlag) -> list[FeatureFlag]:
         """Find all active flags that depend on the given flag."""
         return list(
-            FeatureFlag.objects.filter(team=flag_to_delete.team, deleted=False, active=True)
-            .exclude(id=flag_to_delete.id)
+            FeatureFlag.objects.filter(team=flag_to_check.team, deleted=False, active=True)
+            .exclude(id=flag_to_check.id)
             .extra(
                 where=[
                     """
@@ -927,7 +914,7 @@ class FeatureFlagSerializer(
                     )
                     """
                 ],
-                params=[str(flag_to_delete.id)],
+                params=[str(flag_to_check.id)],
             )
             .order_by("key")
         )
@@ -1404,6 +1391,43 @@ class FeatureFlagViewSet(
             )
 
         return Response({"success": True}, status=200)
+
+    @action(methods=["POST"], detail=True)
+    def check_can_disable(self, request: request.Request, **kwargs):
+        """Check if disabling this flag will affect other active flags that depend on it."""
+        feature_flag: FeatureFlag = self.get_object()
+
+        if not feature_flag.active:
+            return Response({"can_disable": True, "dependent_flags": []}, status=200)
+
+        # Use the serializer class method to find dependent flags
+        serializer = self.serializer_class()
+        dependent_flags = serializer._find_dependent_flags(feature_flag)
+        if not dependent_flags:
+            return Response({"can_disable": True, "dependent_flags": []}, status=200)
+
+        dependent_flag_data = [
+            {
+                "id": flag.id,
+                "key": flag.key,
+                "name": flag.name or flag.key,
+            }
+            for flag in dependent_flags
+        ]
+
+        return Response(
+            {
+                "can_disable": True,
+                "dependent_flags": dependent_flag_data,
+                "warning": (
+                    f"This feature flag is used by {len(dependent_flags)} other active "
+                    f"{'flag' if len(dependent_flags) == 1 else 'flags'}. "
+                    f"Disabling it will cause {'that flag' if len(dependent_flags) == 1 else 'those flags'} "
+                    f"to evaluate this condition as false."
+                ),
+            },
+            status=200,
+        )
 
     @action(methods=["GET"], detail=False)
     def my_flags(self, request: request.Request, **kwargs):

@@ -1,4 +1,16 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    actions,
+    afterMount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+    sharedListeners,
+} from 'kea'
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
@@ -369,6 +381,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ) => ({ filters, active, errors, variants, payloads }),
         setScheduledChangeOperation: (changeType: ScheduledChangeOperationType) => ({ changeType }),
         setAccessDeniedToFeatureFlag: true,
+        toggleFeatureFlagActive: (active: boolean) => ({ active }),
+        submitFeatureFlagWithValidation: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -399,31 +413,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     },
                 }
             },
-            submit: (featureFlag) => {
-                // Use confirmation logic from dedicated file
-                const confirmationShown = checkFeatureFlagConfirmation(
-                    values.originalFeatureFlag,
-                    featureFlag,
-                    !!values.currentTeam?.feature_flag_confirmation_enabled,
-                    values.currentTeam?.feature_flag_confirmation_message || undefined,
-                    () => {
-                        // This callback is called when confirmation is completed or not needed
-                        if (featureFlag.id) {
-                            actions.saveFeatureFlag(featureFlag)
-                        } else {
-                            actions.saveFeatureFlag({ ...featureFlag, _create_in_folder: 'Unfiled/Feature Flags' })
-                        }
-                    }
-                )
-
-                // If no confirmation was shown, proceed immediately
-                if (!confirmationShown) {
-                    if (featureFlag.id) {
-                        actions.saveFeatureFlag(featureFlag)
-                    } else {
-                        actions.saveFeatureFlag({ ...featureFlag, _create_in_folder: 'Unfiled/Feature Flags' })
-                    }
-                }
+            submit: async (featureFlag) => {
+                await actions.submitFeatureFlagWithValidation(featureFlag)
             },
         },
     })),
@@ -688,6 +679,57 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
     }),
+    sharedListeners(({ values }) => ({
+        checkDependentFlagsAndConfirm: async (payload: {
+            originalFlag: FeatureFlagType | null
+            updatedFlag: Partial<FeatureFlagType>
+            onConfirm: () => void
+        }) => {
+            const { originalFlag, updatedFlag, onConfirm } = payload
+
+            // Check if flag is being disabled and has active dependents
+            const isBeingDisabled = updatedFlag.id && originalFlag?.active === true && updatedFlag.active === false
+
+            let dependentFlagsWarning: string | undefined
+            if (isBeingDisabled) {
+                try {
+                    const response = await api.create(
+                        `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}/check_can_disable/`,
+                        {}
+                    )
+                    if (response.dependent_flags && response.dependent_flags.length > 0) {
+                        dependentFlagsWarning = response.warning
+                    }
+                } catch (error) {
+                    console.error('Failed to check dependent flags:', error)
+                }
+            }
+
+            const customMessages: string[] = []
+            if (dependentFlagsWarning) {
+                customMessages.push(dependentFlagsWarning)
+            }
+            if (values.currentTeam?.feature_flag_confirmation_enabled) {
+                const teamCustomMessage = values.currentTeam?.feature_flag_confirmation_message
+                if (teamCustomMessage) {
+                    customMessages.push(teamCustomMessage)
+                }
+            }
+
+            const confirmationShown = checkFeatureFlagConfirmation(
+                originalFlag,
+                updatedFlag as FeatureFlagType,
+                customMessages.length > 0,
+                customMessages,
+                onConfirm
+            )
+
+            // If no confirmation was shown, proceed immediately
+            if (!confirmationShown) {
+                onConfirm()
+            }
+        },
+    })),
     loaders(({ values, props, actions }) => ({
         featureFlag: {
             loadFeatureFlag: async () => {
@@ -1060,7 +1102,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         },
     })),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, sharedListeners }) => ({
         submitNewDashboardSuccessWithResult: async ({ result }) => {
             await api.update(`api/projects/${values.currentProjectId}/feature_flags/${values.featureFlag.id}`, {
                 analytics_dashboards: [result.id],
@@ -1282,6 +1324,39 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (editing) {
                 actions.loadFeatureFlag()
             }
+        },
+        submitFeatureFlagWithValidation: async ({ featureFlag }, breakpoint, action, previousState) => {
+            await sharedListeners.checkDependentFlagsAndConfirm(
+                {
+                    originalFlag: values.originalFeatureFlag,
+                    updatedFlag: featureFlag,
+                    onConfirm: () => {
+                        if (featureFlag.id) {
+                            actions.saveFeatureFlag(featureFlag)
+                        } else {
+                            actions.saveFeatureFlag({ ...featureFlag, _create_in_folder: 'Unfiled/Feature Flags' })
+                        }
+                    },
+                },
+                breakpoint,
+                action as any,
+                previousState
+            )
+        },
+        toggleFeatureFlagActive: async ({ active }, breakpoint, action, previousState) => {
+            const updatedFlag = { ...values.featureFlag, active }
+            await sharedListeners.checkDependentFlagsAndConfirm(
+                {
+                    originalFlag: values.featureFlag,
+                    updatedFlag,
+                    onConfirm: () => {
+                        actions.saveFeatureFlag(updatedFlag)
+                    },
+                },
+                breakpoint,
+                action as any,
+                previousState
+            )
         },
     })),
     selectors({

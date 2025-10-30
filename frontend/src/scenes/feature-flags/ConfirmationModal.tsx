@@ -11,7 +11,7 @@ interface ConfirmationModalProps {
     type: ConfirmationModalType
     activeNewValue?: boolean // Only for flag-status type
     changes?: string[] // Only for multi-changes type
-    customMessage?: string // Custom message for multi-changes type
+    customMessages?: string[] // Custom message(s) for multi-changes type
     onConfirm: () => void
 }
 
@@ -24,7 +24,7 @@ export function openConfirmationModal({
     type,
     activeNewValue,
     changes = [],
-    customMessage,
+    customMessages,
     onConfirm,
 }: ConfirmationModalProps): void {
     let title: string
@@ -72,6 +72,8 @@ export function openConfirmationModal({
             const defaultMessage =
                 '⚠️ These changes will immediately affect users matching the release conditions. Please ensure you understand the consequences before proceeding.'
 
+            const messagesToDisplay = customMessages && customMessages.length > 0 ? customMessages : [defaultMessage]
+
             description = (
                 <>
                     <p>You are about to save the following changes:</p>
@@ -80,7 +82,11 @@ export function openConfirmationModal({
                             <li key={index}>{change}</li>
                         ))}
                     </ul>
-                    <p className="mt-4">{customMessage || defaultMessage}</p>
+                    {messagesToDisplay.map((message, index) => (
+                        <p key={index} className="mt-4">
+                            {message}
+                        </p>
+                    ))}
                 </>
             )
             break

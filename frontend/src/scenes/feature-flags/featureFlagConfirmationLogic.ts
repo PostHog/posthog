@@ -106,7 +106,7 @@ export function checkFeatureFlagConfirmation(
     originalFlag: FeatureFlagType | null,
     updatedFlag: FeatureFlagType,
     confirmationEnabled: boolean,
-    customMessage: string | undefined,
+    customMessages: string[] | undefined,
     onConfirm: () => void
 ): boolean {
     // Check if confirmation is needed
@@ -121,7 +121,7 @@ export function checkFeatureFlagConfirmation(
                 featureFlag: updatedFlag,
                 type: 'multi-changes',
                 changes: changes,
-                customMessage: customMessage,
+                customMessages: customMessages,
                 onConfirm: onConfirm,
             })
             return true // Confirmation modal shown, don't proceed with save
