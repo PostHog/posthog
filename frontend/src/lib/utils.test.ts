@@ -1214,6 +1214,12 @@ describe('lib/utils', () => {
             expect(formatDateTimeRange(from, to)).toEqual('June 15, 2024 09:00 - June 20, 17:30')
         })
 
+        it('hides time if both times are midnight', () => {
+            const from = dayjs('2024-06-15T00:00:00')
+            const to = dayjs('2024-06-20T00:00:00')
+            expect(formatDateTimeRange(from, to)).toEqual('June 15, 2024  - June 20')
+        })
+
         it('formats range in same year as current year', () => {
             const from = dayjs('2025-01-10T10:15:00')
             const to = dayjs('2025-02-05T14:20:00')

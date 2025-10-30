@@ -946,26 +946,45 @@ export const formatDateRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs, form
 }
 
 export const formatDateTimeRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs): string => {
-    let fromComponents = ['MMMM', ' D, ', 'YYYY ', 'HH:mm', ':ss']
-    let toComponents = ['MMMM', ' D, ', 'YYYY ', 'HH:mm', ':ss']
+    const MONTHDAY = 'MMMM D'
+    const COMMA = ', '
+    const YEAR = 'YYYY '
+    const TIME = 'HH:mm'
+    const SECONDS = ':ss'
+
+    let fromComponents = [MONTHDAY, COMMA, YEAR, TIME, SECONDS]
+    let toComponents = [MONTHDAY, COMMA, YEAR, TIME, SECONDS]
     if (dateFrom.year() === dateTo.year()) {
-        toComponents = toComponents.filter((x) => x !== 'YYYY ')
+        toComponents = toComponents.filter((x) => x !== YEAR)
         if (dateTo.year() === dayjs().year()) {
-            fromComponents = fromComponents.filter((x) => x !== 'YYYY ')
+            fromComponents = fromComponents.filter((x) => x !== YEAR)
         }
 
         if (dateFrom.date() === dateTo.date()) {
-            toComponents = toComponents.filter((x) => x !== 'MMMM')
-            toComponents = toComponents.filter((x) => x !== ' D, ')
+            toComponents = toComponents.filter((x) => x !== MONTHDAY)
+            toComponents = toComponents.filter((x) => x !== COMMA)
             if (dateTo.date() === dayjs().date()) {
-                fromComponents = fromComponents.filter((x) => x !== 'MMMM')
-                fromComponents = fromComponents.filter((x) => x !== ' D, ')
+                fromComponents = fromComponents.filter((x) => x !== MONTHDAY)
+                fromComponents = fromComponents.filter((x) => x !== COMMA)
             }
         }
 
+        if (dateFrom.isSame(dayjs(dateFrom).startOf('day')) && dateTo.isSame(dayjs(dateTo).startOf('day'))) {
+            fromComponents = fromComponents.filter((x) => x !== TIME)
+            toComponents = toComponents.filter((x) => x !== TIME)
+        }
+
         if (dateFrom.second() === 0 && dateTo.second() === 0) {
-            fromComponents = fromComponents.filter((x) => x !== ':ss')
-            toComponents = toComponents.filter((x) => x !== ':ss')
+            fromComponents = fromComponents.filter((x) => x !== SECONDS)
+            toComponents = toComponents.filter((x) => x !== SECONDS)
+        }
+
+        if (!fromComponents.includes(YEAR) && !fromComponents.includes(TIME)) {
+            fromComponents = fromComponents.filter((x) => x !== COMMA)
+        }
+
+        if (!toComponents.includes(YEAR) && !toComponents.includes(TIME)) {
+            toComponents = toComponents.filter((x) => x !== COMMA)
         }
     }
     return `${dateFrom.format(fromComponents.join(''))} - ${dateTo.format(toComponents.join(''))}`
