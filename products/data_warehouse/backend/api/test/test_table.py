@@ -14,14 +14,14 @@ from products.data_warehouse.backend.models.external_data_source import External
 
 class TestTable(APIBaseTest):
     @patch(
-        "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
+        "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns",
         return_value={
             "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
             "a_column": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
         },
     )
     @patch(
-        "posthog.warehouse.models.table.DataWarehouseTable.validate_column_type",
+        "products.data_warehouse.backend.models.table.DataWarehouseTable.validate_column_type",
         return_value=True,
     )
     @patch("posthog.tasks.warehouse.get_client")
@@ -53,14 +53,14 @@ class TestTable(APIBaseTest):
         assert table.credential.access_secret, "_accesssecret"
 
     @patch(
-        "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
+        "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns",
         return_value={
             "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
             "a_column": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
         },
     )
     @patch(
-        "posthog.warehouse.models.table.DataWarehouseTable.validate_column_type",
+        "products.data_warehouse.backend.models.table.DataWarehouseTable.validate_column_type",
         return_value=False,
     )
     @patch("posthog.tasks.warehouse.get_client")
@@ -91,7 +91,7 @@ class TestTable(APIBaseTest):
         assert table.credential.access_key, "_accesskey"
         assert table.credential.access_secret, "_accesssecret"
 
-    @patch("posthog.warehouse.models.table.DataWarehouseTable.get_columns")
+    @patch("products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns")
     def test_credentialerror(self, patch_get_columns):
         patch_get_columns.side_effect = ServerException(
             message="""DB::Exception: The AWS Access Key Id you provided does not exist in our records.: Cannot extract table structure from Parquet format file. You can specify the structure manually. Stack trace:\n\n0. DB::Exception::Exception(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&, int, bool) @ 0x8e25488 in /u""",
@@ -113,7 +113,7 @@ class TestTable(APIBaseTest):
         response = response.json()
 
     @patch(
-        "posthog.warehouse.models.table.DataWarehouseTable.validate_column_type",
+        "products.data_warehouse.backend.models.table.DataWarehouseTable.validate_column_type",
         return_value=True,
     )
     def test_update_schema_200_old_column_style(self, patch_validate_column_type):
@@ -130,7 +130,7 @@ class TestTable(APIBaseTest):
         assert table.columns["id"] == {"clickhouse": "Nullable(Float64)", "hogql": "FloatDatabaseField", "valid": True}
 
     @patch(
-        "posthog.warehouse.models.table.DataWarehouseTable.validate_column_type",
+        "products.data_warehouse.backend.models.table.DataWarehouseTable.validate_column_type",
         return_value=True,
     )
     def test_update_schema_200_new_column_style(self, patch_validate_column_type):
@@ -240,14 +240,14 @@ class TestTable(APIBaseTest):
         assert table.columns == columns
 
     @patch(
-        "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
+        "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns",
         return_value={
             "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
             "a_column": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
         },
     )
     @patch(
-        "posthog.warehouse.models.table.DataWarehouseTable.validate_column_type",
+        "products.data_warehouse.backend.models.table.DataWarehouseTable.validate_column_type",
         return_value=True,
     )
     @patch("posthog.tasks.warehouse.get_client")
@@ -385,7 +385,7 @@ class TestTable(APIBaseTest):
         file_content = b"id,name,value\n1,Test,100\n2,Test2,200"
         test_file = SimpleUploadedFile("test_file.csv", file_content, content_type="text/csv")
 
-        with patch("posthog.warehouse.models.table.DataWarehouseTable.get_columns") as mock_get_columns:
+        with patch("products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns") as mock_get_columns:
             mock_get_columns.return_value = {
                 "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
                 "name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
@@ -472,7 +472,7 @@ class TestTable(APIBaseTest):
         file_content = b"id,new_name,value\n1,Test,100\n2,Test2,200"
         test_file = SimpleUploadedFile("updated_file.csv", file_content, content_type="text/csv")
 
-        with patch("posthog.warehouse.models.table.DataWarehouseTable.get_columns") as mock_get_columns:
+        with patch("products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns") as mock_get_columns:
             mock_get_columns.return_value = {
                 "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
                 "new_name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
@@ -545,7 +545,7 @@ class TestTable(APIBaseTest):
         test_file = SimpleUploadedFile("test_file.csv", file_content, content_type="text/csv")
 
         # Patch get_columns to return test columns
-        with patch("posthog.warehouse.models.table.DataWarehouseTable.get_columns") as mock_get_columns:
+        with patch("products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns") as mock_get_columns:
             mock_get_columns.return_value = {
                 "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False},
                 "name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False},

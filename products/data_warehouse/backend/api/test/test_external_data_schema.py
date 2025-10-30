@@ -202,7 +202,7 @@ class TestExternalDataSchema(APIBaseTest):
         )
 
         with mock.patch(
-            "posthog.warehouse.api.external_data_schema.trigger_external_data_workflow"
+            "products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"
         ) as mock_trigger_external_data_workflow:
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
@@ -233,7 +233,7 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "posthog.warehouse.api.external_data_schema.trigger_external_data_workflow"
+                "products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"
             ) as mock_trigger_external_data_workflow,
             mock.patch.object(DataWarehouseTable, "get_max_value_for_column", return_value=1),
         ):

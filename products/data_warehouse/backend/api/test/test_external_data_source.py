@@ -590,7 +590,7 @@ class TestExternalDataSource(APIBaseTest):
         assert ExternalDataSchema.objects.filter(pk=schema.pk, deleted=True).exists()
 
     # TODO: update this test
-    @patch("posthog.warehouse.api.external_data_source.trigger_external_data_source_workflow")
+    @patch("products.data_warehouse.backend.api.external_data_source.trigger_external_data_source_workflow")
     def test_reload_external_data_source(self, mock_trigger):
         source = self._create_external_data_source()
 

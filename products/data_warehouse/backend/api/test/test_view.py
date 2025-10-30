@@ -90,14 +90,14 @@ class TestView(APIBaseTest):
         )
 
     @patch(
-        "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
+        "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns",
         return_value={
             "id": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True},
             "a_column": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True},
         },
     )
     @patch(
-        "posthog.warehouse.models.datawarehouse_saved_query.DataWarehouseSavedQuery.get_columns",
+        "products.data_warehouse.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.get_columns",
         return_value={"id": "String", "a_column": "String"},
     )
     @patch("posthog.tasks.warehouse.get_client")

@@ -14,7 +14,7 @@ class TestTable(BaseTest):
             name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
         )
 
-        with patch("posthog.warehouse.models.table.sync_execute") as sync_execute_results:
+        with patch("products.data_warehouse.backend.models.table.sync_execute") as sync_execute_results:
             sync_execute_results.return_value = [["id", "Int64"]]
             columns = table.get_columns()
             assert columns == {"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField", "valid": True}}
@@ -25,7 +25,7 @@ class TestTable(BaseTest):
             name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
         )
 
-        with patch("posthog.warehouse.models.table.sync_execute") as sync_execute_results:
+        with patch("products.data_warehouse.backend.models.table.sync_execute") as sync_execute_results:
             sync_execute_results.return_value = [["id", "Nullable(Int64)"]]
             columns = table.get_columns()
             assert columns == {"id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField", "valid": True}}
@@ -36,7 +36,7 @@ class TestTable(BaseTest):
             name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
         )
 
-        with patch("posthog.warehouse.models.table.sync_execute") as sync_execute_results:
+        with patch("products.data_warehouse.backend.models.table.sync_execute") as sync_execute_results:
             sync_execute_results.return_value = [["id", "Nothing"]]
             columns = table.get_columns()
             assert columns == {"id": {"clickhouse": "Nothing", "hogql": "UnknownDatabaseField", "valid": True}}
@@ -47,7 +47,7 @@ class TestTable(BaseTest):
             name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
         )
 
-        with patch("posthog.warehouse.models.table.sync_execute") as sync_execute_results:
+        with patch("products.data_warehouse.backend.models.table.sync_execute") as sync_execute_results:
             sync_execute_results.return_value = [["id", "DateTime(6, 'UTC')"]]
             columns = table.get_columns()
             assert columns == {
@@ -60,7 +60,7 @@ class TestTable(BaseTest):
             name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
         )
 
-        with patch("posthog.warehouse.models.table.sync_execute") as sync_execute_results:
+        with patch("products.data_warehouse.backend.models.table.sync_execute") as sync_execute_results:
             sync_execute_results.return_value = [["id", "Array(String)"]]
             columns = table.get_columns()
             assert columns == {
@@ -73,7 +73,7 @@ class TestTable(BaseTest):
             name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
         )
 
-        with patch("posthog.warehouse.models.table.sync_execute") as sync_execute_results:
+        with patch("products.data_warehouse.backend.models.table.sync_execute") as sync_execute_results:
             sync_execute_results.return_value = [["id", "Nullable(DateTime(6, 'UTC'))"]]
             columns = table.get_columns()
             assert columns == {
@@ -86,7 +86,7 @@ class TestTable(BaseTest):
             name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
         )
 
-        with patch("posthog.warehouse.models.table.sync_execute") as sync_execute_results:
+        with patch("products.data_warehouse.backend.models.table.sync_execute") as sync_execute_results:
             sync_execute_results.return_value = [["id", "Map(String, Map(String, Array(UInt64)))"]]
             columns = table.get_columns()
             assert columns == {
@@ -105,7 +105,7 @@ class TestTable(BaseTest):
 
         clickhouse_type = "Tuple(data Tuple(`$event_schema` Tuple(version Nullable(String)), client_id Nullable(String), client_name Nullable(String), connection Nullable(String), connection_id Nullable(String), date Nullable(String), details Tuple(actions Tuple(executions Array(Nullable(String))), completedAt Nullable(Int64), elapsedTime Nullable(Int64), initiatedAt Nullable(Int64), prompts Array(Tuple(completedAt Nullable(Int64), connection Nullable(String), connection_id Nullable(String), elapsedTime Nullable(Int64), flow Nullable(String), identity Nullable(String), initiatedAt Nullable(Int64), name Nullable(String), stats Tuple(loginsCount Nullable(Int64)), strategy Nullable(String), timers Tuple(rules Nullable(Int64)), url Nullable(String), user_id Nullable(String), user_name Nullable(String))), session_id Nullable(String), stats Tuple(loginsCount Nullable(Int64))), hostname Nullable(String), ip Nullable(String), log_id Nullable(String), strategy Nullable(String), strategy_type Nullable(String), type Nullable(String), user_agent Nullable(String), user_id Nullable(String), user_name Nullable(String)), log_id Nullable(String))"
 
-        with patch("posthog.warehouse.models.table.sync_execute") as sync_execute_results:
+        with patch("products.data_warehouse.backend.models.table.sync_execute") as sync_execute_results:
             sync_execute_results.return_value = [["id", clickhouse_type]]
             columns = table.get_columns()
             assert columns == {
@@ -122,7 +122,7 @@ class TestTable(BaseTest):
             name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
         )
 
-        with patch("posthog.warehouse.models.table.sync_execute") as sync_execute_results:
+        with patch("products.data_warehouse.backend.models.table.sync_execute") as sync_execute_results:
             sync_execute_results.return_value = [["id-hype", "String"]]
             columns = table.get_columns()
             assert columns == {

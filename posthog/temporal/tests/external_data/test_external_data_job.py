@@ -369,7 +369,9 @@ def test_update_external_job_activity_with_non_retryable_error(activity_environm
         source_id=str(new_source.pk),
         team_id=team.id,
     )
-    with mock.patch("posthog.warehouse.models.external_data_schema.external_data_workflow_exists", return_value=False):
+    with mock.patch(
+        "products.data_warehouse.backend.models.external_data_schema.external_data_workflow_exists", return_value=False
+    ):
         activity_environment.run(update_external_data_job_model, inputs)
 
     new_job.refresh_from_db()
@@ -417,7 +419,9 @@ def test_update_external_job_activity_with_not_source_sepecific_non_retryable_er
         source_id=str(new_source.pk),
         team_id=team.id,
     )
-    with mock.patch("posthog.warehouse.models.external_data_schema.external_data_workflow_exists", return_value=False):
+    with mock.patch(
+        "products.data_warehouse.backend.models.external_data_schema.external_data_workflow_exists", return_value=False
+    ):
         activity_environment.run(update_external_data_job_model, inputs)
 
     new_job.refresh_from_db()
@@ -546,7 +550,7 @@ def test_run_stripe_job(activity_environment, team, minio_client, mock_stripe_cl
             BUCKET_NAME=BUCKET_NAME,
         ),
         mock.patch(
-            "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
+            "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns",
             return_value={
                 "id": {"clickhouse": "string", "hogql": "StringDatabaseField"},
                 "name": {"clickhouse": "string", "hogql": "StringDatabaseField"},
@@ -569,7 +573,7 @@ def test_run_stripe_job(activity_environment, team, minio_client, mock_stripe_cl
             BUCKET_NAME=BUCKET_NAME,
         ),
         mock.patch(
-            "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
+            "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns",
             return_value={
                 "id": {"clickhouse": "string", "hogql": "StringDatabaseField"},
                 "customer": {"clickhouse": "string", "hogql": "StringDatabaseField"},
@@ -630,7 +634,7 @@ def test_run_stripe_job_row_count_update(activity_environment, team, minio_clien
             BUCKET_NAME=BUCKET_NAME,
         ),
         mock.patch(
-            "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
+            "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns",
             return_value={
                 "id": {"clickhouse": "string", "hogql": "StringDatabaseField"},
                 "name": {"clickhouse": "string", "hogql": "StringDatabaseField"},
@@ -681,7 +685,9 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
         return {}
 
     with (
-        mock.patch("posthog.warehouse.models.table.DataWarehouseTable.get_columns", return_value={"id": "string"}),
+        mock.patch(
+            "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns", return_value={"id": "string"}
+        ),
         mock.patch.object(PipelineNonDLT, "run", mock_func),
     ):
         with (

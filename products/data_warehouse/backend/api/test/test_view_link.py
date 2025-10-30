@@ -309,7 +309,7 @@ def _mock_execute_hogql_side_effect(*args, **kwargs):
 
 
 class TestViewLinkValidation(APIBaseTest):
-    PATH = "posthog.warehouse.api.view_link"
+    PATH = "products.data_warehouse.backend.api.view_link"
 
     def assertHogQLEqual(self, result, expected):
         formatted_result = dedent(re.sub(r"\s+", " ", result.strip())).strip()
