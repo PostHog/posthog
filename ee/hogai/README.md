@@ -35,9 +35,8 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
 
 
     class YourTool(MaxTool):
-        name: str = "your_tool_name"  # Must match a value in AssistantContextualTool enum
+        name: str = "your_tool_name"  # Must match a value in AssistantTool enum
         description: str = "What this tool does"
-        thinking_message: str = "What to show while tool is working"
         context_prompt_template: str = "Context about the tool state: {context_var}"
         args_schema: type[BaseModel] = YourToolArgs
 
@@ -55,7 +54,7 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
             return "Tool execution completed", response
     ```
 
-3. Add your tool name to the `AssistantContextualTool` union in `frontend/src/queries/schema/schema-assistant-messages.ts`, then run `pnpm schema:build`.
+3. Add your tool name to the `AssistantTool` union in `frontend/src/queries/schema/schema-assistant-messages.ts`, then run `pnpm schema:build`.
 
 4. Define tool metadata in `TOOL_DEFINITIONS` in `frontend/src/scenes/max/max-constants.tsx`:
 
@@ -83,7 +82,7 @@ import { MaxTool } from 'scenes/max/MaxTool'
 function YourComponent() {
     return (
         <MaxTool
-            name="your_tool_name" // Must match backend tool name - enforced by the AssistantContextualTool enum
+            name="your_tool_name" // Must match backend tool name - enforced by the AssistantTool enum
             displayName="Human-friendly name"
             context={{
                 // Context data passed to backend - can be empty if there truly is no context
@@ -307,10 +306,11 @@ class ToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyAgentState[Ma
 
 
 class YourTaxonomyGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[MaxToolTaxonomyOutput]]):
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User, tool_call_id: str):
         super().__init__(
             team,
             user,
+            tool_call_id,
             loop_node_class=LoopNode,
             tools_node_class=ToolsNode,
             toolkit_class=YourToolkit,
@@ -320,7 +320,7 @@ class YourTaxonomyGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[Max
 4. Invoke it (typically from a `MaxTool`), mirroring `products/replay/backend/max_tools.py`:
 
 ```python
-graph = YourTaxonomyGraph(team=self._team, user=self._user)
+graph = YourTaxonomyGraph(team=self._team, user=self._user, tool_call_id=self._tool_call_id)
 
 graph_context = {
     "change": "Show me recordings of users in Germany that used a mobile device while performing a payment",

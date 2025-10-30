@@ -124,8 +124,6 @@ class ReadTaxonomyTool(MaxTool):
     context_prompt_template: str = (
         "Explores the user's events, actions, properties, and property values (i.e. taxonomy)."
     )
-    thinking_message: str = "Searching the taxonomy"
-    show_tool_call_message: bool = False
 
     def _run_impl(self, query: dict[str, Any]) -> tuple[str, Any]:
         # Langchain can't parse a dynamically created Pydantic model, so we need to additionally validate the query here.
@@ -157,8 +155,10 @@ class ReadTaxonomyTool(MaxTool):
         *,
         team: Team,
         user: User,
+        tool_call_id: str,
         state: AssistantState | None = None,
         config: RunnableConfig | None = None,
+        context_manager: AssistantContextManager | None = None,
     ) -> Self:
         context_manager = AssistantContextManager(team, user, config)
         group_names = await context_manager.get_group_names()
@@ -197,4 +197,12 @@ class ReadTaxonomyTool(MaxTool):
         class ReadTaxonomyToolArgsWithGroups(BaseModel):
             query: ReadTaxonomyQueryWithGroups = Field(..., discriminator="kind")
 
-        return cls(team=team, user=user, state=state, config=config, args_schema=ReadTaxonomyToolArgsWithGroups)
+        return cls(
+            team=team,
+            user=user,
+            tool_call_id=tool_call_id,
+            state=state,
+            config=config,
+            args_schema=ReadTaxonomyToolArgsWithGroups,
+            context_manager=context_manager,
+        )

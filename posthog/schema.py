@@ -71,34 +71,6 @@ class AssistantBaseMultipleBreakdownFilter(BaseModel):
     property: str = Field(..., description="Property name from the plan to break down by.")
 
 
-class AssistantContextualTool(StrEnum):
-    SEARCH_SESSION_RECORDINGS = "search_session_recordings"
-    GENERATE_HOGQL_QUERY = "generate_hogql_query"
-    FIX_HOGQL_QUERY = "fix_hogql_query"
-    ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
-    CREATE_AND_QUERY_INSIGHT = "create_and_query_insight"
-    CREATE_HOG_TRANSFORMATION_FUNCTION = "create_hog_transformation_function"
-    CREATE_HOG_FUNCTION_FILTERS = "create_hog_function_filters"
-    CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"
-    CREATE_MESSAGE_TEMPLATE = "create_message_template"
-    NAVIGATE = "navigate"
-    FILTER_ERROR_TRACKING_ISSUES = "filter_error_tracking_issues"
-    FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
-    EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
-    CREATE_SURVEY = "create_survey"
-    ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
-    SEARCH_DOCS = "search_docs"
-    SEARCH_INSIGHTS = "search_insights"
-    SESSION_SUMMARIZATION = "session_summarization"
-    CREATE_DASHBOARD = "create_dashboard"
-    EDIT_CURRENT_DASHBOARD = "edit_current_dashboard"
-    READ_TAXONOMY = "read_taxonomy"
-    SEARCH = "search"
-    READ_DATA = "read_data"
-    TODO_WRITE = "todo_write"
-    FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
-
-
 class AssistantDateRange(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -142,6 +114,7 @@ class AssistantEventType(StrEnum):
     MESSAGE = "message"
     CONVERSATION = "conversation"
     NOTEBOOK = "notebook"
+    UPDATE = "update"
 
 
 class AssistantFormOption(BaseModel):
@@ -283,6 +256,33 @@ class AssistantStringOrBooleanValuePropertyFilterOperator(StrEnum):
     NOT_REGEX = "not_regex"
 
 
+class AssistantTool(StrEnum):
+    SEARCH_SESSION_RECORDINGS = "search_session_recordings"
+    GENERATE_HOGQL_QUERY = "generate_hogql_query"
+    FIX_HOGQL_QUERY = "fix_hogql_query"
+    ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
+    CREATE_AND_QUERY_INSIGHT = "create_and_query_insight"
+    CREATE_HOG_TRANSFORMATION_FUNCTION = "create_hog_transformation_function"
+    CREATE_HOG_FUNCTION_FILTERS = "create_hog_function_filters"
+    CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"
+    CREATE_MESSAGE_TEMPLATE = "create_message_template"
+    NAVIGATE = "navigate"
+    EDIT_CURRENT_INSIGHT = "edit_current_insight"
+    FILTER_ERROR_TRACKING_ISSUES = "filter_error_tracking_issues"
+    FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
+    EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
+    CREATE_SURVEY = "create_survey"
+    ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
+    SESSION_SUMMARIZATION = "session_summarization"
+    CREATE_DASHBOARD = "create_dashboard"
+    EDIT_CURRENT_DASHBOARD = "edit_current_dashboard"
+    READ_TAXONOMY = "read_taxonomy"
+    SEARCH = "search"
+    READ_DATA = "read_data"
+    TODO_WRITE = "todo_write"
+    FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
+
+
 class AssistantToolCall(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -301,6 +301,7 @@ class AssistantToolCallMessage(BaseModel):
     )
     content: str
     id: Optional[str] = None
+    parent_tool_call_id: Optional[str] = None
     tool_call_id: str
     type: Literal["tool"] = "tool"
     ui_payload: Optional[dict[str, Any]] = Field(
@@ -310,7 +311,6 @@ class AssistantToolCallMessage(BaseModel):
             " without a ui_payload are not passed through to the frontend."
         ),
     )
-    visible: Optional[bool] = None
 
 
 class AssistantTrendsDisplayType(RootModel[Union[str, Any]]):
@@ -416,6 +416,15 @@ class AssistantTrendsFilter(BaseModel):
     )
 
 
+class AssistantUpdateEvent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    id: str
+    tool_call_id: str
+
+
 class AttributionMode(StrEnum):
     FIRST_TOUCH = "first_touch"
     LAST_TOUCH = "last_touch"
@@ -457,7 +466,7 @@ class BaseAssistantMessage(BaseModel):
         extra="forbid",
     )
     id: Optional[str] = None
-    visible: Optional[bool] = None
+    parent_tool_call_id: Optional[str] = None
 
 
 class BaseMathType(StrEnum):
@@ -630,8 +639,8 @@ class ContextMessage(BaseModel):
     )
     content: str
     id: Optional[str] = None
+    parent_tool_call_id: Optional[str] = None
     type: Literal["context"] = "context"
-    visible: Optional[bool] = None
 
 
 class CountPerActorMathType(StrEnum):
@@ -1373,8 +1382,8 @@ class FailureMessage(BaseModel):
     )
     content: Optional[str] = None
     id: Optional[str] = None
+    parent_tool_call_id: Optional[str] = None
     type: Literal["ai/failure"] = "ai/failure"
-    visible: Optional[bool] = None
 
 
 class FileSystemCount(BaseModel):
@@ -1493,12 +1502,22 @@ class FileSystemImport(BaseModel):
     protocol: Optional[str] = Field(default=None, description='Protocol of the item, defaults to "project://"')
     ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
     sceneKey: Optional[str] = Field(default=None, description="Match this with the a base scene key or a specific one")
+    sceneKeys: Optional[list[str]] = Field(default=None, description="List of all scenes exported by the app")
     shortcut: Optional[bool] = Field(default=None, description="Whether this is a shortcut or the actual item")
     tags: Optional[list[Tag]] = Field(default=None, description="Tag for the product 'beta' / 'alpha'")
     type: Optional[str] = Field(
         default=None, description="Type of object, used for icon, e.g. feature_flag, insight, etc"
     )
     visualOrder: Optional[float] = Field(default=None, description="Order of object in tree")
+
+
+class FileSystemViewLogEntry(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    ref: str
+    type: str
+    viewed_at: str
 
 
 class FilterLogicalOperator(StrEnum):
@@ -1788,6 +1807,7 @@ class IntegrationKind(StrEnum):
 
 
 class IntervalType(StrEnum):
+    SECOND = "second"
     MINUTE = "minute"
     HOUR = "hour"
     DAY = "day"
@@ -2336,9 +2356,9 @@ class ReasoningMessage(BaseModel):
     )
     content: str
     id: Optional[str] = None
+    parent_tool_call_id: Optional[str] = None
     substeps: Optional[list[str]] = None
     type: Literal["ai/reasoning"] = "ai/reasoning"
-    visible: Optional[bool] = None
 
 
 class RecordingDurationFilter(BaseModel):
@@ -2522,24 +2542,6 @@ class RevenueCurrencyPropertyConfig(BaseModel):
     )
     property: Optional[str] = None
     static: Optional[CurrencyCode] = None
-
-
-class RootAssistantMessage1(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    content: str
-    id: Optional[str] = None
-    tool_call_id: str
-    type: Literal["tool"] = "tool"
-    ui_payload: Optional[dict[str, Any]] = Field(
-        default=None,
-        description=(
-            "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages"
-            " without a ui_payload are not passed through to the frontend."
-        ),
-    )
-    visible: Optional[bool] = None
 
 
 class SamplingRate(BaseModel):
@@ -4392,9 +4394,9 @@ class NotebookUpdateMessage(BaseModel):
     id: Optional[str] = None
     notebook_id: str
     notebook_type: Literal["deep_research"] = "deep_research"
+    parent_tool_call_id: Optional[str] = None
     tool_calls: Optional[list[AssistantToolCall]] = None
     type: Literal["ai/notebook"] = "ai/notebook"
-    visible: Optional[bool] = None
 
 
 class PathsFilter(BaseModel):
@@ -5184,9 +5186,9 @@ class TaskExecutionMessage(BaseModel):
         extra="forbid",
     )
     id: Optional[str] = None
+    parent_tool_call_id: Optional[str] = None
     tasks: list[TaskExecutionItem]
     type: Literal["ai/task_execution"] = "ai/task_execution"
-    visible: Optional[bool] = None
 
 
 class TeamTaxonomyItem(BaseModel):
@@ -5923,9 +5925,9 @@ class AssistantMessage(BaseModel):
     content: str
     id: Optional[str] = None
     meta: Optional[AssistantMessageMetadata] = None
+    parent_tool_call_id: Optional[str] = None
     tool_calls: Optional[list[AssistantToolCall]] = None
     type: Literal["ai"] = "ai"
-    visible: Optional[bool] = None
 
 
 class AssistantRetentionFilter(BaseModel):
@@ -9719,9 +9721,9 @@ class PlanningMessage(BaseModel):
         extra="forbid",
     )
     id: Optional[str] = None
+    parent_tool_call_id: Optional[str] = None
     steps: list[PlanningStep]
     type: Literal["ai/planning"] = "ai/planning"
-    visible: Optional[bool] = None
 
 
 class PropertyGroupFilterValue(BaseModel):
@@ -14626,11 +14628,11 @@ class VisualizationMessage(BaseModel):
     ]
     id: Optional[str] = None
     initiator: Optional[str] = None
+    parent_tool_call_id: Optional[str] = None
     plan: Optional[str] = None
     query: Optional[str] = ""
     short_id: Optional[str] = None
     type: Literal["ai/viz"] = "ai/viz"
-    visible: Optional[bool] = None
 
 
 class DatabaseSchemaQueryResponse(BaseModel):
@@ -14718,8 +14720,8 @@ class MultiVisualizationMessage(BaseModel):
     )
     commentary: Optional[str] = None
     id: Optional[str] = None
+    parent_tool_call_id: Optional[str] = None
     type: Literal["ai/multi_viz"] = "ai/multi_viz"
-    visible: Optional[bool] = None
     visualizations: list[VisualizationItem]
 
 
@@ -15329,9 +15331,9 @@ class HumanMessage(BaseModel):
     )
     content: str
     id: Optional[str] = None
+    parent_tool_call_id: Optional[str] = None
     type: Literal["human"] = "human"
     ui_context: Optional[MaxUIContext] = None
-    visible: Optional[bool] = None
 
 
 class MaxDashboardContext(BaseModel):
@@ -15823,7 +15825,7 @@ class RootAssistantMessage(
             NotebookUpdateMessage,
             PlanningMessage,
             TaskExecutionMessage,
-            RootAssistantMessage1,
+            AssistantToolCallMessage,
         ]
     ]
 ):
@@ -15837,7 +15839,7 @@ class RootAssistantMessage(
         NotebookUpdateMessage,
         PlanningMessage,
         TaskExecutionMessage,
-        RootAssistantMessage1,
+        AssistantToolCallMessage,
     ]
 
 
