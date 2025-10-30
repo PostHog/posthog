@@ -344,7 +344,9 @@ export const RecordingsUniversalFiltersEmbed = ({
                                         type="secondary"
                                         size="small"
                                         icon={<IconTrash />}
-                                        onClick={() => setFilters(appliedSavedFilter.filters)}
+                                        onClick={() =>
+                                            setFilters(appliedSavedFilter.filters as Partial<RecordingUniversalFilters>)
+                                        }
                                     >
                                         Discard changes
                                     </LemonButton>
