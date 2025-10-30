@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Optional
 
 from django.conf import settings
 
@@ -227,7 +227,7 @@ def cohort_filters_to_expr(filters: dict, team: Team) -> ast.Expr:
     - For other filters, defers to property_to_expr
     """
 
-    def _node_to_expr(node: any) -> ast.Expr:
+    def _node_to_expr(node: Any) -> ast.Expr:
         if isinstance(node, list):
             return _combine_expressions([_node_to_expr(child) for child in node])
         if not isinstance(node, dict):
