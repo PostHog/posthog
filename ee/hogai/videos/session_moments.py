@@ -175,27 +175,28 @@ class SessionMomentsLLMAnalyzer:
     async def _get_video_bytes(self, asset_id: int) -> bytes | None:
         """Retrieve video content as bytes for an ExportedAsset ID"""
         try:
+            content: bytes | None = None
             # Fetch the asset from the database
             asset = await ExportedAsset.objects.aget(id=asset_id)
             # Get content from either database or object storage
             if asset.content:
                 # Content stored directly in database
                 content = bytes(asset.content)
-                # TODO: Remove after testing
-                with open(f"{asset_id}.webm", "wb") as f:
-                    f.write(content)
-                return content
             elif asset.content_location:
                 # Content stored in object storage
                 content = await database_sync_to_async(object_storage.read_bytes, thread_sensitive=False)(
                     asset.content_location
                 )
-                # TODO: Remove after testing
-                with open(f"{asset_id}.webm", "wb") as f:
-                    f.write(content)
-                return content
-            else:
-                return None
+            if not content:
+                logger.exception(
+                    f"No content found for asset {asset_id} for session {self.session_id} "
+                    f"of team {self.team_id} when validating session summaries"
+                )
+                raise ExportedAsset.DoesNotExist
+            # TODO: Remove after testing
+            with open(f"{asset_id}.webm", "wb") as f:
+                f.write(content)
+            return content
         except ExportedAsset.DoesNotExist:
             return None
 
