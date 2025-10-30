@@ -15,16 +15,16 @@ There are 3 environments:
 The main cluster is:
 
 - 8 worker nodes
-    - 2 shards
-    - 4 replicas
+  - 2 shards
+  - 4 replicas
 
 ## EU Production
 
 The main cluster is:
 
 - 24 worker nodes - all tables are defined on worker nodes
-    - 8 shards
-    - 3 replicas
+  - 8 shards
+  - 3 replicas
 - 2 coordinator nodes - only non-sharded and distributed tables
 
 Additionally, on k8s we have stateless nodes:
@@ -56,10 +56,10 @@ Parameters:
 
 - `sql`: SQL string to execute (can be a function call returning SQL)
 - `node_roles`: List of NodeRole values (default: `[NodeRole.DATA]` if not specified)
-    - `[NodeRole.DATA]`: Data/worker nodes only
-    - `[NodeRole.DATA, NodeRole.COORDINATOR]`: Data + coordinator nodes
-    - `[NodeRole.INGESTION_SMALL]`: Ingestion layer nodes
-    - `[NodeRole.ALL]`: Rarely used, all nodes
+  - `[NodeRole.DATA]`: Data/worker nodes only
+  - `[NodeRole.DATA, NodeRole.COORDINATOR]`: Data + coordinator nodes
+  - `[NodeRole.INGESTION_SMALL]`: Ingestion layer nodes
+  - `[NodeRole.ALL]`: Rarely used, all nodes
 - `sharded`: Set to `True` when operating on sharded tables (ensures one operation per shard)
 - `is_alter_on_replicated_table`: Set to `True` for ALTER on replicated tables (runs on one host per shard)
 
@@ -71,9 +71,9 @@ All MergeTree engines accept:
 
 - `table`: Table name (required)
 - `replication_scheme`: Enum value (default: `ReplicationScheme.REPLICATED`)
-    - `ReplicationScheme.NOT_SHARDED`: Single node, no replication
-    - `ReplicationScheme.SHARDED`: Sharded + replicated
-    - `ReplicationScheme.REPLICATED`: Replicated but not sharded (noshard in ZK path)
+  - `ReplicationScheme.NOT_SHARDED`: Single node, no replication
+  - `ReplicationScheme.SHARDED`: Sharded + replicated
+  - `ReplicationScheme.REPLICATED`: Replicated but not sharded (noshard in ZK path)
 
 Available engines:
 
@@ -99,7 +99,7 @@ engine=AggregatingMergeTree(
 - `data_table`: Name of underlying sharded/local table (required)
 - `sharding_key`: Expression like `"sipHash64(person_id)"` (optional, omit for non-sharded)
 - `cluster`: Override cluster (default: `settings.CLICKHOUSE_CLUSTER`)
-    - Use `cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER` for non-sharded tables to point to single shard
+  - Use `cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER` for non-sharded tables to point to single shard
 
 Examples:
 
