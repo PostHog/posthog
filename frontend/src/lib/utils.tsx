@@ -1042,6 +1042,7 @@ const dateOptionsMap = {
     d: 'day',
     h: 'hour',
     M: 'minute',
+    s: 'second',
 } as const
 
 export function dateFilterToText(
@@ -1107,6 +1108,9 @@ export function dateFilterToText(
                     break
                 case 'minute':
                     date = dayjs().subtract(counter, 'm')
+                    break
+                case 'second':
+                    date = dayjs().subtract(counter, 's')
                     break
                 default:
                     date = dayjs().subtract(counter, 'd')
@@ -1183,6 +1187,9 @@ export function componentsToDayJs(
             break
         case 'minute':
             response = dayjsInstance.add(amount, 'minute')
+            break
+        case 'second':
+            response = dayjsInstance.add(amount, 'second')
             break
         default:
             throw new UnexpectedNeverError(unit)
@@ -1315,6 +1322,11 @@ export const areDatesValidForInterval = (
         return (
             parsedOldDateTo.diff(parsedOldDateFrom, 'minute') >= 2 &&
             parsedOldDateTo.diff(parsedOldDateFrom, 'minute') < 60 * 12 // 12 hours. picked based on max graph resolution
+        )
+    } else if (interval === 'second') {
+        return (
+            parsedOldDateTo.diff(parsedOldDateFrom, 'second') >= 2 &&
+            parsedOldDateTo.diff(parsedOldDateFrom, 'second') < 60 * 60 // 1 hour
         )
     }
     throw new UnexpectedNeverError(interval)

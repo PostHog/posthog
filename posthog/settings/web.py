@@ -42,6 +42,7 @@ PRODUCTS_APPS = [
     "products.error_tracking.backend.apps.ErrorTrackingConfig",
     "products.notebooks.backend.apps.NotebooksConfig",
     "products.data_warehouse.backend.apps.DataWarehouseConfig",
+    "products.desktop_recordings.backend.apps.DesktopRecordingsConfig",
 ]
 
 INSTALLED_APPS = [

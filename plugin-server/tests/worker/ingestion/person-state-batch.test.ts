@@ -137,6 +137,7 @@ describe('PersonState.processEvent()', () => {
 
         personRepository = new PostgresPersonRepository(hub.db.postgres)
         jest.spyOn(personRepository, 'fetchPerson')
+        jest.spyOn(personRepository, 'createPerson')
         jest.spyOn(personRepository, 'updatePerson')
 
         defaultRetryConfig.RETRY_INTERVAL_DEFAULT = 0
@@ -920,7 +921,7 @@ describe('PersonState.processEvent()', () => {
             ])
         })
 
-        it('updates person properties - always update for person events', async () => {
+        it('skips database write when only filtered properties change (batch-level filtering)', async () => {
             await createPerson(hub, timestamp, { $current_url: 123 }, {}, {}, teamId, null, false, newUserUuid, [
                 { distinctId: newUserDistinctId },
             ])
@@ -940,7 +941,7 @@ describe('PersonState.processEvent()', () => {
                 expect.objectContaining({
                     id: expect.any(String),
                     uuid: newUserUuid,
-                    properties: { $current_url: 4 }, // Here we keep 4 for passing forward to PoE
+                    properties: { $current_url: 4 },
                     created_at: timestamp,
                     is_identified: false,
                 })
@@ -948,7 +949,6 @@ describe('PersonState.processEvent()', () => {
 
             expect(personRepository.fetchPerson).toHaveBeenCalledTimes(1)
 
-            // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(
@@ -957,10 +957,52 @@ describe('PersonState.processEvent()', () => {
                     uuid: newUserUuid,
                     created_at: timestamp,
                     is_identified: false,
-                    properties: { $current_url: 4 },
+                    properties: { $current_url: 123 },
+                    version: 0,
+                })
+            )
+        })
+
+        it('writes to database when non-filtered properties change', async () => {
+            await createPerson(hub, timestamp, { name: 'John' }, {}, {}, teamId, null, false, newUserUuid, [
+                { distinctId: newUserDistinctId },
+            ])
+
+            const propertyService = personPropertyService({
+                event: '$pageview',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { name: 'Jane' },
+                },
+            })
+            const [person, kafkaAcks] = await propertyService.updateProperties()
+            const context = propertyService.getContext()
+            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(String),
+                    uuid: newUserUuid,
+                    properties: { name: 'Jane' },
+                    created_at: timestamp,
+                    is_identified: false,
+                })
+            )
+
+            expect(personRepository.fetchPerson).toHaveBeenCalledTimes(1)
+
+            const persons = sortPersons(await fetchPostgresPersonsH())
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toEqual(
+                expect.objectContaining({
+                    id: person.id,
+                    uuid: newUserUuid,
+                    created_at: timestamp,
+                    is_identified: false,
+                    properties: { name: 'Jane' },
                     version: 1,
                 })
-            ) // We updated PG as it's a person event
+            )
         })
 
         it('updates person properties - always update if undefined before', async () => {
@@ -1083,7 +1125,12 @@ describe('PersonState.processEvent()', () => {
             // create mock merge service,
             const mergeService = personMergeService(event)
             jest.spyOn(mergeService, 'handleIdentifyOrAlias').mockReturnValue(
-                Promise.resolve({ success: true, person: personInitial, kafkaAck: Promise.resolve() })
+                Promise.resolve({
+                    success: true,
+                    person: personInitial,
+                    kafkaAck: Promise.resolve(),
+                    needsPersonUpdate: true,
+                })
             )
 
             const personS = personProcessor(event, undefined, mergeService)
@@ -1237,7 +1284,12 @@ describe('PersonState.processEvent()', () => {
             // create mock merge service
             const mergeService = personMergeService(event)
             jest.spyOn(mergeService, 'handleIdentifyOrAlias').mockReturnValue(
-                Promise.resolve({ success: true, person: mergeDeletedPerson, kafkaAck: Promise.resolve() })
+                Promise.resolve({
+                    success: true,
+                    person: mergeDeletedPerson,
+                    kafkaAck: Promise.resolve(),
+                    needsPersonUpdate: true,
+                })
             )
 
             const personS = personProcessor(event, undefined, mergeService)
@@ -1331,9 +1383,9 @@ describe('PersonState.processEvent()', () => {
                 })
             )
 
-            expect(personRepository.updatePerson).toHaveBeenCalledTimes(1)
+            expect(personRepository.createPerson).toHaveBeenCalledTimes(1)
+            expect(personRepository.updatePerson).not.toHaveBeenCalled()
 
-            // verify Postgres persons
             const persons = await fetchPostgresPersonsH()
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(
@@ -1342,17 +1394,16 @@ describe('PersonState.processEvent()', () => {
                     uuid: newUserUuid,
                     properties: { foo: 'bar' },
                     created_at: timestamp,
-                    version: 1,
+                    version: 0,
                     is_identified: true,
                 })
             )
 
-            // verify Postgres distinct_ids
             const distinctIds = await fetchDistinctIdValues(hub.db.postgres, persons[0])
             expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
         })
 
-        it(`marks is_identified to be updated when no changes to distinct_ids but $anon_distinct_id passe`, async () => {
+        it(`skips database write when is_identified doesn't change (batch-level filtering)`, async () => {
             await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, newUserUuid, [
                 { distinctId: newUserDistinctId },
                 { distinctId: oldUserDistinctId },
@@ -1384,7 +1435,6 @@ describe('PersonState.processEvent()', () => {
             })
             expect(mergeService.getUpdateIsIdentified()).toBeTruthy()
 
-            // verify Postgres persons
             const persons = await fetchPostgresPersonsH()
             expect(persons.length).toEqual(1)
             expect(persons[0]).toMatchObject({
@@ -1393,7 +1443,7 @@ describe('PersonState.processEvent()', () => {
                 created_at: timestamp,
                 is_identified: false,
                 properties: {},
-                version: 1,
+                version: 0,
             })
         })
 
@@ -1942,7 +1992,12 @@ describe('PersonState.processEvent()', () => {
                 hub
             )
             jest.spyOn(state, 'merge').mockImplementation(() => {
-                return Promise.resolve({ success: true, person: undefined, kafkaAck: Promise.resolve() })
+                return Promise.resolve({
+                    success: true,
+                    person: undefined,
+                    kafkaAck: Promise.resolve(),
+                    needsPersonUpdate: true,
+                })
             })
             await state.handleIdentifyOrAlias()
             expect(state.merge).toHaveBeenCalledWith(oldUserDistinctId, newUserDistinctId, teamId, timestamp)
@@ -1959,7 +2014,12 @@ describe('PersonState.processEvent()', () => {
                 hub
             )
             jest.spyOn(state, 'merge').mockImplementation(() => {
-                return Promise.resolve({ success: true, person: undefined, kafkaAck: Promise.resolve() })
+                return Promise.resolve({
+                    success: true,
+                    person: undefined,
+                    kafkaAck: Promise.resolve(),
+                    needsPersonUpdate: true,
+                })
             })
 
             await state.handleIdentifyOrAlias()
@@ -1977,7 +2037,12 @@ describe('PersonState.processEvent()', () => {
                 hub
             )
             jest.spyOn(state, 'merge').mockImplementation(() => {
-                return Promise.resolve({ success: true, person: undefined, kafkaAck: Promise.resolve() })
+                return Promise.resolve({
+                    success: true,
+                    person: undefined,
+                    kafkaAck: Promise.resolve(),
+                    needsPersonUpdate: true,
+                })
             })
 
             await state.handleIdentifyOrAlias()
@@ -4108,6 +4173,7 @@ describe('PersonState.processEvent()', () => {
                             success: true,
                             person: mockPerson,
                             kafkaAck: Promise.resolve(),
+                            needsPersonUpdate: true,
                         })
 
                         const [result] = await processor.processEvent()

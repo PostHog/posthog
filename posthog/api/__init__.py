@@ -30,6 +30,7 @@ from products.data_warehouse.backend.api import (
     view_link,
 )
 from products.data_warehouse.backend.api.lineage import LineageViewSet
+from products.desktop_recordings.backend.api import DesktopRecordingViewSet
 from products.error_tracking.backend.api import (
     ErrorTrackingAssignmentRuleViewSet,
     ErrorTrackingExternalReferenceViewSet,
@@ -874,6 +875,13 @@ environments_router.register(
     r"user_interviews",
     UserInterviewViewSet,
     "environment_user_interviews",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"desktop_recordings",
+    DesktopRecordingViewSet,
+    "environment_desktop_recordings",
     ["team_id"],
 )
 
