@@ -31,7 +31,7 @@ from posthog.schema import ActorsQuery, HogQLQuery
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import ast, property_to_expr
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import capture_legacy_api_call
@@ -197,22 +197,18 @@ def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list
         from posthog.cdp.filters import build_behavioral_event_expr
         from posthog.models.property.property import Property
 
-        # Only treat basic behavioral as a simple event-name matcher for bytecode
+        # Only treat behavioral as event matcher + optional event properties; unsupported values yield True expr
         if filter_data.get("type") == "behavioral":
-            v = filter_data.get("value")
-            if v in {"performed_event", "performed_event_multiple"}:
-                expr = build_behavioral_event_expr(filter_data, team)
-                bytecode = create_bytecode(expr, cohort_membership_supported=True).bytecode
-                # Generate conditionHash from bytecode
-                condition_hash = None
-                if bytecode:
-                    bytecode_str = json.dumps(bytecode, sort_keys=True)
-                    condition_hash = hashlib.sha256(bytecode_str.encode()).hexdigest()[:16]
-
-                return bytecode, None, condition_hash
-            else:
-                # Do not generate bytecode for unsupported behavioral values
+            expr = build_behavioral_event_expr(filter_data, team)
+            # Unsupported behavioral returns Constant(True) → skip bytecode
+            if isinstance(expr, ast.Constant) and expr.value is True:
                 return None, "Unsupported behavioral filter for realtime bytecode", None
+            bytecode = create_bytecode(expr, cohort_membership_supported=True).bytecode
+            condition_hash = None
+            if bytecode:
+                bytecode_str = json.dumps(bytecode, sort_keys=True)
+                condition_hash = hashlib.sha256(bytecode_str.encode()).hexdigest()[:16]
+            return bytecode, None, condition_hash
         else:
             property_obj = Property(**filter_data)
         expr = property_to_expr(property_obj, team)
