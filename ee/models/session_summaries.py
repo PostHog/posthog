@@ -29,6 +29,7 @@ class SessionSummaryVisualConfirmationResult:
     video_description: str  # What LLM found in the video
     created_at: str  # When the video was created, ISO format
     expires_after: str  # When the video will expire, ISO format
+    model_id: str  # What model was used to analyze the video
 
     @classmethod
     def from_session_moment_output(
@@ -43,6 +44,7 @@ class SessionSummaryVisualConfirmationResult:
             video_description=session_moment_output.video_description,
             created_at=session_moment_output.created_at.isoformat(),
             expires_after=session_moment_output.expires_after.isoformat(),
+            model_id=session_moment_output.model_id,
         )
 
 

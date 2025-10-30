@@ -56,6 +56,8 @@ class SessionMomentOutput(SessionMomentInput):
     created_at: datetime
     # When the video will expire
     expires_after: datetime
+    # What model was used to analyze the video
+    model_id: str
 
 
 class SessionMomentsLLMAnalyzer:
@@ -293,6 +295,7 @@ class SessionMomentsLLMAnalyzer:
                 video_description=res,
                 created_at=created_at,
                 expires_after=expires_after,
+                model_id=self._provider.model_id,
             )
             results.append(output)
         # No additional check for how many moments were analyzed as they can be limited by video size
