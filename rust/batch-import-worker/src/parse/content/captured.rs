@@ -172,8 +172,8 @@ mod tests {
         let parser = captured_parse_fn(context, identity_transform);
         let result = parser(raw_event).unwrap().unwrap();
 
-        assert_eq!(
-            result.inner.historical_migration, true,
+        assert!(
+            result.inner.historical_migration,
             "historical_migration field must be true for batch import events"
         );
 

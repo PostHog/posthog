@@ -2009,8 +2009,8 @@ mod tests {
 
         let after_test = Utc::now();
 
-        assert_eq!(
-            captured_event.inner.historical_migration, true,
+        assert!(
+            captured_event.inner.historical_migration,
             "historical_migration field must be true for batch import events"
         );
 

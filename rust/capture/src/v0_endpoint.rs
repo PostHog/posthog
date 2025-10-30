@@ -416,7 +416,6 @@ pub fn process_single_event(
         (_, false) => DataType::AnalyticsMain,
     };
 
-
     // redact the IP address of internally-generated events when tagged as such
     let resolved_ip = if event.properties.contains_key("capture_internal") {
         "127.0.0.1".to_string()

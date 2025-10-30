@@ -386,7 +386,6 @@ impl CapturedEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json;
 
     #[test]
     fn test_captured_event_serialization_with_historical_migration_true() {
@@ -412,7 +411,7 @@ mod tests {
         // Deserialize and verify
         let deserialized: CapturedEvent =
             serde_json::from_str(&serialized).expect("Failed to deserialize");
-        assert_eq!(deserialized.historical_migration, true);
+        assert!(deserialized.historical_migration);
     }
 
     #[test]
@@ -440,7 +439,7 @@ mod tests {
         // Deserialize and verify - should default to false
         let deserialized: CapturedEvent =
             serde_json::from_str(&serialized).expect("Failed to deserialize");
-        assert_eq!(deserialized.historical_migration, false);
+        assert!(!deserialized.historical_migration);
     }
 
     #[test]
@@ -460,6 +459,6 @@ mod tests {
         let deserialized: CapturedEvent =
             serde_json::from_str(json).expect("Failed to deserialize");
         // Should default to false when not present
-        assert_eq!(deserialized.historical_migration, false);
+        assert!(!deserialized.historical_migration);
     }
 }

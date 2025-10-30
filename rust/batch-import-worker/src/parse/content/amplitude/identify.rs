@@ -418,8 +418,8 @@ mod tests {
 
         let after_test = Utc::now();
 
-        assert_eq!(
-            result.inner.historical_migration, true,
+        assert!(
+            result.inner.historical_migration,
             "historical_migration field must be true for identify events"
         );
 
