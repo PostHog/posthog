@@ -27,13 +27,13 @@ from products.batch_exports.backend.tests.temporal.destinations.redshift.utils i
     MISSING_REQUIRED_ENV_VARS,
     TEST_MODELS,
     assert_clickhouse_records_in_redshift,
-    delete_all_from_s3_prefix,
     has_valid_credentials,
 )
 from products.batch_exports.backend.tests.temporal.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
     generate_test_persons_in_clickhouse,
 )
+from products.batch_exports.backend.tests.temporal.utils.s3 import delete_all_from_s3
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -52,7 +52,7 @@ async def clean_up_s3_bucket(s3_client, bucket_name, key_prefix):
 
     assert s3_client is not None
 
-    await delete_all_from_s3_prefix(s3_client, bucket_name, key_prefix)
+    await delete_all_from_s3(s3_client, bucket_name, key_prefix)
 
 
 async def _run_activity(
