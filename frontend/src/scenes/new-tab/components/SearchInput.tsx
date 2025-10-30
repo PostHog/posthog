@@ -311,9 +311,8 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                             {filteredCommands.map((command) => {
                                 const isActive = activeCommands.includes(command.value)
                                 return (
-                                    <DropdownMenuItem asChild>
+                                    <DropdownMenuItem key={command.value as string} asChild>
                                         <ButtonPrimitive
-                                            key={command.value as string}
                                             className="group flex items-center text-left"
                                             onClick={() => selectCommand(command)}
                                             fullWidth
