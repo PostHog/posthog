@@ -2,7 +2,7 @@ import { connect, kea, path, props, selectors } from 'kea'
 
 import { Link } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, FeatureFlagLookupKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanizeBatchExportName } from 'scenes/data-pipelines/batch-exports/utils'
 import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
@@ -36,16 +36,29 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
 
     selectors({
         hogFunctionTemplatesDataWarehouseSources: [
-            (s) => [s.connectors, s.manualConnectors],
-            (connectors, manualConnectors): HogFunctionTemplateType[] => {
-                const managed = connectors.map(
-                    (connector: SourceConfig): HogFunctionTemplateType => ({
+            (s) => [s.connectors, s.manualConnectors, s.featureFlags],
+            (connectors, manualConnectors, featureFlags): HogFunctionTemplateType[] => {
+                const managed = connectors.map((connector: SourceConfig): HogFunctionTemplateType => {
+                    const featureFlagKey = Object.keys(FEATURE_FLAGS).find(
+                        (k) => FEATURE_FLAGS[k as FeatureFlagLookupKey] === connector.featureFlag
+                    )
+                    const featureFlagEnabledForUser =
+                        featureFlagKey && featureFlags[FEATURE_FLAGS[featureFlagKey as FeatureFlagLookupKey]]
+                    // explicitly checks for no provided or no matching feature flag
+                    const isUnreleasedAndShouldntAccess =
+                        (connector.unreleasedSource && !featureFlagKey) ||
+                        (connector.unreleasedSource && !featureFlagEnabledForUser)
+                    return {
                         id: `managed-${connector.name}`,
                         type: 'source',
                         name: connector.label ?? connector.name,
                         icon_url: connector.iconPath,
-                        status: connector.unreleasedSource ? 'coming_soon' : connector.betaSource ? 'beta' : 'stable',
-                        description: connector.unreleasedSource ? (
+                        status: isUnreleasedAndShouldntAccess
+                            ? 'coming_soon'
+                            : connector.betaSource
+                              ? 'beta'
+                              : 'stable',
+                        description: isUnreleasedAndShouldntAccess ? (
                             'Get notified when this source is available to connect'
                         ) : (
                             <>
@@ -60,9 +73,8 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                         masking: null,
                         free: true,
                         flag: connector.featureFlag,
-                    })
-                )
-
+                    }
+                })
                 const selfManaged = manualConnectors.map(
                     (source): HogFunctionTemplateType => ({
                         id: `self-managed-${source.type}`,
