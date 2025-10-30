@@ -265,10 +265,27 @@ class EventDefinitionViewSet(
     @action(detail=False, methods=["GET"], url_path="typescript", required_scopes=["event_definition:read"])
     def typescript_definitions(self, *args, **kwargs):
         """Generate TypeScript definitions from event schemas"""
+        from django.db.models import Q
+
         from posthog.models import EventSchema
 
-        # Fetch all event definitions for this project
-        event_definitions = EventDefinition.objects.filter(team__project_id=self.project_id).order_by("name")
+        # System events that users should be able to manually capture
+        # These are commonly used in user code and should be typed
+        included_system_events = [
+            "$pageview",  # Manually captured in SPAs (React Router, Vue Router, etc.)
+            "$pageleave",  # Sometimes manually captured alongside $pageview
+            "$screen",  # Manually captured in mobile apps (iOS, Android, React Native, Flutter)
+        ]
+
+        # Fetch event definitions: either non-system events or explicitly included system events
+        event_definitions = (
+            EventDefinition.objects.filter(team__project_id=self.project_id)
+            .filter(
+                Q(name__in=included_system_events)  # Include whitelisted system events
+                | ~Q(name__startswith="$")  # Include all non-system events
+            )
+            .order_by("name")
+        )
 
         # Fetch all event schemas with their property groups
         event_schemas = (
@@ -308,7 +325,9 @@ class EventDefinitionViewSet(
         output.append(" */")
         output.append("")
         output.append("import originalPostHog from 'posthog-js'")
-        output.append("import type { PostHog as OriginalPostHog, CaptureOptions, CaptureResult, Properties } from 'posthog-js'")
+        output.append(
+            "import type { PostHog as OriginalPostHog, CaptureOptions, CaptureResult, Properties } from 'posthog-js'"
+        )
         output.append("")
 
         # Generate event schemas
@@ -382,7 +401,9 @@ class EventDefinitionViewSet(
         output.append("     * @example")
         output.append("     * posthog.capture('Custom Event Name', { any: 'data' })")
         output.append("     */")
-        output.append("    capture(event_name: string, properties?: Properties | null, options?: CaptureOptions): CaptureResult | undefined")
+        output.append(
+            "    capture(event_name: string, properties?: Properties | null, options?: CaptureOptions): CaptureResult | undefined"
+        )
         output.append("}")
         output.append("")
 
@@ -393,7 +414,9 @@ class EventDefinitionViewSet(
         output.append("    const enhanced: TypedPostHog = Object.create(original)")
         output.append("")
         output.append("    // Add captureTyped method")
-        output.append("    enhanced.captureTyped = function <K extends EventName>(event_name: K, ...args: any[]): CaptureResult | undefined {")
+        output.append(
+            "    enhanced.captureTyped = function <K extends EventName>(event_name: K, ...args: any[]): CaptureResult | undefined {"
+        )
         output.append("        const [properties, options] = args")
         output.append("        return original.capture(event_name, properties, options)")
         output.append("    }")
@@ -439,7 +462,9 @@ class EventDefinitionViewSet(
         output.append(" * ===========")
         output.append(" *")
         output.append(" * For type-safe events (recommended):")
-        output.append(" *   posthog.captureTyped('Product Added', { product_id: '123', name: 'Widget', price: 42, quantity: 1 })")
+        output.append(
+            " *   posthog.captureTyped('Product Added', { product_id: '123', name: 'Widget', price: 42, quantity: 1 })"
+        )
         output.append(" *")
         output.append(" * For untyped/dynamic events (when you need flexibility):")
         output.append(" *   posthog.capture('Custom Event', { any: 'data' })")
