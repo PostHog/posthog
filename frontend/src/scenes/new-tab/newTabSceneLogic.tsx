@@ -80,12 +80,6 @@ export interface NewTabTreeDataItem extends TreeDataItem {
     lastViewedAt?: string | null
 }
 
-export interface NewTabCategoryItem {
-    key: NEW_TAB_CATEGORY_ITEMS
-    label: string
-    description?: string
-}
-
 export interface CategoryWithItems {
     key: NEW_TAB_CATEGORY_ITEMS
     items: NewTabTreeDataItem[]
@@ -615,56 +609,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 )
             },
         ],
-        newTabSceneDataIncludePersons: [
-            (s) => [s.newTabSceneDataInclude],
-            (include): boolean => include.includes('persons'),
-        ],
-        newTabSceneDataIncludeEventDefinitions: [
-            (s) => [s.newTabSceneDataInclude],
-            (include): boolean => include.includes('eventDefinitions'),
-        ],
-        newTabSceneDataIncludePropertyDefinitions: [
-            (s) => [s.newTabSceneDataInclude],
-            (include): boolean => include.includes('propertyDefinitions'),
-        ],
-        categories: [
-            () => [],
-            (): NewTabCategoryItem[] => {
-                return [
-                    { key: 'all', label: 'All' },
-                    { key: 'recents', label: 'Recents' },
-                    {
-                        key: 'create-new',
-                        label: 'Create new',
-                    },
-                    { key: 'apps', label: 'Apps' },
-                    {
-                        key: 'data-management',
-                        label: 'Data management',
-                    },
-                    {
-                        key: 'persons',
-                        label: 'Persons',
-                    },
-                    {
-                        key: 'groups',
-                        label: 'Groups',
-                    },
-                    {
-                        key: 'eventDefinitions',
-                        label: 'Events',
-                    },
-                    {
-                        key: 'propertyDefinitions',
-                        label: 'Properties',
-                    },
-                    {
-                        key: 'askAI',
-                        label: 'Ask Posthog AI',
-                    },
-                ]
-            },
-        ],
         isSearching: [
             (s) => [
                 s.recentsLoading,
@@ -760,10 +704,10 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         personSearchItems: [
             (s) => [s.personSearchResults],
             (personSearchResults): NewTabTreeDataItem[] => {
-                const items = personSearchResults.map((person) => {
+                return personSearchResults.map((person) => {
                     const personId = person.distinct_ids?.[0] || person.uuid || 'unknown'
                     const displayName = person.properties?.email || personId
-                    const item = {
+                    return {
                         id: `person-${person.uuid}`,
                         name: `${displayName}`,
                         category: 'persons' as NEW_TAB_CATEGORY_ITEMS,
@@ -775,18 +719,14 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                             href: urls.personByUUID(person.uuid || ''),
                         },
                     }
-
-                    return item
                 })
-
-                return items
             },
         ],
         eventDefinitionSearchItems: [
             (s) => [s.eventDefinitionSearchResults],
             (eventDefinitionSearchResults): NewTabTreeDataItem[] => {
-                const items = eventDefinitionSearchResults.map((eventDef) => {
-                    const item = {
+                return eventDefinitionSearchResults.map((eventDef) => {
+                    return {
                         id: `event-definition-${eventDef.id}`,
                         name: eventDef.name,
                         category: 'eventDefinitions' as NEW_TAB_CATEGORY_ITEMS,
@@ -798,16 +738,14 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                             href: urls.eventDefinition(eventDef.id),
                         },
                     }
-                    return item
                 })
-                return items
             },
         ],
         propertyDefinitionSearchItems: [
             (s) => [s.propertyDefinitionSearchResults],
             (propertyDefinitionSearchResults): NewTabTreeDataItem[] => {
-                const items = propertyDefinitionSearchResults.map((propDef) => {
-                    const item = {
+                return propertyDefinitionSearchResults.map((propDef) => {
+                    return {
                         id: `property-definition-${propDef.id}`,
                         name: propDef.name,
                         category: 'propertyDefinitions' as NEW_TAB_CATEGORY_ITEMS,
@@ -819,9 +757,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                             href: urls.propertyDefinition(propDef.id),
                         },
                     }
-                    return item
                 })
-                return items
             },
         ],
         groupSearchItems: [
@@ -1081,7 +1017,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 const sortedNewDataItems = sortByLastViewedAt(newDataItems)
                 const sortedNewOtherItems = sortByLastViewedAt(newOtherItems)
 
-                const allItems: NewTabTreeDataItem[] = sortByLastViewedAt([
+                return sortByLastViewedAt([
                     ...aiSearchItems,
                     ...projectTreeSearchItems,
                     {
@@ -1108,7 +1044,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         lastViewedAt: getLastViewedAtForHref('/debug/hog'),
                     },
                 ])
-                return allItems
             },
         ],
         filteredItemsGrid: [
@@ -1365,7 +1300,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         ],
         allCategories: [
             (s) => [
-                s.groupedFilteredItems,
                 s.newTabSceneDataGroupedItems,
                 s.newTabSceneDataInclude,
                 s.categoryLoadingStates,
@@ -1373,7 +1307,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 s.firstNoResultsSearchPrefixes,
             ],
             (
-                groupedFilteredItems: Record<string, NewTabTreeDataItem[]>,
                 newTabSceneDataGroupedItems: Record<string, NewTabTreeDataItem[]>,
                 newTabSceneDataInclude: NEW_TAB_COMMANDS[],
                 categoryLoadingStates: Record<NEW_TAB_CATEGORY_ITEMS, boolean>,
