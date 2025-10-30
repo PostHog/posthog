@@ -38,7 +38,7 @@ interface MarketingAnalyticsValidationWarningBannerProps {
     warnings: MarketingAnalyticsValidationWarning[]
 }
 
-const getLinkUrl = (link: ValidationWarningLink): JSX.Element => {
+const getLinkUrl = (link: ValidationWarningLink): JSX.Element | null => {
     switch (link) {
         case ValidationWarningLink.MarketingAnalyticsSettings:
             return (
@@ -52,16 +52,7 @@ const getLinkUrl = (link: ValidationWarningLink): JSX.Element => {
                 </>
             )
         default:
-            return (
-                <>
-                    Check{' '}
-                    <Link to={urls.settings('environment-marketing-analytics')} target="_blank">
-                        marketing analytics settings
-                        <IconExternal />
-                    </Link>{' '}
-                    for more details.
-                </>
-            )
+            return null
     }
 }
 
