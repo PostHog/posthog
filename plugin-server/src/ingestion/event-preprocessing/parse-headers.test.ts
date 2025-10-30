@@ -125,6 +125,7 @@ describe('createParseHeadersStep', () => {
                     { token: Buffer.from('complex-token') },
                     { distinct_id: Buffer.from('complex-user') },
                     { timestamp: Buffer.from('2023-01-01T00:00:00Z') },
+                    { now: Buffer.from('2023-01-01T12:00:00Z') },
                 ],
             } as Pick<Message, 'headers'>,
         }
@@ -137,6 +138,7 @@ describe('createParseHeadersStep', () => {
                     token: 'complex-token',
                     distinct_id: 'complex-user',
                     timestamp: '2023-01-01T00:00:00Z',
+                    now: '2023-01-01T12:00:00Z',
                     force_disable_person_processing: false,
                     historical_migration: false,
                 },
@@ -359,6 +361,74 @@ describe('createParseHeadersStep', () => {
                         token: 'test-token',
                         distinct_id: 'test-user',
                         force_disable_person_processing: true,
+                        historical_migration: false,
+                    },
+                })
+            )
+        })
+    })
+
+    describe('now header', () => {
+        it('should parse now header when present', async () => {
+            const input = {
+                message: {
+                    headers: [{ now: Buffer.from('2023-01-01T12:00:00Z') }],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        now: '2023-01-01T12:00:00Z',
+                        force_disable_person_processing: false,
+                        historical_migration: false,
+                    },
+                })
+            )
+        })
+
+        it('should handle now header with string value', async () => {
+            const input = {
+                message: {
+                    headers: [{ now: '2023-01-01T12:00:00Z' }],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        now: '2023-01-01T12:00:00Z',
+                        force_disable_person_processing: false,
+                        historical_migration: false,
+                    },
+                })
+            )
+        })
+
+        it('should handle now header with other headers', async () => {
+            const input = {
+                message: {
+                    headers: [
+                        { token: Buffer.from('test-token') },
+                        { timestamp: Buffer.from('2023-01-01T00:00:00Z') },
+                        { now: Buffer.from('2023-01-01T12:00:00Z') },
+                    ],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        token: 'test-token',
+                        timestamp: '2023-01-01T00:00:00Z',
+                        now: '2023-01-01T12:00:00Z',
+                        force_disable_person_processing: false,
                         historical_migration: false,
                     },
                 })

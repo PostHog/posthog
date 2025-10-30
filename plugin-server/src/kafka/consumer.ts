@@ -933,6 +933,7 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
         'timestamp',
         'event',
         'uuid',
+        'now',
         'force_disable_person_processing',
         'historical_migration',
     ] as const
