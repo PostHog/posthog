@@ -5591,4 +5591,152 @@ mod tests {
             );
         }
     }
+
+    #[tokio::test]
+    async fn test_disabled_flag_evaluates_to_false() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team in pg");
+
+        let flag: FeatureFlag = serde_json::from_value(json!(
+            {
+                "id": 1,
+                "team_id": team.id,
+                "name": "disabled_flag",
+                "key": "disabled_flag",
+                "active": false,
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [],
+                            "rollout_percentage": 100
+                        }
+                    ]
+                }
+            }
+        ))
+        .unwrap();
+
+        let router = context.create_postgres_router();
+        let matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            team.id,
+            team.project_id,
+            router,
+            cohort_cache,
+            None,
+            None,
+        );
+
+        let match_result = matcher.get_match(&flag, None, None).unwrap();
+        assert!(!match_result.matches, "Disabled flag should not match");
+        assert_eq!(
+            match_result.reason,
+            FeatureFlagMatchReason::FlagDisabled,
+            "Reason should be FlagDisabled"
+        );
+        assert_eq!(
+            match_result.variant, None,
+            "Disabled flag should have no variant"
+        );
+        assert_eq!(
+            match_result.condition_index, None,
+            "Disabled flag should have no condition index"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_flag_depending_on_disabled_flag_evaluates_to_false() {
+        use crate::utils::test_utils::create_test_flag_that_depends_on_flag;
+
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team in pg");
+
+        // Create a disabled base flag
+        let base_flag: FeatureFlag = serde_json::from_value(json!(
+            {
+                "id": 1,
+                "team_id": team.id,
+                "name": "base_flag",
+                "key": "base_flag",
+                "active": false,
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [],
+                            "rollout_percentage": 100
+                        }
+                    ]
+                }
+            }
+        ))
+        .unwrap();
+
+        // Create a flag that depends on the disabled flag
+        let dependent_flag = create_test_flag_that_depends_on_flag(
+            2,
+            team.id,
+            "dependent_flag",
+            1, // depends on flag id 1
+            FlagValue::Boolean(true),
+        );
+
+        let flags = FeatureFlagList {
+            flags: vec![base_flag, dependent_flag],
+        };
+
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            team.id,
+            team.project_id,
+            router,
+            cohort_cache,
+            None,
+            None,
+        );
+
+        let result = matcher
+            .evaluate_flags_with_overrides(flags, Default::default(), Uuid::new_v4(), None)
+            .await;
+
+        // Base flag should be disabled
+        let base_result = result.flags.get("base_flag").unwrap();
+        assert!(
+            !base_result.enabled,
+            "Disabled base flag should not be enabled"
+        );
+        assert_eq!(
+            base_result.reason.code, "flag_disabled",
+            "Base flag reason should be flag_disabled"
+        );
+
+        // Dependent flag should evaluate to false because the base flag is disabled
+        let dependent_result = result.flags.get("dependent_flag").unwrap();
+        assert!(
+            !dependent_result.enabled,
+            "Flag depending on disabled flag should not be enabled"
+        );
+        assert_ne!(
+            dependent_result.reason.code, "flag_disabled",
+            "Dependent flag should not have flag_disabled reason"
+        );
+    }
 }

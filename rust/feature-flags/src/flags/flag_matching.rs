@@ -648,9 +648,7 @@ impl FeatureFlagMatcher {
 
         let flags_to_evaluate = flags
             .iter()
-            .filter(|flag| {
-                !flag.deleted && !evaluated_flags_map.contains_key(&flag.key)
-            })
+            .filter(|flag| !flag.deleted && !evaluated_flags_map.contains_key(&flag.key))
             .copied()
             .collect::<Vec<&FeatureFlag>>();
 
@@ -814,7 +812,7 @@ impl FeatureFlagMatcher {
                 reason: FeatureFlagMatchReason::FlagDisabled,
                 condition_index: None,
                 payload: None,
-            })
+            });
         }
         // Check if this is a group-based flag with missing group
         let hashed_id = self.hashed_identifier(flag, hash_key_overrides.clone())?;

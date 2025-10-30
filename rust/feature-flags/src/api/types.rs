@@ -441,9 +441,7 @@ impl FromFeatureAndMatch for FlagDetails {
             FeatureFlagMatchReason::HoldoutConditionValue => {
                 Some("Holdout condition value".to_string())
             }
-            FeatureFlagMatchReason::FlagDisabled => {
-                Some("Feature flag is disabled".to_string())
-            }
+            FeatureFlagMatchReason::FlagDisabled => Some("Feature flag is disabled".to_string()),
         }
     }
 }
