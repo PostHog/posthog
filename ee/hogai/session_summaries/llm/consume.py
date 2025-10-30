@@ -16,6 +16,7 @@ from ee.hogai.session_summaries import ExceptionToRetry, SummaryValidationError
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
 from ee.hogai.session_summaries.llm.call import call_llm, stream_llm
 from ee.hogai.session_summaries.session.output_data import (
+    SessionSummaryIssueTypes,
     SessionSummarySerializer,
     enrich_raw_session_summary_with_meta,
     load_raw_session_summary_from_llm_content,
@@ -82,7 +83,7 @@ def get_exception_event_ids_from_summary(session_summary: SessionSummarySerializ
         events = segment.get("events", [])
         for event in events:
             # Check if event has an exception (blocking or non-blocking)
-            if event.get("exception") and event.get("event_uuid"):
+            if event.get(SessionSummaryIssueTypes.EXCEPTION.value) and event.get("event_uuid"):
                 exception_event_ids.append(event["event_uuid"])
     return exception_event_ids
 

@@ -26,6 +26,8 @@ from ee.hogai.session_summaries.llm.call import call_llm
 from ee.hogai.session_summaries.session.output_data import (
     EnrichedKeyActionSerializer,
     IntermediateSessionSummarySerializer,
+    SessionSummaryExceptionTypes,
+    SessionSummaryIssueTypes,
     SessionSummarySerializer,
 )
 from ee.hogai.session_summaries.utils import load_custom_template
@@ -65,6 +67,12 @@ class SessionSummaryVideoValidator:
         self.moments_analyzer = SessionMomentsLLMAnalyzer(
             session_id=session_id, team_id=team_id, user=user, trace_id=trace_id
         )
+        self._fields_to_validate = [
+            "description",  # To understand what the assumption was, before validation
+            SessionSummaryIssueTypes.EXCEPTION.value,
+            SessionSummaryIssueTypes.ABANDONMENT.value,
+            SessionSummaryIssueTypes.CONFUSION.value,
+        ]
 
     async def validate_session_summary_with_videos(
         self, model_to_use: str
@@ -124,13 +132,13 @@ class SessionSummaryVideoValidator:
         for ki, key_actions in enumerate(self.summary.data.get("key_actions", [])):
             segment_index = key_actions["segment_index"]
             for ei, event in enumerate(key_actions.get("events", [])):
-                if event.get("exception") != "blocking":
+                if event.get(SessionSummaryIssueTypes.EXCEPTION.value) != SessionSummaryExceptionTypes.BLOCKING.value:
                     continue
                 # Keep only blocking exceptions
                 validated_event = EnrichedKeyActionSerializer(data=event)
                 validated_event.is_valid(raise_exception=True)
                 # Collect the fields to validate and, potentially,update, and their current values
-                for field in ["description", "exception", "abandonment", "confusion"]:
+                for field in self._fields_to_validate:
                     field_path = f"key_actions.{ki}.events.{ei}.{field}"
                     # Avoid storing the same field multiple times
                     if not fields_to_update_mapping.get(field_path):
